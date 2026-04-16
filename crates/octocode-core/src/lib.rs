@@ -74,6 +74,18 @@ pub struct ConfigPaths {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeConfig {
+    pub default_model: Option<String>,
+    pub permission_mode: PermissionMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandDescriptor {
+    pub name: &'static str,
+    pub summary: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolCall {
     pub name: String,
     pub input: String,

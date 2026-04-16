@@ -2,9 +2,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use octocode_core::{
-    ConfigPaths, ModelProvider, OctoError, PlatformKind, PlatformSupport, PromptRequest,
-    PromptResponse, SessionStore, SessionSummary, ShellKind, ToolCall, ToolExecutor, ToolResult,
-    WorkspaceContext,
+    CommandDescriptor, ConfigPaths, ModelProvider, OctoError, PermissionMode, PlatformKind,
+    PlatformSupport, PromptRequest, PromptResponse, RuntimeConfig, SessionStore, SessionSummary,
+    ShellKind, ToolCall, ToolExecutor, ToolResult, WorkspaceContext,
 };
 
 #[derive(Default)]
@@ -176,6 +176,94 @@ pub struct NativePlatform {
     context: WorkspaceContext,
 }
 
+#[derive(Debug, Clone)]
+pub struct ConfigLoader {
+    paths: ConfigPaths,
+}
+
+impl ConfigLoader {
+    pub fn new(paths: ConfigPaths) -> Self {
+        Self { paths }
+    }
+
+    pub fn load(&self) -> Result<RuntimeConfig, OctoError> {
+        let path = PathBuf::from(&self.paths.config_home).join("octocode.conf");
+        if !path.is_file() {
+            return Ok(RuntimeConfig {
+                default_model: None,
+                permission_mode: PermissionMode::WorkspaceWrite,
+            });
+        }
+
+        let raw = fs::read_to_string(&path)
+            .map_err(|error| OctoError::Runtime(format!("failed to read config {}: {error}", path.display())))?;
+
+        let mut default_model = None;
+        let mut permission_mode = PermissionMode::WorkspaceWrite;
+
+        for line in raw.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            let Some((key, value)) = trimmed.split_once('=') else {
+                continue;
+            };
+            match key.trim() {
+                "default_model" => {
+                    let value = value.trim();
+                    if !value.is_empty() {
+                        default_model = Some(String::from(value));
+                    }
+                }
+                "permission_mode" => {
+                    permission_mode = match value.trim() {
+                        "read-only" => PermissionMode::ReadOnly,
+                        "danger-full-access" => PermissionMode::DangerFullAccess,
+                        _ => PermissionMode::WorkspaceWrite,
+                    };
+                }
+                _ => {}
+            }
+        }
+
+        Ok(RuntimeConfig {
+            default_model,
+            permission_mode,
+        })
+    }
+
+    pub fn ensure_default_file(&self) -> Result<PathBuf, OctoError> {
+        let path = PathBuf::from(&self.paths.config_home).join("octocode.conf");
+        if !path.is_file() {
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).map_err(|error| {
+                    OctoError::Runtime(format!("failed to create config dir {}: {error}", parent.display()))
+                })?;
+            }
+            fs::write(&path, "# Octocode config\npermission_mode=workspace-write\n")
+                .map_err(|error| {
+                    OctoError::Runtime(format!("failed to write config {}: {error}", path.display()))
+                })?;
+        }
+        Ok(path)
+    }
+}
+
+const COMMANDS: &[CommandDescriptor] = &[
+    CommandDescriptor { name: "prompt", summary: "Run a one-shot prompt" },
+    CommandDescriptor { name: "sessions", summary: "List local sessions" },
+    CommandDescriptor { name: "session-add", summary: "Persist a local session" },
+    CommandDescriptor { name: "tool", summary: "Run a built-in tool" },
+    CommandDescriptor { name: "workspace", summary: "Show workspace platform context" },
+    CommandDescriptor { name: "providers", summary: "List configured provider surfaces" },
+    CommandDescriptor { name: "doctor", summary: "Show platform and config diagnostics" },
+    CommandDescriptor { name: "status", summary: "Show effective runtime status" },
+    CommandDescriptor { name: "permissions", summary: "Show or set effective permission mode" },
+    CommandDescriptor { name: "config-init", summary: "Create the default config file" },
+    CommandDescriptor { name: "commands", summary: "List the current CLI command surface" },
+];
+
 impl NativePlatform {
     pub fn detect(workspace_root: String) -> Self {
         let platform = if cfg!(target_os = "windows") {
@@ -248,6 +336,7 @@ pub struct OctocodeRuntime<P, S, T> {
     sessions: S,
     tools: T,
     platform: NativePlatform,
+    config: RuntimeConfig,
 }
 
 impl<P, S, T> OctocodeRuntime<P, S, T>
@@ -257,11 +346,19 @@ where
     T: ToolExecutor,
 {
     pub fn new(provider: P, sessions: S, tools: T, workspace: WorkspaceContext) -> Self {
+        let platform = NativePlatform { context: workspace };
+        let config = ConfigLoader::new(platform.config_paths())
+            .load()
+            .unwrap_or(RuntimeConfig {
+                default_model: None,
+                permission_mode: PermissionMode::WorkspaceWrite,
+            });
         Self {
             provider,
             sessions,
             tools,
-            platform: NativePlatform { context: workspace },
+            platform,
+            config,
         }
     }
 
@@ -287,5 +384,21 @@ where
 
     pub fn config_paths(&self) -> ConfigPaths {
         self.platform.config_paths()
+    }
+
+    pub fn config(&self) -> &RuntimeConfig {
+        &self.config
+    }
+
+    pub fn commands(&self) -> &'static [CommandDescriptor] {
+        COMMANDS
+    }
+
+    pub fn init_config(&self) -> Result<PathBuf, OctoError> {
+        ConfigLoader::new(self.platform.config_paths()).ensure_default_file()
+    }
+
+    pub fn set_permission_mode(&mut self, mode: PermissionMode) {
+        self.config.permission_mode = mode;
     }
 }
