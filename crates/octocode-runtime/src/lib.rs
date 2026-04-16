@@ -248,6 +248,10 @@ impl ConfigLoader {
         }
         Ok(path)
     }
+
+    pub fn config_file_path(&self) -> PathBuf {
+        PathBuf::from(&self.paths.config_home).join("octocode.conf")
+    }
 }
 
 const COMMANDS: &[CommandDescriptor] = &[
@@ -261,6 +265,7 @@ const COMMANDS: &[CommandDescriptor] = &[
     CommandDescriptor { name: "status", summary: "Show effective runtime status" },
     CommandDescriptor { name: "permissions", summary: "Show or set effective permission mode" },
     CommandDescriptor { name: "config-init", summary: "Create the default config file" },
+    CommandDescriptor { name: "config-show", summary: "Inspect the current config file" },
     CommandDescriptor { name: "commands", summary: "List the current CLI command surface" },
 ];
 
@@ -366,6 +371,10 @@ where
         self.provider.prompt(request)
     }
 
+    pub fn provider_descriptor(&self) -> octocode_core::ProviderDescriptor {
+        self.provider.descriptor()
+    }
+
     pub fn sessions(&self) -> Result<Vec<SessionSummary>, OctoError> {
         self.sessions.list_sessions()
     }
@@ -396,6 +405,10 @@ where
 
     pub fn init_config(&self) -> Result<PathBuf, OctoError> {
         ConfigLoader::new(self.platform.config_paths()).ensure_default_file()
+    }
+
+    pub fn config_file_path(&self) -> PathBuf {
+        ConfigLoader::new(self.platform.config_paths()).config_file_path()
     }
 
     pub fn set_permission_mode(&mut self, mode: PermissionMode) {
