@@ -114,6 +114,16 @@ pub struct ProviderHealth {
     pub detail: String,
     pub model: Option<String>,
     pub latency_ms: Option<u128>,
+    pub circuit_state: ProviderCircuitState,
+    pub failure_count: u32,
+    pub cooldown_remaining_ms: Option<u128>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderCircuitState {
+    Closed,
+    Open,
+    HalfOpen,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -219,6 +229,9 @@ pub trait ModelProvider: Send + Sync {
             detail: String::from("ready"),
             model: None,
             latency_ms: None,
+            circuit_state: ProviderCircuitState::Closed,
+            failure_count: 0,
+            cooldown_remaining_ms: None,
         }
     }
 

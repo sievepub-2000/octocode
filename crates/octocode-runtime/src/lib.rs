@@ -1150,7 +1150,10 @@ fn snapshot_to_json(snapshot: &UiSnapshot) -> String {
                     "\"healthy\":{},",
                     "\"detail\":\"{}\",",
                     "\"model\":\"{}\",",
-                    "\"latencyMs\":{}",
+                    "\"latencyMs\":{},",
+                    "\"circuitState\":\"{:?}\",",
+                    "\"failureCount\":{},",
+                    "\"cooldownRemainingMs\":{}",
                     "}}"
                 ),
                 escape_json(&health.provider_id),
@@ -1160,6 +1163,12 @@ fn snapshot_to_json(snapshot: &UiSnapshot) -> String {
                 escape_json(health.model.as_deref().unwrap_or("")),
                 health
                     .latency_ms
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| String::from("null")),
+                health.circuit_state,
+                health.failure_count,
+                health
+                    .cooldown_remaining_ms
                     .map(|value| value.to_string())
                     .unwrap_or_else(|| String::from("null"))
             )
@@ -1230,7 +1239,10 @@ fn snapshot_to_json(snapshot: &UiSnapshot) -> String {
             "\"healthy\":{},",
             "\"detail\":\"{}\",",
             "\"model\":\"{}\",",
-            "\"latencyMs\":{}",
+            "\"latencyMs\":{},",
+            "\"circuitState\":\"{:?}\",",
+            "\"failureCount\":{},",
+            "\"cooldownRemainingMs\":{}",
             "}}",
             "}},",
             "\"workspace\":{{",
@@ -1268,6 +1280,14 @@ fn snapshot_to_json(snapshot: &UiSnapshot) -> String {
             .status
             .provider_health
             .latency_ms
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| String::from("null")),
+        snapshot.status.provider_health.circuit_state,
+        snapshot.status.provider_health.failure_count,
+        snapshot
+            .status
+            .provider_health
+            .cooldown_remaining_ms
             .map(|value| value.to_string())
             .unwrap_or_else(|| String::from("null")),
         escape_json(&snapshot.workspace.root),

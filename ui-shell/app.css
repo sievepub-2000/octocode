@@ -349,6 +349,20 @@ select:focus {
   gap: 10px !important;
 }
 
+.sidebar-list-canvas,
+.message-canvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block !important;
+  border-radius: 18px !important;
+}
+
+.sidebar-list-canvas {
+  min-height: 0 !important;
+  background: rgba(250, 251, 254, 0.78) !important;
+  border: 1px solid rgba(216, 222, 234, 0.9) !important;
+}
+
 .sidebar-card,
 .settings-row,
 .summary-card,
@@ -485,6 +499,12 @@ label span {
   flex-direction: column !important;
   gap: 12px !important;
   padding-right: 6px !important;
+}
+
+.message-canvas {
+  min-height: 0 !important;
+  background: rgba(252, 253, 255, 0.68) !important;
+  border: 1px solid rgba(216, 222, 234, 0.85) !important;
 }
 
 .message-card {

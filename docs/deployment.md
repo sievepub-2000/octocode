@@ -17,12 +17,14 @@
 9. UI snapshot 导出
 10. 本地 interactive WebUI backend
 11. 系统白色背景交互式 WebUI 工作台
+12. provider circuit breaker（失败计数 / 冷却 / 半开恢复）
+13. canvas sidebar 与 canvas message list
 
 当前不包含：
 
 1. 桌面 Canvas UI 壳层
 2. VS Code / Cline / Cursor 集成壳层
-3. 全量 provider 接入与 failover
+3. 全量 provider 接入与 failover 持久化/观测增强
 4. 完整 MCP / plugin / skills / hooks parity
 
 ## 依赖
@@ -95,7 +97,7 @@ http://127.0.0.1:999/ui-shell/
 本地验证命令：
 
 1. `cargo check --workspace`
-2. `cargo test -p octocode-commands`
+2. `cargo test -p octocode-api -p octocode-commands`
 3. `cargo run -p octocode-cli -- status`
 4. `cargo run -p octocode-cli -- --json status`
 5. `cargo run -p octocode-cli -- chat demo "hello octocode"`
@@ -105,13 +107,15 @@ http://127.0.0.1:999/ui-shell/
 9. `cargo run -p octocode-cli -- desktop 999 demo`
 10. `http://127.0.0.1:999/ui-shell/` WebUI 真实打开验证
 11. `http://127.0.0.1:999/api/state?session=demo` backend state API
-11. `/api/settings` config writeback
-12. `/api/chat` real provider path or provider error recovery path
+12. `/api/settings` config writeback
+13. `/api/chat` real provider path or provider error recovery path
+14. `/api/state` 中 provider health 熔断字段输出
+15. `/ui-shell/` 中 `sidebar-canvas` 与 `message-canvas` live 资源核对
 
 ## 下一阶段部署目标
 
 1. 产出 release 构建脚本
 2. 产出 Windows/macOS 打包脚本
 3. 增加运行时环境检查
-4. 增加 provider failover / queueing / health checks
+4. 增加 provider circuit breaker 持久化 / queueing / health checks
 5. 将当前本地 interactive workbench 推进为桌面壳

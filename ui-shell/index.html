@@ -73,7 +73,7 @@
             <button class="sidebar-tab" data-view="commands" type="button">Commands</button>
             <button class="sidebar-tab" data-view="settings" type="button">Settings</button>
           </div>
-          <div id="sidebar-list" class="sidebar-list"></div>
+          <canvas id="sidebar-canvas" class="sidebar-list-canvas"></canvas>
         </aside>
 
         <main class="editor-shell">
@@ -108,7 +108,7 @@
                 <span class="breadcrumb-sep">/</span>
                 <span class="breadcrumb-item active" id="breadcrumb-session">demo</span>
               </div>
-              <div id="message-stream" class="message-stream"></div>
+              <canvas id="message-canvas" class="message-canvas"></canvas>
               <form id="chat-form" class="composer-shell">
                 <textarea id="chat-input" name="text" rows="3" placeholder="在这里输入消息，直接走后端 /api/chat 和真实 provider"></textarea>
                 <div class="composer-actions">
@@ -236,16 +236,6 @@
       </footer>
     </div>
   </div>
-
-  <template id="message-template">
-    <article class="message-card">
-      <div class="message-meta">
-        <span class="message-role"></span>
-      </div>
-      <p class="message-content"></p>
-    </article>
-  </template>
-
   <script src="./app.js?v=4"></script>
 </body>
 </html>

@@ -1,10 +1,13 @@
 const stateUrl = '/api/state';
 
-const canvas = document.querySelector('#workbench-canvas');
-const canvasContext = canvas.getContext('2d');
+const workbenchCanvas = document.querySelector('#workbench-canvas');
+const workbenchContext = workbenchCanvas.getContext('2d');
+const sidebarCanvas = document.querySelector('#sidebar-canvas');
+const sidebarContext = sidebarCanvas.getContext('2d');
+const messageCanvas = document.querySelector('#message-canvas');
+const messageContext = messageCanvas.getContext('2d');
 const refreshButton = document.querySelector('#refresh-button');
 const sidebarTitle = document.querySelector('#sidebar-title');
-const sidebarList = document.querySelector('#sidebar-list');
 const sidebarTabs = Array.from(document.querySelectorAll('.sidebar-tab'));
 const activityButtons = Array.from(document.querySelectorAll('.activity-button'));
 const providerId = document.querySelector('#provider-id');
@@ -18,8 +21,6 @@ const sessionCount = document.querySelector('#session-count');
 const providerList = document.querySelector('#provider-list');
 const toolList = document.querySelector('#tool-list');
 const terminalOutput = document.querySelector('#terminal-output');
-const messageStream = document.querySelector('#message-stream');
-const messageTemplate = document.querySelector('#message-template');
 const breadcrumbSession = document.querySelector('#breadcrumb-session');
 const composerSession = document.querySelector('#composer-session');
 const menuProvider = document.querySelector('#menu-provider');
@@ -45,9 +46,19 @@ const toolName = document.querySelector('#tool-name');
 const toolInput = document.querySelector('#tool-input');
 
 const urlState = new URL(window.location.href);
+
 let currentState = null;
 let currentView = 'sessions';
 let currentSessionId = urlState.searchParams.get('session') || 'demo';
+let currentMessages = [];
+let selectedMessageIndex = null;
+let sidebarItems = [];
+let sidebarScrollOffset = 0;
+let sidebarContentHeight = 0;
+let sidebarHitRegions = [];
+let messageScrollOffset = 0;
+let messageContentHeight = 0;
+let messageHitRegions = [];
 const eventLog = [];
 
 async function loadState(sessionId = currentSessionId) {
@@ -85,7 +96,9 @@ function render(state) {
   const activeSession = state.activeSession ?? buildFallbackSession(state.sessions[0]);
   const sessionId = activeSession?.summary?.id || currentSessionId || 'demo';
   const activeHealth = state.status.providerHealth || null;
-  providerId.textContent = state.status.activeProviderId || state.status.providerId || 'unknown';
+  const activeProviderId = state.status.activeProviderId || state.status.providerId || 'unknown';
+
+  providerId.textContent = activeProviderId;
   sessionTitle.textContent = activeSession?.summary?.title || 'No Session Selected';
   breadcrumbSession.textContent = sessionId;
   composerSession.textContent = `session: ${sessionId}`;
@@ -96,12 +109,12 @@ function render(state) {
   defaultModel.textContent = state.config.defaultModel || 'not set';
   sessionCount.textContent = String(state.sessions.length);
 
-  menuProvider.textContent = state.status.activeProviderId || state.status.providerId;
+  menuProvider.textContent = activeProviderId;
   menuPlatform.textContent = state.workspace.platform;
   updateClock();
 
   statusBranch.textContent = 'branch: main';
-  statusProvider.textContent = `provider: ${state.status.activeProviderId || state.status.providerId}`;
+  statusProvider.textContent = `provider: ${activeProviderId}`;
   statusWorkspace.textContent = `workspace: ${state.workspace.root}`;
   statusShell.textContent = `shell: ${state.workspace.shell}`;
   statusPermission.textContent = `permission: ${state.status.permissionMode}`;
@@ -141,7 +154,7 @@ function renderSettings(state) {
   providerList.replaceChildren(
     ...state.providerHealths.map((health) =>
       createTag(
-        `${health.providerId}:${health.healthy ? 'healthy' : 'down'}:${health.latencyMs ?? '-'}ms`
+        `${health.providerId}:${health.circuitState}:f${health.failureCount}:cd${health.cooldownRemainingMs ?? 0}`
       )
     )
   );
@@ -165,8 +178,8 @@ function renderSidebar(state, view, activeSessionId) {
     providers: {
       title: 'Providers',
       items: state.providerHealths.map((health) => ({
-        title: `${health.providerId} ${health.healthy ? 'ready' : 'down'}`,
-        description: `${health.model || '-'} · ${health.latencyMs ?? '-'}ms`,
+        title: `${health.providerId} ${health.circuitState}`,
+        description: `${health.healthy ? 'ready' : 'cooldown'} · fail=${health.failureCount} · ${health.cooldownRemainingMs ?? 0}ms`,
         active: health.providerId === state.status.activeProviderId,
         onSelect: () => {
           settingProvider.value = health.providerId;
@@ -208,7 +221,7 @@ function renderSidebar(state, view, activeSessionId) {
         },
         {
           title: `permission=${state.config.permissionMode}`,
-          description: '支持 approve / plan / search / health 命令。',
+          description: 'canvas sidebar hit-test active',
         },
       ],
     },
@@ -216,44 +229,16 @@ function renderSidebar(state, view, activeSessionId) {
 
   const activeDefinition = definitions[view] || definitions.sessions;
   sidebarTitle.textContent = activeDefinition.title;
-  sidebarList.innerHTML = '';
-
-  if (!activeDefinition.items.length) {
-    sidebarList.append(createEmpty('当前没有可以显示的数据。'));
-    return;
-  }
-
-  activeDefinition.items.forEach((item) => {
-    const node = document.createElement('button');
-    node.type = 'button';
-    node.className = `sidebar-card${item.active ? ' active' : ''}`;
-    node.innerHTML = `<strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.description)}</span>`;
-    if (item.onSelect) {
-      node.addEventListener('click', item.onSelect);
-    }
-    sidebarList.append(node);
-  });
+  sidebarItems = activeDefinition.items;
+  drawSidebarCanvas();
 }
 
 function renderMessages(messages) {
-  messageStream.innerHTML = '';
-  if (!messages.length) {
-    messageStream.append(createEmpty('当前没有消息。通过下方输入框直接走 /api/chat 即可创建真实会话。'));
-    return;
+  currentMessages = messages;
+  if (selectedMessageIndex !== null && selectedMessageIndex >= currentMessages.length) {
+    selectedMessageIndex = null;
   }
-
-  messages.forEach((message) => {
-    const fragment = messageTemplate.content.cloneNode(true);
-    const card = fragment.querySelector('.message-card');
-    const role = fragment.querySelector('.message-role');
-    const content = fragment.querySelector('.message-content');
-    card.classList.add(message.role || 'system');
-    role.textContent = String(message.role || 'system').toUpperCase();
-    content.textContent = message.content;
-    messageStream.append(fragment);
-  });
-
-  messageStream.scrollTop = messageStream.scrollHeight;
+  drawMessageCanvas(true);
 }
 
 function renderTerminal(state, activeSession) {
@@ -270,7 +255,7 @@ function renderTerminal(state, activeSession) {
   ];
   const healthLines = (state.providerHealths || []).map(
     (health) =>
-      `${health.providerId} healthy=${health.healthy} model=${health.model || '-'} latency=${health.latencyMs ?? '-'}ms`
+      `${health.providerId} state=${health.circuitState} healthy=${health.healthy} fails=${health.failureCount} cooldown=${health.cooldownRemainingMs ?? 0}ms`
   );
 
   terminalOutput.textContent = [
@@ -305,116 +290,373 @@ function renderError(error) {
   providerList.replaceChildren(createTag('load-error'));
   toolList.replaceChildren(createTag('api-unreachable'));
   sidebarTitle.textContent = 'Offline';
-  sidebarList.innerHTML = '';
-  sidebarList.append(createEmpty(`无法加载 ${stateUrl}: ${error.message}`));
-  messageStream.innerHTML = '';
-  messageStream.append(createEmpty('请运行 octocode-cli serve 999 demo 或 start-webui 脚本后再刷新页面。'));
+  sidebarItems = [];
+  currentMessages = [];
+  drawSidebarCanvas('无法加载侧栏数据');
+  drawMessageCanvas(false, '请运行 octocode-cli serve 999 demo 或 start-webui 脚本后再刷新页面。');
   terminalOutput.textContent = `load-error\n${error.message}`;
   drawWorkbench(null, null, null);
 }
 
 function drawWorkbench(state, activeHealth, activeSession) {
-  resizeCanvas();
-  const width = canvas.clientWidth;
-  const height = canvas.clientHeight;
-  canvasContext.clearRect(0, 0, width, height);
+  const { width, height } = prepareCanvas(workbenchCanvas, workbenchContext);
+  workbenchContext.clearRect(0, 0, width, height);
 
-  const gradient = canvasContext.createLinearGradient(0, 0, width, height);
+  const gradient = workbenchContext.createLinearGradient(0, 0, width, height);
   gradient.addColorStop(0, '#f7f9fe');
   gradient.addColorStop(0.55, '#eef3fb');
   gradient.addColorStop(1, '#e6edf8');
-  canvasContext.fillStyle = gradient;
-  canvasContext.fillRect(0, 0, width, height);
+  workbenchContext.fillStyle = gradient;
+  workbenchContext.fillRect(0, 0, width, height);
 
-  drawGlow(width * 0.13, height * 0.16, 280, 'rgba(218,124,66,0.18)');
-  drawGlow(width * 0.8, height * 0.18, 340, 'rgba(91,125,245,0.18)');
-  drawGlow(width * 0.75, height * 0.82, 320, 'rgba(47,187,125,0.14)');
+  drawGlow(workbenchContext, width * 0.13, height * 0.16, 280, 'rgba(218,124,66,0.18)');
+  drawGlow(workbenchContext, width * 0.8, height * 0.18, 340, 'rgba(91,125,245,0.18)');
+  drawGlow(workbenchContext, width * 0.75, height * 0.82, 320, 'rgba(47,187,125,0.14)');
 
-  drawPanel(18, 18, width - 36, height - 36, '#ffffff', 'rgba(165,179,203,0.35)');
-  drawPanel(28, 28, width - 56, 46, 'rgba(255,255,255,0.82)', 'rgba(214,222,236,0.7)');
-  drawPanel(28, 82, width - 56, 58, 'rgba(249,251,255,0.95)', 'rgba(214,222,236,0.7)');
-  drawPanel(28, 150, 46, height - 220, 'rgba(242,246,251,0.96)', 'rgba(214,222,236,0.9)');
-  drawPanel(84, 150, 254, height - 220, 'rgba(255,255,255,0.82)', 'rgba(214,222,236,0.9)');
-  drawPanel(348, 150, width - 376, height - 220, 'rgba(255,255,255,0.72)', 'rgba(214,222,236,0.9)');
+  drawPanel(workbenchContext, 18, 18, width - 36, height - 36, '#ffffff', 'rgba(165,179,203,0.35)');
+  drawPanel(workbenchContext, 28, 28, width - 56, 46, 'rgba(255,255,255,0.82)', 'rgba(214,222,236,0.7)');
+  drawPanel(workbenchContext, 28, 82, width - 56, 58, 'rgba(249,251,255,0.95)', 'rgba(214,222,236,0.7)');
+  drawPanel(workbenchContext, 28, 150, 46, height - 220, 'rgba(242,246,251,0.96)', 'rgba(214,222,236,0.9)');
+  drawPanel(workbenchContext, 84, 150, 254, height - 220, 'rgba(255,255,255,0.82)', 'rgba(214,222,236,0.9)');
+  drawPanel(workbenchContext, 348, 150, width - 376, height - 220, 'rgba(255,255,255,0.72)', 'rgba(214,222,236,0.9)');
 
-  canvasContext.fillStyle = '#1b2334';
-  canvasContext.font = '600 18px Outfit';
-  canvasContext.fillText('Octocode Canvas Workbench', 48, 112);
-  canvasContext.font = '500 12px JetBrains Mono';
-  canvasContext.fillStyle = '#5f6c82';
-  canvasContext.fillText(
-    `active=${state?.status?.activeProviderId || 'offline'}  session=${activeSession?.summary?.id || 'none'}  permission=${state?.status?.permissionMode || '-'}`,
+  workbenchContext.fillStyle = '#1b2334';
+  workbenchContext.font = '600 18px Outfit';
+  workbenchContext.fillText('Octocode Canvas Workbench', 48, 112);
+  workbenchContext.font = '500 12px JetBrains Mono';
+  workbenchContext.fillStyle = '#5f6c82';
+  workbenchContext.fillText(
+    `active=${state?.status?.activeProviderId || 'offline'}  session=${activeSession?.summary?.id || 'none'}  permission=${state?.status?.permissionMode || '-'}  selected=${selectedMessageIndex ?? '-'}`,
     48,
     132
   );
 
   const healths = state?.providerHealths || [];
-  canvasContext.font = '600 12px JetBrains Mono';
+  workbenchContext.font = '600 12px JetBrains Mono';
   healths.slice(0, 3).forEach((health, index) => {
-    const x = width - 350;
+    const x = width - 430;
     const y = 96 + index * 24;
-    canvasContext.fillStyle = health.healthy ? '#2f8f68' : '#c25448';
-    canvasContext.fillRect(x, y - 9, 8, 8);
-    canvasContext.fillStyle = '#324055';
-    canvasContext.fillText(
-      `${health.providerId} ${health.healthy ? 'ready' : 'fallback'} ${health.latencyMs ?? '-'}ms`,
+    workbenchContext.fillStyle = health.healthy ? '#2f8f68' : '#c25448';
+    workbenchContext.fillRect(x, y - 9, 8, 8);
+    workbenchContext.fillStyle = '#324055';
+    workbenchContext.fillText(
+      `${health.providerId} ${health.circuitState} fail=${health.failureCount} cd=${health.cooldownRemainingMs ?? 0}ms`,
       x + 16,
       y
     );
   });
 
   if (activeHealth) {
-    drawStatusBadge(104, 172, activeHealth.healthy ? '#dff5e9' : '#fde5df', activeHealth.healthy ? '#2c8b63' : '#c45a47', `provider ${activeHealth.providerId}`);
-    drawStatusBadge(278, 172, '#e8efff', '#4563c2', `model ${activeHealth.model || '-'}`);
+    drawStatusBadge(workbenchContext, 104, 172, activeHealth.healthy ? '#dff5e9' : '#fde5df', activeHealth.healthy ? '#2c8b63' : '#c45a47', `provider ${activeHealth.providerId}`);
+    drawStatusBadge(workbenchContext, 278, 172, '#e8efff', '#4563c2', `state ${activeHealth.circuitState}`);
+    drawStatusBadge(workbenchContext, 452, 172, '#fff0df', '#b76b34', `fails ${activeHealth.failureCount}`);
   }
 }
 
-function drawPanel(x, y, width, height, fill, stroke) {
-  const radius = 22;
-  canvasContext.beginPath();
-  canvasContext.moveTo(x + radius, y);
-  canvasContext.arcTo(x + width, y, x + width, y + height, radius);
-  canvasContext.arcTo(x + width, y + height, x, y + height, radius);
-  canvasContext.arcTo(x, y + height, x, y, radius);
-  canvasContext.arcTo(x, y, x + width, y, radius);
-  canvasContext.closePath();
-  canvasContext.fillStyle = fill;
-  canvasContext.fill();
-  canvasContext.strokeStyle = stroke;
-  canvasContext.lineWidth = 1;
-  canvasContext.stroke();
+function drawSidebarCanvas(emptyMessage) {
+  const { width, height } = prepareCanvas(sidebarCanvas, sidebarContext);
+  sidebarContext.clearRect(0, 0, width, height);
+  sidebarHitRegions = [];
+  sidebarContentHeight = 0;
+
+  drawPanel(sidebarContext, 0.5, 0.5, width - 1, height - 1, 'rgba(251,252,255,0.9)', 'rgba(216,222,234,0.9)');
+
+  if (!sidebarItems.length) {
+    drawCanvasEmptyState(sidebarContext, width, height, emptyMessage || '当前没有可以显示的数据。');
+    sidebarCanvas.style.cursor = 'default';
+    return;
+  }
+
+  const padding = 12;
+  const cardHeight = 64;
+  const gap = 10;
+  let y = padding - sidebarScrollOffset;
+
+  sidebarItems.forEach((item) => {
+    if (y + cardHeight >= 0 && y <= height) {
+      const fill = item.active ? 'rgba(231,237,255,0.95)' : 'rgba(255,255,255,0.92)';
+      const stroke = item.active ? 'rgba(91,125,245,0.35)' : 'rgba(216,222,234,0.9)';
+      drawPanel(sidebarContext, padding, y, width - padding * 2, cardHeight, fill, stroke);
+      sidebarContext.fillStyle = '#182131';
+      sidebarContext.font = '600 13px Outfit';
+      sidebarContext.fillText(item.title, padding + 14, y + 22);
+      sidebarContext.fillStyle = '#5f6c82';
+      sidebarContext.font = '500 11px JetBrains Mono';
+      drawWrappedText(sidebarContext, item.description, padding + 14, y + 41, width - padding * 2 - 28, 14, 2);
+      sidebarHitRegions.push({
+        x: padding,
+        y,
+        width: width - padding * 2,
+        height: cardHeight,
+        onSelect: item.onSelect,
+      });
+    }
+    y += cardHeight + gap;
+  });
+
+  sidebarContentHeight = sidebarItems.length * (cardHeight + gap) - gap + padding * 2;
+  sidebarScrollOffset = clamp(sidebarScrollOffset, 0, Math.max(0, sidebarContentHeight - height));
 }
 
-function drawGlow(x, y, radius, color) {
-  const gradient = canvasContext.createRadialGradient(x, y, 0, x, y, radius);
+function drawMessageCanvas(resetToBottom = false, emptyMessage) {
+  const { width, height } = prepareCanvas(messageCanvas, messageContext);
+  messageContext.clearRect(0, 0, width, height);
+  messageHitRegions = [];
+
+  drawPanel(messageContext, 0.5, 0.5, width - 1, height - 1, 'rgba(252,253,255,0.82)', 'rgba(216,222,234,0.85)');
+
+  if (!currentMessages.length) {
+    messageContentHeight = 0;
+    drawCanvasEmptyState(messageContext, width, height, emptyMessage || '当前没有消息。通过下方输入框直接走 /api/chat 即可创建真实会话。');
+    messageCanvas.style.cursor = 'default';
+    return;
+  }
+
+  const padding = 14;
+  const gap = 12;
+  const innerWidth = width - padding * 2;
+  const layouts = [];
+  let cursorY = padding;
+
+  currentMessages.forEach((message, index) => {
+    const roleLabel = String(message.role || 'system').toUpperCase();
+    const textLines = measureWrappedLines(messageContext, message.content, innerWidth - 28, '500 13px Outfit');
+    const cardHeight = 22 + 20 + textLines.length * 18 + 18;
+    layouts.push({
+      index,
+      message,
+      roleLabel,
+      lines: textLines,
+      y: cursorY,
+      height: cardHeight,
+    });
+    cursorY += cardHeight + gap;
+  });
+
+  messageContentHeight = cursorY - gap + padding;
+  if (resetToBottom) {
+    messageScrollOffset = Math.max(0, messageContentHeight - height);
+  } else {
+    messageScrollOffset = clamp(messageScrollOffset, 0, Math.max(0, messageContentHeight - height));
+  }
+
+  layouts.forEach((layout) => {
+    const y = layout.y - messageScrollOffset;
+    if (y + layout.height < 0 || y > height) {
+      return;
+    }
+
+    const role = layout.message.role || 'system';
+    const palette = messagePalette(role, layout.index === selectedMessageIndex);
+    drawPanel(messageContext, padding, y, innerWidth, layout.height, palette.fill, palette.stroke);
+    messageContext.fillStyle = palette.role;
+    messageContext.font = '600 11px JetBrains Mono';
+    messageContext.fillText(layout.roleLabel, padding + 14, y + 18);
+    messageContext.fillStyle = '#1d2536';
+    messageContext.font = '500 13px Outfit';
+    let lineY = y + 42;
+    layout.lines.forEach((line) => {
+      messageContext.fillText(line, padding + 14, lineY);
+      lineY += 18;
+    });
+
+    messageHitRegions.push({
+      x: padding,
+      y,
+      width: innerWidth,
+      height: layout.height,
+      onSelect: () => {
+        selectedMessageIndex = layout.index;
+        drawMessageCanvas(false);
+      },
+    });
+  });
+}
+
+function drawPanel(context, x, y, width, height, fill, stroke) {
+  const radius = 18;
+  context.beginPath();
+  context.moveTo(x + radius, y);
+  context.arcTo(x + width, y, x + width, y + height, radius);
+  context.arcTo(x + width, y + height, x, y + height, radius);
+  context.arcTo(x, y + height, x, y, radius);
+  context.arcTo(x, y, x + width, y, radius);
+  context.closePath();
+  context.fillStyle = fill;
+  context.fill();
+  context.strokeStyle = stroke;
+  context.lineWidth = 1;
+  context.stroke();
+}
+
+function drawGlow(context, x, y, radius, color) {
+  const gradient = context.createRadialGradient(x, y, 0, x, y, radius);
   gradient.addColorStop(0, color);
   gradient.addColorStop(1, 'rgba(255,255,255,0)');
-  canvasContext.fillStyle = gradient;
-  canvasContext.beginPath();
-  canvasContext.arc(x, y, radius, 0, Math.PI * 2);
-  canvasContext.fill();
+  context.fillStyle = gradient;
+  context.beginPath();
+  context.arc(x, y, radius, 0, Math.PI * 2);
+  context.fill();
 }
 
-function drawStatusBadge(x, y, fill, ink, label) {
+function drawStatusBadge(context, x, y, fill, ink, label) {
   const width = 148;
   const height = 28;
-  drawPanel(x, y, width, height, fill, 'rgba(215,223,236,0.75)');
-  canvasContext.fillStyle = ink;
-  canvasContext.font = '600 11px JetBrains Mono';
-  canvasContext.fillText(label, x + 12, y + 18);
+  drawPanel(context, x, y, width, height, fill, 'rgba(215,223,236,0.75)');
+  context.fillStyle = ink;
+  context.font = '600 11px JetBrains Mono';
+  context.fillText(label, x + 12, y + 18);
 }
 
-function resizeCanvas() {
+function drawCanvasEmptyState(context, width, height, message) {
+  context.fillStyle = '#5f6c82';
+  context.font = '500 13px Outfit';
+  drawWrappedText(context, message, 18, Math.max(40, height / 2 - 10), width - 36, 18, 4);
+}
+
+function prepareCanvas(canvas, context) {
   const rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
-  const width = Math.max(1, Math.floor(rect.width * dpr));
-  const height = Math.max(1, Math.floor(rect.height * dpr));
-  if (canvas.width !== width || canvas.height !== height) {
-    canvas.width = width;
-    canvas.height = height;
-    canvasContext.setTransform(1, 0, 0, 1, 0, 0);
-    canvasContext.scale(dpr, dpr);
+  const pixelWidth = Math.max(1, Math.floor(rect.width * dpr));
+  const pixelHeight = Math.max(1, Math.floor(rect.height * dpr));
+  if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+    canvas.width = pixelWidth;
+    canvas.height = pixelHeight;
   }
+  context.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { width: rect.width, height: rect.height };
+}
+
+function measureWrappedLines(context, text, maxWidth, font) {
+  context.font = font;
+  return wrapText(context, text, maxWidth);
+}
+
+function drawWrappedText(context, text, x, y, maxWidth, lineHeight, maxLines = Infinity) {
+  const lines = wrapText(context, text, maxWidth).slice(0, maxLines);
+  lines.forEach((line, index) => {
+    context.fillText(line, x, y + index * lineHeight);
+  });
+}
+
+function wrapText(context, text, maxWidth) {
+  const content = String(text || '').replaceAll('\r', '');
+  const paragraphs = content.split('\n');
+  const lines = [];
+  paragraphs.forEach((paragraph) => {
+    if (!paragraph.trim()) {
+      lines.push('');
+      return;
+    }
+    let currentLine = '';
+    paragraph.split(/\s+/).forEach((word) => {
+      const candidate = currentLine ? `${currentLine} ${word}` : word;
+      if (context.measureText(candidate).width <= maxWidth) {
+        currentLine = candidate;
+      } else {
+        if (currentLine) {
+          lines.push(currentLine);
+        }
+        currentLine = breakLongWord(context, word, maxWidth, lines);
+      }
+    });
+    if (currentLine) {
+      lines.push(currentLine);
+    }
+  });
+  return lines.length ? lines : [''];
+}
+
+function breakLongWord(context, word, maxWidth, lines) {
+  if (context.measureText(word).width <= maxWidth) {
+    return word;
+  }
+  let segment = '';
+  for (const character of word) {
+    const candidate = `${segment}${character}`;
+    if (context.measureText(candidate).width <= maxWidth) {
+      segment = candidate;
+    } else {
+      if (segment) {
+        lines.push(segment);
+      }
+      segment = character;
+    }
+  }
+  return segment;
+}
+
+function messagePalette(role, selected) {
+  const selectedStroke = 'rgba(91,125,245,0.45)';
+  if (role === 'user') {
+    return {
+      fill: selected ? 'rgba(254,244,235,0.98)' : 'rgba(253,247,242,0.96)',
+      stroke: selected ? selectedStroke : 'rgba(242,209,189,0.95)',
+      role: '#b8703e',
+    };
+  }
+  if (role === 'assistant') {
+    return {
+      fill: selected ? 'rgba(231,237,255,0.98)' : 'rgba(236,241,255,0.94)',
+      stroke: selected ? selectedStroke : 'rgba(207,219,255,0.95)',
+      role: '#4964bf',
+    };
+  }
+  if (role === 'tool') {
+    return {
+      fill: selected ? 'rgba(227,247,239,0.98)' : 'rgba(233,248,241,0.95)',
+      stroke: selected ? selectedStroke : 'rgba(201,236,217,0.95)',
+      role: '#2c8b63',
+    };
+  }
+  return {
+    fill: selected ? 'rgba(244,247,252,0.98)' : 'rgba(246,248,252,0.95)',
+    stroke: selected ? selectedStroke : 'rgba(216,222,234,0.95)',
+    role: '#5f6c82',
+  };
+}
+
+function findHitRegion(regions, x, y) {
+  return regions.find(
+    (region) =>
+      x >= region.x &&
+      x <= region.x + region.width &&
+      y >= region.y &&
+      y <= region.y + region.height
+  );
+}
+
+function bindCanvasInteractions(canvas, regionsAccessor, onMiss, redraw) {
+  canvas.addEventListener('click', (event) => {
+    const point = canvasPoint(event, canvas);
+    const region = findHitRegion(regionsAccessor(), point.x, point.y);
+    if (region?.onSelect) {
+      region.onSelect();
+      return;
+    }
+    if (onMiss) {
+      onMiss();
+      redraw();
+    }
+  });
+
+  canvas.addEventListener('mousemove', (event) => {
+    const point = canvasPoint(event, canvas);
+    const region = findHitRegion(regionsAccessor(), point.x, point.y);
+    canvas.style.cursor = region?.onSelect ? 'pointer' : 'default';
+  });
+}
+
+function canvasPoint(event, canvas) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: event.clientX - rect.left,
+    y: event.clientY - rect.top,
+  };
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function createTag(label) {
@@ -422,13 +664,6 @@ function createTag(label) {
   tag.className = 'tag';
   tag.textContent = label;
   return tag;
-}
-
-function createEmpty(message) {
-  const box = document.createElement('div');
-  box.className = 'empty-state';
-  box.textContent = message;
-  return box;
 }
 
 function buildFallbackSession(session) {
@@ -519,6 +754,7 @@ chatForm.addEventListener('submit', async (event) => {
     });
     logEvent(`POST /api/chat session=${currentSessionId}`);
     chatInput.value = '';
+    selectedMessageIndex = null;
     applyState(state, currentSessionId);
   } catch (error) {
     logEvent(`chat error: ${error.message}`);
@@ -592,15 +828,44 @@ commandForm.addEventListener('submit', async (event) => {
   });
 });
 
+bindCanvasInteractions(sidebarCanvas, () => sidebarHitRegions, null, () => drawSidebarCanvas());
+bindCanvasInteractions(
+  messageCanvas,
+  () => messageHitRegions,
+  () => {
+    selectedMessageIndex = null;
+  },
+  () => drawMessageCanvas(false)
+);
+
+sidebarCanvas.addEventListener(
+  'wheel',
+  (event) => {
+    event.preventDefault();
+    const maxOffset = Math.max(0, sidebarContentHeight - sidebarCanvas.getBoundingClientRect().height);
+    sidebarScrollOffset = clamp(sidebarScrollOffset + event.deltaY, 0, maxOffset);
+    drawSidebarCanvas();
+  },
+  { passive: false }
+);
+
+messageCanvas.addEventListener(
+  'wheel',
+  (event) => {
+    event.preventDefault();
+    const maxOffset = Math.max(0, messageContentHeight - messageCanvas.getBoundingClientRect().height);
+    messageScrollOffset = clamp(messageScrollOffset + event.deltaY, 0, maxOffset);
+    drawMessageCanvas(false);
+  },
+  { passive: false }
+);
+
 refreshButton.addEventListener('click', () => loadState(currentSessionId));
-window.addEventListener('resize', () => drawWorkbench(currentState, currentState?.status?.providerHealth, currentState?.activeSession));
+window.addEventListener('resize', () => {
+  drawWorkbench(currentState, currentState?.status?.providerHealth, currentState?.activeSession);
+  drawSidebarCanvas();
+  drawMessageCanvas(false);
+});
+
 setInterval(updateClock, 60_000);
 loadState();
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}

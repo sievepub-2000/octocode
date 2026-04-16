@@ -40,11 +40,13 @@
 18. Canvas 渲染的系统白色背景工作台外壳
 19. Wry 跨平台桌面壳（Windows WebView2 / macOS WebKit / Linux WebKitGTK）
 20. provider health check + local-openai -> remote-openai -> stub 自动 fallback
+21. provider circuit breaker：失败计数、冷却时间、半开自动恢复
+22. sidebar / message list 改为 canvas 渲染，并带命中测试与内部滚动
 
 ### 当前验证通过项
 
 1. `cargo check --workspace`
-2. `cargo test -p octocode-commands`
+2. `cargo test -p octocode-api -p octocode-commands`
 3. `status`
 4. `doctor`
 5. `providers`
@@ -63,6 +65,8 @@
 18. `http://127.0.0.1:4173/api/state?session=demo`
 19. `/api/settings` config writeback path
 20. 原始前端资源核对：`index.html` / `app.js?v=4` 已切到 command palette、chat composer、provider settings、tool runner、terminal event log 新结构
+21. `http://127.0.0.1:999/api/state?session=demo` 已确认输出 `circuitState` / `failureCount` / `cooldownRemainingMs`
+22. `http://127.0.0.1:999/ui-shell/?session=demo` 已切到 `sidebar-canvas` / `message-canvas`
 
 ## 未完成
 
@@ -70,7 +74,7 @@
 2. plugin / skills / hooks
 3. full slash-command parity
 4. REPL
-5. 更完整的 canvas 交互面与组件级输入命中测试
+5. 组件级输入命中测试仍未覆盖到设置表单等 DOM 区域
 6. VS Code / Cline / Cursor integration layer
 7. 本地模型与闭源模型完整接入与 provider failover
 8. release packaging
@@ -87,7 +91,7 @@
 
 ## 下一阶段优先级
 
-1. 补全 provider failover 命中后的重试/熔断策略
+1. 将 provider circuit breaker 从进程内状态推进到可观测/可持久化策略
 2. command surface 扩充到 workflow / agent actions
 3. REPL 与 conversation runtime 深化
 4. MCP / tools / plugin parity
@@ -97,4 +101,4 @@
 
 1. 用户指定模型端点 `http://192.168.110.2:8000/v1` 已经完成过 `/v1/models` 与一次 `/v1/chat/completions` 成功探测。
 2. 本轮后续联调阶段，该端点出现了持续超时，因此当前交互式 chat API 会把 provider 错误写入 transcript，而不是返回模型内容。
-3. 这说明 Octocode 的交互链路、错误恢复链路和 UI 展示链路已经工作，但目标模型服务当前不稳定，仍需继续做 provider failover 或外部服务排障。
+3. 这说明 Octocode 的交互链路、错误恢复链路和 UI 展示链路已经工作；当前已具备熔断与自动恢复语义，但目标模型服务仍不稳定，后续仍需继续做 provider failover 观测增强或外部服务排障。
