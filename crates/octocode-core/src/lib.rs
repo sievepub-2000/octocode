@@ -37,6 +37,7 @@ pub enum ConversationRole {
     System,
     User,
     Assistant,
+    Tool,
 }
 
 impl ConversationRole {
@@ -45,6 +46,7 @@ impl ConversationRole {
             Self::System => "system",
             Self::User => "user",
             Self::Assistant => "assistant",
+            Self::Tool => "tool",
         }
     }
 
@@ -52,6 +54,7 @@ impl ConversationRole {
         match value {
             "system" => Self::System,
             "assistant" => Self::Assistant,
+            "tool" => Self::Tool,
             _ => Self::User,
         }
     }
@@ -104,6 +107,16 @@ pub struct ProviderDescriptor {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderHealth {
+    pub provider_id: String,
+    pub display_name: String,
+    pub healthy: bool,
+    pub detail: String,
+    pub model: Option<String>,
+    pub latency_ms: Option<u128>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigPaths {
     pub config_home: String,
     pub cache_home: String,
@@ -113,8 +126,10 @@ pub struct ConfigPaths {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeConfig {
     pub provider_id: Option<String>,
+    pub provider_base_url: Option<String>,
     pub default_model: Option<String>,
     pub permission_mode: PermissionMode,
+    pub history_limit: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,10 +141,12 @@ pub enum OutputMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeStatus {
     pub provider_id: String,
+    pub active_provider_id: String,
     pub provider_kind: ProviderKind,
     pub platform: PlatformKind,
     pub permission_mode: PermissionMode,
     pub session_count: usize,
+    pub provider_health: ProviderHealth,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,6 +154,7 @@ pub struct DoctorReport {
     pub workspace: WorkspaceContext,
     pub paths: ConfigPaths,
     pub config: RuntimeConfig,
+    pub provider_healths: Vec<ProviderHealth>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -170,6 +188,7 @@ pub struct UiSnapshot {
     pub workspace: WorkspaceContext,
     pub config: RuntimeConfig,
     pub providers: Vec<ProviderDescriptor>,
+    pub provider_healths: Vec<ProviderHealth>,
     pub commands: Vec<CommandDescriptor>,
     pub tools: Vec<ToolDescriptor>,
     pub sessions: Vec<SessionSummary>,
@@ -186,6 +205,26 @@ pub enum OctoError {
 pub trait ModelProvider: Send + Sync {
     fn descriptor(&self) -> ProviderDescriptor;
     fn prompt(&self, request: PromptRequest) -> Result<PromptResponse, OctoError>;
+
+    fn active_provider_id(&self) -> String {
+        self.descriptor().id
+    }
+
+    fn health(&self) -> ProviderHealth {
+        let descriptor = self.descriptor();
+        ProviderHealth {
+            provider_id: descriptor.id,
+            display_name: descriptor.display_name,
+            healthy: true,
+            detail: String::from("ready"),
+            model: None,
+            latency_ms: None,
+        }
+    }
+
+    fn health_catalog(&self) -> Vec<ProviderHealth> {
+        vec![self.health()]
+    }
 }
 
 pub trait SessionStore: Send + Sync {
@@ -196,6 +235,12 @@ pub trait SessionStore: Send + Sync {
 pub trait ConversationStore: SessionStore + Send + Sync {
     fn load_session(&self, id: &str) -> Result<ConversationSession, OctoError>;
     fn append_message(&self, session_id: &str, message: ConversationMessage) -> Result<(), OctoError>;
+    fn replace_messages(
+        &self,
+        session_id: &str,
+        messages: Vec<ConversationMessage>,
+    ) -> Result<(), OctoError>;
+    fn latest_session_id(&self) -> Result<Option<String>, OctoError>;
 }
 
 pub trait ToolExecutor: Send + Sync {

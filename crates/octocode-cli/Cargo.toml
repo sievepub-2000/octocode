@@ -9,3 +9,8 @@ octocode-api = { path = "../octocode-api" }
 octocode-commands = { path = "../octocode-commands" }
 octocode-core = { path = "../octocode-core" }
 octocode-runtime = { path = "../octocode-runtime" }
+tao = "0.34"
+wry = "0.53"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"

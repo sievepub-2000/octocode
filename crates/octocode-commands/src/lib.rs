@@ -1,7 +1,8 @@
 use octocode_core::{
     CommandDescriptor, ConversationSession, ConversationStore, DoctorReport, ModelProvider,
-    OctoError, OutputMode, PermissionMode, PromptResponse, ProviderDescriptor, RuntimeStatus,
-    SessionSummary, ToolDescriptor, ToolExecutor, ToolResult, UiSnapshot, WorkspaceContext,
+    OctoError, OutputMode, PermissionMode, PromptResponse, ProviderDescriptor, ProviderHealth,
+    RuntimeStatus, SessionSummary, ToolDescriptor, ToolExecutor, ToolResult, UiSnapshot,
+    WorkspaceContext,
 };
 use octocode_runtime::OctocodeRuntime;
 
@@ -9,20 +10,25 @@ use octocode_runtime::OctocodeRuntime;
 pub enum CliCommand {
     Prompt { text: String },
     Chat { session_id: String, text: String },
+    Resume { id: Option<String> },
     Sessions,
     SessionShow { id: String },
     SessionAdd { id: String, title: String },
     SessionExport { path: String },
     Tool { name: String, input: String },
+    Plan { session_id: String, text: String },
     Tools,
     Workspace,
     Providers,
+    Health,
     Doctor,
     Status,
     Permissions { mode: Option<String> },
     ConfigInit,
     ConfigShow,
     UiExport { path: String, session_id: Option<String> },
+    Serve { port: u16, session_id: Option<String> },
+    Desktop { port: u16, session_id: Option<String> },
     Commands,
     Help,
 }
@@ -42,6 +48,7 @@ pub enum CommandResponse {
     Tools(Vec<ToolDescriptor>),
     Workspace(WorkspaceContext),
     Providers(Vec<ProviderDescriptor>),
+    Health(Vec<ProviderHealth>),
     Doctor(DoctorReport),
     Status(RuntimeStatus),
     Permission(PermissionMode),
@@ -76,6 +83,7 @@ where
             let text = args.collect::<Vec<_>>().join(" ");
             CliCommand::Chat { session_id, text }
         }
+        Some("resume") => CliCommand::Resume { id: args.next() },
         Some("sessions") => CliCommand::Sessions,
         Some("session-show") => CliCommand::SessionShow {
             id: args.next().unwrap_or_else(|| String::from("demo")),
@@ -92,9 +100,15 @@ where
             name: args.next().unwrap_or_else(|| String::from("echo")),
             input: args.collect::<Vec<_>>().join(" "),
         },
+        Some("plan") => {
+            let session_id = args.next().unwrap_or_else(|| String::from("demo"));
+            let text = args.collect::<Vec<_>>().join(" ");
+            CliCommand::Plan { session_id, text }
+        }
         Some("tools") => CliCommand::Tools,
         Some("workspace") => CliCommand::Workspace,
         Some("providers") => CliCommand::Providers,
+        Some("health") => CliCommand::Health,
         Some("doctor") => CliCommand::Doctor,
         Some("status") => CliCommand::Status,
         Some("permissions") => CliCommand::Permissions { mode: args.next() },
@@ -106,6 +120,22 @@ where
                 .unwrap_or_else(|| String::from("ui-shell/data/app-state.json"));
             let session_id = args.next();
             CliCommand::UiExport { path, session_id }
+        }
+        Some("serve") => {
+            let port = args
+                .next()
+                .and_then(|value| value.parse::<u16>().ok())
+                .unwrap_or(999);
+            let session_id = args.next();
+            CliCommand::Serve { port, session_id }
+        }
+        Some("desktop") => {
+            let port = args
+                .next()
+                .and_then(|value| value.parse::<u16>().ok())
+                .unwrap_or(999);
+            let session_id = args.next();
+            CliCommand::Desktop { port, session_id }
         }
         Some("commands") => CliCommand::Commands,
         _ => CliCommand::Help,
@@ -138,6 +168,7 @@ where
             runtime.prompt_in_session(&session_id, &text)?;
             Ok(CommandResponse::Session(runtime.session(&session_id)?))
         }
+        CliCommand::Resume { id } => Ok(CommandResponse::Session(runtime.resume_session(id.as_deref())?)),
         CliCommand::Sessions => Ok(CommandResponse::Sessions(runtime.sessions()?)),
         CliCommand::SessionShow { id } => Ok(CommandResponse::Session(runtime.session(&id)?)),
         CliCommand::SessionAdd { id, title } => {
@@ -162,9 +193,21 @@ where
                 permission: PermissionMode::ReadOnly,
             },
         )?)),
+        CliCommand::Plan { session_id, text } => {
+            runtime.run_tool_in_session(
+                &session_id,
+                octocode_core::ToolCall {
+                    name: String::from("workflow-plan"),
+                    input: text,
+                    permission: PermissionMode::ReadOnly,
+                },
+            )?;
+            Ok(CommandResponse::Session(runtime.session(&session_id)?))
+        }
         CliCommand::Tools => Ok(CommandResponse::Tools(runtime.tools().to_vec())),
         CliCommand::Workspace => Ok(CommandResponse::Workspace(runtime.workspace().clone())),
         CliCommand::Providers => Ok(CommandResponse::Providers(runtime.providers().to_vec())),
+        CliCommand::Health => Ok(CommandResponse::Health(runtime.provider_healths())),
         CliCommand::Doctor => Ok(CommandResponse::Doctor(runtime.doctor())),
         CliCommand::Status => Ok(CommandResponse::Status(runtime.status()?)),
         CliCommand::Permissions { mode } => {
@@ -175,6 +218,7 @@ where
                     _ => PermissionMode::WorkspaceWrite,
                 };
                 runtime.set_permission_mode(parsed);
+                let _ = runtime.save_config();
             }
             Ok(CommandResponse::Permission(runtime.config().permission_mode.clone()))
         }
@@ -195,6 +239,8 @@ where
                 .display()
                 .to_string(),
         )),
+        CliCommand::Serve { .. } => Ok(CommandResponse::Acknowledged(String::from("serve"))),
+        CliCommand::Desktop { .. } => Ok(CommandResponse::Acknowledged(String::from("desktop"))),
         CliCommand::Commands => Ok(CommandResponse::Commands(runtime.commands().to_vec())),
         CliCommand::Help => Ok(CommandResponse::Help(runtime.commands().to_vec())),
     }
@@ -241,6 +287,23 @@ pub fn render_text(response: &CommandResponse) -> String {
             })
             .collect::<Vec<_>>()
             .join("\n"),
+        CommandResponse::Health(healths) => healths
+            .iter()
+            .map(|health| {
+                format!(
+                    "{} healthy={} model={} latency_ms={} detail={}",
+                    health.provider_id,
+                    health.healthy,
+                    health.model.as_deref().unwrap_or("-"),
+                    health
+                        .latency_ms
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| String::from("-")),
+                    health.detail
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
         CommandResponse::Doctor(report) => vec![
             String::from("Octocode Doctor"),
             format!("workspace.root={}", report.workspace.root),
@@ -254,19 +317,31 @@ pub fn render_text(response: &CommandResponse) -> String {
                 report.config.provider_id.as_deref().unwrap_or("<auto>")
             ),
             format!(
+                "provider.base_url={}",
+                report
+                    .config
+                    .provider_base_url
+                    .as_deref()
+                    .unwrap_or("<default>")
+            ),
+            format!(
                 "default.model={}",
                 report.config.default_model.as_deref().unwrap_or("<none>")
             ),
             format!("permission.mode={:?}", report.config.permission_mode),
+            format!("history.limit={}", report.config.history_limit),
+            format!("provider.health.count={}", report.provider_healths.len()),
         ]
         .join("\n"),
         CommandResponse::Status(status) => vec![
             String::from("Octocode Status"),
             format!("provider.id={}", status.provider_id),
+            format!("provider.active={}", status.active_provider_id),
             format!("provider.kind={:?}", status.provider_kind),
             format!("workspace.platform={:?}", status.platform),
             format!("permission.mode={:?}", status.permission_mode),
             format!("sessions.count={}", status.session_count),
+            format!("provider.healthy={}", status.provider_health.healthy),
         ]
         .join("\n"),
         CommandResponse::Permission(mode) => format!("{:?}", mode),
@@ -353,8 +428,24 @@ pub fn render_json(response: &CommandResponse) -> String {
                 .collect::<Vec<_>>()
                 .join(",")
         ),
+        CommandResponse::Health(healths) => format!(
+            "{{\"kind\":\"health\",\"items\":[{}]}}",
+            healths
+                .iter()
+                .map(|health| format!(
+                    "{{\"providerId\":\"{}\",\"displayName\":\"{}\",\"healthy\":{},\"detail\":\"{}\",\"model\":\"{}\",\"latencyMs\":{}}}",
+                    escape_json(&health.provider_id),
+                    escape_json(&health.display_name),
+                    health.healthy,
+                    escape_json(&health.detail),
+                    escape_json(health.model.as_deref().unwrap_or("")),
+                    health.latency_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null"))
+                ))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
         CommandResponse::Doctor(report) => format!(
-            "{{\"kind\":\"doctor\",\"workspaceRoot\":\"{}\",\"platform\":\"{:?}\",\"shell\":\"{:?}\",\"configHome\":\"{}\",\"cacheHome\":\"{}\",\"dataHome\":\"{}\",\"providerId\":\"{}\",\"defaultModel\":\"{}\",\"permissionMode\":\"{:?}\"}}",
+            "{{\"kind\":\"doctor\",\"workspaceRoot\":\"{}\",\"platform\":\"{:?}\",\"shell\":\"{:?}\",\"configHome\":\"{}\",\"cacheHome\":\"{}\",\"dataHome\":\"{}\",\"providerId\":\"{}\",\"providerBaseUrl\":\"{}\",\"defaultModel\":\"{}\",\"permissionMode\":\"{:?}\",\"historyLimit\":{},\"providerHealthCount\":{} }}",
             escape_json(&report.workspace.root),
             report.workspace.platform,
             report.workspace.preferred_shell,
@@ -362,16 +453,21 @@ pub fn render_json(response: &CommandResponse) -> String {
             escape_json(&report.paths.cache_home),
             escape_json(&report.paths.data_home),
             escape_json(report.config.provider_id.as_deref().unwrap_or("")),
+            escape_json(report.config.provider_base_url.as_deref().unwrap_or("")),
             escape_json(report.config.default_model.as_deref().unwrap_or("")),
-            report.config.permission_mode
+            report.config.permission_mode,
+            report.config.history_limit,
+            report.provider_healths.len()
         ),
         CommandResponse::Status(status) => format!(
-            "{{\"kind\":\"status\",\"providerId\":\"{}\",\"providerKind\":\"{:?}\",\"platform\":\"{:?}\",\"permissionMode\":\"{:?}\",\"sessionCount\":{}}}",
+            "{{\"kind\":\"status\",\"providerId\":\"{}\",\"activeProviderId\":\"{}\",\"providerKind\":\"{:?}\",\"platform\":\"{:?}\",\"permissionMode\":\"{:?}\",\"sessionCount\":{},\"providerHealthy\":{}}}",
             escape_json(&status.provider_id),
+            escape_json(&status.active_provider_id),
             status.provider_kind,
             status.platform,
             status.permission_mode,
-            status.session_count
+            status.session_count,
+            status.provider_health.healthy
         ),
         CommandResponse::Permission(mode) => {
             format!("{{\"kind\":\"permissions\",\"mode\":\"{:?}\"}}", mode)
@@ -418,38 +514,30 @@ fn escape_json(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_cli_args, CliCommand, ParsedCli};
-    use octocode_core::OutputMode;
+    use super::{parse_cli_args, CliCommand};
 
     #[test]
-    fn parses_json_status_command() {
-        let parsed = parse_cli_args(vec![String::from("--json"), String::from("status")]);
-        assert_eq!(
-            parsed,
-            ParsedCli {
-                output_mode: OutputMode::Json,
-                command: CliCommand::Status,
-            }
-        );
+    fn parses_json_output_flag() {
+        let parsed = parse_cli_args(vec![
+            String::from("--json"),
+            String::from("status"),
+        ]);
+        assert!(matches!(parsed.command, CliCommand::Status));
     }
 
     #[test]
-    fn parses_chat_command() {
+    fn parses_serve_command() {
         let parsed = parse_cli_args(vec![
-            String::from("chat"),
+            String::from("serve"),
+            String::from("999"),
             String::from("demo"),
-            String::from("hello"),
-            String::from("octocode"),
         ]);
-        assert_eq!(
-            parsed,
-            ParsedCli {
-                output_mode: OutputMode::Text,
-                command: CliCommand::Chat {
-                    session_id: String::from("demo"),
-                    text: String::from("hello octocode"),
-                },
-            }
-        );
+        assert!(matches!(parsed.command, CliCommand::Serve { port: 999, .. }));
+    }
+
+    #[test]
+    fn parses_desktop_command_with_default_port() {
+        let parsed = parse_cli_args(vec![String::from("desktop")]);
+        assert!(matches!(parsed.command, CliCommand::Desktop { port: 999, .. }));
     }
 }

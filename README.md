@@ -16,7 +16,7 @@ The initial workspace layout is intentionally small:
 - `crates/octocode-commands` - CLI command parsing and command intent surface
 - `crates/octocode-runtime` - session, tools, permissions, workflows
 - `crates/octocode-cli` - the local CLI shell over the runtime
-- `ui-shell` - minimal VS Code-inspired static WebUI shell over exported runtime state
+- `ui-shell` - canvas-rendered interactive workbench over local backend APIs, wrapped by an embedded desktop shell
 
 Detailed planning lives under `docs/`.
 
@@ -38,6 +38,8 @@ The current repository already provides a locally runnable baseline:
 12. `octocode-cli tool write-file "path|content"`
 13. `octocode-cli ui-export ui-shell/data/app-state.json <session-id>`
 14. `octocode-cli --json <command>` for machine-readable output
+15. `octocode-cli serve <port> <session-id>` for the local backend workbench server
+16. `octocode-cli desktop <port> <session-id>` for the embedded Wry desktop shell
 
 ## Local deployment
 
@@ -52,7 +54,7 @@ Current local deployment and bootstrap documentation lives in:
 
 ## Current scope note
 
-This repository is still in the staged refactor phase. It now includes a macOS-inspired WebUI shell with a VS Code-like workbench layout, menu bar, activity bar, workspace pane, and integrated terminal, but the full Claw Code / Claude Code feature surface, Canvas shell, MCP parity, plugin parity, and provider breadth are not complete yet. The current goal is to keep the runtime core and exported UI state verifiable while the richer desktop shell and integrations are built incrementally.
+This repository is still in the staged refactor phase. It now includes a real OpenAI-compatible provider client, provider health checks with automatic local/remote/stub fallback, file-backed runtime workflow, local config writeback, a canvas-rendered workbench shell, and a Wry-based embedded desktop surface. The full Claw Code / Claude Code feature surface, MCP parity, plugin parity, and provider breadth are not complete yet. The current goal is to keep the runtime core, provider path, canvas workbench, and desktop shell verifiable while the richer integrations are built incrementally.
 
 ## UI shell notes
 
@@ -63,11 +65,17 @@ The current `ui-shell` follows these interface constraints:
 3. A centered conversation/editor surface
 4. A right-top workspace and settings pane
 5. A right-bottom integrated terminal area
+6. Direct local backend calls for chat, tool execution, settings writeback, and command palette actions
 
 To preview the current shell:
 
 1. `cargo run -p octocode-cli -- chat demo "hello octocode"`
-2. `cargo run -p octocode-cli -- ui-export ui-shell/data/app-state.json demo`
-3. `./scripts/start-webui.ps1 -Port 4173`
-4. Open `http://127.0.0.1:4173/ui-shell/`
+2. `cargo run -p octocode-cli -- serve 999 demo`
+3. or `./scripts/start-webui.ps1 -Port 999 -SessionId demo`
+4. or `cargo run -p octocode-cli -- desktop 999 demo`
+5. For browser-based verification only, open `http://127.0.0.1:999/ui-shell/`
+
+## Provider note
+
+The default local provider target is currently `http://192.168.110.2:8000/v1` with `gemma-4-31b-it-q8-prod`. Octocode now performs provider health checks and automatically falls back from `local-openai` to `remote-openai` and finally `stub` when the preferred endpoint times out or becomes unavailable. The workbench surfaces that fallback state through provider health badges, terminal logs, and session transcript entries.
 

@@ -1,5 +1,6 @@
 param(
-    [int]$Port = 4173
+    [int]$Port = 999,
+    [string]$SessionId = "demo"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -8,7 +9,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $repoRoot
 
 try {
-    python -m http.server $Port --directory .
+    cargo run -p octocode-cli -- desktop $Port $SessionId
 }
 finally {
     Pop-Location

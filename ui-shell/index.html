@@ -3,14 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Octocode UI Shell</title>
+  <title>Octocode Interactive Workbench</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./app.css?v=3" />
+  <link rel="stylesheet" href="./app.css?v=4" />
 </head>
 <body>
   <div class="desktop-canvas">
+    <canvas id="workbench-canvas" aria-hidden="true"></canvas>
     <div class="mac-window">
       <header class="menu-bar">
         <div class="menu-cluster left">
@@ -18,9 +19,7 @@
           <span class="menu-item strong">Octocode</span>
           <span class="menu-item">File</span>
           <span class="menu-item">Edit</span>
-          <span class="menu-item">Selection</span>
           <span class="menu-item">View</span>
-          <span class="menu-item">Go</span>
           <span class="menu-item">Run</span>
           <span class="menu-item">Terminal</span>
           <span class="menu-item">Help</span>
@@ -40,12 +39,13 @@
         </div>
         <div class="workspace-chip-group">
           <span class="workspace-chip active">Octocode</span>
-          <span class="workspace-chip">Workspace</span>
-          <span class="workspace-chip">Preview</span>
+          <span class="workspace-chip">Interactive</span>
+          <span class="workspace-chip">Workbench</span>
         </div>
-        <div class="command-palette-shell">
-          <input id="command-palette" type="text" value="⌘K   Open command palette, switch provider, inspect runtime" readonly />
-        </div>
+        <form id="command-form" class="command-palette-shell">
+          <input id="command-palette" name="command" type="text" placeholder="输入命令: provider local-openai / model gemma-4-31b-it-q8-prod / permission workspace-write" />
+          <button type="submit">Run</button>
+        </form>
       </section>
 
       <div class="ide-shell">
@@ -71,6 +71,7 @@
             <button class="sidebar-tab" data-view="providers" type="button">Providers</button>
             <button class="sidebar-tab" data-view="tools" type="button">Tools</button>
             <button class="sidebar-tab" data-view="commands" type="button">Commands</button>
+            <button class="sidebar-tab" data-view="settings" type="button">Settings</button>
           </div>
           <div id="sidebar-list" class="sidebar-list"></div>
         </aside>
@@ -78,8 +79,8 @@
         <main class="editor-shell">
           <div class="editor-tabs">
             <button class="editor-tab active" type="button">Conversation.md</button>
-            <button class="editor-tab" type="button">Runtime Status.json</button>
-            <button class="editor-tab" type="button">Workspace Settings</button>
+            <button class="editor-tab" type="button">Runtime.json</button>
+            <button class="editor-tab" type="button">Settings.conf</button>
           </div>
 
           <div class="content-grid">
@@ -108,6 +109,13 @@
                 <span class="breadcrumb-item active" id="breadcrumb-session">demo</span>
               </div>
               <div id="message-stream" class="message-stream"></div>
+              <form id="chat-form" class="composer-shell">
+                <textarea id="chat-input" name="text" rows="3" placeholder="在这里输入消息，直接走后端 /api/chat 和真实 provider"></textarea>
+                <div class="composer-actions">
+                  <span id="composer-session" class="form-note">session: demo</span>
+                  <button id="chat-submit" type="submit">Send</button>
+                </div>
+              </form>
             </section>
 
             <div class="right-stack">
@@ -115,7 +123,7 @@
                 <div class="panel-header compact">
                   <div>
                     <p class="eyebrow">Workspace</p>
-                    <h2>右上工作区</h2>
+                    <h2>工作区与设置</h2>
                   </div>
                   <span class="panel-badge" id="provider-id">loading</span>
                 </div>
@@ -140,23 +148,60 @@
                 <div class="workspace-sections">
                   <article class="subpanel">
                     <div class="subpanel-head">
-                      <h3>Workbench Settings</h3>
-                      <span>macOS + VS Code</span>
+                      <h3>Provider Settings</h3>
+                      <span>real config writeback</span>
                     </div>
-                    <div id="settings-list" class="settings-list"></div>
+                    <form id="settings-form" class="stack-form">
+                      <label>
+                        <span>Provider</span>
+                        <select id="setting-provider" name="providerId"></select>
+                      </label>
+                      <label>
+                        <span>Base URL</span>
+                        <input id="setting-base-url" name="providerBaseUrl" type="text" />
+                      </label>
+                      <label>
+                        <span>Model</span>
+                        <input id="setting-model" name="defaultModel" type="text" />
+                      </label>
+                      <label>
+                        <span>Permission</span>
+                        <select id="setting-permission" name="permissionMode">
+                          <option value="read-only">read-only</option>
+                          <option value="workspace-write">workspace-write</option>
+                          <option value="danger-full-access">danger-full-access</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>History Limit</span>
+                        <input id="setting-history" name="historyLimit" type="number" min="1" step="1" />
+                      </label>
+                      <button type="submit">Save Settings</button>
+                    </form>
                   </article>
                   <article class="subpanel">
                     <div class="subpanel-head">
-                      <h3>Providers</h3>
-                      <span>model surfaces</span>
+                      <h3>Tool Runner</h3>
+                      <span>session threaded</span>
+                    </div>
+                    <form id="tool-form" class="stack-form">
+                      <label>
+                        <span>Tool</span>
+                        <select id="tool-name" name="name"></select>
+                      </label>
+                      <label>
+                        <span>Input</span>
+                        <textarea id="tool-input" name="input" rows="3" placeholder="例如 . 或 README.md 或 path|content"></textarea>
+                      </label>
+                      <button type="submit">Run Tool</button>
+                    </form>
+                  </article>
+                  <article class="subpanel">
+                    <div class="subpanel-head">
+                      <h3>Capabilities</h3>
+                      <span>providers + tools + fallback</span>
                     </div>
                     <div id="provider-list" class="tag-cloud"></div>
-                  </article>
-                  <article class="subpanel">
-                    <div class="subpanel-head">
-                      <h3>Tool Access</h3>
-                      <span>permission gates</span>
-                    </div>
                     <div id="tool-list" class="tag-cloud"></div>
                   </article>
                 </div>
@@ -166,14 +211,14 @@
                 <div class="panel-header compact">
                   <div>
                     <p class="eyebrow">Terminal</p>
-                    <h2>右下终端区</h2>
+                    <h2>调用日志</h2>
                   </div>
-                  <span class="panel-badge subtle">Integrated</span>
+                  <span class="panel-badge subtle">API</span>
                 </div>
                 <div class="terminal-tabs">
-                  <span class="terminal-tab active">zsh</span>
-                  <span class="terminal-tab">Tasks</span>
-                  <span class="terminal-tab">Problems</span>
+                  <span class="terminal-tab active">events</span>
+                  <span class="terminal-tab">state</span>
+                  <span class="terminal-tab">workflow</span>
                 </div>
                 <pre id="terminal-output" class="terminal-output"></pre>
               </section>
@@ -201,6 +246,6 @@
     </article>
   </template>
 
-  <script src="./app.js?v=3"></script>
+  <script src="./app.js?v=4"></script>
 </body>
 </html>
