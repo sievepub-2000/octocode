@@ -6,6 +6,29 @@ pub enum PlatformKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ShellKind {
+    PowerShell,
+    Cmd,
+    Zsh,
+    Bash,
+    Sh,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PermissionMode {
+    ReadOnly,
+    WorkspaceWrite,
+    DangerFullAccess,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceContext {
+    pub root: String,
+    pub platform: PlatformKind,
+    pub preferred_shell: ShellKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionSummary {
     pub id: String,
     pub title: String,
@@ -32,6 +55,18 @@ pub struct ProviderDescriptor {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolCall {
+    pub name: String,
+    pub input: String,
+    pub permission: PermissionMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolResult {
+    pub output: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OctoError {
     Provider(String),
     Session(String),
@@ -45,6 +80,10 @@ pub trait ModelProvider: Send + Sync {
 
 pub trait SessionStore: Send + Sync {
     fn list_sessions(&self) -> Result<Vec<SessionSummary>, OctoError>;
+}
+
+pub trait ToolExecutor: Send + Sync {
+    fn execute(&self, call: ToolCall) -> Result<ToolResult, OctoError>;
 }
 
 impl std::fmt::Display for OctoError {
