@@ -64,6 +64,8 @@ Current local deployment and bootstrap documentation lives in:
 10. `scripts/package-desktop.sh`
 11. `scripts/package-windows-installer.ps1`
 12. `scripts/package-macos-installer.sh`
+13. `scripts/package-linux-installer.sh`
+14. `scripts/test-regression.ps1`
 
 ## Current scope note
 
@@ -84,6 +86,7 @@ The current `ui-shell` follows these interface constraints:
 9. Menu labels and placeholders can be translated through built-in locale files under `ui-shell/locales/` or a runtime locale plugin override
 10. The View > Language menu ships with four built-in locales: English, Japanese, Korean, and Chinese
 11. The terminal, provider, settings summary, tool shell, and composer summary surfaces now consume the unified runtime snapshot plus `/api/events` feed rather than reconstructing provider/runtime state inside the UI shell
+12. The composer now routes slash-commands such as `/snapshot`, `/events`, `/read`, `/list`, `/tool`, `/plan`, `/search`, and `/reload` into the same runtime snapshot/event surface used by the CLI and HTTP APIs
 
 To preview the current shell:
 
@@ -95,8 +98,10 @@ To preview the current shell:
 6. To emit a runnable desktop bundle directory, run `./scripts/package-desktop.ps1` on Windows or `./scripts/package-desktop.sh` on Unix-like systems
 7. To emit a Windows installer EXE, run `./scripts/package-windows-installer.ps1`
 8. To prepare the macOS installer path on a macOS host, run `./scripts/package-macos-installer.sh`
-9. The generated Windows installer supports silent installation with `Octocode-<version>-windows-x64-setup.exe /Q:A`
-10. The default Windows install target is `%LOCALAPPDATA%\Programs\Octocode\<version>`
+9. To prepare the Linux installer tarball path on a Linux host, run `./scripts/package-linux-installer.sh`
+10. The generated Windows installer supports silent installation with `Octocode-<version>-windows-x64-setup.exe /Q:A`
+11. The default Windows install target is `%LOCALAPPDATA%\Programs\Octocode\<version>`
+12. To run the full HTTP/WebUI regression suite against a live server, run `powershell -ExecutionPolicy Bypass -File .\scripts\test-regression.ps1 -Port 10001 -Session demo`
 
 ## Provider note
 

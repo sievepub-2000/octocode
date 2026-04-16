@@ -427,29 +427,59 @@ function drawComposerCanvas(activeSession, errorMessage) {
   composerContext.font = '500 11px JetBrains Mono';
   composerContext.fillStyle = '#67748b';
 
+  const draft = chatInput.value.trim();
+  const isSlash = !errorMessage && draft.startsWith('/');
   const latestTranscript = findLatestEvent(currentState?.eventFeed, (event) => event.scope === 'transcript');
-  const text = errorMessage || chatInput.value.trim() || latestTranscript || 'Native textarea retained as the input layer while runtime state comes from snapshot/event feed.';
-  drawWrappedText(composerContext, text, 16, 46, width - 32, 16, 3);
 
-  const metrics = [
-    `provider ${currentState?.status?.activeProviderId || '-'}`,
-    `routes ${currentState?.providerRoutes?.length || 0}`,
-    `events ${currentState?.eventFeed?.length || 0}`,
-    `messages ${activeSession?.messages?.length || 0}`,
-    `draft ${chatInput.value.length}`,
-  ];
-  metrics.forEach((metric, index) => {
-    const column = index % 3;
-    const row = Math.floor(index / 3);
-    drawStatusBadge(
-      composerContext,
-      16 + column * 122,
-      98 + row * 22,
-      row === 0 ? '#eef3ff' : '#edf8f1',
-      row === 0 ? '#4462c1' : '#2c8b63',
-      metric,
-    );
-  });
+  if (isSlash) {
+    // Slash-command mode: show command hint instead of transcript
+    const verb = draft.slice(1).split(/\s+/)[0].toLowerCase();
+    const matchedCmd = currentState?.commands?.find((command) => command.name === verb);
+    const hint = matchedCmd
+      ? `/${verb} · ${matchedCmd.summary}`
+      : `/${verb} · slash-command → /api/command`;
+    drawWrappedText(composerContext, hint, 16, 46, width - 32, 16, 1);
+
+    // Show all slash-command candidates as chips
+    const candidates = (currentState?.commands || [])
+      .filter((command) => !verb || command.name.startsWith(verb))
+      .slice(0, 5);
+    candidates.forEach((command, index) => {
+      const col = index % 3;
+      const row = Math.floor(index / 3);
+      drawStatusBadge(
+        composerContext,
+        16 + col * 122,
+        66 + row * 26,
+        '#eef3ff',
+        '#4462c1',
+        `/${command.name}`,
+      );
+    });
+  } else {
+    const text = errorMessage || draft || latestTranscript || 'Type a message to chat, or /command to invoke a slash-command.';
+    drawWrappedText(composerContext, text, 16, 46, width - 32, 16, 3);
+
+    const metrics = [
+      `provider ${currentState?.status?.activeProviderId || '-'}`,
+      `routes ${currentState?.providerRoutes?.length || 0}`,
+      `events ${currentState?.eventFeed?.length || 0}`,
+      `messages ${activeSession?.messages?.length || 0}`,
+      `draft ${chatInput.value.length}`,
+    ];
+    metrics.forEach((metric, index) => {
+      const column = index % 3;
+      const row = Math.floor(index / 3);
+      drawStatusBadge(
+        composerContext,
+        16 + column * 122,
+        98 + row * 22,
+        row === 0 ? '#eef3ff' : '#edf8f1',
+        row === 0 ? '#4462c1' : '#2c8b63',
+        metric,
+      );
+    });
+  }
 
   composerContext.fillStyle = '#78859a';
   composerContext.font = '500 10px JetBrains Mono';
@@ -467,7 +497,11 @@ function drawComposerCanvas(activeSession, errorMessage) {
 
   const sessionLabel = activeSession?.summary?.id || currentSessionId || 'demo';
   drawStatusBadge(composerContext, 16, height - 34, '#eef3ff', '#4462c1', `session ${sessionLabel}`);
-  drawStatusBadge(composerContext, 156, height - 34, '#edf8f1', '#2c8b63', `chars ${chatInput.value.length}`);
+  if (isSlash) {
+    drawStatusBadge(composerContext, 156, height - 34, '#fff4e8', '#b96a18', 'slash-cmd mode');
+  } else {
+    drawStatusBadge(composerContext, 156, height - 34, '#edf8f1', '#2c8b63', `chars ${chatInput.value.length}`);
+  }
 }
 
 async function loadLocalePlugin() {
@@ -1088,6 +1122,26 @@ async function postForm(url, fields) {
   return response.json();
 }
 
+// Slash-commands recognized in the composer — routed to /api/command instead of /api/chat
+const SLASH_COMMANDS = [
+  'plan', 'workflow', 'agent', 'repl', 'search',
+  'snapshot', 'sessions', 'status', 'events', 'health', 'circuit-log', 'doctor',
+  'history', 'read', 'list', 'write', 'tool',
+  'session-add', 'session',
+  'provider', 'model', 'permission', 'approve',
+  'reload', 'refresh',
+];
+
+function isSlashCommand(text) {
+  if (!text.startsWith('/')) return false;
+  const verb = text.slice(1).split(/\s+/)[0].toLowerCase();
+  return SLASH_COMMANDS.includes(verb);
+}
+
+function slashCommandVerb(text) {
+  return text.startsWith('/') ? text.slice(1).split(/\s+/)[0].toLowerCase() : '';
+}
+
 chatForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const text = chatInput.value.trim();
@@ -1096,17 +1150,38 @@ chatForm.addEventListener('submit', async (event) => {
   }
 
   try {
-    const state = await postForm('/api/chat', {
-      sessionId: currentSessionId,
-      text,
-    });
+    let state;
+    if (isSlashCommand(text)) {
+      const command = text.slice(1).trim();
+      const verb = slashCommandVerb(text);
+      if (verb === 'events') {
+        await refreshEventFeed(currentSessionId);
+        render(currentState);
+        chatInput.value = '';
+        return;
+      }
+      if (verb === 'snapshot' || verb === 'status' || verb === 'sessions' || verb === 'health' || verb === 'doctor' || verb === 'reload' || verb === 'refresh') {
+        await loadState(currentSessionId);
+        chatInput.value = '';
+        return;
+      }
+      state = await postForm('/api/command', {
+        sessionId: currentSessionId,
+        command,
+      });
+    } else {
+      state = await postForm('/api/chat', {
+        sessionId: currentSessionId,
+        text,
+      });
+    }
     chatInput.value = '';
     selectedMessageIndex = null;
     applyState(state, currentSessionId);
     await refreshEventFeed(currentSessionId);
   } catch (error) {
     renderTerminal(currentState || { config: {}, status: {}, workspace: {}, providerHealths: [] }, currentState?.activeSession);
-    alert(`聊天失败: ${error.message}`);
+    alert(`操作失败: ${error.message}`);
   }
 });
 

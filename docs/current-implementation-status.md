@@ -52,6 +52,11 @@
 30. Windows desktop bundle 打包链路可生成版本化产物
 31. Windows IExpress 安装器链路可生成可静默安装的 setup.exe
 32. 已安装版本的 CLI、WebUI 与核心 API 已完成真实回归
+33. Composer slash-command 已切到统一 runtime snapshot/event feed 与 `/api/command` / `/api/events` 路由
+34. macOS 安装器脚本已补齐 `.app` + `.pkg` + `.dmg` 生成链路
+35. Linux 安装器脚本已补齐 `.tar.gz` + `install.sh` 生成链路
+36. provider health probe 已加入短 TTL 缓存，snapshot / doctor / reload 等路径不再反复阻塞远端探测
+37. WebUI / HTTP 回归脚本 `scripts/test-regression.ps1` 已覆盖 chat / tool / settings / slash-command / 静态资源 / 路径防护
 
 ### 当前验证通过项
 
@@ -96,6 +101,9 @@
 39. `http://127.0.0.1:10001/api/health` 已确认输出 `items`
 40. 安装版 `/api/chat`、`/api/tool`、`/api/settings`、`/api/command` 均已完成真实 POST 验证
 41. `http://127.0.0.1:10001/ui-shell/?session=demo` 已确认输出 `sidebar-canvas` / `message-canvas` / `composer-canvas`
+42. `powershell -ExecutionPolicy Bypass -File .\scripts\test-regression.ps1 -Port 10001 -Session demo` 已完成 54/54 通过
+43. slash-command `/snapshot` `/sessions` `/status` `/events` `/health` `/doctor` `/history` `/read` `/list` `/tool` `/plan` `/search` `/reload` 已完成真实 HTTP 回归
+44. `octocode-cli --json snapshot demo` 在 provider health cache 生效后耗时已从约 24s 降到约 1.6s
 
 ## 未完成
 
@@ -103,13 +111,13 @@
 2. plugin / skills / hooks
 3. full slash-command parity
 4. Canvas UI 全量统一 runtime event bus
-5. REPL
+5. REPL 深化与多步命令组合
 6. 组件级输入命中测试仍未覆盖到设置表单等 DOM 区域
 7. VS Code / Cline / Cursor integration layer
 8. skills / plugins / hooks / MCP lifecycle
 9. 本地模型与闭源模型完整接入与 provider failover
-10. macOS 安装器与发行验证
-11. Linux/macOS 安装分发闭环
+10. macOS 原生安装验收
+11. Linux 原生安装验收与桌面入口验收
 
 ## 当前里程碑定位
 
@@ -117,8 +125,8 @@
 
 ## 当前同步状态
 
-1. 本地最新实现仍可能受 GitHub 443 传输层波动影响
-2. 当前应以本地提交与工作树状态为准确认进度
+1. `origin/master` 已同步到 `0f6e4d6`，Windows 交付基线已推送到远端
+2. 当前工作树包含后续多平台发行、UI-shell slash-command 与回归脚本增强的新增变更
 
 ## 下一阶段优先级
 
@@ -126,8 +134,9 @@
 2. 把剩余 Canvas UI 区域继续改成只消费统一 runtime snapshot/event，而不是自行回推业务逻辑
 3. 扩充 command surface 到更多 CLI parity 命令与 richer snapshot/event export
 4. REPL 与 conversation runtime 深化
-5. MCP / tools / plugin parity
-6. 从当前 Wry 桌面壳推进到发行版打包与自更新链路
+5. 在原生 macOS / Linux 主机上完成安装器验收与 smoke test
+6. MCP / tools / plugin parity
+7. 从当前 Wry 桌面壳推进到发行版打包与自更新链路
 
 ## 当前风险说明
 

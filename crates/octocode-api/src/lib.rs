@@ -14,8 +14,10 @@ const DEFAULT_REMOTE_BASE_URL: &str = "https://api.openai.com/v1";
 const DEFAULT_LOCAL_MODEL: &str = "gemma-4-31b-it-q8-prod";
 const CIRCUIT_FAILURE_THRESHOLD: u32 = 2;
 const CIRCUIT_COOLDOWN: Duration = Duration::from_secs(30);
+const HEALTH_CACHE_TTL: Duration = Duration::from_secs(5);
 
 static CIRCUIT_BREAKERS: OnceLock<Mutex<HashMap<String, CircuitState>>> = OnceLock::new();
+static HEALTH_CACHE: OnceLock<Mutex<HashMap<String, HealthCacheEntry>>> = OnceLock::new();
 
 #[derive(Clone)]
 pub enum BuiltinProvider {
@@ -66,10 +68,20 @@ struct CircuitSnapshot {
     event_log: Vec<ProviderCircuitEvent>,
 }
 
+#[derive(Clone, Debug)]
+struct HealthCacheEntry {
+    captured_at: Instant,
+    health: ProviderHealth,
+}
+
 impl StubProvider {
     fn new(descriptor: ProviderDescriptor) -> Self {
         Self { descriptor }
     }
+}
+
+fn health_cache_book() -> &'static Mutex<HashMap<String, HealthCacheEntry>> {
+    HEALTH_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 impl OpenAiCompatibleProvider {
@@ -106,9 +118,20 @@ impl OpenAiCompatibleProvider {
     }
 
     fn probe(&self) -> ProviderHealth {
+        if let Some(cached) = health_cache_book()
+            .lock()
+            .expect("health cache lock poisoned")
+            .get(&self.cache_key())
+            .cloned()
+        {
+            if cached.captured_at.elapsed() < HEALTH_CACHE_TTL {
+                return cached.health;
+            }
+        }
+
         let snapshot = self.snapshot_circuit();
         if snapshot.state == ProviderCircuitState::Open {
-            return self.health_from_snapshot(
+            let health = self.health_from_snapshot(
                 false,
                 snapshot
                     .recent_failure_reason
@@ -118,6 +141,17 @@ impl OpenAiCompatibleProvider {
                 None,
                 snapshot,
             );
+            health_cache_book()
+                .lock()
+                .expect("health cache lock poisoned")
+                .insert(
+                    self.cache_key(),
+                    HealthCacheEntry {
+                        captured_at: Instant::now(),
+                        health: health.clone(),
+                    },
+                );
+            return health;
         }
 
         let started_at = Instant::now();
@@ -125,7 +159,7 @@ impl OpenAiCompatibleProvider {
         match run_curl_request("GET", &models_url, None, self.api_token.as_deref()) {
             Ok(body) => {
                 self.reset_circuit();
-                self.health_from_snapshot(
+                let health = self.health_from_snapshot(
                     true,
                     if snapshot.state == ProviderCircuitState::HalfOpen {
                         format!("recovered {}", self.base_url)
@@ -135,17 +169,39 @@ impl OpenAiCompatibleProvider {
                     first_model_id(&body).or_else(|| self.default_model.clone()),
                     Some(started_at.elapsed().as_millis()),
                     self.snapshot_circuit(),
-                )
+                );
+                health_cache_book()
+                    .lock()
+                    .expect("health cache lock poisoned")
+                    .insert(
+                        self.cache_key(),
+                        HealthCacheEntry {
+                            captured_at: Instant::now(),
+                            health: health.clone(),
+                        },
+                    );
+                health
             }
             Err(error) => {
                 let recorded = self.record_failure(error.to_string());
-                self.health_from_snapshot(
+                let health = self.health_from_snapshot(
                     false,
                     self.circuit_detail(&recorded),
                     self.default_model.clone(),
                     Some(started_at.elapsed().as_millis()),
                     recorded,
-                )
+                );
+                health_cache_book()
+                    .lock()
+                    .expect("health cache lock poisoned")
+                    .insert(
+                        self.cache_key(),
+                        HealthCacheEntry {
+                            captured_at: Instant::now(),
+                            health: health.clone(),
+                        },
+                    );
+                health
             }
         }
     }
@@ -213,6 +269,10 @@ impl OpenAiCompatibleProvider {
             state.last_failure_reason = None;
             state.last_half_opened_at_ms = None;
         }
+        health_cache_book()
+            .lock()
+            .expect("health cache lock poisoned")
+            .remove(&self.cache_key());
     }
 
     fn record_failure(&self, detail: String) -> CircuitSnapshot {
@@ -267,6 +327,11 @@ impl OpenAiCompatibleProvider {
             }
             None => (ProviderCircuitState::Closed, None, state.last_half_opened_at_ms),
         };
+
+        health_cache_book()
+            .lock()
+            .expect("health cache lock poisoned")
+            .remove(&self.cache_key());
         CircuitSnapshot {
             state: circuit_state,
             failure_count: state.consecutive_failures,

@@ -206,6 +206,10 @@ fn handle_command(
     let mut parts = command.split_whitespace();
     let action = parts.next().unwrap_or_default();
     match action {
+        "events" => {
+            let runtime = build_runtime(workspace_root, config)?;
+            return json_response(runtime.event_feed_json(session_id.as_deref())?);
+        }
         "provider" => {
             if let Some(value) = parts.next() {
                 config.provider_id = Some(String::from(value));
@@ -238,7 +242,6 @@ fn handle_command(
                 loader.save(&config)?;
             }
         }
-        "health" => {}
         "plan" => {
             let session_id = session_id.unwrap_or_else(|| String::from("demo"));
             let input = parts.collect::<Vec<_>>().join(" ");
@@ -292,7 +295,94 @@ fn handle_command(
             )?;
             return json_response(runtime.snapshot_json(Some(&session_id))?);
         }
-        "circuit-log" => {}
+        // Read-only observability commands — fall through to snapshot at end
+        "snapshot" | "sessions" | "status" | "health" | "circuit-log" | "doctor" => {}
+        "history" => {
+            if let Some(value) = parts.next() {
+                config.history_limit = value.trim().parse::<usize>().unwrap_or(config.history_limit).max(1);
+                loader.save(&config)?;
+            }
+        }
+        "read" => {
+            let eff_session = session_id.clone().unwrap_or_else(|| String::from("demo"));
+            let input = parts.collect::<Vec<_>>().join(" ");
+            let runtime = build_runtime(workspace_root, config)?;
+            let _ = runtime.run_tool_in_session(
+                &eff_session,
+                ToolCall {
+                    name: String::from("read-file"),
+                    input: if input.is_empty() { String::from("README.md") } else { input },
+                    permission: PermissionMode::ReadOnly,
+                },
+            );
+            return json_response(runtime.snapshot_json(Some(&eff_session))?);
+        }
+        "list" => {
+            let eff_session = session_id.clone().unwrap_or_else(|| String::from("demo"));
+            let input = parts.collect::<Vec<_>>().join(" ");
+            let runtime = build_runtime(workspace_root, config)?;
+            let _ = runtime.run_tool_in_session(
+                &eff_session,
+                ToolCall {
+                    name: String::from("list-files"),
+                    input: if input.is_empty() { String::from(".") } else { input },
+                    permission: PermissionMode::ReadOnly,
+                },
+            );
+            return json_response(runtime.snapshot_json(Some(&eff_session))?);
+        }
+        "write" => {
+            let eff_session = session_id.clone().unwrap_or_else(|| String::from("demo"));
+            let remaining = parts.collect::<Vec<_>>();
+            if remaining.len() < 2 {
+                return error_response(400, "write requires: write <path> <content>");
+            }
+            let file_path = remaining[0].to_string();
+            let content = remaining[1..].join(" ");
+            let runtime = build_runtime(workspace_root, config)?;
+            let _ = runtime.run_tool_in_session(
+                &eff_session,
+                ToolCall {
+                    name: String::from("write-file"),
+                    input: format!("{file_path}|{content}"),
+                    permission: PermissionMode::WorkspaceWrite,
+                },
+            );
+            return json_response(runtime.snapshot_json(Some(&eff_session))?);
+        }
+        "tool" => {
+            let eff_session = session_id.clone().unwrap_or_else(|| String::from("demo"));
+            let tool_name = parts.next().unwrap_or("echo").to_string();
+            let input = parts.collect::<Vec<_>>().join(" ");
+            let runtime = build_runtime(workspace_root, config)?;
+            let _ = runtime.run_tool_in_session(
+                &eff_session,
+                ToolCall {
+                    name: tool_name,
+                    input,
+                    permission: PermissionMode::ReadOnly,
+                },
+            );
+            return json_response(runtime.snapshot_json(Some(&eff_session))?);
+        }
+        "session-add" => {
+            let new_id = parts.next().unwrap_or("session").to_string();
+            let title = parts.collect::<Vec<_>>().join(" ");
+            let mut runtime = build_runtime(workspace_root, config)?;
+            let _ = execute_command(
+                &mut runtime,
+                CliCommand::SessionAdd {
+                    id: new_id.clone(),
+                    title: if title.is_empty() { String::from("Session") } else { title },
+                },
+            );
+            return json_response(runtime.snapshot_json(Some(&new_id))?);
+        }
+        "session" => {
+            let target = parts.next().map(String::from).or(session_id);
+            let runtime = build_runtime(workspace_root, config)?;
+            return json_response(runtime.snapshot_json(target.as_deref())?);
+        }
         "search" => {
             let session_id = session_id.unwrap_or_else(|| String::from("demo"));
             let input = parts.collect::<Vec<_>>().join(" ");
@@ -307,7 +397,6 @@ fn handle_command(
             )?;
             return json_response(runtime.snapshot_json(Some(&session_id))?);
         }
-        "session" => {}
         "reload" | "refresh" | "" => {}
         _ => {
             return error_response(400, &format!("unsupported command: {command}"));
