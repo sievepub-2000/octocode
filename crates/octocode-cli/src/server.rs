@@ -89,6 +89,16 @@ fn route_request(
             let runtime = build_runtime(workspace_root, config)?;
             json_response(runtime.event_feed_json(session_id.as_deref())?)
         }
+        ("GET", "/api/timeline") => {
+            let session_id = request
+                .query_value("session")
+                .or(initial_session_id.clone());
+            let runtime = build_runtime(workspace_root, config)?;
+            let raw = runtime.event_feed_json(session_id.as_deref())?;
+            // Add relativeMs to each event: inject into the items array
+            // We return the raw event feed; client computes relative timing from atMs
+            json_response(raw)
+        }
         ("GET", "/api/health") => {
             let runtime = build_runtime(workspace_root, config)?;
             let body = runtime
@@ -209,6 +219,60 @@ fn handle_command(
         "events" => {
             let runtime = build_runtime(workspace_root, config)?;
             return json_response(runtime.event_feed_json(session_id.as_deref())?);
+        }
+        "pipe" => {
+            let eff_session = session_id.clone().unwrap_or_else(|| String::from("demo"));
+            let rest = parts.collect::<Vec<_>>().join(" ");
+            let step_strs: Vec<&str> = rest.split(" | ").collect();
+            let runtime = build_runtime(workspace_root, config)?;
+            let mut step_summaries: Vec<String> = Vec::new();
+            for step_raw in step_strs.iter() {
+                let step_trim = step_raw.trim();
+                if step_trim.is_empty() {
+                    continue;
+                }
+                let mut sp = step_trim.splitn(2, ' ');
+                let verb = sp.next().unwrap_or("echo");
+                let input = sp.next().unwrap_or("").to_string();
+                let tool_name_str = match verb {
+                    "read" => "read-file",
+                    "list" => "list-files",
+                    "write" => "write-file",
+                    "search" => "search-text",
+                    _ => "echo",
+                };
+                let start = std::time::Instant::now();
+                let _ = runtime.run_tool_in_session(
+                    &eff_session,
+                    ToolCall {
+                        name: String::from(tool_name_str),
+                        input: if input.is_empty() { String::from(".") } else { input.clone() },
+                        permission: PermissionMode::ReadOnly,
+                    },
+                );
+                let duration_ms = start.elapsed().as_millis();
+                let mut step_obj = String::new();
+                step_obj.push_str("{\"cmd\":\"");
+                step_obj.push_str(&escape_json(step_trim));
+                step_obj.push_str("\",\"tool\":\"");
+                step_obj.push_str(tool_name_str);
+                step_obj.push_str("\",\"durationMs\":");
+                step_obj.push_str(&duration_ms.to_string());
+                step_obj.push('}');
+                step_summaries.push(step_obj);
+            }
+            let snapshot = runtime.snapshot_json(Some(&eff_session))?;
+            let steps_json = format!("[{}]", step_summaries.join(","));
+            let mut injected = String::with_capacity(snapshot.len() + steps_json.len() + 16);
+            if snapshot.ends_with('}') {
+                injected.push_str(&snapshot[..snapshot.len() - 1]);
+                injected.push_str(",\"steps\":");
+                injected.push_str(&steps_json);
+                injected.push('}');
+            } else {
+                injected.push_str(&snapshot);
+            }
+            return json_response(injected);
         }
         "provider" => {
             if let Some(value) = parts.next() {

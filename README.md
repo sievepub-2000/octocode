@@ -87,6 +87,8 @@ The current `ui-shell` follows these interface constraints:
 10. The View > Language menu ships with four built-in locales: English, Japanese, Korean, and Chinese
 11. The terminal, provider, settings summary, tool shell, and composer summary surfaces now consume the unified runtime snapshot plus `/api/events` feed rather than reconstructing provider/runtime state inside the UI shell
 12. The composer now routes slash-commands such as `/snapshot`, `/events`, `/read`, `/list`, `/tool`, `/plan`, `/search`, and `/reload` into the same runtime snapshot/event surface used by the CLI and HTTP APIs
+13. The composer also supports simple multi-step slash pipelines like `/read README.md | list .`, which are normalized into a structured `pipe` command response with per-step timing
+14. The terminal pane now exposes `events`, `state`, and `workflow` views, all derived from the same unified snapshot plus event feed surface
 
 To preview the current shell:
 
@@ -102,6 +104,7 @@ To preview the current shell:
 10. The generated Windows installer supports silent installation with `Octocode-<version>-windows-x64-setup.exe /Q:A`
 11. The default Windows install target is `%LOCALAPPDATA%\Programs\Octocode\<version>`
 12. To run the full HTTP/WebUI regression suite against a live server, run `powershell -ExecutionPolicy Bypass -File .\scripts\test-regression.ps1 -Port 10001 -Session demo`
+13. The regression suite now also checks `/api/timeline`, structured `pipe` responses, and workflow timeline rendering hooks in `ui-shell/app.js`
 
 ## Provider note
 

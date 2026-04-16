@@ -60,6 +60,7 @@ const toolCanvas = document.querySelector('#tool-canvas');
 const toolContext = toolCanvas.getContext('2d');
 const toolName = document.querySelector('#tool-name');
 const toolInput = document.querySelector('#tool-input');
+const terminalTabs = Array.from(document.querySelectorAll('.terminal-tab'));
 
 const urlState = new URL(window.location.href);
 const localeElements = Array.from(document.querySelectorAll('[data-i18n]'));
@@ -80,6 +81,9 @@ let messageContentHeight = 0;
 let messageHitRegions = [];
 let currentEventFeed = [];
 let activeLocale = 'zh-CN';
+let activeTerminalTab = 'events';
+let lastSettingsSaveAt = null;
+let lastToolRun = null; // { name, input, output, durationMs }
 
 async function loadState(sessionId = currentSessionId) {
   updateClock();
@@ -120,7 +124,7 @@ async function refreshEventFeed(sessionId = currentSessionId) {
   currentEventFeed = payload.items || [];
   if (currentState) {
     currentState.eventFeed = currentEventFeed;
-    renderTerminal(currentState, currentState.activeSession);
+    renderTerminalContent();
   }
 }
 
@@ -168,7 +172,7 @@ function render(state) {
   renderSettings(state);
   renderSidebar(state, currentView, sessionId);
   renderMessages(activeSession?.messages || []);
-  renderTerminal(state, activeSession);
+  renderTerminalContent();
   drawWorkspaceCanvas(state);
   drawToolCanvas(state);
   drawComposerCanvas(activeSession);
@@ -318,6 +322,73 @@ function renderTerminal(state, activeSession) {
   drawTerminalCanvas(terminalOutput.textContent.split('\n'));
 }
 
+// Dispatch to the active terminal tab's renderer
+function renderTerminalContent() {
+  if (!currentState) return;
+  if (activeTerminalTab === 'state') {
+    renderStateTab(currentState);
+  } else if (activeTerminalTab === 'workflow') {
+    renderWorkflowTab(currentState);
+  } else {
+    renderTerminal(currentState, currentState.activeSession);
+  }
+}
+
+// "state" tab: compact snapshot summary
+function renderStateTab(state) {
+  const lines = [
+    '[status]',
+    `  provider : ${state.status.activeProviderId || '-'}`,
+    `  circuit  : ${state.status.providerCircuit?.circuitState || '-'}`,
+    `  permission: ${state.status.permissionMode}`,
+    `  sessions : ${state.status.sessionCount}`,
+    '',
+    '[config]',
+    `  model    : ${state.config.defaultModel || '-'}`,
+    `  history  : ${state.config.historyLimit}`,
+    `  base-url : ${state.config.providerBaseUrl || '-'}`,
+    '',
+    '[workspace]',
+    `  root     : ${state.workspace.root}`,
+    `  shell    : ${state.workspace.shell}`,
+    `  platform : ${state.workspace.platform}`,
+    '',
+    '[routes]',
+    ...(state.providerRoutes || []).map(
+      (r) => `  ${r.providerId} ${r.circuitState} ${r.healthy ? '✓' : '✗'} ${r.isActive ? 'active' : 'standby'}`
+    ),
+  ];
+  terminalOutput.textContent = lines.join('\n');
+  drawTerminalCanvas(lines);
+}
+
+// "workflow" tab: event timeline + pipeline steps if available
+function renderWorkflowTab(state) {
+  const events = state.eventFeed || currentEventFeed || [];
+  const steps = state.steps || [];
+
+  const lines = ['[timeline]'];
+  if (events.length) {
+    const firstMs = events.find((e) => e.atMs)?.atMs || 0;
+    events.forEach((event) => {
+      const rel = event.atMs != null ? `+${event.atMs - firstMs}ms` : '+?ms';
+      lines.push(`${String(rel).padStart(10)} [${event.scope}] ${event.message}`);
+    });
+  } else {
+    lines.push('  (no events yet — run a command or tool)');
+  }
+
+  if (steps.length) {
+    lines.push('', '[pipeline steps]');
+    steps.forEach((step, i) => {
+      lines.push(`  ${i + 1}. ${step.cmd} → ${step.tool} (${step.durationMs}ms)`);
+    });
+  }
+
+  terminalOutput.textContent = lines.join('\n');
+  drawTerminalCanvas(lines);
+}
+
 function renderError(error) {
   providerId.textContent = 'offline';
   sessionTitle.textContent = '交互状态加载失败';
@@ -402,16 +473,22 @@ function drawToolCanvas(state, errorMessage) {
   const runtimeTool = parseToolNameFromEvent(latestToolEvent) || state.tools[0]?.name || 'echo';
   const runtimeSummary = state.tools.find((tool) => tool.name === runtimeTool)?.summary || 'runtime tool summary unavailable';
   const pendingTool = toolName.value || runtimeTool;
-  drawWrappedText(toolContext, `${runtimeTool} · ${runtimeSummary}`, 16, 48, width - 32, 16, 2);
-  drawWrappedText(
-    toolContext,
-    latestToolEvent || 'Runtime tool activity will appear here after the next tool call.',
-    16,
-    86,
-    width - 32,
-    16,
-    3
-  );
+
+  if (lastToolRun) {
+    drawWrappedText(toolContext, `${lastToolRun.name} (${lastToolRun.durationMs}ms) · input: ${lastToolRun.input}`, 16, 48, width - 32, 16, 1);
+    drawWrappedText(toolContext, `result: ${lastToolRun.output}`, 16, 70, width - 32, 14, 3);
+  } else {
+    drawWrappedText(toolContext, `${runtimeTool} · ${runtimeSummary}`, 16, 48, width - 32, 16, 2);
+    drawWrappedText(
+      toolContext,
+      latestToolEvent || 'Runtime tool activity will appear here after the next tool call.',
+      16,
+      86,
+      width - 32,
+      16,
+      3
+    );
+  }
   drawStatusBadge(toolContext, 16, height - 34, '#eef3ff', '#4462c1', `runtime ${runtimeTool}`);
   drawStatusBadge(toolContext, 156, height - 34, '#edf8f1', '#2c8b63', `pending ${pendingTool}`);
   drawStatusBadge(toolContext, 296, height - 34, '#fff4e8', '#b96a18', `permission ${state.config.permissionMode}`);
@@ -434,28 +511,48 @@ function drawComposerCanvas(activeSession, errorMessage) {
   if (isSlash) {
     // Slash-command mode: show command hint instead of transcript
     const verb = draft.slice(1).split(/\s+/)[0].toLowerCase();
-    const matchedCmd = currentState?.commands?.find((command) => command.name === verb);
-    const hint = matchedCmd
-      ? `/${verb} · ${matchedCmd.summary}`
-      : `/${verb} · slash-command → /api/command`;
-    drawWrappedText(composerContext, hint, 16, 46, width - 32, 16, 1);
+    const isPipeline = draft.includes(' | ');
 
-    // Show all slash-command candidates as chips
-    const candidates = (currentState?.commands || [])
-      .filter((command) => !verb || command.name.startsWith(verb))
-      .slice(0, 5);
-    candidates.forEach((command, index) => {
-      const col = index % 3;
-      const row = Math.floor(index / 3);
-      drawStatusBadge(
-        composerContext,
-        16 + col * 122,
-        66 + row * 26,
-        '#eef3ff',
-        '#4462c1',
-        `/${command.name}`,
-      );
-    });
+    if (isPipeline) {
+      // Pipeline mode: show stages
+      const stages = draft.slice(1).split(' | ');
+      drawWrappedText(composerContext, `pipeline · ${stages.length} steps`, 16, 46, width - 32, 16, 1);
+      stages.forEach((stage, idx) => {
+        const col = idx % 3;
+        const row = Math.floor(idx / 3);
+        drawStatusBadge(
+          composerContext,
+          16 + col * 122,
+          66 + row * 26,
+          '#f0eeff',
+          '#5b44c8',
+          `${idx + 1}: ${stage.trim().slice(0, 12)}`,
+        );
+      });
+    } else {
+      const matchedCmd = currentState?.commands?.find((command) => command.name === verb);
+      const hint = matchedCmd
+        ? `/${verb} · ${matchedCmd.summary}`
+        : `/${verb} · slash-command → /api/command`;
+      drawWrappedText(composerContext, hint, 16, 46, width - 32, 16, 1);
+
+      // Show all slash-command candidates as chips
+      const candidates = (currentState?.commands || [])
+        .filter((command) => !verb || command.name.startsWith(verb))
+        .slice(0, 5);
+      candidates.forEach((command, index) => {
+        const col = index % 3;
+        const row = Math.floor(index / 3);
+        drawStatusBadge(
+          composerContext,
+          16 + col * 122,
+          66 + row * 26,
+          '#eef3ff',
+          '#4462c1',
+          `/${command.name}`,
+        );
+      });
+    }
   } else {
     const text = errorMessage || draft || latestTranscript || 'Type a message to chat, or /command to invoke a slash-command.';
     drawWrappedText(composerContext, text, 16, 46, width - 32, 16, 3);
@@ -498,7 +595,8 @@ function drawComposerCanvas(activeSession, errorMessage) {
   const sessionLabel = activeSession?.summary?.id || currentSessionId || 'demo';
   drawStatusBadge(composerContext, 16, height - 34, '#eef3ff', '#4462c1', `session ${sessionLabel}`);
   if (isSlash) {
-    drawStatusBadge(composerContext, 156, height - 34, '#fff4e8', '#b96a18', 'slash-cmd mode');
+    const isPipelineBadge = draft.includes(' | ');
+    drawStatusBadge(composerContext, 156, height - 34, isPipelineBadge ? '#f0eeff' : '#fff4e8', isPipelineBadge ? '#5b44c8' : '#b96a18', isPipelineBadge ? 'pipeline mode' : 'slash-cmd mode');
   } else {
     drawStatusBadge(composerContext, 156, height - 34, '#edf8f1', '#2c8b63', `chars ${chatInput.value.length}`);
   }
@@ -648,7 +746,10 @@ function drawSettingsCanvas(state, errorMessage) {
 
   drawStatusBadge(settingsContext, 16, height - 34, '#eef3ff', '#4462c1', `active ${state.status.activeProviderId || '-'}`);
   drawStatusBadge(settingsContext, 150, height - 34, '#edf8f1', '#2c8b63', `routes ${state.providerRoutes?.length || 0}`);
-  drawStatusBadge(settingsContext, 274, height - 34, '#fff4e8', '#b96a18', `events ${state.eventFeed?.length || 0}`);
+  const saveLabel = lastSettingsSaveAt
+    ? `saved ${lastSettingsSaveAt.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
+    : `events ${state.eventFeed?.length || 0}`;
+  drawStatusBadge(settingsContext, 274, height - 34, lastSettingsSaveAt ? '#edf8f1' : '#fff4e8', lastSettingsSaveAt ? '#2c8b63' : '#b96a18', saveLabel);
 }
 
 function drawTerminalCanvas(lines) {
@@ -1124,7 +1225,7 @@ async function postForm(url, fields) {
 
 // Slash-commands recognized in the composer — routed to /api/command instead of /api/chat
 const SLASH_COMMANDS = [
-  'plan', 'workflow', 'agent', 'repl', 'search',
+  'plan', 'workflow', 'agent', 'repl', 'search', 'pipe',
   'snapshot', 'sessions', 'status', 'events', 'health', 'circuit-log', 'doctor',
   'history', 'read', 'list', 'write', 'tool',
   'session-add', 'session',
@@ -1165,10 +1266,18 @@ chatForm.addEventListener('submit', async (event) => {
         chatInput.value = '';
         return;
       }
-      state = await postForm('/api/command', {
-        sessionId: currentSessionId,
-        command,
-      });
+      // Pipeline: send as /api/command pipe <steps>
+      if (command.includes(' | ')) {
+        state = await postForm('/api/command', {
+          sessionId: currentSessionId,
+          command: `pipe ${command}`,
+        });
+      } else {
+        state = await postForm('/api/command', {
+          sessionId: currentSessionId,
+          command,
+        });
+      }
     } else {
       state = await postForm('/api/chat', {
         sessionId: currentSessionId,
@@ -1201,8 +1310,10 @@ settingsForm.addEventListener('submit', async (event) => {
       permissionMode: settingPermission.value,
       historyLimit: settingHistory.value,
     });
+    lastSettingsSaveAt = new Date();
     applyState(state, currentSessionId);
     await refreshEventFeed(currentSessionId);
+    drawSettingsCanvas(currentState);
   } catch (error) {
     alert(`保存设置失败: ${error.message}`);
   }
@@ -1211,13 +1322,24 @@ settingsForm.addEventListener('submit', async (event) => {
 toolForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   try {
+    const toolStart = Date.now();
     const state = await postForm('/api/tool', {
       sessionId: currentSessionId,
       name: toolName.value,
       input: toolInput.value,
     });
+    const toolDurationMs = Date.now() - toolStart;
+    // Extract latest tool result from event feed
+    const latestToolEvent = (state.eventFeed || []).slice().reverse().find((e) => e.scope === 'transcript');
+    lastToolRun = {
+      name: toolName.value,
+      input: toolInput.value,
+      output: latestToolEvent?.message || '(no output)',
+      durationMs: toolDurationMs,
+    };
     applyState(state, currentSessionId);
     await refreshEventFeed(currentSessionId);
+    drawToolCanvas(currentState);
   } catch (error) {
     alert(`工具执行失败: ${error.message}`);
   }
@@ -1245,6 +1367,14 @@ commandForm.addEventListener('submit', async (event) => {
 });
 
 commandPalette.addEventListener('input', () => drawCommandPreviewCanvas());
+
+terminalTabs.forEach((tab) => {
+  tab.addEventListener('click', () => {
+    activeTerminalTab = tab.dataset.tab || 'events';
+    terminalTabs.forEach((t) => t.classList.toggle('active', t === tab));
+    renderTerminalContent();
+  });
+});
 
 [...sidebarTabs, ...activityButtons].forEach((control) => {
   control.addEventListener('click', () => {

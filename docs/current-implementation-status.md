@@ -57,6 +57,8 @@
 35. Linux 安装器脚本已补齐 `.tar.gz` + `install.sh` 生成链路
 36. provider health probe 已加入短 TTL 缓存，snapshot / doctor / reload 等路径不再反复阻塞远端探测
 37. WebUI / HTTP 回归脚本 `scripts/test-regression.ps1` 已覆盖 chat / tool / settings / slash-command / 静态资源 / 路径防护
+38. Canvas settings / tool / terminal tabs 已进一步收口到统一 snapshot + event feed，并补齐 workflow 时间线视图
+39. REPL / slash-command 新增 `pipe` 多步命令组合，HTTP 响应会返回结构化 `steps` 结果与每步耗时
 
 ### 当前验证通过项
 
@@ -104,6 +106,8 @@
 42. `powershell -ExecutionPolicy Bypass -File .\scripts\test-regression.ps1 -Port 10001 -Session demo` 已完成 54/54 通过
 43. slash-command `/snapshot` `/sessions` `/status` `/events` `/health` `/doctor` `/history` `/read` `/list` `/tool` `/plan` `/search` `/reload` 已完成真实 HTTP 回归
 44. `octocode-cli --json snapshot demo` 在 provider health cache 生效后耗时已从约 24s 降到约 1.6s
+45. `http://127.0.0.1:10001/api/timeline?session=demo` 已确认输出 `items`
+46. slash-command `pipe read README.md | list .` 已确认返回结构化 `steps` 数组
 
 ## 未完成
 
@@ -111,7 +115,7 @@
 2. plugin / skills / hooks
 3. full slash-command parity
 4. Canvas UI 全量统一 runtime event bus
-5. REPL 深化与多步命令组合
+5. REPL 深化与多步命令组合仍可继续扩展到更丰富的条件、分支与 agent/workflow 协调
 6. 组件级输入命中测试仍未覆盖到设置表单等 DOM 区域
 7. VS Code / Cline / Cursor integration layer
 8. skills / plugins / hooks / MCP lifecycle
@@ -125,8 +129,8 @@
 
 ## 当前同步状态
 
-1. `origin/master` 已同步到 `0f6e4d6`，Windows 交付基线已推送到远端
-2. 当前工作树包含后续多平台发行、UI-shell slash-command 与回归脚本增强的新增变更
+1. `origin/master` 已同步到 `0351240`，运行时统一 surface、多平台打包链路与 54/54 回归基线已推送到远端
+2. 当前工作树正在追加 settings/tool 面板继续收口、`pipe` 多步命令与 workflow timeline 可观测性增强
 
 ## 下一阶段优先级
 

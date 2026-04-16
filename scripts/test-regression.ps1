@@ -119,6 +119,17 @@ try {
 }
 
 # ──────────────────────────────────────────
+# 3b. Timeline
+# ──────────────────────────────────────────
+Write-Host "-- 3b. GET /api/timeline" -ForegroundColor Yellow
+try {
+    $timeline = Invoke-RestMethod -Uri "$base/api/timeline?session=$Session"
+    Assert ($null -ne $timeline.items) "timeline.items present"
+} catch {
+    Write-Fail "GET /api/timeline" $_.Exception.Message
+}
+
+# ──────────────────────────────────────────
 # 4. Chat
 # ──────────────────────────────────────────
 Write-Host "-- 4. POST /api/chat" -ForegroundColor Yellow
@@ -211,12 +222,18 @@ $slashTests += @{ cmd="list .";               label="list . appends list-files e
 $slashTests += @{ cmd="tool echo hello";      label="tool echo runs tool" }
 $slashTests += @{ cmd="plan regression step"; label="plan appends workflow-plan" }
 $slashTests += @{ cmd="search TODO";          label="search appends search-text" }
+$slashTests += @{ cmd="pipe read README.md | list ."; label="pipe returns structured steps" }
 $slashTests += @{ cmd="reload";               label="reload returns snapshot" }
 
 foreach ($test in $slashTests) {
     try {
         $r = PostForm "$base/api/command" @{ sessionId=$Session; command=$test.cmd }
-        Assert ($null -ne $r.status) $test.label
+        if ($test.cmd -eq "pipe read README.md | list .") {
+            Assert ($null -ne $r.status) $test.label
+            Assert ($r.steps.Count -eq 2) "pipe exposes 2 structured steps" "got $($r.steps.Count)"
+        } else {
+            Assert ($null -ne $r.status) $test.label
+        }
     } catch {
         Write-Fail $test.label $_.Exception.Message
     }
@@ -266,6 +283,8 @@ try {
     Assert ($js -match '/api/command') "/api/command referenced in app.js"
     Assert ($js -match 'drawComposerCanvas') "drawComposerCanvas function present"
     Assert ($js -match 'findLatestEvent') "findLatestEvent function present"
+    Assert ($js -match 'renderWorkflowTab') "workflow timeline renderer present"
+    Assert ($js -match 'activeTerminalTab') "terminal tab state present"
 } catch {
     Write-Fail "GET /ui-shell/app.js" $_.Exception.Message
 }
@@ -317,7 +336,7 @@ if ($fail -gt 0) {
 Write-Host "==============================" -ForegroundColor Cyan
 
 # Stop server if we started it
-if ($StopServerAfter -and $serverProcess -ne $null) {
+if ($StopServerAfter -and $null -ne $serverProcess) {
     Write-Host "Stopping server (PID $($serverProcess.Id))"
     $serverProcess | Stop-Process -Force
 }
