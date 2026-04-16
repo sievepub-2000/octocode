@@ -32,6 +32,9 @@ const composerSession = document.querySelector('#composer-session');
 const menuProvider = document.querySelector('#menu-provider');
 const menuPlatform = document.querySelector('#menu-platform');
 const menuTime = document.querySelector('#menu-time');
+const viewMenuButton = document.querySelector('#view-menu-button');
+const viewLanguageMenu = document.querySelector('#view-language-menu');
+const localeButtons = Array.from(document.querySelectorAll('[data-locale]'));
 const statusBranch = document.querySelector('#status-branch');
 const statusProvider = document.querySelector('#status-provider');
 const statusWorkspace = document.querySelector('#status-workspace');
@@ -58,6 +61,9 @@ const toolName = document.querySelector('#tool-name');
 const toolInput = document.querySelector('#tool-input');
 
 const urlState = new URL(window.location.href);
+const localeElements = Array.from(document.querySelectorAll('[data-i18n]'));
+const localePlaceholders = Array.from(document.querySelectorAll('[data-i18n-placeholder]'));
+const builtInLocales = ['en-US', 'ja-JP', 'ko-KR', 'zh-CN'];
 
 let currentState = null;
 let currentView = 'sessions';
@@ -72,6 +78,19 @@ let messageScrollOffset = 0;
 let messageContentHeight = 0;
 let messageHitRegions = [];
 const eventLog = [];
+let activeLocale = 'zh-CN';
+const composerDiagnostics = {
+  composing: false,
+  compositionCommits: 0,
+  compositionUpdates: 0,
+  pasteCount: 0,
+  undoCount: 0,
+  redoCount: 0,
+  lineBreakCount: 0,
+  lastInputType: 'insertText',
+  lastComposition: '',
+  recentEvents: [],
+};
 
 async function loadState(sessionId = currentSessionId) {
   updateClock();
@@ -395,11 +414,129 @@ function drawComposerCanvas(activeSession, errorMessage) {
   composerContext.fillStyle = '#67748b';
 
   const text = errorMessage || chatInput.value.trim() || 'Native textarea retained for IME-safe input while the shell is canvas-rendered.';
-  drawWrappedText(composerContext, text, 16, 46, width - 32, 16, 4);
+  drawWrappedText(composerContext, text, 16, 46, width - 32, 16, 3);
+
+  const metrics = [
+    `IME ${composerDiagnostics.composing ? 'active' : 'idle'}`,
+    `commit ${composerDiagnostics.compositionCommits}`,
+    `undo ${composerDiagnostics.undoCount}`,
+    `paste ${composerDiagnostics.pasteCount}`,
+    `multi ${composerDiagnostics.lineBreakCount}`,
+  ];
+  metrics.forEach((metric, index) => {
+    const column = index % 3;
+    const row = Math.floor(index / 3);
+    drawStatusBadge(
+      composerContext,
+      16 + column * 122,
+      98 + row * 22,
+      row === 0 ? '#eef3ff' : '#edf8f1',
+      row === 0 ? '#4462c1' : '#2c8b63',
+      metric,
+    );
+  });
+
+  composerContext.fillStyle = '#78859a';
+  composerContext.font = '500 10px JetBrains Mono';
+  drawWrappedText(
+    composerContext,
+    `lastInputType=${composerDiagnostics.lastInputType} lastComposition=${composerDiagnostics.lastComposition || '-'} ` +
+      `events=${composerDiagnostics.recentEvents.join(' | ') || '-'}`,
+    16,
+    146,
+    width - 32,
+    14,
+    3,
+  );
 
   const sessionLabel = activeSession?.summary?.id || currentSessionId || 'demo';
   drawStatusBadge(composerContext, 16, height - 34, '#eef3ff', '#4462c1', `session ${sessionLabel}`);
   drawStatusBadge(composerContext, 156, height - 34, '#edf8f1', '#2c8b63', `chars ${chatInput.value.length}`);
+}
+
+async function loadLocalePlugin() {
+  const pluginUrl = urlState.searchParams.get('localePlugin');
+  const requestedLocale = urlState.searchParams.get('locale') || navigator.language || 'zh-CN';
+  activeLocale = resolveSupportedLocale(requestedLocale);
+  const candidates = pluginUrl ? [pluginUrl] : [`/ui-shell/locales/${activeLocale}.json`, '/ui-shell/locales/en-US.json'];
+
+  for (const candidate of candidates) {
+    try {
+      const response = await fetch(candidate, { cache: 'no-store' });
+      if (!response.ok) {
+        continue;
+      }
+      const messages = await response.json();
+      applyLocaleMessages(messages);
+      return;
+    } catch (error) {
+      logEvent(`locale load failed: ${candidate}`);
+    }
+  }
+}
+
+function applyLocaleMessages(messages) {
+  localeElements.forEach((element) => {
+    const key = element.dataset.i18n;
+    if (messages[key]) {
+      element.textContent = messages[key];
+    }
+  });
+  localePlaceholders.forEach((element) => {
+    const key = element.dataset.i18nPlaceholder;
+    if (messages[key]) {
+      element.placeholder = messages[key];
+    }
+  });
+  syncLocaleControls();
+}
+
+function resolveSupportedLocale(locale) {
+  if (!locale) {
+    return 'zh-CN';
+  }
+  if (builtInLocales.includes(locale)) {
+    return locale;
+  }
+  if (locale.startsWith('zh')) {
+    return 'zh-CN';
+  }
+  if (locale.startsWith('ja')) {
+    return 'ja-JP';
+  }
+  if (locale.startsWith('ko')) {
+    return 'ko-KR';
+  }
+  return 'en-US';
+}
+
+function syncLocaleControls() {
+  localeButtons.forEach((button) => {
+    const isActive = button.dataset.locale === activeLocale;
+    button.classList.toggle('active', isActive);
+    button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  });
+}
+
+function toggleViewLanguageMenu(forceOpen) {
+  const nextState = typeof forceOpen === 'boolean' ? forceOpen : viewLanguageMenu.hidden;
+  viewLanguageMenu.hidden = !nextState;
+  viewMenuButton.setAttribute('aria-expanded', nextState ? 'true' : 'false');
+}
+
+async function setActiveLocale(locale) {
+  activeLocale = resolveSupportedLocale(locale);
+  urlState.searchParams.set('locale', activeLocale);
+  window.history.replaceState({}, '', urlState);
+  await loadLocalePlugin();
+  toggleViewLanguageMenu(false);
+}
+
+function pushComposerDiagnostic(label) {
+  composerDiagnostics.recentEvents.unshift(label);
+  if (composerDiagnostics.recentEvents.length > 4) {
+    composerDiagnostics.recentEvents.length = 4;
+  }
 }
 
 function drawCommandPreviewCanvas(overrideHint) {
@@ -951,6 +1088,43 @@ chatForm.addEventListener('submit', async (event) => {
 });
 
 chatInput.addEventListener('input', () => drawComposerCanvas(currentState?.activeSession));
+chatInput.addEventListener('compositionstart', () => {
+  composerDiagnostics.composing = true;
+  pushComposerDiagnostic('compositionstart');
+  drawComposerCanvas(currentState?.activeSession);
+});
+chatInput.addEventListener('compositionupdate', (event) => {
+  composerDiagnostics.compositionUpdates += 1;
+  composerDiagnostics.lastComposition = event.data || '';
+  pushComposerDiagnostic(`update:${truncateUiText(event.data || '-', 10)}`);
+  drawComposerCanvas(currentState?.activeSession);
+});
+chatInput.addEventListener('compositionend', (event) => {
+  composerDiagnostics.composing = false;
+  composerDiagnostics.compositionCommits += 1;
+  composerDiagnostics.lastComposition = event.data || '';
+  pushComposerDiagnostic(`commit:${truncateUiText(event.data || '-', 10)}`);
+  drawComposerCanvas(currentState?.activeSession);
+});
+chatInput.addEventListener('beforeinput', (event) => {
+  composerDiagnostics.lastInputType = event.inputType || 'unknown';
+  if (event.inputType === 'historyUndo') {
+    composerDiagnostics.undoCount += 1;
+  } else if (event.inputType === 'historyRedo') {
+    composerDiagnostics.redoCount += 1;
+  } else if (event.inputType === 'insertFromPaste') {
+    composerDiagnostics.pasteCount += 1;
+  } else if (event.inputType === 'insertLineBreak') {
+    composerDiagnostics.lineBreakCount += 1;
+  }
+  pushComposerDiagnostic(event.inputType || 'beforeinput');
+  drawComposerCanvas(currentState?.activeSession);
+});
+chatInput.addEventListener('paste', () => {
+  composerDiagnostics.pasteCount += 1;
+  pushComposerDiagnostic('paste');
+  drawComposerCanvas(currentState?.activeSession);
+});
 
 settingsForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -1055,6 +1229,19 @@ messageCanvas.addEventListener(
 );
 
 refreshButton.addEventListener('click', () => loadState(currentSessionId));
+viewMenuButton.addEventListener('click', () => {
+  toggleViewLanguageMenu();
+});
+localeButtons.forEach((button) => {
+  button.addEventListener('click', async () => {
+    await setActiveLocale(button.dataset.locale || 'zh-CN');
+  });
+});
+document.addEventListener('click', (event) => {
+  if (!viewLanguageMenu.contains(event.target) && !viewMenuButton.contains(event.target)) {
+    toggleViewLanguageMenu(false);
+  }
+});
 window.addEventListener('resize', () => {
   drawWorkbench(currentState, currentState?.status?.providerHealth, currentState?.activeSession);
   drawSidebarCanvas();
@@ -1068,4 +1255,12 @@ window.addEventListener('resize', () => {
 });
 
 setInterval(updateClock, 60_000);
+loadLocalePlugin();
 loadState();
+
+function truncateUiText(value, maxLen) {
+  if (value.length <= maxLen) {
+    return value;
+  }
+  return `${value.slice(0, maxLen)}...`;
+}

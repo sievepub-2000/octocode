@@ -10,6 +10,12 @@ $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $scriptRoot
 Set-Location $repoRoot
 
+$cargoToml = Get-Content (Join-Path $repoRoot "Cargo.toml") -Raw
+if ($cargoToml -notmatch 'version\s*=\s*"([^"]+)"') {
+  throw "failed to resolve workspace version from Cargo.toml"
+}
+$version = $matches[1]
+
 $cargoArgs = @("build", "-p", "octocode-cli")
 if ($Profile -eq "release") {
   $cargoArgs += "--release"
@@ -21,7 +27,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $profileDir = if ($Profile -eq "release") { "release" } else { "debug" }
-$bundleRoot = Join-Path $repoRoot "out/desktop/octocode-windows-x64"
+$bundleName = "octocode-v$version-windows-x64"
+$bundleRoot = Join-Path $repoRoot "out/desktop/$bundleName"
 $appRoot = Join-Path $bundleRoot "app"
 
 if (Test-Path $bundleRoot) {
@@ -33,6 +40,22 @@ Copy-Item (Join-Path $repoRoot "target/$profileDir/octocode-cli.exe") (Join-Path
 Copy-Item (Join-Path $repoRoot "ui-shell") (Join-Path $appRoot "ui-shell") -Recurse -Force
 Copy-Item (Join-Path $repoRoot "README.md") (Join-Path $appRoot "README.md") -Force
 
+$startupDoc = @"
+Octocode Desktop Bundle
+Version: $version
+Profile: $Profile
+
+Start:
+  1. Run start-octocode-desktop.cmd
+  2. Or open app\\octocode-cli.exe and run: octocode-cli.exe desktop $Port $SessionId
+
+Bundle layout:
+  app\\octocode-cli.exe    Desktop and CLI entrypoint
+  app\\ui-shell            Canvas workbench assets
+  bundle-manifest.json     Build metadata
+"@
+Set-Content -Path (Join-Path $bundleRoot "START-HERE.txt") -Value $startupDoc -Encoding ASCII
+
 $launcher = @"
 @echo off
 setlocal
@@ -42,6 +65,8 @@ octocode-cli.exe desktop $Port $SessionId
 Set-Content -Path (Join-Path $bundleRoot "start-octocode-desktop.cmd") -Value $launcher -Encoding ASCII
 
 $manifest = @{
+  version = $version
+  bundle = $bundleName
   profile = $Profile
   sessionId = $SessionId
   port = $Port

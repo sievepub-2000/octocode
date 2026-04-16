@@ -158,6 +158,71 @@ select:focus {
   color: var(--ink-soft) !important;
 }
 
+.menu-trigger {
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+}
+
+.menu-dropdown {
+  position: relative !important;
+}
+
+.menu-dropdown-panel {
+  position: absolute !important;
+  top: calc(100% + 10px) !important;
+  left: 0 !important;
+  min-width: 184px !important;
+  padding: 10px !important;
+  border-radius: 16px !important;
+  border: 1px solid rgba(201, 209, 224, 0.95) !important;
+  background: rgba(255, 255, 255, 0.97) !important;
+  box-shadow: 0 16px 40px rgba(31, 45, 74, 0.16) !important;
+  backdrop-filter: blur(18px) !important;
+  z-index: 12 !important;
+}
+
+.menu-dropdown-group {
+  display: grid !important;
+  gap: 6px !important;
+}
+
+.menu-dropdown-label {
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 0.72rem !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.08em !important;
+  color: #7b879b !important;
+  padding: 2px 6px !important;
+}
+
+.menu-dropdown-item {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  width: 100% !important;
+  padding: 8px 10px !important;
+  border: 1px solid transparent !important;
+  border-radius: 12px !important;
+  background: transparent !important;
+  color: var(--ink) !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 0.78rem !important;
+  text-align: left !important;
+}
+
+.menu-dropdown-item:hover,
+.menu-dropdown-item:focus-visible {
+  background: var(--surface-2) !important;
+  border-color: rgba(201, 209, 224, 0.9) !important;
+}
+
+.menu-dropdown-item.active {
+  background: var(--blue-soft) !important;
+  border-color: rgba(91, 125, 245, 0.22) !important;
+  color: #2845b9 !important;
+}
+
 .menu-item.strong {
   color: var(--ink) !important;
   font-weight: 700 !important;
@@ -234,6 +299,14 @@ select:focus {
   color: #fff !important;
   background: linear-gradient(135deg, var(--blue), #8da5ff) !important;
   border-color: transparent !important;
+}
+
+.brand-icon {
+  width: 18px !important;
+  height: 18px !important;
+  display: inline-block !important;
+  margin-right: 4px !important;
+  vertical-align: middle !important;
 }
 
 .command-palette-shell {

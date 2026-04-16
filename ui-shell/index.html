@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Octocode Interactive Workbench</title>
+  <link rel="icon" type="image/svg+xml" href="./assets/octocode-icon.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
@@ -15,14 +16,25 @@
     <div class="mac-window">
       <header class="menu-bar">
         <div class="menu-cluster left">
-          <span class="apple-mark">◉</span>
-          <span class="menu-item strong">Octocode</span>
-          <span class="menu-item">File</span>
-          <span class="menu-item">Edit</span>
-          <span class="menu-item">View</span>
-          <span class="menu-item">Run</span>
-          <span class="menu-item">Terminal</span>
-          <span class="menu-item">Help</span>
+          <img class="brand-icon" src="./assets/octocode-icon.svg" alt="" />
+          <span class="menu-item strong" data-i18n="brand.name">Octocode</span>
+          <span class="menu-item" data-i18n="menu.file">File</span>
+          <span class="menu-item" data-i18n="menu.edit">Edit</span>
+          <div class="menu-dropdown">
+            <button id="view-menu-button" class="menu-item menu-trigger" type="button" aria-haspopup="true" aria-expanded="false" data-i18n="menu.view">View</button>
+            <div id="view-language-menu" class="menu-dropdown-panel" hidden>
+              <div class="menu-dropdown-group">
+                <span class="menu-dropdown-label" data-i18n="menu.language">Language</span>
+                <button class="menu-dropdown-item" type="button" data-locale="en-US" data-i18n="locale.en-US">English</button>
+                <button class="menu-dropdown-item" type="button" data-locale="ja-JP" data-i18n="locale.ja-JP">日本語</button>
+                <button class="menu-dropdown-item" type="button" data-locale="ko-KR" data-i18n="locale.ko-KR">한국어</button>
+                <button class="menu-dropdown-item" type="button" data-locale="zh-CN" data-i18n="locale.zh-CN">中文</button>
+              </div>
+            </div>
+          </div>
+          <span class="menu-item" data-i18n="menu.run">Run</span>
+          <span class="menu-item" data-i18n="menu.terminal">Terminal</span>
+          <span class="menu-item" data-i18n="menu.help">Help</span>
         </div>
         <div class="menu-cluster right">
           <span class="menu-badge" id="menu-provider">provider</span>
@@ -38,13 +50,13 @@
           <span class="light maximize"></span>
         </div>
         <div class="workspace-chip-group">
-          <span class="workspace-chip active">Octocode</span>
-          <span class="workspace-chip">Interactive</span>
-          <span class="workspace-chip">Workbench</span>
+          <span class="workspace-chip active" data-i18n="brand.name">Octocode</span>
+          <span class="workspace-chip" data-i18n="toolbar.interactive">Interactive</span>
+          <span class="workspace-chip" data-i18n="toolbar.workbench">Workbench</span>
         </div>
         <form id="command-form" class="command-palette-shell">
-          <input id="command-palette" name="command" type="text" placeholder="输入命令: provider local-openai / model gemma-4-31b-it-q8-prod / permission workspace-write" />
-          <button type="submit">Run</button>
+          <input id="command-palette" name="command" type="text" placeholder="输入命令: provider local-openai / model gemma-4-31b-it-q8-prod / permission workspace-write" data-i18n-placeholder="command.placeholder" />
+          <button type="submit" data-i18n="command.run">Run</button>
           <canvas id="command-preview-canvas" class="command-preview-canvas"></canvas>
         </form>
       </section>
@@ -65,23 +77,23 @@
               <p class="eyebrow">Explorer</p>
               <h1 id="sidebar-title">Sessions</h1>
             </div>
-            <button id="refresh-button" type="button">Refresh</button>
+            <button id="refresh-button" type="button" data-i18n="sidebar.refresh">Refresh</button>
           </div>
           <div class="sidebar-tabs">
-            <button class="sidebar-tab active" data-view="sessions" type="button">Sessions</button>
-            <button class="sidebar-tab" data-view="providers" type="button">Providers</button>
-            <button class="sidebar-tab" data-view="tools" type="button">Tools</button>
-            <button class="sidebar-tab" data-view="commands" type="button">Commands</button>
-            <button class="sidebar-tab" data-view="settings" type="button">Settings</button>
+            <button class="sidebar-tab active" data-view="sessions" type="button" data-i18n="sidebar.sessions">Sessions</button>
+            <button class="sidebar-tab" data-view="providers" type="button" data-i18n="sidebar.providers">Providers</button>
+            <button class="sidebar-tab" data-view="tools" type="button" data-i18n="sidebar.tools">Tools</button>
+            <button class="sidebar-tab" data-view="commands" type="button" data-i18n="sidebar.commands">Commands</button>
+            <button class="sidebar-tab" data-view="settings" type="button" data-i18n="sidebar.settings">Settings</button>
           </div>
           <canvas id="sidebar-canvas" class="sidebar-list-canvas"></canvas>
         </aside>
 
         <main class="editor-shell">
           <div class="editor-tabs">
-            <button class="editor-tab active" type="button">Conversation.md</button>
-            <button class="editor-tab" type="button">Runtime.json</button>
-            <button class="editor-tab" type="button">Settings.conf</button>
+            <button class="editor-tab active" type="button" data-i18n="tabs.conversation">Conversation.md</button>
+            <button class="editor-tab" type="button" data-i18n="tabs.runtime">Runtime.json</button>
+            <button class="editor-tab" type="button" data-i18n="tabs.settings">Settings.conf</button>
           </div>
 
           <div class="content-grid">
@@ -112,10 +124,10 @@
               <canvas id="message-canvas" class="message-canvas"></canvas>
               <form id="chat-form" class="composer-shell">
                 <canvas id="composer-canvas" class="composer-canvas"></canvas>
-                <textarea id="chat-input" name="text" rows="3" placeholder="在这里输入消息，直接走后端 /api/chat 和真实 provider"></textarea>
+                <textarea id="chat-input" name="text" rows="3" placeholder="在这里输入消息，直接走后端 /api/chat 和真实 provider" data-i18n-placeholder="composer.placeholder"></textarea>
                 <div class="composer-actions">
                   <span id="composer-session" class="form-note">session: demo</span>
-                  <button id="chat-submit" type="submit">Send</button>
+                  <button id="chat-submit" type="submit" data-i18n="composer.send">Send</button>
                 </div>
               </form>
             </section>
@@ -180,7 +192,7 @@
                         <span>History Limit</span>
                         <input id="setting-history" name="historyLimit" type="number" min="1" step="1" />
                       </label>
-                      <button type="submit">Save Settings</button>
+                      <button type="submit" data-i18n="settings.save">Save Settings</button>
                     </form>
                   </article>
                   <article class="subpanel">
@@ -196,9 +208,9 @@
                       </label>
                       <label>
                         <span>Input</span>
-                        <textarea id="tool-input" name="input" rows="3" placeholder="例如 . 或 README.md 或 path|content"></textarea>
+                        <textarea id="tool-input" name="input" rows="3" placeholder="例如 . 或 README.md 或 path|content" data-i18n-placeholder="tool.placeholder"></textarea>
                       </label>
-                      <button type="submit">Run Tool</button>
+                      <button type="submit" data-i18n="tool.run">Run Tool</button>
                     </form>
                   </article>
                   <article class="subpanel">
@@ -221,9 +233,9 @@
                   <span class="panel-badge subtle">API</span>
                 </div>
                 <div class="terminal-tabs">
-                  <span class="terminal-tab active">events</span>
-                  <span class="terminal-tab">state</span>
-                  <span class="terminal-tab">workflow</span>
+                  <span class="terminal-tab active" data-i18n="terminal.events">events</span>
+                  <span class="terminal-tab" data-i18n="terminal.state">state</span>
+                  <span class="terminal-tab" data-i18n="terminal.workflow">workflow</span>
                 </div>
                 <canvas id="terminal-canvas" class="terminal-canvas"></canvas>
                 <pre id="terminal-output" class="terminal-output"></pre>

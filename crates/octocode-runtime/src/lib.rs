@@ -843,7 +843,8 @@ where
     ) -> Result<PromptResponse, OctoError> {
         self.ensure_session_exists(session_id)?;
 
-        let normalized = instruction.trim();
+        let normalized_text = instruction.replace("\\n", "\n");
+        let normalized = normalized_text.trim();
         let goal = if normalized.is_empty() {
             "continue the current task"
         } else {
@@ -854,6 +855,13 @@ where
             session_id,
             ConversationRole::System,
             format!("agent-action requested: {goal}"),
+        )?;
+
+        let workspace_plan = self.build_session_workspace_plan(session_id, goal)?;
+        self.append_session_message(
+            session_id,
+            ConversationRole::Tool,
+            format!("session-plan => {workspace_plan}"),
         )?;
 
         let workflow = self.run_tool(ToolCall {
@@ -867,7 +875,7 @@ where
             format!("workflow-plan => {}", workflow.output),
         )?;
 
-        let observations = self.collect_agent_observations(normalized)?;
+        let observations = self.collect_agent_observations(session_id, normalized)?;
         for (label, output) in &observations {
             self.append_session_message(
                 session_id,
@@ -875,6 +883,13 @@ where
                 format!("{label} => {output}"),
             )?;
         }
+
+        let (provider_strategy, use_local_fallback) = self.build_agent_provider_strategy()?;
+        self.append_session_message(
+            session_id,
+            ConversationRole::Tool,
+            format!("provider-strategy => {provider_strategy}"),
+        )?;
 
         let session = self.session(session_id)?;
         let context_tail = session
@@ -904,7 +919,9 @@ where
                 "Goal: {}\n",
                 "Active provider: {} ({:?})\n",
                 "Permission mode: {:?}\n\n",
+                "Session-aware workspace plan:\n{}\n\n",
                 "Workflow scaffold:\n{}\n\n",
+                "Provider strategy:\n{}\n\n",
                 "Recent session context:\n{}\n\n",
                 "Local observations:\n{}\n\n",
                 "Return the next concrete implementation actions, expected validation, and any immediate risks."
@@ -913,7 +930,9 @@ where
             provider.provider_id,
             provider.circuit_state,
             self.config.permission_mode,
+            workspace_plan,
             workflow.output,
+            provider_strategy,
             if context_tail.is_empty() {
                 String::from("(empty)")
             } else {
@@ -921,6 +940,26 @@ where
             },
             observation_block,
         );
+
+        if use_local_fallback {
+            let fallback = PromptResponse {
+                output: self.build_agent_fallback(
+                    goal,
+                    &workspace_plan,
+                    &workflow.output,
+                    &provider_strategy,
+                    &observations,
+                    Some("all providers unavailable or circuit-open; skipped provider dispatch"),
+                ),
+            };
+            self.append_session_message(
+                session_id,
+                ConversationRole::Assistant,
+                fallback.output.clone(),
+            )?;
+            self.apply_history_limit(session_id)?;
+            return Ok(fallback);
+        }
 
         match self.provider.prompt(PromptRequest {
             text: prompt,
@@ -942,7 +981,14 @@ where
                     format!("agent provider-error: {error}"),
                 )?;
                 let fallback = PromptResponse {
-                    output: self.build_agent_fallback(goal, &workflow.output, &observations),
+                    output: self.build_agent_fallback(
+                        goal,
+                        &workspace_plan,
+                        &workflow.output,
+                        &provider_strategy,
+                        &observations,
+                        Some(&format!("provider dispatch failed: {error}")),
+                    ),
                 };
                 self.append_session_message(
                     session_id,
@@ -1250,38 +1296,25 @@ where
 
     fn collect_agent_observations(
         &self,
+        session_id: &str,
         instruction: &str,
     ) -> Result<Vec<(String, String)>, OctoError> {
         let mut observations = Vec::new();
-        for directive in instruction.lines().skip(1).take(4) {
+        for directive in instruction.lines().skip(1).take(6) {
             let directive = directive.trim();
             if directive.is_empty() {
                 continue;
             }
 
-            let observation = if let Some(input) = directive.strip_prefix("search ") {
-                let result = self.run_tool(ToolCall {
-                    name: String::from("search-text"),
-                    input: String::from(input.trim()),
-                    permission: PermissionMode::ReadOnly,
-                })?;
-                Some((format!("search-text {}", input.trim()), truncate_preview(&result.output, 1200)))
-            } else if let Some(input) = directive.strip_prefix("read ") {
-                let result = self.run_tool(ToolCall {
-                    name: String::from("read-file"),
-                    input: String::from(input.trim()),
-                    permission: PermissionMode::ReadOnly,
-                })?;
-                Some((format!("read-file {}", input.trim()), truncate_preview(&result.output, 1200)))
-            } else if let Some(input) = directive.strip_prefix("list ") {
-                let result = self.run_tool(ToolCall {
-                    name: String::from("list-files"),
-                    input: String::from(input.trim()),
-                    permission: PermissionMode::ReadOnly,
-                })?;
-                Some((format!("list-files {}", input.trim()), truncate_preview(&result.output, 1200)))
+            let observation = if directive == "session-plan" {
+                Some((
+                    String::from("session-plan"),
+                    self.build_session_workspace_plan(session_id, "current task")?,
+                ))
+            } else if let Some(spec) = directive.strip_prefix("chain ") {
+                Some(self.execute_agent_chain(session_id, spec.trim())?)
             } else {
-                None
+                self.execute_agent_directive(session_id, directive, None)?
             };
 
             if let Some(observation) = observation {
@@ -1291,17 +1324,186 @@ where
         Ok(observations)
     }
 
+    fn execute_agent_chain(
+        &self,
+        session_id: &str,
+        spec: &str,
+    ) -> Result<(String, String), OctoError> {
+        let steps = spec
+            .split("=>")
+            .map(str::trim)
+            .filter(|step| !step.is_empty())
+            .collect::<Vec<_>>();
+        if steps.is_empty() {
+            return Err(OctoError::Runtime(String::from(
+                "chain directive expects at least one step",
+            )));
+        }
+
+        let mut previous_output = None;
+        let mut rendered_steps = Vec::new();
+        for step in steps {
+            if let Some((label, output)) = self.execute_agent_directive(session_id, step, previous_output.as_deref())? {
+                rendered_steps.push(format!("{label}: {output}"));
+                previous_output = Some(output);
+            }
+        }
+
+        Ok((
+            format!("tool-chain {spec}"),
+            rendered_steps.join("\n"),
+        ))
+    }
+
+    fn execute_agent_directive(
+        &self,
+        session_id: &str,
+        directive: &str,
+        previous_output: Option<&str>,
+    ) -> Result<Option<(String, String)>, OctoError> {
+        let hydrated = previous_output
+            .map(|output| directive.replace("{{prev}}", output))
+            .unwrap_or_else(|| String::from(directive));
+        let trimmed = hydrated.trim();
+
+        let observation = if let Some(input) = trimmed.strip_prefix("search ") {
+            let result = self.run_tool(ToolCall {
+                name: String::from("search-text"),
+                input: String::from(input.trim()),
+                permission: PermissionMode::ReadOnly,
+            })?;
+            Some((format!("search-text {}", input.trim()), truncate_preview(&result.output, 1200)))
+        } else if let Some(input) = trimmed.strip_prefix("read ") {
+            let result = self.run_tool(ToolCall {
+                name: String::from("read-file"),
+                input: String::from(input.trim()),
+                permission: PermissionMode::ReadOnly,
+            })?;
+            Some((format!("read-file {}", input.trim()), truncate_preview(&result.output, 1200)))
+        } else if let Some(input) = trimmed.strip_prefix("list ") {
+            let result = self.run_tool(ToolCall {
+                name: String::from("list-files"),
+                input: String::from(input.trim()),
+                permission: PermissionMode::ReadOnly,
+            })?;
+            Some((format!("list-files {}", input.trim()), truncate_preview(&result.output, 1200)))
+        } else if trimmed == "provider-strategy" {
+            let (strategy, _) = self.build_agent_provider_strategy()?;
+            Some((String::from("provider-strategy"), strategy))
+        } else if trimmed == "session-plan" {
+            Some((
+                String::from("session-plan"),
+                self.build_session_workspace_plan(session_id, "current task")?,
+            ))
+        } else {
+            None
+        };
+
+        Ok(observation)
+    }
+
+    fn build_session_workspace_plan(&self, session_id: &str, goal: &str) -> Result<String, OctoError> {
+        let session = self.session(session_id)?;
+        let recent = session
+            .messages
+            .iter()
+            .rev()
+            .take(4)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .map(|message| format!("- {}: {}", message.role.as_str(), truncate_preview(&message.content, 180)))
+            .collect::<Vec<_>>();
+        let healths = self
+            .provider_healths()
+            .into_iter()
+            .map(|health| format!("{} {:?} healthy={} fail={}", health.provider_id, health.circuit_state, health.healthy, health.failure_count))
+            .collect::<Vec<_>>()
+            .join(", ");
+        Ok([
+            format!("goal: {goal}"),
+            format!("workspace: {} via {:?}", self.workspace().root, self.workspace().preferred_shell),
+            format!("session: {} ({})", session.summary.id, session.summary.title),
+            format!("provider-health: {}", if healths.is_empty() { String::from("none") } else { healths }),
+            String::from("suggested-tools: list-files -> read-file -> search-text -> workflow-plan"),
+            if recent.is_empty() {
+                String::from("recent-session: none")
+            } else {
+                format!("recent-session:\n{}", recent.join("\n"))
+            },
+        ]
+        .join("\n"))
+    }
+
+    fn build_agent_provider_strategy(&self) -> Result<(String, bool), OctoError> {
+        let status = self.status()?;
+        let healths = self.provider_healths();
+        let circuits = self.provider_circuits();
+        let healthy = healths
+            .iter()
+            .filter(|health| health.healthy)
+            .map(|health| health.provider_id.clone())
+            .collect::<Vec<_>>();
+        let open_circuits = circuits
+            .iter()
+            .filter(|circuit| !matches!(circuit.circuit_state, octocode_core::ProviderCircuitState::Closed))
+            .map(|circuit| format!("{}:{:?}", circuit.provider_id, circuit.circuit_state))
+            .collect::<Vec<_>>();
+        let active_healthy = healths
+            .iter()
+            .find(|health| health.provider_id == status.active_provider_id)
+            .map(|health| health.healthy)
+            .unwrap_or(false);
+
+        let strategy = [
+            format!("active-provider: {}", status.active_provider_id),
+            format!(
+                "healthy-chain: {}",
+                if healthy.is_empty() {
+                    String::from("none")
+                } else {
+                    healthy.join(" -> ")
+                }
+            ),
+            format!(
+                "circuit-watch: {}",
+                if open_circuits.is_empty() {
+                    String::from("all closed")
+                } else {
+                    open_circuits.join(", ")
+                }
+            ),
+            if active_healthy {
+                String::from("dispatch-mode: provider prompt with built-in fallback chain")
+            } else if healthy.is_empty() {
+                String::from("dispatch-mode: local-only fallback summary")
+            } else {
+                String::from("dispatch-mode: provider prompt while runtime expects fallback provider promotion")
+            },
+        ]
+        .join("\n");
+        Ok((strategy, healthy.is_empty()))
+    }
+
     fn build_agent_fallback(
         &self,
         goal: &str,
+        workspace_plan: &str,
         workflow: &str,
+        provider_strategy: &str,
         observations: &[(String, String)],
+        reason: Option<&str>,
     ) -> String {
         let mut lines = vec![
             format!("agent fallback for: {goal}"),
-            String::from("provider unavailable, using local orchestration summary"),
+            String::from("using local orchestration summary"),
+            format!("reason: {}", reason.unwrap_or("provider unavailable")),
+            String::from("session-plan:"),
+            workspace_plan.to_string(),
             String::from("workflow:"),
             workflow.to_string(),
+            String::from("provider-strategy:"),
+            provider_strategy.to_string(),
         ];
         if observations.is_empty() {
             lines.push(String::from("observations: none"));

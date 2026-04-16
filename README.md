@@ -51,12 +51,16 @@ Current local deployment and bootstrap documentation lives in:
 
 1. `docs/deployment.md`
 2. `docs/current-implementation-status.md`
-3. `scripts/start-local.ps1`
-4. `scripts/start-local.sh`
-5. `scripts/start-webui.ps1`
-6. `scripts/start-webui.sh`
-7. `scripts/package-desktop.ps1`
-8. `scripts/package-desktop.sh`
+3. `docs/composer-ime-evaluation.md`
+4. `docs/desktop-distribution.md`
+5. `scripts/start-local.ps1`
+6. `scripts/start-local.sh`
+7. `scripts/start-webui.ps1`
+8. `scripts/start-webui.sh`
+9. `scripts/package-desktop.ps1`
+10. `scripts/package-desktop.sh`
+11. `scripts/package-windows-installer.ps1`
+12. `scripts/package-macos-installer.sh`
 
 ## Current scope note
 
@@ -74,6 +78,8 @@ The current `ui-shell` follows these interface constraints:
 6. Direct local backend calls for chat, tool execution, settings writeback, and command palette actions
 7. Canvas-rendered sidebar, message list, command preview, workspace summary, tool runner shell, settings summary list, terminal viewer, and composer shell
 8. Native text inputs remain only as the input layer for composer/settings/tool controls until IME-safe textarea replacement is validated
+9. Menu labels and placeholders can be translated through built-in locale files under `ui-shell/locales/` or a runtime locale plugin override
+10. The View > Language menu ships with four built-in locales: English, Japanese, Korean, and Chinese
 
 To preview the current shell:
 
@@ -83,6 +89,8 @@ To preview the current shell:
 4. or `cargo run -p octocode-cli -- desktop 999 demo`
 5. For browser-based verification only, open `http://127.0.0.1:999/ui-shell/`
 6. To emit a runnable desktop bundle directory, run `./scripts/package-desktop.ps1` on Windows or `./scripts/package-desktop.sh` on Unix-like systems
+7. To emit a Windows installer EXE, run `./scripts/package-windows-installer.ps1`
+8. To prepare the macOS installer path on a macOS host, run `./scripts/package-macos-installer.sh`
 
 ## Provider note
 
@@ -91,4 +99,6 @@ The default local provider target is currently `http://192.168.110.2:8000/v1` wi
 ## Agent action note
 
 `octocode-cli agent` and the `agent-action` tool now run through a real session-scoped runtime orchestration path. The runtime appends an agent request, builds a workflow scaffold, optionally gathers local read-only observations from inline directives such as `search ...`, `read ...`, and `list ...`, then dispatches a provider prompt. If the provider is unavailable, the runtime emits a local fallback action summary instead of dropping back to a stub string.
+
+The agent path now also supports session-aware workspace plans, chained local directives like `chain list ui-shell => read README.md`, and provider-strategy summaries so local orchestration remains inspectable before provider dispatch.
 
