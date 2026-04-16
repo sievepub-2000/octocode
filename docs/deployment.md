@@ -11,7 +11,11 @@
 3. 配置文件初始化
 4. 基础状态诊断
 5. 本地 session 持久化
-6. 最小工作区文件工具
+6. 会话 transcript 持久化
+7. 最小工作区文件工具
+8. 权限分级工具执行
+9. UI snapshot 导出
+10. 最小静态 WebUI 壳
 
 当前不包含：
 
@@ -42,6 +46,12 @@ cargo run -p octocode-cli -- doctor
 ./scripts/start-local.ps1 --json commands
 ```
 
+Windows WebUI 启动：
+
+```powershell
+./scripts/start-webui.ps1 -Port 4173
+```
+
 ## macOS / Linux 启动
 
 ```bash
@@ -57,12 +67,26 @@ cargo run -p octocode-cli -- doctor
 ./scripts/start-local.sh --json commands
 ```
 
+macOS / Linux WebUI 启动：
+
+```bash
+./scripts/start-webui.sh 4173
+```
+
 ## 初次初始化建议
 
 ```bash
 cargo run -p octocode-cli -- config-init
 cargo run -p octocode-cli -- doctor
 cargo run -p octocode-cli -- providers
+cargo run -p octocode-cli -- chat demo "hello octocode"
+cargo run -p octocode-cli -- ui-export ui-shell/data/app-state.json demo
+```
+
+完成以上步骤后，通过浏览器打开：
+
+```text
+http://127.0.0.1:4173/ui-shell/
 ```
 
 ## 当前验证基线
@@ -73,12 +97,16 @@ cargo run -p octocode-cli -- providers
 2. `cargo test -p octocode-commands`
 3. `cargo run -p octocode-cli -- status`
 4. `cargo run -p octocode-cli -- --json status`
-5. `cargo run -p octocode-cli -- session-export out/sessions.txt`
+5. `cargo run -p octocode-cli -- chat demo "hello octocode"`
+6. `cargo run -p octocode-cli -- tools`
+7. `cargo run -p octocode-cli -- tool shell-command "Get-Location"`
+8. `cargo run -p octocode-cli -- ui-export ui-shell/data/app-state.json demo`
+9. `http://127.0.0.1:4173/ui-shell/` WebUI 真实打开验证
 
 ## 下一阶段部署目标
 
 1. 产出 release 构建脚本
 2. 产出 Windows/macOS 打包脚本
 3. 增加运行时环境检查
-4. 增加本地 provider bootstrap
-5. 增加 UI shell 启动器
+4. 增加真正的本地和在线 provider client
+5. 将静态 UI shell 升级为交互式桌面壳

@@ -21,15 +21,19 @@
 ### 当前运行能力
 
 1. provider registry
-2. platform-aware doctor
-3. file-backed session store
-4. session add / list / export
-5. workspace read-file / write-file
-6. config init / config show
-7. command registry
-8. permissions surface
-9. status surface
-10. text + JSON CLI output
+2. provider selection via config / env fallback
+3. platform-aware doctor
+4. file-backed session store
+5. file-backed session transcript store
+6. session add / list / show / export
+7. conversation append via `chat`
+8. workspace read-file / list-files / write-file / shell-command
+9. permission-gated tool execution
+10. config init / config show
+11. command parsing + command execution layer
+12. status / doctor / tools / providers JSON output
+13. UI snapshot export
+14. 最小 VS Code 风格静态 WebUI 壳
 
 ### 当前验证通过项
 
@@ -40,9 +44,15 @@
 5. `providers`
 6. `commands`
 7. `session-add`
-8. `session-export`
-9. `tool read-file`
-10. `tool write-file`
+8. `chat`
+9. `session-show`
+10. `session-export`
+11. `tools`
+12. `tool read-file`
+13. `tool write-file`
+14. `tool shell-command` permission denial path
+15. `ui-export`
+16. `http://127.0.0.1:4173/ui-shell/` WebUI real load check
 
 ## 未完成
 
@@ -59,12 +69,12 @@
 
 ## 当前里程碑定位
 
-当前仓库已经从“规划阶段”进入“可编译、可运行、可测试、可推送的 runtime 内核起步阶段”。
+当前仓库已经从“规划阶段”进入“可编译、可运行、可测试、可推送、可导出 UI 状态并可真实打开 WebUI 的 runtime 内核阶段”。
 
 ## 下一阶段优先级
 
-1. 真正的 provider abstraction 实现
+1. 真正的 provider client 实现
 2. runtime session / config / permissions 深化
-3. command surface 扩充
+3. command surface 扩充到 workflow / agent actions
 4. REPL 与 conversation runtime
-5. UI shell 引导层
+5. 将当前静态 UI shell 升级为交互式桌面壳

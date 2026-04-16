@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Octocode UI Shell</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./app.css?v=2" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="session-rail">
+      <div class="brand-block">
+        <p class="eyebrow">Octocode</p>
+        <h1>Runtime Workbench</h1>
+        <p class="subtitle">面向 Windows 与 macOS 的本地代理工作台基线。</p>
+      </div>
+      <div class="status-card">
+        <span class="status-dot"></span>
+        <div>
+          <p class="status-label">当前 Provider</p>
+          <strong id="provider-id">loading</strong>
+        </div>
+      </div>
+      <section class="rail-section">
+        <div class="section-head">
+          <h2>Sessions</h2>
+          <button id="refresh-button" type="button">Reload</button>
+        </div>
+        <div id="session-list" class="session-list"></div>
+      </section>
+    </aside>
+
+    <main class="main-stack">
+      <header class="hero-bar">
+        <div>
+          <p class="eyebrow">Conversation Surface</p>
+          <h2 id="session-title">没有可用会话</h2>
+        </div>
+        <div class="hero-metrics">
+          <div class="metric-pill">
+            <span>Platform</span>
+            <strong id="platform-pill">-</strong>
+          </div>
+          <div class="metric-pill accent">
+            <span>Permission</span>
+            <strong id="permission-pill">-</strong>
+          </div>
+        </div>
+      </header>
+
+      <section class="conversation-stage">
+        <div id="message-stream" class="message-stream"></div>
+      </section>
+    </main>
+
+    <aside class="inspector-stack">
+      <section class="panel workspace-panel">
+        <div class="panel-head">
+          <p class="eyebrow">Workspace</p>
+          <h2>右上工作区</h2>
+        </div>
+        <div class="workspace-meta">
+          <div class="meta-row">
+            <span>Root</span>
+            <strong id="workspace-root">-</strong>
+          </div>
+          <div class="meta-row">
+            <span>Shell</span>
+            <strong id="workspace-shell">-</strong>
+          </div>
+          <div class="meta-row">
+            <span>Default Model</span>
+            <strong id="default-model">-</strong>
+          </div>
+        </div>
+        <div class="capability-grid">
+          <article class="capability-card">
+            <p class="card-kicker">Providers</p>
+            <div id="provider-list" class="tag-cloud"></div>
+          </article>
+          <article class="capability-card">
+            <p class="card-kicker">Tools</p>
+            <div id="tool-list" class="tag-cloud"></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel terminal-panel">
+        <div class="panel-head">
+          <p class="eyebrow">Terminal</p>
+          <h2>右下终端区</h2>
+        </div>
+        <pre id="terminal-output" class="terminal-output"></pre>
+      </section>
+    </aside>
+  </div>
+
+  <template id="message-template">
+    <article class="message-card">
+      <div class="message-meta">
+        <span class="message-role"></span>
+      </div>
+      <p class="message-content"></p>
+    </article>
+  </template>
+
+  <script src="./app.js?v=2"></script>
+</body>
+</html>
