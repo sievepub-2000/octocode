@@ -1,7 +1,7 @@
 use octocode_core::{
     CommandDescriptor, ConversationRole, ConversationSession, ConversationStore, DoctorReport,
     ModelProvider, OctoError, OutputMode, PermissionMode, PromptResponse, ProviderCircuitStatus,
-    ProviderDescriptor, ProviderHealth, ProviderRouteStatus, RuntimeStatus, SessionSummary, ToolDescriptor,
+    ProviderDescriptor, ProviderHealth, ProviderRouteStatus, RuntimeEvent, RuntimeStatus, SessionSummary, ToolDescriptor,
     ToolExecutor, ToolResult, UiSnapshot, WorkspaceContext,
 };
 use octocode_runtime::OctocodeRuntime;
@@ -29,6 +29,7 @@ pub enum CliCommand {
     Doctor,
     Status,
     Snapshot { session_id: Option<String> },
+    Events { session_id: Option<String> },
     Permissions { mode: Option<String> },
     ConfigInit,
     ConfigShow,
@@ -59,6 +60,7 @@ pub enum CommandResponse {
     Health(Vec<ProviderHealth>),
     Doctor(DoctorReport),
     Status(RuntimeStatus),
+    Events(Vec<RuntimeEvent>),
     Permission(PermissionMode),
     ConfigInit(String),
     ConfigShow { path: String, content: String },
@@ -137,6 +139,7 @@ where
         Some("doctor") => CliCommand::Doctor,
         Some("status") => CliCommand::Status,
         Some("snapshot") => CliCommand::Snapshot { session_id: args.next() },
+        Some("events") => CliCommand::Events { session_id: args.next() },
         Some("permissions") => CliCommand::Permissions { mode: args.next() },
         Some("config-init") => CliCommand::ConfigInit,
         Some("config-show") => CliCommand::ConfigShow,
@@ -276,6 +279,9 @@ where
         CliCommand::Status => Ok(CommandResponse::Status(runtime.status()?)),
         CliCommand::Snapshot { session_id } => Ok(CommandResponse::Snapshot(
             runtime.snapshot(session_id.as_deref())?,
+        )),
+        CliCommand::Events { session_id } => Ok(CommandResponse::Events(
+            runtime.event_feed(session_id.as_deref())?,
         )),
         CliCommand::Permissions { mode } => {
             if let Some(mode) = mode {
@@ -454,6 +460,14 @@ pub fn render_text(response: &CommandResponse) -> String {
             format!("provider.routes={}", status.provider_routes.len()),
         ]
         .join("\n"),
+        CommandResponse::Events(events) => events
+            .iter()
+            .map(|event| match event.at_ms {
+                Some(at_ms) => format!("[{}] {} {}", event.scope, at_ms, event.message),
+                None => format!("[{}] {}", event.scope, event.message),
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
         CommandResponse::Permission(mode) => format!("{:?}", mode),
         CommandResponse::ConfigInit(path) => path.clone(),
         CommandResponse::ConfigShow { path, content } => format!("{}\n{}", path, content),
@@ -469,6 +483,7 @@ pub fn render_text(response: &CommandResponse) -> String {
                 format!("provider.id={}", snapshot.status.provider_id),
                 format!("provider.active={}", snapshot.status.active_provider_id),
                 format!("provider.routes={}", snapshot.provider_routes.len()),
+                format!("events.count={}", snapshot.event_feed.len()),
                 format!("tools.count={}", snapshot.tools.len()),
                 format!("sessions.count={}", snapshot.sessions.len()),
                 format!("workspace.root={}", snapshot.workspace.root),
@@ -686,6 +701,19 @@ pub fn render_json(response: &CommandResponse) -> String {
             status.session_count,
             status.provider_health.healthy
         ),
+        CommandResponse::Events(events) => format!(
+            "{{\"kind\":\"events\",\"items\":[{}]}}",
+            events
+                .iter()
+                .map(|event| format!(
+                    "{{\"scope\":\"{}\",\"message\":\"{}\",\"atMs\":{}}}",
+                    escape_json(&event.scope),
+                    escape_json(&event.message),
+                    event.at_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null"))
+                ))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
         CommandResponse::Permission(mode) => {
             format!("{{\"kind\":\"permissions\",\"mode\":\"{:?}\"}}", mode)
         }
@@ -721,6 +749,7 @@ pub fn render_json(response: &CommandResponse) -> String {
                 "\"sessionCount\":{},",
                 "\"toolCount\":{},",
                 "\"routeCount\":{},",
+                "\"eventCount\":{},",
                 "\"workspaceRoot\":\"{}\",",
                 "\"activeSessionId\":{}",
                 "}}"
@@ -730,6 +759,7 @@ pub fn render_json(response: &CommandResponse) -> String {
             snapshot.status.session_count,
             snapshot.tools.len(),
             snapshot.provider_routes.len(),
+            snapshot.event_feed.len(),
             escape_json(&snapshot.workspace.root),
             option_json_string(snapshot.active_session.as_ref().map(|session| session.summary.id.as_str()))
         ),
@@ -795,6 +825,9 @@ fn nested_repl_command(command: CliCommand) -> Result<CliCommand, OctoError> {
         CliCommand::Status
         | CliCommand::Health
         | CliCommand::Providers
+        | CliCommand::Routes
+        | CliCommand::Snapshot { .. }
+        | CliCommand::Events { .. }
         | CliCommand::Tools
         | CliCommand::Workspace
         | CliCommand::Commands
@@ -802,7 +835,7 @@ fn nested_repl_command(command: CliCommand) -> Result<CliCommand, OctoError> {
         | CliCommand::CircuitLog
         | CliCommand::Sessions => Ok(command),
         _ => Err(OctoError::Runtime(String::from(
-            "repl currently supports status/health/providers/tools/workspace/commands/doctor/circuit-log/sessions",
+            "repl currently supports status/health/providers/routes/snapshot/events/tools/workspace/commands/doctor/circuit-log/sessions",
         ))),
     }
 }

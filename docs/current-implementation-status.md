@@ -45,6 +45,8 @@
 23. explicit runtime provider router：主 provider / 备用 provider / stub route chain
 24. runtime 子模块拆分：session / permission / tool registry / router
 25. CLI parity 新增 `routes` 与 `snapshot`
+26. unified runtime event feed：CLI / HTTP / Canvas UI 共享同一条 runtime event surface
+27. Canvas terminal / provider 面开始只消费 runtime snapshot + `/api/events`
 
 ### 当前验证通过项
 
@@ -73,13 +75,16 @@
 23. `cargo run -p octocode-cli -- routes`
 24. `cargo run -p octocode-cli -- snapshot demo`
 25. session 子模块回归：`session-add` / `chat` / `session-show` / `session-export`
+26. `cargo run -p octocode-cli -- events demo`
+27. `http://127.0.0.1:999/api/events?session=demo` 已确认输出 `items` / `scope` / `message`
+28. `http://127.0.0.1:999/api/state?session=demo` 已确认输出 `eventFeed` / `providerRoutes` / `activeSession`
 
 ## 未完成
 
 1. MCP lifecycle
 2. plugin / skills / hooks
 3. full slash-command parity
-4. Canvas UI 统一 runtime event bus
+4. Canvas UI 全量统一 runtime event bus
 5. REPL
 6. 组件级输入命中测试仍未覆盖到设置表单等 DOM 区域
 7. VS Code / Cline / Cursor integration layer
@@ -90,7 +95,7 @@
 
 ## 当前里程碑定位
 
-当前仓库已经从“静态 shell + 伪 provider”推进到“可编译、可运行、具显式 provider routing、具 runtime snapshot/route surface、具交互式本地 backend、具工作流恢复语义的 runtime/workbench 阶段”。
+当前仓库已经从“静态 shell + 伪 provider”推进到“可编译、可运行、具显式 provider routing、具 runtime snapshot/route/event surface、具交互式本地 backend、具工作流恢复语义的 runtime/workbench 阶段”。
 
 ## 当前同步状态
 
@@ -100,7 +105,7 @@
 ## 下一阶段优先级
 
 1. 把 runtime router 的 route policy、优先级与 fallback 理由继续显式化并持久化
-2. 让 Canvas UI 消费统一 runtime snapshot/event，而不是自行回推业务逻辑
+2. 把剩余 Canvas UI 区域继续改成只消费统一 runtime snapshot/event，而不是自行回推业务逻辑
 3. 扩充 command surface 到更多 CLI parity 命令与 richer snapshot/event export
 4. REPL 与 conversation runtime 深化
 5. MCP / tools / plugin parity

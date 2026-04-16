@@ -271,6 +271,13 @@ pub struct ToolResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeEvent {
+    pub scope: String,
+    pub message: String,
+    pub at_ms: Option<u128>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UiSnapshot {
     pub status: RuntimeStatus,
     pub workspace: WorkspaceContext,
@@ -283,6 +290,7 @@ pub struct UiSnapshot {
     pub tools: Vec<ToolDescriptor>,
     pub sessions: Vec<SessionSummary>,
     pub active_session: Option<ConversationSession>,
+    pub event_feed: Vec<RuntimeEvent>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

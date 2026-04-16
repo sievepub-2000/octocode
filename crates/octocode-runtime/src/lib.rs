@@ -6,7 +6,7 @@ use octocode_core::{
     ConversationStore, DoctorReport, ModelProvider, OctoError, PermissionMode, PermissionPolicy,
     PlatformKind, PlatformSupport, PromptRequest, PromptResponse, ProviderCircuitEvent,
     ProviderCircuitStatus, ProviderDescriptor, ProviderHealth, ProviderRouteStatus, RuntimeConfig,
-    RuntimeStatus,
+    RuntimeEvent, RuntimeStatus,
     SessionSummary, ShellKind, ToolCall, ToolCatalog, ToolDescriptor,
     ToolExecutor, ToolResult, UiSnapshot, WorkspaceContext,
 };
@@ -236,6 +236,10 @@ const COMMANDS: &[CommandDescriptor] = &[
     CommandDescriptor {
         name: "snapshot",
         summary: "Show the unified runtime snapshot for CLI and UI consumers",
+    },
+    CommandDescriptor {
+        name: "events",
+        summary: "Show the unified runtime event feed for CLI and UI consumers",
     },
     CommandDescriptor {
         name: "permissions",
@@ -783,6 +787,7 @@ where
             Some(id) if !id.trim().is_empty() => Some(self.session(id)?),
             _ => self.resume_session(None).ok(),
         };
+        let event_feed = self.build_event_feed(resolved_session.as_ref());
         Ok(UiSnapshot {
             status: self.status()?,
             workspace: self.workspace().clone(),
@@ -795,7 +800,24 @@ where
             tools: self.tools().to_vec(),
             sessions: self.sessions()?,
             active_session: resolved_session,
+            event_feed,
         })
+    }
+
+    pub fn event_feed(&self, active_session_id: Option<&str>) -> Result<Vec<RuntimeEvent>, OctoError> {
+        let resolved_session = match active_session_id {
+            Some(id) if !id.trim().is_empty() => Some(self.session(id)?),
+            _ => self.resume_session(None).ok(),
+        };
+        Ok(self.build_event_feed(resolved_session.as_ref()))
+    }
+
+    pub fn event_feed_json(&self, active_session_id: Option<&str>) -> Result<String, OctoError> {
+        let events = self.event_feed(active_session_id)?;
+        Ok(format!(
+            "{{\"items\":[{}]}}",
+            events.iter().map(runtime_event_to_json).collect::<Vec<_>>().join(",")
+        ))
     }
 
     pub fn snapshot_json(&self, active_session_id: Option<&str>) -> Result<String, OctoError> {
@@ -866,6 +888,108 @@ where
             requested,
             &format!("tool {tool_name}"),
         )
+    }
+
+    fn build_event_feed(&self, active_session: Option<&ConversationSession>) -> Vec<RuntimeEvent> {
+        let mut events = vec![
+            RuntimeEvent {
+                scope: String::from("runtime"),
+                message: format!(
+                    "provider={} active={} permission={} shell={:?}",
+                    self.config.provider_id.as_deref().unwrap_or(DEFAULT_PROVIDER_ID),
+                    self.provider.active_provider_id(),
+                    permission_mode_label(&self.config.permission_mode),
+                    self.workspace().preferred_shell,
+                ),
+                at_ms: None,
+            },
+            RuntimeEvent {
+                scope: String::from("runtime"),
+                message: format!(
+                    "workspace={} model={} historyLimit={}",
+                    self.workspace().root,
+                    self.config.default_model.as_deref().unwrap_or(DEFAULT_MODEL),
+                    self.config.history_limit,
+                ),
+                at_ms: None,
+            },
+        ];
+
+        events.extend(self.provider_routes().into_iter().map(|route| RuntimeEvent {
+            scope: String::from("route"),
+            message: format!(
+                "{} primary={} active={} healthy={} state={:?} latency={} detail={}",
+                route.provider_id,
+                route.is_primary,
+                route.is_active,
+                route.healthy,
+                route.circuit_state,
+                route
+                    .latency_ms
+                    .map(|value| format!("{value}ms"))
+                    .unwrap_or_else(|| String::from("-")),
+                route.detail,
+            ),
+            at_ms: None,
+        }));
+
+        for circuit in self.provider_circuits() {
+            let provider_id = circuit.provider_id.clone();
+            events.push(RuntimeEvent {
+                scope: String::from("circuit"),
+                message: format!(
+                    "{} state={:?} failures={} cooldown={} recent={}",
+                    provider_id,
+                    circuit.circuit_state,
+                    circuit.failure_count,
+                    circuit
+                        .cooldown_remaining_ms
+                        .map(|value| format!("{value}ms"))
+                        .unwrap_or_else(|| String::from("-")),
+                    circuit.recent_failure_reason.clone().unwrap_or_else(|| String::from("-")),
+                ),
+                at_ms: None,
+            });
+            events.extend(circuit.event_log.into_iter().rev().take(3).rev().map(|event| RuntimeEvent {
+                scope: String::from("circuit"),
+                message: format!("{} {:?} {}", provider_id, event.kind, event.detail),
+                at_ms: Some(event.at_ms),
+            }));
+        }
+
+        if let Some(session) = active_session {
+            events.push(RuntimeEvent {
+                scope: String::from("session"),
+                message: format!(
+                    "active={} title={} messages={}",
+                    session.summary.id,
+                    session.summary.title,
+                    session.messages.len(),
+                ),
+                at_ms: None,
+            });
+            events.extend(
+                session
+                    .messages
+                    .iter()
+                    .rev()
+                    .take(8)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .map(|message| RuntimeEvent {
+                        scope: String::from("transcript"),
+                        message: format!(
+                            "{} {}",
+                            message.role.as_str(),
+                            truncate_preview(&message.content.replace('\n', " "), 220)
+                        ),
+                        at_ms: None,
+                    }),
+            );
+        }
+
+        events
     }
 
     fn collect_agent_observations(
@@ -1189,6 +1313,24 @@ fn provider_circuit_to_json(circuit: &ProviderCircuitStatus) -> String {
     )
 }
 
+fn runtime_event_to_json(event: &RuntimeEvent) -> String {
+    format!(
+        concat!(
+            "{{",
+            "\"scope\":\"{}\",",
+            "\"message\":\"{}\",",
+            "\"atMs\":{}",
+            "}}"
+        ),
+        escape_json(&event.scope),
+        escape_json(&event.message),
+        event
+            .at_ms
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| String::from("null"))
+    )
+}
+
 fn provider_route_to_json(route: &ProviderRouteStatus) -> String {
     format!(
         concat!(
@@ -1339,6 +1481,12 @@ fn snapshot_to_json(snapshot: &UiSnapshot) -> String {
         })
         .collect::<Vec<_>>()
         .join(",");
+    let event_feed = snapshot
+        .event_feed
+        .iter()
+        .map(runtime_event_to_json)
+        .collect::<Vec<_>>()
+        .join(",");
     let active_session = snapshot.active_session.as_ref().map(|session| {
         let messages = session
             .messages
@@ -1404,6 +1552,7 @@ fn snapshot_to_json(snapshot: &UiSnapshot) -> String {
             "\"commands\":[{}],",
             "\"tools\":[{}],",
             "\"sessions\":[{}],",
+            "\"eventFeed\":[{}],",
             "\"activeSession\":{}",
             "}}"
         ),
@@ -1455,6 +1604,7 @@ fn snapshot_to_json(snapshot: &UiSnapshot) -> String {
         commands,
         tools,
         sessions,
+        event_feed,
         active_session.unwrap_or_else(|| String::from("null"))
     )
 }

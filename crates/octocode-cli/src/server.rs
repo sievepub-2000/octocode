@@ -82,6 +82,13 @@ fn route_request(
             let runtime = build_runtime(workspace_root, config)?;
             json_response(runtime.snapshot_json(session_id.as_deref())?)
         }
+        ("GET", "/api/events") => {
+            let session_id = request
+                .query_value("session")
+                .or(initial_session_id.clone());
+            let runtime = build_runtime(workspace_root, config)?;
+            json_response(runtime.event_feed_json(session_id.as_deref())?)
+        }
         ("GET", "/api/health") => {
             let runtime = build_runtime(workspace_root, config)?;
             let body = runtime

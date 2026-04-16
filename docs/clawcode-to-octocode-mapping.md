@@ -220,11 +220,11 @@
 2. `octocode-cli doctor` 要在 Windows 返回正确的 `APPDATA` / `LOCALAPPDATA` 派生路径。
 3. `octocode-cli providers` 要返回统一 capability surface，而不是壳层私有字段拼装。
 4. `octocode-cli tool shell-command ...` 要能在 Windows 上优先走 PowerShell，再按需退回其他 shell。
-5. `serve` 输出的 WebUI state 必须继续包含 providers、tools、sessions、status。
+5. `serve` 输出的 WebUI state 必须继续包含 providers、tools、sessions、status、providerRoutes、eventFeed。
 
 ### 5.4 下一批迁移切片
 
 1. 把 provider routing 从“单 provider + 描述列表”继续推进到显式 runtime router。
 2. 把 session store 从当前文件实现拆出独立 runtime 子模块，补 Windows 路径与恢复测试。
 3. 把 tool registry 从静态表继续拆成可扩展 registry，给后续 richer plugin hooks 留出入口。
-4. 在 CLI parity 稳定后，再让 Canvas UI 只消费 runtime event/snapshot。
+4. 在 CLI parity 稳定后，继续让 Canvas UI 各区域只消费 runtime event/snapshot。

@@ -1,4 +1,5 @@
 const stateUrl = '/api/state';
+const eventsUrl = '/api/events';
 
 const workbenchCanvas = document.querySelector('#workbench-canvas');
 const workbenchContext = workbenchCanvas.getContext('2d');
@@ -77,7 +78,7 @@ let sidebarHitRegions = [];
 let messageScrollOffset = 0;
 let messageContentHeight = 0;
 let messageHitRegions = [];
-const eventLog = [];
+let currentEventFeed = [];
 let activeLocale = 'zh-CN';
 const composerDiagnostics = {
   composing: false,
@@ -96,23 +97,49 @@ async function loadState(sessionId = currentSessionId) {
   updateClock();
   try {
     const url = new URL(stateUrl, window.location.origin);
+    const eventUrl = new URL(eventsUrl, window.location.origin);
     if (sessionId) {
       url.searchParams.set('session', sessionId);
+      eventUrl.searchParams.set('session', sessionId);
     }
-    const response = await fetch(url, { cache: 'no-store' });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+    const [stateResponse, eventResponse] = await Promise.all([
+      fetch(url, { cache: 'no-store' }),
+      fetch(eventUrl, { cache: 'no-store' }),
+    ]);
+    if (!stateResponse.ok) {
+      throw new Error(`HTTP ${stateResponse.status}`);
     }
-    const state = await response.json();
-    applyState(state, sessionId);
-    logEvent(`GET ${url.pathname} session=${sessionId || '-'}`);
+    if (!eventResponse.ok) {
+      throw new Error(`HTTP ${eventResponse.status}`);
+    }
+    const [state, eventPayload] = await Promise.all([stateResponse.json(), eventResponse.json()]);
+    applyState(state, sessionId, eventPayload.items || state.eventFeed || []);
   } catch (error) {
     renderError(error);
   }
 }
 
-function applyState(state, preferredSessionId) {
+async function refreshEventFeed(sessionId = currentSessionId) {
+  const url = new URL(eventsUrl, window.location.origin);
+  if (sessionId) {
+    url.searchParams.set('session', sessionId);
+  }
+  const response = await fetch(url, { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  const payload = await response.json();
+  currentEventFeed = payload.items || [];
+  if (currentState) {
+    currentState.eventFeed = currentEventFeed;
+    renderTerminal(currentState, currentState.activeSession);
+  }
+}
+
+function applyState(state, preferredSessionId, eventFeed = state.eventFeed || []) {
   currentState = state;
+  currentEventFeed = eventFeed;
+  currentState.eventFeed = currentEventFeed;
   currentSessionId =
     preferredSessionId ||
     state.activeSession?.summary?.id ||
@@ -187,11 +214,11 @@ function renderSettings(state) {
   settingHistory.value = String(state.config.historyLimit || 24);
 
   providerList.replaceChildren(
-    ...state.providerHealths.map((health) =>
+    ...((state.providerRoutes || []).map((route) =>
       createTag(
-        `${health.providerId}:${health.circuitState}:f${health.failureCount}:cd${health.cooldownRemainingMs ?? 0}`
+        `${route.providerId}:${route.circuitState}:${route.isActive ? 'active' : 'standby'}:${route.healthy ? 'ready' : 'down'}`
       )
-    )
+    ))
   );
   toolList.replaceChildren(
     ...state.tools.map((tool) => createTag(`${tool.name}:${tool.minimumPermission}`))
@@ -213,12 +240,12 @@ function renderSidebar(state, view, activeSessionId) {
     },
     providers: {
       title: 'Providers',
-      items: state.providerHealths.map((health) => ({
-        title: `${health.providerId} ${health.circuitState}`,
-        description: `${health.healthy ? 'ready' : 'cooldown'} · fail=${health.failureCount} · ${health.cooldownRemainingMs ?? 0}ms`,
-        active: health.providerId === state.status.activeProviderId,
+      items: (state.providerRoutes || []).map((route) => ({
+        title: `${route.providerId} ${route.circuitState}`,
+        description: `${route.healthy ? 'ready' : 'cooldown'} · primary=${route.isPrimary} · active=${route.isActive}`,
+        active: route.providerId === state.status.activeProviderId,
         onSelect: () => {
-          settingProvider.value = health.providerId;
+          settingProvider.value = route.providerId;
           currentView = 'settings';
           renderSidebar(state, currentView, activeSessionId);
         },
@@ -278,42 +305,28 @@ function renderMessages(messages) {
 }
 
 function renderTerminal(state, activeSession) {
-  const transcriptLines = (activeSession?.messages || [])
-    .slice(-8)
-    .map((message) => `${message.role}> ${message.content}`);
-  const configLines = [
-    `provider=${state.config.providerId || '-'}`,
-    `activeProvider=${state.status.activeProviderId || '-'}`,
-    `baseUrl=${state.config.providerBaseUrl || '-'}`,
-    `model=${state.config.defaultModel || '-'}`,
-    `permission=${state.config.permissionMode}`,
-    `historyLimit=${state.config.historyLimit}`,
-  ];
-  const healthLines = (state.providerHealths || []).map(
-    (health) =>
-      `${health.providerId} state=${health.circuitState} healthy=${health.healthy} fails=${health.failureCount} cooldown=${health.cooldownRemainingMs ?? 0}ms`
-  );
-  const circuitLines = (state.providerCircuits || []).flatMap((circuit) => [
-    `${circuit.providerId} recent=${circuit.recentFailureReason || '-'} opened=${circuit.lastOpenedAtMs || '-'} recovered=${circuit.lastRecoveredAtMs || '-'}`,
-    ...circuit.eventLog.slice(-3).map((event) => `  [${event.atMs}] ${event.kind} ${event.detail}`),
-  ]);
+  const grouped = new Map();
+  const events = state.eventFeed || currentEventFeed || [];
+  events.forEach((event) => {
+    const scope = event.scope || 'runtime';
+    if (!grouped.has(scope)) {
+      grouped.set(scope, []);
+    }
+    grouped.get(scope).push(event.atMs ? `[${event.atMs}] ${event.message}` : event.message);
+  });
 
-  terminalOutput.textContent = [
-    '[events]',
-    ...(eventLog.length ? eventLog : ['waiting for API calls...']),
-    '',
-    '[health]',
-    ...(healthLines.length ? healthLines : ['no provider health data']),
-    '',
-    '[circuits]',
-    ...(circuitLines.length ? circuitLines : ['no circuit events']),
-    '',
-    '[config]',
-    ...configLines,
-    '',
-    '[transcript tail]',
-    ...(transcriptLines.length ? transcriptLines : ['system> no transcript loaded']),
-  ].join('\n');
+  const order = ['runtime', 'route', 'circuit', 'session', 'transcript'];
+  const sections = order.flatMap((scope) => {
+    const lines = grouped.get(scope);
+    if (!lines?.length) {
+      return [];
+    }
+    return [`[${scope}]`, ...lines, ''];
+  });
+
+  terminalOutput.textContent = sections.length
+    ? sections.join('\n').trim()
+    : 'waiting for runtime event feed...';
   drawTerminalCanvas(terminalOutput.textContent.split('\n'));
 }
 
@@ -1033,13 +1046,6 @@ function updateClock() {
   }).format(new Date());
 }
 
-function logEvent(text) {
-  eventLog.unshift(`${new Date().toLocaleTimeString('zh-CN', { hour12: false })} ${text}`);
-  if (eventLog.length > 18) {
-    eventLog.length = 18;
-  }
-}
-
 async function postForm(url, fields) {
   const body = new URLSearchParams();
   Object.entries(fields).forEach(([key, value]) => {
@@ -1076,12 +1082,11 @@ chatForm.addEventListener('submit', async (event) => {
       sessionId: currentSessionId,
       text,
     });
-    logEvent(`POST /api/chat session=${currentSessionId}`);
     chatInput.value = '';
     selectedMessageIndex = null;
     applyState(state, currentSessionId);
+    await refreshEventFeed(currentSessionId);
   } catch (error) {
-    logEvent(`chat error: ${error.message}`);
     renderTerminal(currentState || { config: {}, status: {}, workspace: {}, providerHealths: [] }, currentState?.activeSession);
     alert(`聊天失败: ${error.message}`);
   }
@@ -1117,10 +1122,9 @@ chatInput.addEventListener('beforeinput', (event) => {
   } else if (event.inputType === 'insertLineBreak') {
     composerDiagnostics.lineBreakCount += 1;
   }
-  pushComposerDiagnostic(event.inputType || 'beforeinput');
   drawComposerCanvas(currentState?.activeSession);
+    await refreshEventFeed(currentSessionId);
 });
-chatInput.addEventListener('paste', () => {
   composerDiagnostics.pasteCount += 1;
   pushComposerDiagnostic('paste');
   drawComposerCanvas(currentState?.activeSession);
@@ -1153,10 +1157,9 @@ toolForm.addEventListener('submit', async (event) => {
       name: toolName.value,
       input: toolInput.value,
     });
-    logEvent(`POST /api/tool name=${toolName.value}`);
     applyState(state, currentSessionId);
+    await refreshEventFeed(currentSessionId);
   } catch (error) {
-    logEvent(`tool error: ${error.message}`);
     alert(`工具执行失败: ${error.message}`);
   }
 });
@@ -1175,10 +1178,9 @@ commandForm.addEventListener('submit', async (event) => {
       sessionId: currentSessionId,
       command,
     });
-    logEvent(`POST /api/command command=${command}`);
     applyState(state, currentSessionId);
+    await refreshEventFeed(currentSessionId);
   } catch (error) {
-    logEvent(`command error: ${error.message}`);
     alert(`命令执行失败: ${error.message}`);
   }
 });
