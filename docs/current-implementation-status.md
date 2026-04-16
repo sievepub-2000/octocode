@@ -33,7 +33,7 @@
 11. command parsing + command execution layer
 12. status / doctor / tools / providers JSON output
 13. UI snapshot export
-14. 最小 VS Code 风格静态 WebUI 壳
+14. 最小 macOS 风格窗口 chrome + VS Code 风格工作台静态 WebUI 壳
 
 ### 当前验证通过项
 
@@ -53,6 +53,7 @@
 14. `tool shell-command` permission denial path
 15. `ui-export`
 16. `http://127.0.0.1:4173/ui-shell/` WebUI real load check
+17. 原始前端资源核对：`index.html` / `app.js?v=3` 已切到菜单栏、activity bar、workspace settings、integrated terminal 新结构
 
 ## 未完成
 
@@ -70,6 +71,11 @@
 ## 当前里程碑定位
 
 当前仓库已经从“规划阶段”进入“可编译、可运行、可测试、可推送、可导出 UI 状态并可真实打开 WebUI 的 runtime 内核阶段”。
+
+## 当前同步状态
+
+1. 本地最新实现仍可能受 GitHub 443 传输层波动影响
+2. 当前应以本地提交与工作树状态为准确认进度
 
 ## 下一阶段优先级
 

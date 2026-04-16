@@ -6,96 +6,190 @@
   <title>Octocode UI Shell</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./app.css?v=2" />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./app.css?v=3" />
 </head>
 <body>
-  <div class="app-shell">
-    <aside class="session-rail">
-      <div class="brand-block">
-        <p class="eyebrow">Octocode</p>
-        <h1>Runtime Workbench</h1>
-        <p class="subtitle">面向 Windows 与 macOS 的本地代理工作台基线。</p>
-      </div>
-      <div class="status-card">
-        <span class="status-dot"></span>
-        <div>
-          <p class="status-label">当前 Provider</p>
-          <strong id="provider-id">loading</strong>
+  <div class="desktop-canvas">
+    <div class="mac-window">
+      <header class="menu-bar">
+        <div class="menu-cluster left">
+          <span class="apple-mark">◉</span>
+          <span class="menu-item strong">Octocode</span>
+          <span class="menu-item">File</span>
+          <span class="menu-item">Edit</span>
+          <span class="menu-item">Selection</span>
+          <span class="menu-item">View</span>
+          <span class="menu-item">Go</span>
+          <span class="menu-item">Run</span>
+          <span class="menu-item">Terminal</span>
+          <span class="menu-item">Help</span>
         </div>
-      </div>
-      <section class="rail-section">
-        <div class="section-head">
-          <h2>Sessions</h2>
-          <button id="refresh-button" type="button">Reload</button>
-        </div>
-        <div id="session-list" class="session-list"></div>
-      </section>
-    </aside>
-
-    <main class="main-stack">
-      <header class="hero-bar">
-        <div>
-          <p class="eyebrow">Conversation Surface</p>
-          <h2 id="session-title">没有可用会话</h2>
-        </div>
-        <div class="hero-metrics">
-          <div class="metric-pill">
-            <span>Platform</span>
-            <strong id="platform-pill">-</strong>
-          </div>
-          <div class="metric-pill accent">
-            <span>Permission</span>
-            <strong id="permission-pill">-</strong>
-          </div>
+        <div class="menu-cluster right">
+          <span class="menu-badge" id="menu-provider">provider</span>
+          <span class="menu-badge" id="menu-platform">platform</span>
+          <span class="menu-badge" id="menu-time">--:--</span>
         </div>
       </header>
 
-      <section class="conversation-stage">
-        <div id="message-stream" class="message-stream"></div>
-      </section>
-    </main>
-
-    <aside class="inspector-stack">
-      <section class="panel workspace-panel">
-        <div class="panel-head">
-          <p class="eyebrow">Workspace</p>
-          <h2>右上工作区</h2>
+      <section class="window-toolbar">
+        <div class="traffic-lights" aria-hidden="true">
+          <span class="light close"></span>
+          <span class="light minimize"></span>
+          <span class="light maximize"></span>
         </div>
-        <div class="workspace-meta">
-          <div class="meta-row">
-            <span>Root</span>
-            <strong id="workspace-root">-</strong>
-          </div>
-          <div class="meta-row">
-            <span>Shell</span>
-            <strong id="workspace-shell">-</strong>
-          </div>
-          <div class="meta-row">
-            <span>Default Model</span>
-            <strong id="default-model">-</strong>
-          </div>
+        <div class="workspace-chip-group">
+          <span class="workspace-chip active">Octocode</span>
+          <span class="workspace-chip">Workspace</span>
+          <span class="workspace-chip">Preview</span>
         </div>
-        <div class="capability-grid">
-          <article class="capability-card">
-            <p class="card-kicker">Providers</p>
-            <div id="provider-list" class="tag-cloud"></div>
-          </article>
-          <article class="capability-card">
-            <p class="card-kicker">Tools</p>
-            <div id="tool-list" class="tag-cloud"></div>
-          </article>
+        <div class="command-palette-shell">
+          <input id="command-palette" type="text" value="⌘K   Open command palette, switch provider, inspect runtime" readonly />
         </div>
       </section>
 
-      <section class="panel terminal-panel">
-        <div class="panel-head">
-          <p class="eyebrow">Terminal</p>
-          <h2>右下终端区</h2>
-        </div>
-        <pre id="terminal-output" class="terminal-output"></pre>
-      </section>
-    </aside>
+      <div class="ide-shell">
+        <nav class="activity-bar" aria-label="Workbench Navigation">
+          <button class="activity-button active" data-view="sessions" type="button">EX</button>
+          <button class="activity-button" data-view="providers" type="button">AI</button>
+          <button class="activity-button" data-view="tools" type="button">TL</button>
+          <button class="activity-button" data-view="commands" type="button">CM</button>
+          <div class="activity-spacer"></div>
+          <button class="activity-button" data-view="settings" type="button">ST</button>
+        </nav>
+
+        <aside class="sidebar-pane">
+          <div class="sidebar-head">
+            <div>
+              <p class="eyebrow">Explorer</p>
+              <h1 id="sidebar-title">Sessions</h1>
+            </div>
+            <button id="refresh-button" type="button">Refresh</button>
+          </div>
+          <div class="sidebar-tabs">
+            <button class="sidebar-tab active" data-view="sessions" type="button">Sessions</button>
+            <button class="sidebar-tab" data-view="providers" type="button">Providers</button>
+            <button class="sidebar-tab" data-view="tools" type="button">Tools</button>
+            <button class="sidebar-tab" data-view="commands" type="button">Commands</button>
+          </div>
+          <div id="sidebar-list" class="sidebar-list"></div>
+        </aside>
+
+        <main class="editor-shell">
+          <div class="editor-tabs">
+            <button class="editor-tab active" type="button">Conversation.md</button>
+            <button class="editor-tab" type="button">Runtime Status.json</button>
+            <button class="editor-tab" type="button">Workspace Settings</button>
+          </div>
+
+          <div class="content-grid">
+            <section class="conversation-column panel-surface">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Conversation Surface</p>
+                  <h2 id="session-title">没有可用会话</h2>
+                </div>
+                <div class="metric-strip">
+                  <div class="metric-pill">
+                    <span>Platform</span>
+                    <strong id="platform-pill">-</strong>
+                  </div>
+                  <div class="metric-pill accent">
+                    <span>Permission</span>
+                    <strong id="permission-pill">-</strong>
+                  </div>
+                </div>
+              </div>
+              <div class="breadcrumb-row">
+                <span class="breadcrumb-item">workspace</span>
+                <span class="breadcrumb-sep">/</span>
+                <span class="breadcrumb-item">sessions</span>
+                <span class="breadcrumb-sep">/</span>
+                <span class="breadcrumb-item active" id="breadcrumb-session">demo</span>
+              </div>
+              <div id="message-stream" class="message-stream"></div>
+            </section>
+
+            <div class="right-stack">
+              <section class="workspace-column panel-surface">
+                <div class="panel-header compact">
+                  <div>
+                    <p class="eyebrow">Workspace</p>
+                    <h2>右上工作区</h2>
+                  </div>
+                  <span class="panel-badge" id="provider-id">loading</span>
+                </div>
+                <div class="workspace-summary-grid">
+                  <div class="summary-card">
+                    <span>Root</span>
+                    <strong id="workspace-root">-</strong>
+                  </div>
+                  <div class="summary-card">
+                    <span>Shell</span>
+                    <strong id="workspace-shell">-</strong>
+                  </div>
+                  <div class="summary-card">
+                    <span>Default Model</span>
+                    <strong id="default-model">-</strong>
+                  </div>
+                  <div class="summary-card">
+                    <span>Sessions</span>
+                    <strong id="session-count">0</strong>
+                  </div>
+                </div>
+                <div class="workspace-sections">
+                  <article class="subpanel">
+                    <div class="subpanel-head">
+                      <h3>Workbench Settings</h3>
+                      <span>macOS + VS Code</span>
+                    </div>
+                    <div id="settings-list" class="settings-list"></div>
+                  </article>
+                  <article class="subpanel">
+                    <div class="subpanel-head">
+                      <h3>Providers</h3>
+                      <span>model surfaces</span>
+                    </div>
+                    <div id="provider-list" class="tag-cloud"></div>
+                  </article>
+                  <article class="subpanel">
+                    <div class="subpanel-head">
+                      <h3>Tool Access</h3>
+                      <span>permission gates</span>
+                    </div>
+                    <div id="tool-list" class="tag-cloud"></div>
+                  </article>
+                </div>
+              </section>
+
+              <section class="terminal-column panel-surface">
+                <div class="panel-header compact">
+                  <div>
+                    <p class="eyebrow">Terminal</p>
+                    <h2>右下终端区</h2>
+                  </div>
+                  <span class="panel-badge subtle">Integrated</span>
+                </div>
+                <div class="terminal-tabs">
+                  <span class="terminal-tab active">zsh</span>
+                  <span class="terminal-tab">Tasks</span>
+                  <span class="terminal-tab">Problems</span>
+                </div>
+                <pre id="terminal-output" class="terminal-output"></pre>
+              </section>
+            </div>
+          </div>
+        </main>
+      </div>
+
+      <footer class="status-bar">
+        <span id="status-branch">main</span>
+        <span id="status-provider">provider: -</span>
+        <span id="status-workspace">workspace: -</span>
+        <span id="status-shell">shell: -</span>
+        <span id="status-permission">permission: -</span>
+      </footer>
+    </div>
   </div>
 
   <template id="message-template">
@@ -107,6 +201,6 @@
     </article>
   </template>
 
-  <script src="./app.js?v=2"></script>
+  <script src="./app.js?v=3"></script>
 </body>
 </html>

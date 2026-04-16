@@ -52,5 +52,22 @@ Current local deployment and bootstrap documentation lives in:
 
 ## Current scope note
 
-This repository is still in the staged refactor phase. It now includes a minimal WebUI shell with a VS Code-like layout, but the full Claw Code / Claude Code feature surface, Canvas shell, MCP parity, plugin parity, and provider breadth are not complete yet. The current goal is to keep the runtime core and exported UI state verifiable while the richer desktop shell and integrations are built incrementally.
+This repository is still in the staged refactor phase. It now includes a macOS-inspired WebUI shell with a VS Code-like workbench layout, menu bar, activity bar, workspace pane, and integrated terminal, but the full Claw Code / Claude Code feature surface, Canvas shell, MCP parity, plugin parity, and provider breadth are not complete yet. The current goal is to keep the runtime core and exported UI state verifiable while the richer desktop shell and integrations are built incrementally.
+
+## UI shell notes
+
+The current `ui-shell` follows these interface constraints:
+
+1. A traditional macOS-style top menu bar and window chrome
+2. A VS Code-like left activity rail and explorer sidebar
+3. A centered conversation/editor surface
+4. A right-top workspace and settings pane
+5. A right-bottom integrated terminal area
+
+To preview the current shell:
+
+1. `cargo run -p octocode-cli -- chat demo "hello octocode"`
+2. `cargo run -p octocode-cli -- ui-export ui-shell/data/app-state.json demo`
+3. `./scripts/start-webui.ps1 -Port 4173`
+4. Open `http://127.0.0.1:4173/ui-shell/`
 
