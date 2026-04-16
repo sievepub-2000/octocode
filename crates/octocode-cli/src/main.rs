@@ -1,4 +1,4 @@
-use octocode_api::StubProvider;
+use octocode_api::{ProviderRegistry, StubProvider};
 use octocode_core::{
     PermissionMode, PlatformKind, PromptRequest, ShellKind, ToolCall, WorkspaceContext,
 };
@@ -49,12 +49,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let workspace = runtime.workspace();
             println!("root={} platform={:?} shell={:?}", workspace.root, workspace.platform, workspace.preferred_shell);
         }
+        Some("providers") => {
+            let registry = ProviderRegistry::new();
+            for provider in registry.all() {
+                println!(
+                    "{} kind={:?} tools={} streaming={}",
+                    provider.id, provider.kind, provider.supports_tools, provider.supports_streaming
+                );
+            }
+        }
+        Some("doctor") => {
+            let workspace = runtime.workspace();
+            let paths = runtime.config_paths();
+            println!("Octocode Doctor");
+            println!("workspace.root={}", workspace.root);
+            println!("workspace.platform={:?}", workspace.platform);
+            println!("workspace.shell={:?}", workspace.preferred_shell);
+            println!("config.home={}", paths.config_home);
+            println!("cache.home={}", paths.cache_home);
+            println!("data.home={}", paths.data_home);
+        }
         _ => {
             println!("octocode-cli commands:");
             println!("  prompt [text]");
             println!("  sessions");
             println!("  tool [name] [input]");
             println!("  workspace");
+            println!("  providers");
+            println!("  doctor");
         }
     }
 
@@ -74,7 +96,9 @@ fn detect_platform() -> PlatformKind {
 fn detect_shell() -> ShellKind {
     if cfg!(target_os = "windows") {
         ShellKind::PowerShell
-    } else {
+    } else if cfg!(target_os = "macos") {
         ShellKind::Zsh
+    } else {
+        ShellKind::Bash
     }
 }

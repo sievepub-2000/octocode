@@ -6,6 +6,17 @@ pub enum PlatformKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderKind {
+    Stub,
+    Anthropic,
+    OpenAiCompatible,
+    XAi,
+    DashScope,
+    Ollama,
+    LlamaCpp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShellKind {
     PowerShell,
     Cmd,
@@ -50,8 +61,16 @@ pub struct PromptResponse {
 pub struct ProviderDescriptor {
     pub id: String,
     pub display_name: String,
+    pub kind: ProviderKind,
     pub supports_tools: bool,
     pub supports_streaming: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigPaths {
+    pub config_home: String,
+    pub cache_home: String,
+    pub data_home: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,6 +103,11 @@ pub trait SessionStore: Send + Sync {
 
 pub trait ToolExecutor: Send + Sync {
     fn execute(&self, call: ToolCall) -> Result<ToolResult, OctoError>;
+}
+
+pub trait PlatformSupport: Send + Sync {
+    fn context(&self) -> &WorkspaceContext;
+    fn config_paths(&self) -> ConfigPaths;
 }
 
 impl std::fmt::Display for OctoError {
