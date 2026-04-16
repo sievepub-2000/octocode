@@ -190,3 +190,41 @@
 1. Canvas UI shell
 2. VS Code integration
 3. Cline / Cursor compatibility bridge
+
+## 5. Windows-first runtime 迁移清单
+
+这份清单用于实现期持续验证，不允许最后集中补平台问题。
+
+### 5.1 已经稳定到 crate 边界的接口
+
+1. `octocode-core::ProviderCapabilities`
+2. `octocode-core::ProviderFactory`
+3. `octocode-core::PermissionPolicy`
+4. `octocode-core::ToolCatalog`
+5. `octocode-runtime::RuntimePermissionPolicy`
+6. `octocode-runtime::RuntimeToolCatalog`
+
+### 5.2 Claw Code -> Octocode 当前优先映射
+
+1. `src/session_store.py` -> `octocode-runtime` session store 与 transcript persistence
+2. `src/permissions.py` -> `octocode-core` permission contract + `octocode-runtime` enforcement
+3. `src/runtime.py` 与 `src/remote_runtime.py` -> `octocode-runtime` orchestration 与 provider routing
+4. `src/tool_pool.py` 与 `src/tools.py` -> `octocode-core` tool contract + `octocode-runtime` tool registry/executor
+5. `src/transcript.py` 与 `src/history.py` -> `octocode-runtime` session transcript / history compaction
+6. `src/server/` -> `octocode-cli` transport boot + 后续 UI shell event feed
+7. `src/plugins/` 与 `src/hooks/` -> 后续 `octocode-runtime` plugin lifecycle 与 hook bridge
+
+### 5.3 本轮后续必须持续验证的检查项
+
+1. `cargo check` 必须保持通过。
+2. `octocode-cli doctor` 要在 Windows 返回正确的 `APPDATA` / `LOCALAPPDATA` 派生路径。
+3. `octocode-cli providers` 要返回统一 capability surface，而不是壳层私有字段拼装。
+4. `octocode-cli tool shell-command ...` 要能在 Windows 上优先走 PowerShell，再按需退回其他 shell。
+5. `serve` 输出的 WebUI state 必须继续包含 providers、tools、sessions、status。
+
+### 5.4 下一批迁移切片
+
+1. 把 provider routing 从“单 provider + 描述列表”继续推进到显式 runtime router。
+2. 把 session store 从当前文件实现拆出独立 runtime 子模块，补 Windows 路径与恢复测试。
+3. 把 tool registry 从静态表继续拆成可扩展 registry，给后续 richer plugin hooks 留出入口。
+4. 在 CLI parity 稳定后，再让 Canvas UI 只消费 runtime event/snapshot。

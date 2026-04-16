@@ -5,12 +5,13 @@ use std::path::{Path, PathBuf};
 
 use octocode_api::{BuiltinProvider, ProviderRegistry};
 use octocode_commands::{execute_command, CliCommand};
-use octocode_core::{OctoError, PermissionMode, PlatformSupport, RuntimeConfig, ToolCall};
+use octocode_core::{OctoError, PermissionMode, PlatformSupport, ProviderFactory, RuntimeConfig, ToolCall};
 use octocode_runtime::{
-    ConfigLoader, FileSessionStore, NativePlatform, OctocodeRuntime, WorkspaceToolExecutor,
+    ConfigLoader, FileSessionStore, NativePlatform, OctocodeRuntime, RuntimeProviderRouter,
+    WorkspaceToolExecutor,
 };
 
-pub type AppRuntime = OctocodeRuntime<BuiltinProvider, FileSessionStore, WorkspaceToolExecutor>;
+pub type AppRuntime = OctocodeRuntime<RuntimeProviderRouter<BuiltinProvider>, FileSessionStore, WorkspaceToolExecutor>;
 
 pub fn build_runtime(
     workspace_root: String,
@@ -18,14 +19,16 @@ pub fn build_runtime(
 ) -> Result<AppRuntime, Box<dyn std::error::Error>> {
     let platform = NativePlatform::detect(workspace_root);
     let registry = ProviderRegistry::new();
-    let provider = registry.create_from_config(&config);
     let store = FileSessionStore::new(&platform.config_paths())?;
     Ok(OctocodeRuntime::new(
-        provider,
+        RuntimeProviderRouter::from_factory(&registry, &config)?,
         store,
-        WorkspaceToolExecutor::new(platform.context().root.clone()),
+        WorkspaceToolExecutor::with_shell(
+            platform.context().root.clone(),
+            platform.context().preferred_shell.clone(),
+        ),
         platform.context().clone(),
-        registry.all().to_vec(),
+        registry.descriptors().to_vec(),
     ))
 }
 

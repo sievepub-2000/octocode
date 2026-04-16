@@ -42,6 +42,9 @@
 20. provider health check + local-openai -> remote-openai -> stub 自动 fallback
 21. provider circuit breaker：失败计数、冷却时间、半开自动恢复
 22. sidebar / message list 改为 canvas 渲染，并带命中测试与内部滚动
+23. explicit runtime provider router：主 provider / 备用 provider / stub route chain
+24. runtime 子模块拆分：session / permission / tool registry / router
+25. CLI parity 新增 `routes` 与 `snapshot`
 
 ### 当前验证通过项
 
@@ -67,22 +70,27 @@
 20. 原始前端资源核对：`index.html` / `app.js?v=4` 已切到 command palette、chat composer、provider settings、tool runner、terminal event log 新结构
 21. `http://127.0.0.1:999/api/state?session=demo` 已确认输出 `circuitState` / `failureCount` / `cooldownRemainingMs`
 22. `http://127.0.0.1:999/ui-shell/?session=demo` 已切到 `sidebar-canvas` / `message-canvas`
+23. `cargo run -p octocode-cli -- routes`
+24. `cargo run -p octocode-cli -- snapshot demo`
+25. session 子模块回归：`session-add` / `chat` / `session-show` / `session-export`
 
 ## 未完成
 
 1. MCP lifecycle
 2. plugin / skills / hooks
 3. full slash-command parity
-4. REPL
-5. 组件级输入命中测试仍未覆盖到设置表单等 DOM 区域
-6. VS Code / Cline / Cursor integration layer
-7. 本地模型与闭源模型完整接入与 provider failover
-8. release packaging
-9. Windows/macOS 图形壳部署
+4. Canvas UI 统一 runtime event bus
+5. REPL
+6. 组件级输入命中测试仍未覆盖到设置表单等 DOM 区域
+7. VS Code / Cline / Cursor integration layer
+8. skills / plugins / hooks / MCP lifecycle
+9. 本地模型与闭源模型完整接入与 provider failover
+10. release packaging
+11. Windows/macOS 图形壳部署
 
 ## 当前里程碑定位
 
-当前仓库已经从“静态 shell + 伪 provider”推进到“可编译、可运行、具真实 provider 接口、具交互式本地 backend、具工作流恢复语义的 runtime/workbench 阶段”。
+当前仓库已经从“静态 shell + 伪 provider”推进到“可编译、可运行、具显式 provider routing、具 runtime snapshot/route surface、具交互式本地 backend、具工作流恢复语义的 runtime/workbench 阶段”。
 
 ## 当前同步状态
 
@@ -91,11 +99,12 @@
 
 ## 下一阶段优先级
 
-1. 将 provider circuit breaker 从进程内状态推进到可观测/可持久化策略
-2. command surface 扩充到 workflow / agent actions
-3. REPL 与 conversation runtime 深化
-4. MCP / tools / plugin parity
-5. 从当前 Wry 桌面壳推进到发行版打包与自更新链路
+1. 把 runtime router 的 route policy、优先级与 fallback 理由继续显式化并持久化
+2. 让 Canvas UI 消费统一 runtime snapshot/event，而不是自行回推业务逻辑
+3. 扩充 command surface 到更多 CLI parity 命令与 richer snapshot/event export
+4. REPL 与 conversation runtime 深化
+5. MCP / tools / plugin parity
+6. 从当前 Wry 桌面壳推进到发行版打包与自更新链路
 
 ## 当前风险说明
 

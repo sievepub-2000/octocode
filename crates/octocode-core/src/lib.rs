@@ -17,6 +17,37 @@ pub enum ProviderKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderCapabilities {
+    pub chat: bool,
+    pub streaming: bool,
+    pub tool_calls: bool,
+    pub session_memory: bool,
+    pub json_output: bool,
+}
+
+impl ProviderCapabilities {
+    pub fn stub() -> Self {
+        Self {
+            chat: true,
+            streaming: false,
+            tool_calls: false,
+            session_memory: false,
+            json_output: false,
+        }
+    }
+
+    pub fn compatible(streaming: bool, tool_calls: bool) -> Self {
+        Self {
+            chat: true,
+            streaming,
+            tool_calls,
+            session_memory: false,
+            json_output: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShellKind {
     PowerShell,
     Cmd,
@@ -104,6 +135,7 @@ pub struct ProviderDescriptor {
     pub kind: ProviderKind,
     pub supports_tools: bool,
     pub supports_streaming: bool,
+    pub capabilities: ProviderCapabilities,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -156,6 +188,19 @@ pub struct ProviderCircuitStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderRouteStatus {
+    pub provider_id: String,
+    pub display_name: String,
+    pub kind: ProviderKind,
+    pub healthy: bool,
+    pub circuit_state: ProviderCircuitState,
+    pub detail: String,
+    pub latency_ms: Option<u128>,
+    pub is_primary: bool,
+    pub is_active: bool,
+ }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigPaths {
     pub config_home: String,
     pub cache_home: String,
@@ -187,6 +232,7 @@ pub struct RuntimeStatus {
     pub session_count: usize,
     pub provider_health: ProviderHealth,
     pub provider_circuit: ProviderCircuitStatus,
+    pub provider_routes: Vec<ProviderRouteStatus>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -196,6 +242,7 @@ pub struct DoctorReport {
     pub config: RuntimeConfig,
     pub provider_healths: Vec<ProviderHealth>,
     pub provider_circuits: Vec<ProviderCircuitStatus>,
+    pub provider_routes: Vec<ProviderRouteStatus>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -231,6 +278,7 @@ pub struct UiSnapshot {
     pub providers: Vec<ProviderDescriptor>,
     pub provider_healths: Vec<ProviderHealth>,
     pub provider_circuits: Vec<ProviderCircuitStatus>,
+    pub provider_routes: Vec<ProviderRouteStatus>,
     pub commands: Vec<CommandDescriptor>,
     pub tools: Vec<ToolDescriptor>,
     pub sessions: Vec<SessionSummary>,
@@ -294,6 +342,22 @@ pub trait ModelProvider: Send + Sync {
     fn circuit_catalog(&self) -> Vec<ProviderCircuitStatus> {
         vec![self.circuit_status()]
     }
+
+    fn route_statuses(&self) -> Vec<ProviderRouteStatus> {
+        let descriptor = self.descriptor();
+        let health = self.health();
+        vec![ProviderRouteStatus {
+            provider_id: descriptor.id.clone(),
+            display_name: descriptor.display_name,
+            kind: descriptor.kind,
+            healthy: health.healthy,
+            circuit_state: health.circuit_state,
+            detail: health.detail,
+            latency_ms: health.latency_ms,
+            is_primary: true,
+            is_active: health.provider_id == self.active_provider_id(),
+        }]
+    }
 }
 
 pub trait SessionStore: Send + Sync {
@@ -316,9 +380,48 @@ pub trait ToolExecutor: Send + Sync {
     fn execute(&self, call: ToolCall) -> Result<ToolResult, OctoError>;
 }
 
+pub trait ToolCatalog: Send + Sync {
+    fn descriptors(&self) -> &[ToolDescriptor];
+
+    fn descriptor(&self, name: &str) -> Option<&ToolDescriptor> {
+        self.descriptors()
+            .iter()
+            .find(|descriptor| descriptor.name == name)
+    }
+}
+
+pub trait PermissionPolicy: Send + Sync {
+    fn ensure_allowed(
+        &self,
+        current: &PermissionMode,
+        required: &PermissionMode,
+        scope: &str,
+    ) -> Result<(), OctoError>;
+}
+
+pub trait ProviderFactory: Send + Sync {
+    type Provider: ModelProvider;
+
+    fn descriptors(&self) -> &[ProviderDescriptor];
+    fn create_from_config(&self, config: &RuntimeConfig) -> Self::Provider;
+    fn create_by_id(&self, id: &str, config: &RuntimeConfig) -> Option<Self::Provider>;
+}
+
 pub trait PlatformSupport: Send + Sync {
     fn context(&self) -> &WorkspaceContext;
     fn config_paths(&self) -> ConfigPaths;
+}
+
+pub fn permission_rank(mode: &PermissionMode) -> u8 {
+    match mode {
+        PermissionMode::ReadOnly => 0,
+        PermissionMode::WorkspaceWrite => 1,
+        PermissionMode::DangerFullAccess => 2,
+    }
+}
+
+pub fn permission_allows(current: &PermissionMode, required: &PermissionMode) -> bool {
+    permission_rank(current) >= permission_rank(required)
 }
 
 impl std::fmt::Display for OctoError {

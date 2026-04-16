@@ -6,7 +6,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use octocode_core::{
     ModelProvider, OctoError, PromptRequest, PromptResponse, ProviderCircuitEvent,
     ProviderCircuitEventKind, ProviderCircuitState, ProviderCircuitStatus, ProviderDescriptor,
-    ProviderHealth, ProviderKind, RuntimeConfig,
+    ProviderCapabilities, ProviderFactory, ProviderHealth, ProviderKind, RuntimeConfig,
 };
 
 const DEFAULT_LOCAL_BASE_URL: &str = "http://192.168.110.2:8000/v1";
@@ -369,6 +369,7 @@ impl ProviderRegistry {
                     kind: ProviderKind::Stub,
                     supports_tools: false,
                     supports_streaming: false,
+                    capabilities: ProviderCapabilities::stub(),
                 },
                 ProviderDescriptor {
                     id: String::from("local-openai"),
@@ -376,6 +377,7 @@ impl ProviderRegistry {
                     kind: ProviderKind::LlamaCpp,
                     supports_tools: false,
                     supports_streaming: false,
+                    capabilities: ProviderCapabilities::compatible(false, false),
                 },
                 ProviderDescriptor {
                     id: String::from("remote-openai"),
@@ -383,6 +385,7 @@ impl ProviderRegistry {
                     kind: ProviderKind::OpenAiCompatible,
                     supports_tools: false,
                     supports_streaming: true,
+                    capabilities: ProviderCapabilities::compatible(true, false),
                 },
             ],
         }
@@ -500,6 +503,22 @@ impl ProviderRegistry {
             )),
         };
         Some(provider)
+    }
+}
+
+impl ProviderFactory for ProviderRegistry {
+    type Provider = BuiltinProvider;
+
+    fn descriptors(&self) -> &[ProviderDescriptor] {
+        self.all()
+    }
+
+    fn create_from_config(&self, config: &RuntimeConfig) -> Self::Provider {
+        ProviderRegistry::create_from_config(self, config)
+    }
+
+    fn create_by_id(&self, id: &str, config: &RuntimeConfig) -> Option<Self::Provider> {
+        self.create_by_id_with_config(id, config)
     }
 }
 

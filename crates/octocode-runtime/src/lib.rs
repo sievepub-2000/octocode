@@ -1,429 +1,30 @@
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::SystemTime;
+use std::path::PathBuf;
 
 use octocode_core::{
     CommandDescriptor, ConfigPaths, ConversationMessage, ConversationRole, ConversationSession,
-    ConversationStore, DoctorReport, ModelProvider, OctoError, PermissionMode, PlatformKind,
-    PlatformSupport, PromptRequest, PromptResponse, ProviderCircuitEvent,
-    ProviderCircuitStatus, ProviderDescriptor, ProviderHealth, RuntimeConfig, RuntimeStatus,
-    SessionStore, SessionSummary, ShellKind, ToolCall, ToolDescriptor, ToolExecutor, ToolResult,
-    UiSnapshot, WorkspaceContext,
+    ConversationStore, DoctorReport, ModelProvider, OctoError, PermissionMode, PermissionPolicy,
+    PlatformKind, PlatformSupport, PromptRequest, PromptResponse, ProviderCircuitEvent,
+    ProviderCircuitStatus, ProviderDescriptor, ProviderHealth, ProviderRouteStatus, RuntimeConfig,
+    RuntimeStatus,
+    SessionSummary, ShellKind, ToolCall, ToolCatalog, ToolDescriptor,
+    ToolExecutor, ToolResult, UiSnapshot, WorkspaceContext,
 };
+
+mod permission;
+mod router;
+mod session;
+mod tools;
+
+pub use permission::RuntimePermissionPolicy;
+pub use router::RuntimeProviderRouter;
+pub use session::{FileSessionStore, MemorySessionStore};
+pub use tools::{RuntimeToolCatalog, WorkspaceToolExecutor};
 
 const DEFAULT_PROVIDER_ID: &str = "local-openai";
 const DEFAULT_PROVIDER_BASE_URL: &str = "http://192.168.110.2:8000/v1";
 const DEFAULT_MODEL: &str = "gemma-4-31b-it-q8-prod";
 const DEFAULT_HISTORY_LIMIT: usize = 24;
-
-#[derive(Default)]
-pub struct MemorySessionStore {
-    sessions: Vec<SessionSummary>,
-}
-
-impl MemorySessionStore {
-    pub fn new() -> Self {
-        Self {
-            sessions: vec![SessionSummary {
-                id: String::from("bootstrap"),
-                title: String::from("Bootstrap Session"),
-                model: None,
-            }],
-        }
-    }
-}
-
-impl SessionStore for MemorySessionStore {
-    fn list_sessions(&self) -> Result<Vec<SessionSummary>, OctoError> {
-        Ok(self.sessions.clone())
-    }
-
-    fn save_session(&self, _session: SessionSummary) -> Result<(), OctoError> {
-        Err(OctoError::Session(String::from(
-            "memory session store does not persist sessions",
-        )))
-    }
-}
-
-impl ConversationStore for MemorySessionStore {
-    fn load_session(&self, id: &str) -> Result<ConversationSession, OctoError> {
-        let summary = self
-            .sessions
-            .iter()
-            .find(|session| session.id == id)
-            .cloned()
-            .ok_or_else(|| OctoError::Session(format!("unknown session: {id}")))?;
-        Ok(ConversationSession {
-            summary,
-            messages: Vec::new(),
-        })
-    }
-
-    fn append_message(&self, _session_id: &str, _message: ConversationMessage) -> Result<(), OctoError> {
-        Err(OctoError::Session(String::from(
-            "memory session store does not persist messages",
-        )))
-    }
-
-    fn replace_messages(
-        &self,
-        _session_id: &str,
-        _messages: Vec<ConversationMessage>,
-    ) -> Result<(), OctoError> {
-        Err(OctoError::Session(String::from(
-            "memory session store does not persist messages",
-        )))
-    }
-
-    fn latest_session_id(&self) -> Result<Option<String>, OctoError> {
-        Ok(self.sessions.last().map(|session| session.id.clone()))
-    }
-}
-
-pub struct FileSessionStore {
-    sessions_dir: PathBuf,
-    transcripts_dir: PathBuf,
-}
-
-impl FileSessionStore {
-    pub fn new(paths: &ConfigPaths) -> Result<Self, OctoError> {
-        let sessions_dir = PathBuf::from(&paths.data_home).join("sessions");
-        let transcripts_dir = PathBuf::from(&paths.data_home).join("transcripts");
-        fs::create_dir_all(&sessions_dir)
-            .map_err(|error| OctoError::Session(format!("failed to create sessions dir: {error}")))?;
-        fs::create_dir_all(&transcripts_dir).map_err(|error| {
-            OctoError::Session(format!("failed to create transcripts dir: {error}"))
-        })?;
-        Ok(Self {
-            sessions_dir,
-            transcripts_dir,
-        })
-    }
-
-    fn session_file_path(&self, id: &str) -> PathBuf {
-        self.sessions_dir.join(format!("{id}.session"))
-    }
-
-    fn transcript_file_path(&self, id: &str) -> PathBuf {
-        self.transcripts_dir.join(format!("{id}.messages"))
-    }
-
-    fn load_summary(&self, id: &str) -> Result<SessionSummary, OctoError> {
-        let path = self.session_file_path(id);
-        let raw = fs::read_to_string(&path).map_err(|error| {
-            OctoError::Session(format!("failed to read session file {}: {error}", path.display()))
-        })?;
-        let mut parts = raw.lines();
-        let id = parts.next().unwrap_or_default().trim().to_string();
-        let title = parts.next().unwrap_or_default().trim().to_string();
-        let model = parts
-            .next()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string);
-        if id.is_empty() {
-            return Err(OctoError::Session(String::from("session id is empty")));
-        }
-        Ok(SessionSummary { id, title, model })
-    }
-
-    fn load_messages(&self, id: &str) -> Vec<ConversationMessage> {
-        let transcript_path = self.transcript_file_path(id);
-        let raw = fs::read_to_string(&transcript_path).unwrap_or_default();
-        raw.lines()
-            .filter_map(|line| {
-                let (role, content) = line.split_once('\t')?;
-                Some(ConversationMessage {
-                    role: ConversationRole::parse(role),
-                    content: content.replace("\\n", "\n"),
-                })
-            })
-            .collect()
-    }
-
-    fn write_messages(&self, id: &str, messages: &[ConversationMessage]) -> Result<(), OctoError> {
-        let transcript_path = self.transcript_file_path(id);
-        if let Some(parent) = transcript_path.parent() {
-            fs::create_dir_all(parent).map_err(|error| {
-                OctoError::Session(format!(
-                    "failed to create transcript dir {}: {error}",
-                    parent.display()
-                ))
-            })?;
-        }
-
-        let body = messages
-            .iter()
-            .map(|message| {
-                format!(
-                    "{}\t{}",
-                    message.role.as_str(),
-                    message.content.replace('\n', "\\n")
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        let normalized = if body.is_empty() {
-            String::new()
-        } else {
-            format!("{body}\n")
-        };
-
-        fs::write(&transcript_path, normalized).map_err(|error| {
-            OctoError::Session(format!(
-                "failed to write transcript {}: {error}",
-                transcript_path.display()
-            ))
-        })
-    }
-
-    fn last_modified_for(&self, id: &str) -> Option<SystemTime> {
-        let transcript_path = self.transcript_file_path(id);
-        let session_path = self.session_file_path(id);
-        transcript_path
-            .metadata()
-            .and_then(|meta| meta.modified())
-            .ok()
-            .or_else(|| session_path.metadata().and_then(|meta| meta.modified()).ok())
-    }
-}
-
-impl SessionStore for FileSessionStore {
-    fn list_sessions(&self) -> Result<Vec<SessionSummary>, OctoError> {
-        let mut sessions = Vec::new();
-        let entries = fs::read_dir(&self.sessions_dir)
-            .map_err(|error| OctoError::Session(format!("failed to read sessions dir: {error}")))?;
-
-        for entry in entries {
-            let entry = entry
-                .map_err(|error| OctoError::Session(format!("failed to read session entry: {error}")))?;
-            let path = entry.path();
-            if path.extension().and_then(|extension| extension.to_str()) != Some("session") {
-                continue;
-            }
-            let Some(id) = path.file_stem().and_then(|value| value.to_str()) else {
-                continue;
-            };
-            sessions.push(self.load_summary(id)?);
-        }
-
-        sessions.sort_by(|left, right| right.id.cmp(&left.id));
-        Ok(sessions)
-    }
-
-    fn save_session(&self, session: SessionSummary) -> Result<(), OctoError> {
-        let file_path = self.session_file_path(&session.id);
-        let body = format!(
-            "{}\n{}\n{}\n",
-            session.id,
-            session.title,
-            session.model.unwrap_or_default()
-        );
-        fs::write(file_path, body)
-            .map_err(|error| OctoError::Session(format!("failed to write session file: {error}")))
-    }
-}
-
-impl ConversationStore for FileSessionStore {
-    fn load_session(&self, id: &str) -> Result<ConversationSession, OctoError> {
-        let summary = self.load_summary(id)?;
-        Ok(ConversationSession {
-            summary,
-            messages: self.load_messages(id),
-        })
-    }
-
-    fn append_message(&self, session_id: &str, message: ConversationMessage) -> Result<(), OctoError> {
-        let mut messages = self.load_messages(session_id);
-        messages.push(message);
-        self.write_messages(session_id, &messages)
-    }
-
-    fn replace_messages(
-        &self,
-        session_id: &str,
-        messages: Vec<ConversationMessage>,
-    ) -> Result<(), OctoError> {
-        self.write_messages(session_id, &messages)
-    }
-
-    fn latest_session_id(&self) -> Result<Option<String>, OctoError> {
-        let sessions = self.list_sessions()?;
-        let latest = sessions
-            .iter()
-            .max_by_key(|session| self.last_modified_for(&session.id))
-            .map(|session| session.id.clone());
-        Ok(latest)
-    }
-}
-
-pub struct WorkspaceToolExecutor {
-    workspace_root: PathBuf,
-}
-
-impl WorkspaceToolExecutor {
-    pub fn new(workspace_root: impl Into<PathBuf>) -> Self {
-        Self {
-            workspace_root: workspace_root.into(),
-        }
-    }
-
-    fn resolve_workspace_path(&self, input: &str) -> PathBuf {
-        let path = Path::new(input);
-        if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            self.workspace_root.join(path)
-        }
-    }
-
-    fn run_shell(&self, command_line: &str) -> Result<ToolResult, OctoError> {
-        let output = if cfg!(target_os = "windows") {
-            Command::new("powershell")
-                .args(["-NoProfile", "-Command", command_line])
-                .current_dir(&self.workspace_root)
-                .output()
-        } else {
-            Command::new("bash")
-                .args(["-lc", command_line])
-                .current_dir(&self.workspace_root)
-                .output()
-        }
-        .map_err(|error| OctoError::Runtime(format!("failed to run shell command: {error}")))?;
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        Ok(ToolResult {
-            output: format!("{}{}", stdout, stderr).trim().to_string(),
-        })
-    }
-
-    fn search_text(&self, input: &str) -> Result<ToolResult, OctoError> {
-        let (pattern, location) = input
-            .split_once('|')
-            .map(|(left, right)| (left.trim(), right.trim()))
-            .unwrap_or((input.trim(), "."));
-        if pattern.is_empty() {
-            return Err(OctoError::Runtime(String::from(
-                "search-text expects input pattern|path or pattern",
-            )));
-        }
-
-        let command = if cfg!(target_os = "windows") {
-            format!(
-                "Get-ChildItem -Path '{}' -Recurse -File | Select-String -Pattern '{}' | ForEach-Object {{ \"{{0}}:{{1}}:{{2}}\" -f $_.Path, $_.LineNumber, $_.Line.Trim() }}",
-                location.replace('\'', "''"),
-                pattern.replace('\'', "''")
-            )
-        } else {
-            format!(
-                "grep -RIn -- '{}' '{}' | head -n 50",
-                pattern.replace('\'', "'\\''"),
-                location.replace('\'', "'\\''")
-            )
-        };
-
-        self.run_shell(&command)
-    }
-
-    fn workflow_plan(&self, input: &str) -> ToolResult {
-        let trimmed = input.trim();
-        let headline = if trimmed.is_empty() {
-            "Draft implementation plan"
-        } else {
-            trimmed
-        };
-        let output = [
-            format!("goal: {headline}"),
-            String::from("1. inspect current behavior and constraints"),
-            String::from("2. implement the smallest end-to-end change"),
-            String::from("3. run a focused validation for the touched slice"),
-            String::from("4. iterate on follow-up fixes only if validation fails"),
-        ]
-        .join("\n");
-        ToolResult { output }
-    }
-
-    fn agent_action(&self, input: &str) -> ToolResult {
-        let task = input.trim();
-        let headline = if task.is_empty() {
-            "continue current task"
-        } else {
-            task
-        };
-        let output = [
-            format!("agent action: {headline}"),
-            String::from("mode: delegated"),
-            String::from("next: inspect the local slice before making edits"),
-            String::from("validation: run the cheapest behavior-scoped check after the first edit"),
-        ]
-        .join("\n");
-        ToolResult { output }
-    }
-}
-
-impl ToolExecutor for WorkspaceToolExecutor {
-    fn execute(&self, call: ToolCall) -> Result<ToolResult, OctoError> {
-        match call.name.as_str() {
-            "echo" => Ok(ToolResult {
-                output: format!("tool {} => {}", call.name, call.input),
-            }),
-            "read-file" => {
-                let path = self.resolve_workspace_path(&call.input);
-                let output = fs::read_to_string(&path).map_err(|error| {
-                    OctoError::Runtime(format!("failed to read file {}: {error}", path.display()))
-                })?;
-                Ok(ToolResult { output })
-            }
-            "list-files" => {
-                let path = self.resolve_workspace_path(if call.input.trim().is_empty() {
-                    "."
-                } else {
-                    &call.input
-                });
-                let entries = fs::read_dir(&path).map_err(|error| {
-                    OctoError::Runtime(format!("failed to list files {}: {error}", path.display()))
-                })?;
-                let mut names = entries
-                    .filter_map(|entry| entry.ok())
-                    .filter_map(|entry| entry.file_name().into_string().ok())
-                    .collect::<Vec<_>>();
-                names.sort();
-                Ok(ToolResult {
-                    output: names.join("\n"),
-                })
-            }
-            "write-file" => {
-                let (path_text, content) = call.input.split_once('|').ok_or_else(|| {
-                    OctoError::Runtime(String::from(
-                        "write-file expects input in the form path|content",
-                    ))
-                })?;
-                let path = self.resolve_workspace_path(path_text.trim());
-                if let Some(parent) = path.parent() {
-                    fs::create_dir_all(parent).map_err(|error| {
-                        OctoError::Runtime(format!(
-                            "failed to create parent directory {}: {error}",
-                            parent.display()
-                        ))
-                    })?;
-                }
-                fs::write(&path, content).map_err(|error| {
-                    OctoError::Runtime(format!("failed to write file {}: {error}", path.display()))
-                })?;
-                Ok(ToolResult {
-                    output: format!("wrote {}", path.display()),
-                })
-            }
-            "shell-command" => self.run_shell(&call.input),
-            "search-text" => self.search_text(&call.input),
-            "workflow-plan" => Ok(self.workflow_plan(&call.input)),
-            "agent-action" => Ok(self.agent_action(&call.input)),
-            _ => Err(OctoError::Runtime(format!("unknown tool: {}", call.name))),
-        }
-    }
-}
 
 pub struct NativePlatform {
     context: WorkspaceContext,
@@ -621,12 +222,20 @@ const COMMANDS: &[CommandDescriptor] = &[
         summary: "List configured provider surfaces",
     },
     CommandDescriptor {
+        name: "routes",
+        summary: "Show the explicit provider routing chain and active route",
+    },
+    CommandDescriptor {
         name: "doctor",
         summary: "Show platform and config diagnostics",
     },
     CommandDescriptor {
         name: "status",
         summary: "Show effective runtime status",
+    },
+    CommandDescriptor {
+        name: "snapshot",
+        summary: "Show the unified runtime snapshot for CLI and UI consumers",
     },
     CommandDescriptor {
         name: "permissions",
@@ -651,49 +260,6 @@ const COMMANDS: &[CommandDescriptor] = &[
     CommandDescriptor {
         name: "commands",
         summary: "List the current CLI command surface",
-    },
-];
-
-const TOOLS: &[ToolDescriptor] = &[
-    ToolDescriptor {
-        name: "echo",
-        summary: "Echo input for debugging",
-        minimum_permission: PermissionMode::ReadOnly,
-    },
-    ToolDescriptor {
-        name: "read-file",
-        summary: "Read one file from the workspace",
-        minimum_permission: PermissionMode::ReadOnly,
-    },
-    ToolDescriptor {
-        name: "list-files",
-        summary: "List directory entries from the workspace",
-        minimum_permission: PermissionMode::ReadOnly,
-    },
-    ToolDescriptor {
-        name: "write-file",
-        summary: "Write one file under the workspace",
-        minimum_permission: PermissionMode::WorkspaceWrite,
-    },
-    ToolDescriptor {
-        name: "shell-command",
-        summary: "Run one shell command in the workspace",
-        minimum_permission: PermissionMode::DangerFullAccess,
-    },
-    ToolDescriptor {
-        name: "search-text",
-        summary: "Search workspace text with a pattern and optional path",
-        minimum_permission: PermissionMode::ReadOnly,
-    },
-    ToolDescriptor {
-        name: "workflow-plan",
-        summary: "Generate a focused implementation plan for the current task",
-        minimum_permission: PermissionMode::ReadOnly,
-    },
-    ToolDescriptor {
-        name: "agent-action",
-        summary: "Run a real session agent action through runtime orchestration",
-        minimum_permission: PermissionMode::ReadOnly,
     },
 ];
 
@@ -772,6 +338,8 @@ pub struct OctocodeRuntime<P, S, T> {
     platform: NativePlatform,
     config: RuntimeConfig,
     available_providers: Vec<ProviderDescriptor>,
+    permission_policy: RuntimePermissionPolicy,
+    tool_catalog: RuntimeToolCatalog,
 }
 
 impl<P, S, T> OctocodeRuntime<P, S, T>
@@ -798,6 +366,8 @@ where
             platform,
             config,
             available_providers,
+            permission_policy: RuntimePermissionPolicy,
+            tool_catalog: RuntimeToolCatalog,
         }
     }
 
@@ -1079,8 +649,8 @@ where
         self.tools.execute(call)
     }
 
-    pub fn tools(&self) -> &'static [ToolDescriptor] {
-        TOOLS
+    pub fn tools(&self) -> &[ToolDescriptor] {
+        self.tool_catalog.descriptors()
     }
 
     pub fn workspace(&self) -> &WorkspaceContext {
@@ -1102,6 +672,7 @@ where
             config: self.config.clone(),
             provider_healths: self.provider.health_catalog(),
             provider_circuits: self.provider.circuit_catalog(),
+            provider_routes: self.provider.route_statuses(),
         }
     }
 
@@ -1111,6 +682,10 @@ where
 
     pub fn provider_circuits(&self) -> Vec<ProviderCircuitStatus> {
         self.provider.circuit_catalog()
+    }
+
+    pub fn provider_routes(&self) -> Vec<ProviderRouteStatus> {
+        self.provider.route_statuses()
     }
 
     pub fn commands(&self) -> &'static [CommandDescriptor] {
@@ -1162,6 +737,7 @@ where
             session_count: self.sessions.list_sessions()?.len(),
             provider_health,
             provider_circuit,
+            provider_routes: self.provider_routes(),
         })
     }
 
@@ -1214,6 +790,7 @@ where
             providers: self.providers().to_vec(),
             provider_healths: self.provider_healths(),
             provider_circuits: self.provider_circuits(),
+            provider_routes: self.provider_routes(),
             commands: self.commands().to_vec(),
             tools: self.tools().to_vec(),
             sessions: self.sessions()?,
@@ -1279,19 +856,16 @@ where
         self.sessions.replace_messages(session_id, retained)
     }
 
-    fn tool_descriptor(&self, name: &str) -> Option<&'static ToolDescriptor> {
-        TOOLS.iter().find(|descriptor| descriptor.name == name)
+    fn tool_descriptor(&self, name: &str) -> Option<&ToolDescriptor> {
+        self.tool_catalog.descriptor(name)
     }
 
     fn ensure_permission(&self, requested: &PermissionMode, tool_name: &str) -> Result<(), OctoError> {
-        if permission_rank(&self.config.permission_mode) >= permission_rank(requested) {
-            Ok(())
-        } else {
-            Err(OctoError::Runtime(format!(
-                "permission denied for tool {tool_name}: required {:?}, current {:?}",
-                requested, self.config.permission_mode
-            )))
-        }
+        self.permission_policy.ensure_allowed(
+            &self.config.permission_mode,
+            requested,
+            &format!("tool {tool_name}"),
+        )
     }
 
     fn collect_agent_observations(
@@ -1529,14 +1103,6 @@ fn truncate_preview(value: &str, max_len: usize) -> String {
     preview
 }
 
-fn permission_rank(mode: &PermissionMode) -> u8 {
-    match mode {
-        PermissionMode::ReadOnly => 0,
-        PermissionMode::WorkspaceWrite => 1,
-        PermissionMode::DangerFullAccess => 2,
-    }
-}
-
 fn parse_permission_mode(value: &str) -> PermissionMode {
     match value {
         "read-only" => PermissionMode::ReadOnly,
@@ -1623,18 +1189,65 @@ fn provider_circuit_to_json(circuit: &ProviderCircuitStatus) -> String {
     )
 }
 
+fn provider_route_to_json(route: &ProviderRouteStatus) -> String {
+    format!(
+        concat!(
+            "{{",
+            "\"providerId\":\"{}\",",
+            "\"displayName\":\"{}\",",
+            "\"kind\":\"{:?}\",",
+            "\"healthy\":{},",
+            "\"circuitState\":\"{:?}\",",
+            "\"detail\":\"{}\",",
+            "\"latencyMs\":{},",
+            "\"isPrimary\":{},",
+            "\"isActive\":{}",
+            "}}"
+        ),
+        escape_json(&route.provider_id),
+        escape_json(&route.display_name),
+        route.kind,
+        route.healthy,
+        route.circuit_state,
+        escape_json(&route.detail),
+        route.latency_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null")),
+        route.is_primary,
+        route.is_active
+    )
+}
+
 fn snapshot_to_json(snapshot: &UiSnapshot) -> String {
     let providers = snapshot
         .providers
         .iter()
         .map(|provider| {
             format!(
-                "{{\"id\":\"{}\",\"displayName\":\"{}\",\"kind\":\"{:?}\",\"supportsTools\":{},\"supportsStreaming\":{}}}",
+                concat!(
+                    "{{",
+                    "\"id\":\"{}\",",
+                    "\"displayName\":\"{}\",",
+                    "\"kind\":\"{:?}\",",
+                    "\"supportsTools\":{},",
+                    "\"supportsStreaming\":{},",
+                    "\"capabilities\":{{",
+                    "\"chat\":{},",
+                    "\"streaming\":{},",
+                    "\"toolCalls\":{},",
+                    "\"sessionMemory\":{},",
+                    "\"jsonOutput\":{}",
+                    "}}",
+                    "}}"
+                ),
                 escape_json(&provider.id),
                 escape_json(&provider.display_name),
                 provider.kind,
                 provider.supports_tools,
-                provider.supports_streaming
+                provider.supports_streaming,
+                provider.capabilities.chat,
+                provider.capabilities.streaming,
+                provider.capabilities.tool_calls,
+                provider.capabilities.session_memory,
+                provider.capabilities.json_output
             )
         })
         .collect::<Vec<_>>()
@@ -1692,6 +1305,12 @@ fn snapshot_to_json(snapshot: &UiSnapshot) -> String {
         .provider_circuits
         .iter()
         .map(provider_circuit_to_json)
+        .collect::<Vec<_>>()
+        .join(",");
+    let provider_routes = snapshot
+        .provider_routes
+        .iter()
+        .map(provider_route_to_json)
         .collect::<Vec<_>>()
         .join(",");
     let tools = snapshot
@@ -1764,6 +1383,7 @@ fn snapshot_to_json(snapshot: &UiSnapshot) -> String {
             "\"cooldownRemainingMs\":{}",
             "}}",
             ",\"providerCircuit\":{}",
+            ",\"providerRoutes\":[{}]",
             "}},",
             "\"workspace\":{{",
             "\"root\":\"{}\",",
@@ -1780,6 +1400,7 @@ fn snapshot_to_json(snapshot: &UiSnapshot) -> String {
             "\"providers\":[{}],",
             "\"providerHealths\":[{}],",
             "\"providerCircuits\":[{}],",
+            "\"providerRoutes\":[{}],",
             "\"commands\":[{}],",
             "\"tools\":[{}],",
             "\"sessions\":[{}],",
@@ -1812,6 +1433,13 @@ fn snapshot_to_json(snapshot: &UiSnapshot) -> String {
             .map(|value| value.to_string())
             .unwrap_or_else(|| String::from("null")),
         provider_circuit_to_json(&snapshot.status.provider_circuit),
+        snapshot
+            .status
+            .provider_routes
+            .iter()
+            .map(provider_route_to_json)
+            .collect::<Vec<_>>()
+            .join(","),
         escape_json(&snapshot.workspace.root),
         snapshot.workspace.platform,
         snapshot.workspace.preferred_shell,
@@ -1823,9 +1451,53 @@ fn snapshot_to_json(snapshot: &UiSnapshot) -> String {
         providers,
         provider_healths,
         provider_circuits,
+        provider_routes,
         commands,
         tools,
         sessions,
         active_session.unwrap_or_else(|| String::from("null"))
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RuntimePermissionPolicy;
+    use crate::tools::NativeShellInvocation;
+    use octocode_core::{PermissionMode, PermissionPolicy, ShellKind};
+
+    #[test]
+    fn permission_policy_rejects_write_from_read_only() {
+        let policy = RuntimePermissionPolicy;
+        assert!(policy
+            .ensure_allowed(
+                &PermissionMode::ReadOnly,
+                &PermissionMode::WorkspaceWrite,
+                "tool write-file"
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn permission_policy_allows_escalation_downward() {
+        let policy = RuntimePermissionPolicy;
+        assert!(policy
+            .ensure_allowed(
+                &PermissionMode::DangerFullAccess,
+                &PermissionMode::ReadOnly,
+                "tool read-file"
+            )
+            .is_ok());
+    }
+
+    #[test]
+    fn non_windows_shell_invocation_uses_login_shell_flags() {
+        if cfg!(target_os = "windows") {
+            return;
+        }
+
+        let invocation = NativeShellInvocation::detect(&ShellKind::Bash, "printf ok");
+        assert_eq!(invocation.args.len(), 2);
+        assert_eq!(invocation.args[0], "-lc");
+        assert_eq!(invocation.args[1], "printf ok");
+    }
 }

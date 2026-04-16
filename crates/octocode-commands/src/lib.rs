@@ -1,7 +1,7 @@
 use octocode_core::{
     CommandDescriptor, ConversationRole, ConversationSession, ConversationStore, DoctorReport,
     ModelProvider, OctoError, OutputMode, PermissionMode, PromptResponse, ProviderCircuitStatus,
-    ProviderDescriptor, ProviderHealth, RuntimeStatus, SessionSummary, ToolDescriptor,
+    ProviderDescriptor, ProviderHealth, ProviderRouteStatus, RuntimeStatus, SessionSummary, ToolDescriptor,
     ToolExecutor, ToolResult, UiSnapshot, WorkspaceContext,
 };
 use octocode_runtime::OctocodeRuntime;
@@ -23,10 +23,12 @@ pub enum CliCommand {
     Tools,
     Workspace,
     Providers,
+    Routes,
     CircuitLog,
     Health,
     Doctor,
     Status,
+    Snapshot { session_id: Option<String> },
     Permissions { mode: Option<String> },
     ConfigInit,
     ConfigShow,
@@ -52,6 +54,7 @@ pub enum CommandResponse {
     Tools(Vec<ToolDescriptor>),
     Workspace(WorkspaceContext),
     Providers(Vec<ProviderDescriptor>),
+    Routes(Vec<ProviderRouteStatus>),
     Circuits(Vec<ProviderCircuitStatus>),
     Health(Vec<ProviderHealth>),
     Doctor(DoctorReport),
@@ -128,10 +131,12 @@ where
         Some("tools") => CliCommand::Tools,
         Some("workspace") => CliCommand::Workspace,
         Some("providers") => CliCommand::Providers,
+        Some("routes") => CliCommand::Routes,
         Some("circuit-log") => CliCommand::CircuitLog,
         Some("health") => CliCommand::Health,
         Some("doctor") => CliCommand::Doctor,
         Some("status") => CliCommand::Status,
+        Some("snapshot") => CliCommand::Snapshot { session_id: args.next() },
         Some("permissions") => CliCommand::Permissions { mode: args.next() },
         Some("config-init") => CliCommand::ConfigInit,
         Some("config-show") => CliCommand::ConfigShow,
@@ -264,10 +269,14 @@ where
         CliCommand::Tools => Ok(CommandResponse::Tools(runtime.tools().to_vec())),
         CliCommand::Workspace => Ok(CommandResponse::Workspace(runtime.workspace().clone())),
         CliCommand::Providers => Ok(CommandResponse::Providers(runtime.providers().to_vec())),
+        CliCommand::Routes => Ok(CommandResponse::Routes(runtime.provider_routes())),
         CliCommand::CircuitLog => Ok(CommandResponse::Circuits(runtime.provider_circuits())),
         CliCommand::Health => Ok(CommandResponse::Health(runtime.provider_healths())),
         CliCommand::Doctor => Ok(CommandResponse::Doctor(runtime.doctor())),
         CliCommand::Status => Ok(CommandResponse::Status(runtime.status()?)),
+        CliCommand::Snapshot { session_id } => Ok(CommandResponse::Snapshot(
+            runtime.snapshot(session_id.as_deref())?,
+        )),
         CliCommand::Permissions { mode } => {
             if let Some(mode) = mode {
                 let parsed = match mode.as_str() {
@@ -339,8 +348,28 @@ pub fn render_text(response: &CommandResponse) -> String {
             .iter()
             .map(|provider| {
                 format!(
-                    "{} kind={:?} tools={} streaming={}",
-                    provider.id, provider.kind, provider.supports_tools, provider.supports_streaming
+                    "{} kind={:?} tools={} streaming={} json={} sessionMemory={}",
+                    provider.id,
+                    provider.kind,
+                    provider.supports_tools,
+                    provider.supports_streaming,
+                    provider.capabilities.json_output,
+                    provider.capabilities.session_memory
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        CommandResponse::Routes(routes) => routes
+            .iter()
+            .map(|route| {
+                format!(
+                    "{} primary={} active={} healthy={} state={:?} detail={}",
+                    route.provider_id,
+                    route.is_primary,
+                    route.is_active,
+                    route.healthy,
+                    route.circuit_state,
+                    route.detail
                 )
             })
             .collect::<Vec<_>>()
@@ -410,6 +439,7 @@ pub fn render_text(response: &CommandResponse) -> String {
             format!("permission.mode={:?}", report.config.permission_mode),
             format!("history.limit={}", report.config.history_limit),
             format!("provider.health.count={}", report.provider_healths.len()),
+            format!("provider.route.count={}", report.provider_routes.len()),
         ]
         .join("\n"),
         CommandResponse::Status(status) => vec![
@@ -421,6 +451,7 @@ pub fn render_text(response: &CommandResponse) -> String {
             format!("permission.mode={:?}", status.permission_mode),
             format!("sessions.count={}", status.session_count),
             format!("provider.healthy={}", status.provider_health.healthy),
+            format!("provider.routes={}", status.provider_routes.len()),
         ]
         .join("\n"),
         CommandResponse::Permission(mode) => format!("{:?}", mode),
@@ -432,7 +463,25 @@ pub fn render_text(response: &CommandResponse) -> String {
             .collect::<Vec<_>>()
             .join("\n"),
         CommandResponse::UiExport(path) | CommandResponse::Acknowledged(path) => path.clone(),
-        CommandResponse::Snapshot(snapshot) => snapshot.status.provider_id.clone(),
+        CommandResponse::Snapshot(snapshot) => {
+            let mut lines = vec![
+                String::from("Octocode Snapshot"),
+                format!("provider.id={}", snapshot.status.provider_id),
+                format!("provider.active={}", snapshot.status.active_provider_id),
+                format!("provider.routes={}", snapshot.provider_routes.len()),
+                format!("tools.count={}", snapshot.tools.len()),
+                format!("sessions.count={}", snapshot.sessions.len()),
+                format!("workspace.root={}", snapshot.workspace.root),
+                format!("workspace.shell={:?}", snapshot.workspace.preferred_shell),
+            ];
+            if let Some(active_session) = &snapshot.active_session {
+                lines.push(format!("active.session={}", active_session.summary.id));
+                lines.push(format!("active.messages={}", active_session.messages.len()));
+            } else {
+                lines.push(String::from("active.session=<none>"));
+            }
+            lines.join("\n")
+        }
     }
 }
 
@@ -497,12 +546,63 @@ pub fn render_json(response: &CommandResponse) -> String {
             providers
                 .iter()
                 .map(|provider| format!(
-                    "{{\"id\":\"{}\",\"displayName\":\"{}\",\"kind\":\"{:?}\",\"supportsTools\":{},\"supportsStreaming\":{}}}",
+                    concat!(
+                        "{{",
+                        "\"id\":\"{}\",",
+                        "\"displayName\":\"{}\",",
+                        "\"kind\":\"{:?}\",",
+                        "\"supportsTools\":{},",
+                        "\"supportsStreaming\":{},",
+                        "\"capabilities\":{{",
+                        "\"chat\":{},",
+                        "\"streaming\":{},",
+                        "\"toolCalls\":{},",
+                        "\"sessionMemory\":{},",
+                        "\"jsonOutput\":{}",
+                        "}}",
+                        "}}"
+                    ),
                     escape_json(&provider.id),
                     escape_json(&provider.display_name),
                     provider.kind,
                     provider.supports_tools,
-                    provider.supports_streaming
+                    provider.supports_streaming,
+                    provider.capabilities.chat,
+                    provider.capabilities.streaming,
+                    provider.capabilities.tool_calls,
+                    provider.capabilities.session_memory,
+                    provider.capabilities.json_output
+                ))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        CommandResponse::Routes(routes) => format!(
+            "{{\"kind\":\"routes\",\"items\":[{}]}}",
+            routes
+                .iter()
+                .map(|route| format!(
+                    concat!(
+                        "{{",
+                        "\"providerId\":\"{}\",",
+                        "\"displayName\":\"{}\",",
+                        "\"kind\":\"{:?}\",",
+                        "\"healthy\":{},",
+                        "\"circuitState\":\"{:?}\",",
+                        "\"detail\":\"{}\",",
+                        "\"latencyMs\":{},",
+                        "\"isPrimary\":{},",
+                        "\"isActive\":{}",
+                        "}}"
+                    ),
+                    escape_json(&route.provider_id),
+                    escape_json(&route.display_name),
+                    route.kind,
+                    route.healthy,
+                    route.circuit_state,
+                    escape_json(&route.detail),
+                    route.latency_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null")),
+                    route.is_primary,
+                    route.is_active
                 ))
                 .collect::<Vec<_>>()
                 .join(",")
@@ -613,9 +713,25 @@ pub fn render_json(response: &CommandResponse) -> String {
             format!("{{\"kind\":\"ack\",\"value\":\"{}\"}}", escape_json(path))
         }
         CommandResponse::Snapshot(snapshot) => format!(
-            "{{\"kind\":\"snapshot\",\"providerId\":\"{}\",\"sessionCount\":{}}}",
+            concat!(
+                "{{",
+                "\"kind\":\"snapshot\",",
+                "\"providerId\":\"{}\",",
+                "\"activeProviderId\":\"{}\",",
+                "\"sessionCount\":{},",
+                "\"toolCount\":{},",
+                "\"routeCount\":{},",
+                "\"workspaceRoot\":\"{}\",",
+                "\"activeSessionId\":{}",
+                "}}"
+            ),
             escape_json(&snapshot.status.provider_id),
-            snapshot.status.session_count
+            escape_json(&snapshot.status.active_provider_id),
+            snapshot.status.session_count,
+            snapshot.tools.len(),
+            snapshot.provider_routes.len(),
+            escape_json(&snapshot.workspace.root),
+            option_json_string(snapshot.active_session.as_ref().map(|session| session.summary.id.as_str()))
         ),
     }
 }
