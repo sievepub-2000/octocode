@@ -99,6 +99,7 @@ pub trait ModelProvider: Send + Sync {
 
 pub trait SessionStore: Send + Sync {
     fn list_sessions(&self) -> Result<Vec<SessionSummary>, OctoError>;
+    fn save_session(&self, session: SessionSummary) -> Result<(), OctoError>;
 }
 
 pub trait ToolExecutor: Send + Sync {

@@ -1,19 +1,17 @@
 use octocode_api::{ProviderRegistry, StubProvider};
 use octocode_core::{
-    PermissionMode, PlatformKind, PromptRequest, ShellKind, ToolCall, WorkspaceContext,
+    PermissionMode, PlatformSupport, PromptRequest, SessionSummary, ToolCall,
 };
-use octocode_runtime::{EchoToolExecutor, MemorySessionStore, OctocodeRuntime};
+use octocode_runtime::{FileSessionStore, NativePlatform, OctocodeRuntime, WorkspaceToolExecutor};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let platform = NativePlatform::detect(String::from("."));
+    let store = FileSessionStore::new(&platform.config_paths())?;
     let runtime = OctocodeRuntime::new(
         StubProvider,
-        MemorySessionStore::new(),
-        EchoToolExecutor,
-        WorkspaceContext {
-            root: String::from("."),
-            platform: detect_platform(),
-            preferred_shell: detect_shell(),
-        },
+        store,
+        WorkspaceToolExecutor::new(platform.context().root.clone()),
+        platform.context().clone(),
     );
 
     let mut args = std::env::args().skip(1);
@@ -34,6 +32,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             for session in runtime.sessions()? {
                 println!("session {} {}", session.id, session.title);
             }
+        }
+        Some("session-add") => {
+            let id = args.next().unwrap_or_else(|| String::from("session"));
+            let title = args.collect::<Vec<_>>().join(" ");
+            runtime.save_session(SessionSummary {
+                id,
+                title: if title.is_empty() {
+                    String::from("Octocode Session")
+                } else {
+                    title
+                },
+                model: Some(String::from("stub")),
+            })?;
+            println!("session saved");
         }
         Some("tool") => {
             let name = args.next().unwrap_or_else(|| String::from("echo"));
@@ -73,6 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("octocode-cli commands:");
             println!("  prompt [text]");
             println!("  sessions");
+            println!("  session-add [id] [title]");
             println!("  tool [name] [input]");
             println!("  workspace");
             println!("  providers");
@@ -81,24 +94,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
-}
-
-fn detect_platform() -> PlatformKind {
-    if cfg!(target_os = "windows") {
-        PlatformKind::Windows
-    } else if cfg!(target_os = "macos") {
-        PlatformKind::MacOs
-    } else {
-        PlatformKind::Linux
-    }
-}
-
-fn detect_shell() -> ShellKind {
-    if cfg!(target_os = "windows") {
-        ShellKind::PowerShell
-    } else if cfg!(target_os = "macos") {
-        ShellKind::Zsh
-    } else {
-        ShellKind::Bash
-    }
 }

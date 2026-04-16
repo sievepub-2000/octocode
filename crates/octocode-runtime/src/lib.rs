@@ -1,3 +1,6 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+
 use octocode_core::{
     ConfigPaths, ModelProvider, OctoError, PlatformKind, PlatformSupport, PromptRequest,
     PromptResponse, SessionStore, SessionSummary, ShellKind, ToolCall, ToolExecutor, ToolResult,
@@ -25,6 +28,12 @@ impl SessionStore for MemorySessionStore {
     fn list_sessions(&self) -> Result<Vec<SessionSummary>, OctoError> {
         Ok(self.sessions.clone())
     }
+
+    fn save_session(&self, _session: SessionSummary) -> Result<(), OctoError> {
+        Err(OctoError::Session(String::from(
+            "memory session store does not persist sessions",
+        )))
+    }
 }
 
 #[derive(Default)]
@@ -35,6 +44,131 @@ impl ToolExecutor for EchoToolExecutor {
         Ok(ToolResult {
             output: format!("tool {} => {}", call.name, call.input),
         })
+    }
+}
+
+pub struct FileSessionStore {
+    sessions_dir: PathBuf,
+}
+
+impl FileSessionStore {
+    pub fn new(paths: &ConfigPaths) -> Result<Self, OctoError> {
+        let sessions_dir = PathBuf::from(&paths.data_home).join("sessions");
+        fs::create_dir_all(&sessions_dir)
+            .map_err(|error| OctoError::Session(format!("failed to create sessions dir: {error}")))?;
+        Ok(Self { sessions_dir })
+    }
+
+    fn session_file_path(&self, id: &str) -> PathBuf {
+        self.sessions_dir.join(format!("{id}.session"))
+    }
+}
+
+impl SessionStore for FileSessionStore {
+    fn list_sessions(&self) -> Result<Vec<SessionSummary>, OctoError> {
+        let mut sessions = Vec::new();
+        let entries = fs::read_dir(&self.sessions_dir)
+            .map_err(|error| OctoError::Session(format!("failed to read sessions dir: {error}")))?;
+
+        for entry in entries {
+            let entry = entry
+                .map_err(|error| OctoError::Session(format!("failed to read session entry: {error}")))?;
+            let path = entry.path();
+            if path.extension().and_then(|extension| extension.to_str()) != Some("session") {
+                continue;
+            }
+
+            let raw = fs::read_to_string(&path)
+                .map_err(|error| OctoError::Session(format!("failed to read session file: {error}")))?;
+            let mut parts = raw.lines();
+            let id = parts.next().unwrap_or_default().trim().to_string();
+            let title = parts.next().unwrap_or_default().trim().to_string();
+            let model = parts
+                .next()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+
+            if !id.is_empty() {
+                sessions.push(SessionSummary { id, title, model });
+            }
+        }
+
+        sessions.sort_by(|left, right| left.id.cmp(&right.id));
+        Ok(sessions)
+    }
+
+    fn save_session(&self, session: SessionSummary) -> Result<(), OctoError> {
+        let file_path = self.session_file_path(&session.id);
+        let body = format!(
+            "{}\n{}\n{}\n",
+            session.id,
+            session.title,
+            session.model.unwrap_or_default()
+        );
+        fs::write(file_path, body)
+            .map_err(|error| OctoError::Session(format!("failed to write session file: {error}")))
+    }
+}
+
+pub struct WorkspaceToolExecutor {
+    workspace_root: PathBuf,
+}
+
+impl WorkspaceToolExecutor {
+    pub fn new(workspace_root: impl Into<PathBuf>) -> Self {
+        Self {
+            workspace_root: workspace_root.into(),
+        }
+    }
+
+    fn resolve_workspace_path(&self, input: &str) -> PathBuf {
+        let path = Path::new(input);
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.workspace_root.join(path)
+        }
+    }
+}
+
+impl ToolExecutor for WorkspaceToolExecutor {
+    fn execute(&self, call: ToolCall) -> Result<ToolResult, OctoError> {
+        match call.name.as_str() {
+            "echo" => Ok(ToolResult {
+                output: format!("tool {} => {}", call.name, call.input),
+            }),
+            "read-file" => {
+                let path = self.resolve_workspace_path(&call.input);
+                let output = fs::read_to_string(&path).map_err(|error| {
+                    OctoError::Runtime(format!("failed to read file {}: {error}", path.display()))
+                })?;
+                Ok(ToolResult { output })
+            }
+            "write-file" => {
+                let (path_text, content) = call.input.split_once('|').ok_or_else(|| {
+                    OctoError::Runtime(String::from(
+                        "write-file expects input in the form path|content",
+                    ))
+                })?;
+                let path = self.resolve_workspace_path(path_text.trim());
+                if let Some(parent) = path.parent() {
+                    fs::create_dir_all(parent).map_err(|error| {
+                        OctoError::Runtime(format!(
+                            "failed to create parent directory {}: {error}",
+                            parent.display()
+                        ))
+                    })?;
+                }
+                fs::write(&path, content).map_err(|error| {
+                    OctoError::Runtime(format!("failed to write file {}: {error}", path.display()))
+                })?;
+                Ok(ToolResult {
+                    output: format!("wrote {}", path.display()),
+                })
+            }
+            _ => Err(OctoError::Runtime(format!("unknown tool: {}", call.name))),
+        }
     }
 }
 
@@ -137,6 +271,10 @@ where
 
     pub fn sessions(&self) -> Result<Vec<SessionSummary>, OctoError> {
         self.sessions.list_sessions()
+    }
+
+    pub fn save_session(&self, session: SessionSummary) -> Result<(), OctoError> {
+        self.sessions.save_session(session)
     }
 
     pub fn run_tool(&self, call: ToolCall) -> Result<ToolResult, OctoError> {
