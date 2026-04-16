@@ -1,0 +1,15 @@
+[workspace]
+members = [
+    "crates/octocode-api",
+    "crates/octocode-cli",
+    "crates/octocode-core",
+    "crates/octocode-runtime",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+version = "0.1.0"
+authors = ["周浩"]
+

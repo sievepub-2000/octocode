@@ -1,0 +1,10 @@
+[package]
+name = "octocode-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+octocode-api = { path = "../octocode-api" }
+octocode-core = { path = "../octocode-core" }
+octocode-runtime = { path = "../octocode-runtime" }

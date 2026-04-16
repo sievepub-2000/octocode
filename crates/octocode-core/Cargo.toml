@@ -1,0 +1,5 @@
+[package]
+name = "octocode-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
