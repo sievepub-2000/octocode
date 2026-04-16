@@ -55,6 +55,8 @@ Current local deployment and bootstrap documentation lives in:
 4. `scripts/start-local.sh`
 5. `scripts/start-webui.ps1`
 6. `scripts/start-webui.sh`
+7. `scripts/package-desktop.ps1`
+8. `scripts/package-desktop.sh`
 
 ## Current scope note
 
@@ -70,7 +72,8 @@ The current `ui-shell` follows these interface constraints:
 4. A right-top workspace and settings pane
 5. A right-bottom integrated terminal area
 6. Direct local backend calls for chat, tool execution, settings writeback, and command palette actions
-7. Canvas-rendered sidebar, message list, command preview, settings summary list, and terminal viewer, while keeping high-friction text entry native for now
+7. Canvas-rendered sidebar, message list, command preview, workspace summary, tool runner shell, settings summary list, terminal viewer, and composer shell
+8. Native text inputs remain only as the input layer for composer/settings/tool controls until IME-safe textarea replacement is validated
 
 To preview the current shell:
 
@@ -79,8 +82,13 @@ To preview the current shell:
 3. or `./scripts/start-webui.ps1 -Port 999 -SessionId demo`
 4. or `cargo run -p octocode-cli -- desktop 999 demo`
 5. For browser-based verification only, open `http://127.0.0.1:999/ui-shell/`
+6. To emit a runnable desktop bundle directory, run `./scripts/package-desktop.ps1` on Windows or `./scripts/package-desktop.sh` on Unix-like systems
 
 ## Provider note
 
 The default local provider target is currently `http://192.168.110.2:8000/v1` with `gemma-4-31b-it-q8-prod`. Octocode now performs provider health checks and automatically falls back from `local-openai` to `remote-openai` and finally `stub` when the preferred endpoint times out or becomes unavailable. The runtime snapshot also exports provider circuit state, recent failure reason, open/half-open/recovered timestamps, and recent circuit events so the CLI, HTTP surface, WebUI, and desktop shell all observe the same breaker state.
+
+## Agent action note
+
+`octocode-cli agent` and the `agent-action` tool now run through a real session-scoped runtime orchestration path. The runtime appends an agent request, builds a workflow scaffold, optionally gathers local read-only observations from inline directives such as `search ...`, `read ...`, and `list ...`, then dispatches a provider prompt. If the provider is unavailable, the runtime emits a local fallback action summary instead of dropping back to a stub string.
 

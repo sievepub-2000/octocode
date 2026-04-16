@@ -362,7 +362,10 @@ select:focus {
 .sidebar-list-canvas,
 .message-canvas,
 .settings-canvas,
-.terminal-canvas {
+.terminal-canvas,
+.workspace-canvas,
+.tool-canvas,
+.composer-canvas {
   width: 100% !important;
   height: 100% !important;
   display: block !important;
@@ -566,11 +569,21 @@ label span {
 }
 
 .composer-shell {
-  border: 1px solid var(--line) !important;
-  background: linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(247,249,253,0.86) 100%) !important;
-  padding: 12px !important;
+  border: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
   display: grid !important;
   gap: 10px !important;
+  position: relative !important;
+}
+
+.composer-canvas {
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: 0 !important;
+  min-height: 138px !important;
+  border: 1px solid var(--line) !important;
+  background: linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(247,249,253,0.86) 100%) !important;
 }
 
 .composer-shell textarea,
@@ -579,6 +592,10 @@ label span {
 .stack-form select {
   width: 100% !important;
   padding: 11px 12px !important;
+  position: relative !important;
+  z-index: 1 !important;
+  background: transparent !important;
+  border-color: rgba(214, 222, 236, 0.4) !important;
 }
 
 .composer-actions {
@@ -586,6 +603,8 @@ label span {
   justify-content: space-between !important;
   align-items: center !important;
   gap: 12px !important;
+  position: relative !important;
+  z-index: 1 !important;
 }
 
 .right-stack {
@@ -604,6 +623,13 @@ label span {
   display: grid !important;
   grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   gap: 10px !important;
+  display: none !important;
+}
+
+.workspace-canvas {
+  min-height: 168px !important;
+  border: 1px solid rgba(216, 222, 234, 0.9) !important;
+  background: linear-gradient(180deg, rgba(250,252,255,0.96), rgba(244,247,252,0.92)) !important;
 }
 
 .summary-card,
@@ -628,6 +654,14 @@ label span {
 .stack-form {
   display: grid !important;
   gap: 10px !important;
+  position: relative !important;
+  z-index: 1 !important;
+}
+
+.tool-canvas {
+  min-height: 136px !important;
+  border: 1px solid rgba(216, 222, 234, 0.88) !important;
+  background: linear-gradient(180deg, rgba(251,252,255,0.96), rgba(246,248,252,0.92)) !important;
 }
 
 .stack-form label {
@@ -637,6 +671,7 @@ label span {
 
 .tag-cloud {
   gap: 8px !important;
+  display: none !important;
 }
 
 .tag {

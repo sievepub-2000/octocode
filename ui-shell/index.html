@@ -111,6 +111,7 @@
               </div>
               <canvas id="message-canvas" class="message-canvas"></canvas>
               <form id="chat-form" class="composer-shell">
+                <canvas id="composer-canvas" class="composer-canvas"></canvas>
                 <textarea id="chat-input" name="text" rows="3" placeholder="在这里输入消息，直接走后端 /api/chat 和真实 provider"></textarea>
                 <div class="composer-actions">
                   <span id="composer-session" class="form-note">session: demo</span>
@@ -128,6 +129,7 @@
                   </div>
                   <span class="panel-badge" id="provider-id">loading</span>
                 </div>
+                <canvas id="workspace-canvas" class="workspace-canvas"></canvas>
                 <div class="workspace-summary-grid">
                   <div class="summary-card">
                     <span>Root</span>
@@ -186,6 +188,7 @@
                       <h3>Tool Runner</h3>
                       <span>session threaded</span>
                     </div>
+                    <canvas id="tool-canvas" class="tool-canvas"></canvas>
                     <form id="tool-form" class="stack-form">
                       <label>
                         <span>Tool</span>

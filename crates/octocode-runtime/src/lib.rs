@@ -590,7 +590,7 @@ const COMMANDS: &[CommandDescriptor] = &[
     },
     CommandDescriptor {
         name: "agent",
-        summary: "Append an agent action stub into the current session",
+        summary: "Run a session-scoped agent action with provider and local orchestration",
     },
     CommandDescriptor {
         name: "repl",
@@ -692,7 +692,7 @@ const TOOLS: &[ToolDescriptor] = &[
     },
     ToolDescriptor {
         name: "agent-action",
-        summary: "Draft a concrete next action set for the current session",
+        summary: "Run a real session agent action through runtime orchestration",
         minimum_permission: PermissionMode::ReadOnly,
     },
 ];
@@ -836,12 +836,137 @@ where
         }
     }
 
+    pub fn agent_action_in_session(
+        &self,
+        session_id: &str,
+        instruction: &str,
+    ) -> Result<PromptResponse, OctoError> {
+        self.ensure_session_exists(session_id)?;
+
+        let normalized = instruction.trim();
+        let goal = if normalized.is_empty() {
+            "continue the current task"
+        } else {
+            normalized.lines().next().unwrap_or(normalized).trim()
+        };
+
+        self.append_session_message(
+            session_id,
+            ConversationRole::System,
+            format!("agent-action requested: {goal}"),
+        )?;
+
+        let workflow = self.run_tool(ToolCall {
+            name: String::from("workflow-plan"),
+            input: String::from(goal),
+            permission: PermissionMode::ReadOnly,
+        })?;
+        self.append_session_message(
+            session_id,
+            ConversationRole::Tool,
+            format!("workflow-plan => {}", workflow.output),
+        )?;
+
+        let observations = self.collect_agent_observations(normalized)?;
+        for (label, output) in &observations {
+            self.append_session_message(
+                session_id,
+                ConversationRole::Tool,
+                format!("{label} => {output}"),
+            )?;
+        }
+
+        let session = self.session(session_id)?;
+        let context_tail = session
+            .messages
+            .iter()
+            .rev()
+            .take(6)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .map(|message| format!("{}: {}", message.role.as_str(), message.content))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let provider = self.provider.health();
+        let observation_block = if observations.is_empty() {
+            String::from("(no additional local observations)")
+        } else {
+            observations
+                .iter()
+                .map(|(label, output)| format!("[{label}]\n{output}"))
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        };
+        let prompt = format!(
+            concat!(
+                "You are the Octocode runtime agent.\n",
+                "Goal: {}\n",
+                "Active provider: {} ({:?})\n",
+                "Permission mode: {:?}\n\n",
+                "Workflow scaffold:\n{}\n\n",
+                "Recent session context:\n{}\n\n",
+                "Local observations:\n{}\n\n",
+                "Return the next concrete implementation actions, expected validation, and any immediate risks."
+            ),
+            goal,
+            provider.provider_id,
+            provider.circuit_state,
+            self.config.permission_mode,
+            workflow.output,
+            if context_tail.is_empty() {
+                String::from("(empty)")
+            } else {
+                context_tail
+            },
+            observation_block,
+        );
+
+        match self.provider.prompt(PromptRequest {
+            text: prompt,
+            model: self.config.default_model.clone(),
+        }) {
+            Ok(response) => {
+                self.append_session_message(
+                    session_id,
+                    ConversationRole::Assistant,
+                    response.output.clone(),
+                )?;
+                self.apply_history_limit(session_id)?;
+                Ok(response)
+            }
+            Err(error) => {
+                self.append_session_message(
+                    session_id,
+                    ConversationRole::System,
+                    format!("agent provider-error: {error}"),
+                )?;
+                let fallback = PromptResponse {
+                    output: self.build_agent_fallback(goal, &workflow.output, &observations),
+                };
+                self.append_session_message(
+                    session_id,
+                    ConversationRole::Assistant,
+                    fallback.output.clone(),
+                )?;
+                self.apply_history_limit(session_id)?;
+                Ok(fallback)
+            }
+        }
+    }
+
     pub fn run_tool_in_session(
         &self,
         session_id: &str,
         mut call: ToolCall,
     ) -> Result<ToolResult, OctoError> {
         self.ensure_session_exists(session_id)?;
+        if call.name == "agent-action" {
+            let response = self.agent_action_in_session(session_id, &call.input)?;
+            return Ok(ToolResult {
+                output: response.output,
+            });
+        }
         let descriptor = self
             .tool_descriptor(&call.name)
             .ok_or_else(|| OctoError::Runtime(format!("unknown tool: {}", call.name)))?;
@@ -1122,6 +1247,84 @@ where
             )))
         }
     }
+
+    fn collect_agent_observations(
+        &self,
+        instruction: &str,
+    ) -> Result<Vec<(String, String)>, OctoError> {
+        let mut observations = Vec::new();
+        for directive in instruction.lines().skip(1).take(4) {
+            let directive = directive.trim();
+            if directive.is_empty() {
+                continue;
+            }
+
+            let observation = if let Some(input) = directive.strip_prefix("search ") {
+                let result = self.run_tool(ToolCall {
+                    name: String::from("search-text"),
+                    input: String::from(input.trim()),
+                    permission: PermissionMode::ReadOnly,
+                })?;
+                Some((format!("search-text {}", input.trim()), truncate_preview(&result.output, 1200)))
+            } else if let Some(input) = directive.strip_prefix("read ") {
+                let result = self.run_tool(ToolCall {
+                    name: String::from("read-file"),
+                    input: String::from(input.trim()),
+                    permission: PermissionMode::ReadOnly,
+                })?;
+                Some((format!("read-file {}", input.trim()), truncate_preview(&result.output, 1200)))
+            } else if let Some(input) = directive.strip_prefix("list ") {
+                let result = self.run_tool(ToolCall {
+                    name: String::from("list-files"),
+                    input: String::from(input.trim()),
+                    permission: PermissionMode::ReadOnly,
+                })?;
+                Some((format!("list-files {}", input.trim()), truncate_preview(&result.output, 1200)))
+            } else {
+                None
+            };
+
+            if let Some(observation) = observation {
+                observations.push(observation);
+            }
+        }
+        Ok(observations)
+    }
+
+    fn build_agent_fallback(
+        &self,
+        goal: &str,
+        workflow: &str,
+        observations: &[(String, String)],
+    ) -> String {
+        let mut lines = vec![
+            format!("agent fallback for: {goal}"),
+            String::from("provider unavailable, using local orchestration summary"),
+            String::from("workflow:"),
+            workflow.to_string(),
+        ];
+        if observations.is_empty() {
+            lines.push(String::from("observations: none"));
+        } else {
+            lines.push(String::from("observations:"));
+            lines.extend(
+                observations
+                    .iter()
+                    .map(|(label, output)| format!("- {label}: {output}")),
+            );
+        }
+        lines.join("\n")
+    }
+}
+
+fn truncate_preview(value: &str, max_len: usize) -> String {
+    if value.chars().count() <= max_len {
+        return String::from(value);
+    }
+
+    let mut preview = value.chars().take(max_len).collect::<String>();
+    preview.push_str(" ...");
+    preview
 }
 
 fn permission_rank(mode: &PermissionMode) -> u8 {

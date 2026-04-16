@@ -241,16 +241,12 @@ where
             Ok(CommandResponse::Session(runtime.session(&session_id)?))
         }
         CliCommand::Agent { session_id, text } => {
-            runtime.run_tool_in_session(
+            runtime.agent_action_in_session(
                 &session_id,
-                octocode_core::ToolCall {
-                    name: String::from("agent-action"),
-                    input: if text.trim().is_empty() {
-                        String::from("continue current task")
-                    } else {
-                        text
-                    },
-                    permission: PermissionMode::ReadOnly,
+                if text.trim().is_empty() {
+                    "continue current task"
+                } else {
+                    &text
                 },
             )?;
             Ok(CommandResponse::Session(runtime.session(&session_id)?))

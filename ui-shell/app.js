@@ -6,11 +6,15 @@ const sidebarCanvas = document.querySelector('#sidebar-canvas');
 const sidebarContext = sidebarCanvas.getContext('2d');
 const messageCanvas = document.querySelector('#message-canvas');
 const messageContext = messageCanvas.getContext('2d');
+const composerCanvas = document.querySelector('#composer-canvas');
+const composerContext = composerCanvas.getContext('2d');
 const refreshButton = document.querySelector('#refresh-button');
 const sidebarTitle = document.querySelector('#sidebar-title');
 const sidebarTabs = Array.from(document.querySelectorAll('.sidebar-tab'));
 const activityButtons = Array.from(document.querySelectorAll('.activity-button'));
 const providerId = document.querySelector('#provider-id');
+const workspaceCanvas = document.querySelector('#workspace-canvas');
+const workspaceContext = workspaceCanvas.getContext('2d');
 const sessionTitle = document.querySelector('#session-title');
 const platformPill = document.querySelector('#platform-pill');
 const permissionPill = document.querySelector('#permission-pill');
@@ -48,6 +52,8 @@ const settingModel = document.querySelector('#setting-model');
 const settingPermission = document.querySelector('#setting-permission');
 const settingHistory = document.querySelector('#setting-history');
 const toolForm = document.querySelector('#tool-form');
+const toolCanvas = document.querySelector('#tool-canvas');
+const toolContext = toolCanvas.getContext('2d');
 const toolName = document.querySelector('#tool-name');
 const toolInput = document.querySelector('#tool-input');
 
@@ -129,6 +135,9 @@ function render(state) {
   renderSidebar(state, currentView, sessionId);
   renderMessages(activeSession?.messages || []);
   renderTerminal(state, activeSession);
+  drawWorkspaceCanvas(state);
+  drawToolCanvas(state);
+  drawComposerCanvas(activeSession);
   drawCommandPreviewCanvas();
   drawWorkbench(state, activeHealth, activeSession);
 }
@@ -313,8 +322,84 @@ function renderError(error) {
   terminalOutput.textContent = `load-error\n${error.message}`;
   drawTerminalCanvas(terminalOutput.textContent.split('\n'));
   drawSettingsCanvas(null, error.message);
+  drawWorkspaceCanvas(null, error.message);
+  drawToolCanvas(null, error.message);
+  drawComposerCanvas(null, error.message);
   drawCommandPreviewCanvas('API unavailable');
   drawWorkbench(null, null, null);
+}
+
+function drawWorkspaceCanvas(state, errorMessage) {
+  const { width, height } = prepareCanvas(workspaceCanvas, workspaceContext);
+  workspaceContext.clearRect(0, 0, width, height);
+  drawPanel(workspaceContext, 0.5, 0.5, width - 1, height - 1, 'rgba(250,252,255,0.96)', 'rgba(214,222,236,0.9)');
+  workspaceContext.fillStyle = '#233149';
+  workspaceContext.font = '600 12px JetBrains Mono';
+  workspaceContext.fillText('Canvas Workspace Summary', 16, 24);
+  workspaceContext.font = '500 11px JetBrains Mono';
+  workspaceContext.fillStyle = '#6a7890';
+
+  if (!state) {
+    drawWrappedText(workspaceContext, errorMessage || 'workspace unavailable', 16, 46, width - 32, 16, 4);
+    return;
+  }
+
+  const cards = [
+    `root ${state.workspace.root || '-'}`,
+    `shell ${state.workspace.shell || '-'}`,
+    `model ${state.config.defaultModel || '-'}`,
+    `sessions ${state.sessions.length}`,
+    `provider ${state.status.activeProviderId || state.status.providerId || '-'}`,
+    `circuit ${state.status.providerCircuit?.circuitState || '-'}`,
+  ];
+  cards.forEach((line, index) => {
+    const column = index % 2;
+    const row = Math.floor(index / 2);
+    const x = 14 + column * ((width - 42) / 2 + 8);
+    const y = 40 + row * 36;
+    const cardWidth = (width - 42) / 2;
+    drawPanel(workspaceContext, x, y, cardWidth, 26, 'rgba(255,255,255,0.92)', 'rgba(220,226,238,0.9)');
+    drawWrappedText(workspaceContext, line, x + 10, y + 16, cardWidth - 18, 14, 1);
+  });
+}
+
+function drawToolCanvas(state, errorMessage) {
+  const { width, height } = prepareCanvas(toolCanvas, toolContext);
+  toolContext.clearRect(0, 0, width, height);
+  drawPanel(toolContext, 0.5, 0.5, width - 1, height - 1, 'rgba(251,252,255,0.95)', 'rgba(214,222,236,0.9)');
+  toolContext.fillStyle = '#233149';
+  toolContext.font = '600 12px JetBrains Mono';
+  toolContext.fillText('Canvas Tool Runner', 16, 24);
+  toolContext.font = '500 11px JetBrains Mono';
+  toolContext.fillStyle = '#6a7890';
+
+  if (!state) {
+    drawWrappedText(toolContext, errorMessage || 'tool runner unavailable', 16, 48, width - 32, 16, 4);
+    return;
+  }
+
+  const activeTool = toolName.value || state.tools[0]?.name || 'echo';
+  const summary = state.tools.find((tool) => tool.name === activeTool)?.summary || 'select a tool';
+  drawWrappedText(toolContext, `${activeTool} · ${summary}`, 16, 48, width - 32, 16, 2);
+  drawWrappedText(toolContext, 'Use the native controls below as an input layer while the visual shell stays on canvas.', 16, 86, width - 32, 16, 3);
+}
+
+function drawComposerCanvas(activeSession, errorMessage) {
+  const { width, height } = prepareCanvas(composerCanvas, composerContext);
+  composerContext.clearRect(0, 0, width, height);
+  drawPanel(composerContext, 0.5, 0.5, width - 1, height - 1, 'rgba(255,255,255,0.94)', 'rgba(214,222,236,0.86)');
+  composerContext.fillStyle = '#20304a';
+  composerContext.font = '600 12px JetBrains Mono';
+  composerContext.fillText('Canvas Composer Shell', 16, 24);
+  composerContext.font = '500 11px JetBrains Mono';
+  composerContext.fillStyle = '#67748b';
+
+  const text = errorMessage || chatInput.value.trim() || 'Native textarea retained for IME-safe input while the shell is canvas-rendered.';
+  drawWrappedText(composerContext, text, 16, 46, width - 32, 16, 4);
+
+  const sessionLabel = activeSession?.summary?.id || currentSessionId || 'demo';
+  drawStatusBadge(composerContext, 16, height - 34, '#eef3ff', '#4462c1', `session ${sessionLabel}`);
+  drawStatusBadge(composerContext, 156, height - 34, '#edf8f1', '#2c8b63', `chars ${chatInput.value.length}`);
 }
 
 function drawCommandPreviewCanvas(overrideHint) {
@@ -865,6 +950,8 @@ chatForm.addEventListener('submit', async (event) => {
   }
 });
 
+chatInput.addEventListener('input', () => drawComposerCanvas(currentState?.activeSession));
+
 settingsForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   try {
@@ -899,6 +986,9 @@ toolForm.addEventListener('submit', async (event) => {
     alert(`工具执行失败: ${error.message}`);
   }
 });
+
+toolName.addEventListener('change', () => drawToolCanvas(currentState));
+toolInput.addEventListener('input', () => drawToolCanvas(currentState));
 
 commandForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -969,6 +1059,9 @@ window.addEventListener('resize', () => {
   drawWorkbench(currentState, currentState?.status?.providerHealth, currentState?.activeSession);
   drawSidebarCanvas();
   drawMessageCanvas(false);
+  drawWorkspaceCanvas(currentState);
+  drawToolCanvas(currentState);
+  drawComposerCanvas(currentState?.activeSession);
   drawCommandPreviewCanvas();
   drawSettingsCanvas(currentState);
   drawTerminalCanvas(terminalOutput.textContent.split('\n'));
