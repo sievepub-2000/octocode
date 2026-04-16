@@ -2,6 +2,7 @@
 members = [
     "crates/octocode-api",
     "crates/octocode-cli",
+    "crates/octocode-commands",
     "crates/octocode-core",
     "crates/octocode-runtime",
 ]

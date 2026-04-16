@@ -6,5 +6,6 @@ license.workspace = true
 
 [dependencies]
 octocode-api = { path = "../octocode-api" }
+octocode-commands = { path = "../octocode-commands" }
 octocode-core = { path = "../octocode-core" }
 octocode-runtime = { path = "../octocode-runtime" }

@@ -79,6 +79,21 @@ pub struct RuntimeConfig {
     pub permission_mode: PermissionMode,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputMode {
+    Text,
+    Json,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeStatus {
+    pub provider_id: String,
+    pub provider_kind: ProviderKind,
+    pub platform: PlatformKind,
+    pub permission_mode: PermissionMode,
+    pub session_count: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandDescriptor {
     pub name: &'static str,

@@ -1,6 +1,7 @@
 use octocode_api::{ProviderRegistry, StubProvider};
+use octocode_commands::{parse_cli_args, CliCommand};
 use octocode_core::{
-    PermissionMode, PlatformSupport, PromptRequest, SessionSummary, ToolCall,
+    OutputMode, PermissionMode, PlatformSupport, PromptRequest, SessionSummary, ToolCall,
 };
 use octocode_runtime::{FileSessionStore, NativePlatform, OctocodeRuntime, WorkspaceToolExecutor};
 
@@ -14,18 +15,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         platform.context().clone(),
     );
 
-    let mut raw_args = std::env::args().skip(1).collect::<Vec<_>>();
-    let json_mode = if raw_args.first().map(String::as_str) == Some("--json") {
-        raw_args.remove(0);
-        true
-    } else {
-        false
-    };
+    let parsed = parse_cli_args(std::env::args().skip(1));
+    let json_mode = parsed.output_mode == OutputMode::Json;
 
-    let mut args = raw_args.into_iter();
-    match args.next().as_deref() {
-        Some("prompt") => {
-            let text = args.collect::<Vec<_>>().join(" ");
+    match parsed.command {
+        CliCommand::Prompt { text } => {
             let response = runtime.prompt(PromptRequest {
                 text: if text.is_empty() {
                     String::from("hello octocode")
@@ -40,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("{}", response.output);
             }
         }
-        Some("sessions") => {
+        CliCommand::Sessions => {
             let sessions = runtime.sessions()?;
             if json_mode {
                 let items = sessions
@@ -62,9 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        Some("session-add") => {
-            let id = args.next().unwrap_or_else(|| String::from("session"));
-            let title = args.collect::<Vec<_>>().join(" ");
+        CliCommand::SessionAdd { id, title } => {
             runtime.save_session(SessionSummary {
                 id,
                 title: if title.is_empty() {
@@ -80,9 +72,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("session saved");
             }
         }
-        Some("tool") => {
-            let name = args.next().unwrap_or_else(|| String::from("echo"));
-            let input = args.collect::<Vec<_>>().join(" ");
+        CliCommand::SessionExport { path } => {
+            let exported = runtime.export_sessions(path)?;
+            if json_mode {
+                println!("{{\"kind\":\"session-export\",\"path\":\"{}\"}}", json_escape(&exported.display().to_string()));
+            } else {
+                println!("{}", exported.display());
+            }
+        }
+        CliCommand::Tool { name, input } => {
             let result = runtime.run_tool(ToolCall {
                 name,
                 input,
@@ -94,7 +92,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("{}", result.output);
             }
         }
-        Some("workspace") => {
+        CliCommand::Workspace => {
             let workspace = runtime.workspace();
             if json_mode {
                 println!(
@@ -105,7 +103,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("root={} platform={:?} shell={:?}", workspace.root, workspace.platform, workspace.preferred_shell);
             }
         }
-        Some("providers") => {
+        CliCommand::Providers => {
             let registry = ProviderRegistry::new();
             if json_mode {
                 let items = registry
@@ -132,7 +130,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        Some("doctor") => {
+        CliCommand::Doctor => {
             let workspace = runtime.workspace();
             let paths = runtime.config_paths();
             let config = runtime.config();
@@ -160,31 +158,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("permission.mode={:?}", config.permission_mode);
             }
         }
-        Some("status") => {
-            let workspace = runtime.workspace();
-            let config = runtime.config();
-            let provider = runtime.provider_descriptor();
-            let session_count = runtime.sessions()?.len();
+        CliCommand::Status => {
+            let status = runtime.status()?;
             if json_mode {
                 println!(
                     "{{\"kind\":\"status\",\"providerId\":\"{}\",\"providerKind\":\"{:?}\",\"platform\":\"{:?}\",\"permissionMode\":\"{:?}\",\"sessionCount\":{}}}",
-                    json_escape(&provider.id),
-                    provider.kind,
-                    workspace.platform,
-                    config.permission_mode,
-                    session_count
+                    json_escape(&status.provider_id),
+                    status.provider_kind,
+                    status.platform,
+                    status.permission_mode,
+                    status.session_count
                 );
             } else {
                 println!("Octocode Status");
-                println!("provider.id={}", provider.id);
-                println!("provider.kind={:?}", provider.kind);
-                println!("workspace.platform={:?}", workspace.platform);
-                println!("permission.mode={:?}", config.permission_mode);
-                println!("sessions.count={}", session_count);
+                println!("provider.id={}", status.provider_id);
+                println!("provider.kind={:?}", status.provider_kind);
+                println!("workspace.platform={:?}", status.platform);
+                println!("permission.mode={:?}", status.permission_mode);
+                println!("sessions.count={}", status.session_count);
             }
         }
-        Some("permissions") => {
-            if let Some(mode) = args.next() {
+        CliCommand::Permissions { mode } => {
+            if let Some(mode) = mode {
                 let parsed = match mode.as_str() {
                     "read-only" => PermissionMode::ReadOnly,
                     "danger-full-access" => PermissionMode::DangerFullAccess,
@@ -198,7 +193,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("{:?}", runtime.config().permission_mode);
             }
         }
-        Some("config-init") => {
+        CliCommand::ConfigInit => {
             let path = runtime.init_config()?;
             if json_mode {
                 println!("{{\"kind\":\"config-init\",\"path\":\"{}\"}}", json_escape(&path.display().to_string()));
@@ -206,7 +201,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("{}", path.display());
             }
         }
-        Some("config-show") => {
+        CliCommand::ConfigShow => {
             let path = runtime.config_file_path();
             let raw = std::fs::read_to_string(&path).unwrap_or_default();
             if json_mode {
@@ -216,7 +211,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 print!("{}", raw);
             }
         }
-        Some("commands") => {
+        CliCommand::Commands => {
             if json_mode {
                 let items = runtime
                     .commands()
@@ -237,7 +232,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        _ => {
+        CliCommand::Help => {
             if json_mode {
                 println!("{{\"kind\":\"help\",\"usage\":\"octocode-cli [--json] <command>\"}}");
             } else {

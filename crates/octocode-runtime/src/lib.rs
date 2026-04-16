@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 use octocode_core::{
     CommandDescriptor, ConfigPaths, ModelProvider, OctoError, PermissionMode, PlatformKind,
-    PlatformSupport, PromptRequest, PromptResponse, RuntimeConfig, SessionStore, SessionSummary,
-    ShellKind, ToolCall, ToolExecutor, ToolResult, WorkspaceContext,
+    PlatformSupport, PromptRequest, PromptResponse, RuntimeConfig, RuntimeStatus, SessionStore,
+    SessionSummary, ShellKind, ToolCall, ToolExecutor, ToolResult, WorkspaceContext,
 };
 
 #[derive(Default)]
@@ -258,6 +258,7 @@ const COMMANDS: &[CommandDescriptor] = &[
     CommandDescriptor { name: "prompt", summary: "Run a one-shot prompt" },
     CommandDescriptor { name: "sessions", summary: "List local sessions" },
     CommandDescriptor { name: "session-add", summary: "Persist a local session" },
+    CommandDescriptor { name: "session-export", summary: "Export local sessions to a file" },
     CommandDescriptor { name: "tool", summary: "Run a built-in tool" },
     CommandDescriptor { name: "workspace", summary: "Show workspace platform context" },
     CommandDescriptor { name: "providers", summary: "List configured provider surfaces" },
@@ -413,5 +414,47 @@ where
 
     pub fn set_permission_mode(&mut self, mode: PermissionMode) {
         self.config.permission_mode = mode;
+    }
+
+    pub fn status(&self) -> Result<RuntimeStatus, OctoError> {
+        let provider = self.provider.descriptor();
+        Ok(RuntimeStatus {
+            provider_id: provider.id,
+            provider_kind: provider.kind,
+            platform: self.platform.context().platform.clone(),
+            permission_mode: self.config.permission_mode.clone(),
+            session_count: self.sessions.list_sessions()?.len(),
+        })
+    }
+
+    pub fn export_sessions(&self, path: impl Into<PathBuf>) -> Result<PathBuf, OctoError> {
+        let path = path.into();
+        let sessions = self.sessions()?;
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent).map_err(|error| {
+                    OctoError::Session(format!("failed to create export dir {}: {error}", parent.display()))
+                })?;
+            }
+        }
+
+        let body = sessions
+            .iter()
+            .map(|session| {
+                format!(
+                    "id={} title={} model={}",
+                    session.id,
+                    session.title,
+                    session.model.as_deref().unwrap_or("")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        fs::write(&path, if body.is_empty() { String::new() } else { format!("{body}\n") })
+            .map_err(|error| {
+                OctoError::Session(format!("failed to write export file {}: {error}", path.display()))
+            })?;
+        Ok(path)
     }
 }
