@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use octocode_core::{
-    ModelProvider, OctoError, PromptRequest, PromptResponse, ProviderCircuitState,
-    ProviderDescriptor, ProviderHealth, ProviderKind, RuntimeConfig,
+    ModelProvider, OctoError, PromptRequest, PromptResponse, ProviderCircuitEvent,
+    ProviderCircuitEventKind, ProviderCircuitState, ProviderCircuitStatus, ProviderDescriptor,
+    ProviderHealth, ProviderKind, RuntimeConfig,
 };
 
 const DEFAULT_LOCAL_BASE_URL: &str = "http://192.168.110.2:8000/v1";
@@ -46,7 +47,11 @@ pub struct FallbackProvider {
 struct CircuitState {
     consecutive_failures: u32,
     open_until: Option<Instant>,
-    last_failure: Option<String>,
+    last_failure_reason: Option<String>,
+    last_opened_at_ms: Option<u128>,
+    last_half_opened_at_ms: Option<u128>,
+    last_recovered_at_ms: Option<u128>,
+    event_log: Vec<ProviderCircuitEvent>,
 }
 
 #[derive(Clone, Debug)]
@@ -54,7 +59,11 @@ struct CircuitSnapshot {
     state: ProviderCircuitState,
     failure_count: u32,
     cooldown_remaining_ms: Option<u128>,
-    last_failure: Option<String>,
+    recent_failure_reason: Option<String>,
+    last_opened_at_ms: Option<u128>,
+    last_half_opened_at_ms: Option<u128>,
+    last_recovered_at_ms: Option<u128>,
+    event_log: Vec<ProviderCircuitEvent>,
 }
 
 impl StubProvider {
@@ -102,7 +111,7 @@ impl OpenAiCompatibleProvider {
             return self.health_from_snapshot(
                 false,
                 snapshot
-                    .last_failure
+                    .recent_failure_reason
                     .clone()
                     .unwrap_or_else(|| String::from("provider cooling down")),
                 self.default_model.clone(),
@@ -151,63 +160,122 @@ impl OpenAiCompatibleProvider {
         let state = guard.get(&self.cache_key());
         match state {
             Some(state) => {
+                let mut half_open_at_ms = state.last_half_opened_at_ms;
                 let (circuit_state, cooldown_remaining_ms) = match state.open_until {
                     Some(deadline) if deadline > now => {
                         (ProviderCircuitState::Open, Some(deadline.duration_since(now).as_millis()))
                     }
-                    Some(_) => (ProviderCircuitState::HalfOpen, Some(0)),
+                    Some(_) => {
+                        if half_open_at_ms.is_none() {
+                            half_open_at_ms = Some(now_ms());
+                        }
+                        (ProviderCircuitState::HalfOpen, Some(0))
+                    }
                     None => (ProviderCircuitState::Closed, None),
                 };
                 CircuitSnapshot {
                     state: circuit_state,
                     failure_count: state.consecutive_failures,
                     cooldown_remaining_ms,
-                    last_failure: state.last_failure.clone(),
+                    recent_failure_reason: state.last_failure_reason.clone(),
+                    last_opened_at_ms: state.last_opened_at_ms,
+                    last_half_opened_at_ms: half_open_at_ms,
+                    last_recovered_at_ms: state.last_recovered_at_ms,
+                    event_log: state.event_log.clone(),
                 }
             }
             None => CircuitSnapshot {
                 state: ProviderCircuitState::Closed,
                 failure_count: 0,
                 cooldown_remaining_ms: None,
-                last_failure: None,
+                recent_failure_reason: None,
+                last_opened_at_ms: None,
+                last_half_opened_at_ms: None,
+                last_recovered_at_ms: None,
+                event_log: Vec::new(),
             },
         }
     }
 
     fn reset_circuit(&self) {
         let mut guard = circuit_book().lock().expect("circuit book lock poisoned");
-        guard.remove(&self.cache_key());
+        if let Some(state) = guard.get_mut(&self.cache_key()) {
+            if state.consecutive_failures > 0 || state.open_until.is_some() {
+                state.last_recovered_at_ms = Some(now_ms());
+                push_event(
+                    &mut state.event_log,
+                    ProviderCircuitEventKind::Recovered,
+                    format!("provider {} recovered", self.descriptor.id),
+                );
+            }
+            state.consecutive_failures = 0;
+            state.open_until = None;
+            state.last_failure_reason = None;
+            state.last_half_opened_at_ms = None;
+        }
     }
 
     fn record_failure(&self, detail: String) -> CircuitSnapshot {
         let now = Instant::now();
+        let now_ms = now_ms();
         let mut guard = circuit_book().lock().expect("circuit book lock poisoned");
         let state = guard.entry(self.cache_key()).or_insert(CircuitState {
             consecutive_failures: 0,
             open_until: None,
-            last_failure: None,
+            last_failure_reason: None,
+            last_opened_at_ms: None,
+            last_half_opened_at_ms: None,
+            last_recovered_at_ms: None,
+            event_log: Vec::new(),
         });
 
         state.consecutive_failures = state.consecutive_failures.saturating_add(1);
-        state.last_failure = Some(detail.clone());
+        state.last_failure_reason = Some(detail.clone());
+        push_event(
+            &mut state.event_log,
+            ProviderCircuitEventKind::Failure,
+            detail.clone(),
+        );
         if state.consecutive_failures >= CIRCUIT_FAILURE_THRESHOLD {
             state.open_until = Some(now + CIRCUIT_COOLDOWN);
+            state.last_opened_at_ms = Some(now_ms);
+            push_event(
+                &mut state.event_log,
+                ProviderCircuitEventKind::Opened,
+                format!(
+                    "circuit opened after {} failures; cooling down for {}ms",
+                    state.consecutive_failures,
+                    CIRCUIT_COOLDOWN.as_millis()
+                ),
+            );
         } else {
             state.open_until = None;
         }
 
-        let (circuit_state, cooldown_remaining_ms) = match state.open_until {
+        let (circuit_state, cooldown_remaining_ms, last_half_opened_at_ms) = match state.open_until {
             Some(deadline) if deadline > now => {
-                (ProviderCircuitState::Open, Some(deadline.duration_since(now).as_millis()))
+                (ProviderCircuitState::Open, Some(deadline.duration_since(now).as_millis()), state.last_half_opened_at_ms)
             }
-            Some(_) => (ProviderCircuitState::HalfOpen, Some(0)),
-            None => (ProviderCircuitState::Closed, None),
+            Some(_) => {
+                state.last_half_opened_at_ms = Some(now_ms);
+                push_event(
+                    &mut state.event_log,
+                    ProviderCircuitEventKind::HalfOpen,
+                    format!("circuit half-open for {}", self.descriptor.id),
+                );
+                (ProviderCircuitState::HalfOpen, Some(0), state.last_half_opened_at_ms)
+            }
+            None => (ProviderCircuitState::Closed, None, state.last_half_opened_at_ms),
         };
         CircuitSnapshot {
             state: circuit_state,
             failure_count: state.consecutive_failures,
             cooldown_remaining_ms,
-            last_failure: Some(detail),
+            recent_failure_reason: Some(detail),
+            last_opened_at_ms: state.last_opened_at_ms,
+            last_half_opened_at_ms,
+            last_recovered_at_ms: state.last_recovered_at_ms,
+            event_log: state.event_log.clone(),
         }
     }
 
@@ -232,21 +300,42 @@ impl OpenAiCompatibleProvider {
         }
     }
 
+    fn circuit_status_from_snapshot(&self, snapshot: CircuitSnapshot) -> ProviderCircuitStatus {
+        ProviderCircuitStatus {
+            provider_id: self.descriptor.id.clone(),
+            display_name: self.descriptor.display_name.clone(),
+            circuit_state: snapshot.state,
+            failure_count: snapshot.failure_count,
+            cooldown_remaining_ms: snapshot.cooldown_remaining_ms,
+            recent_failure_reason: snapshot.recent_failure_reason,
+            last_opened_at_ms: snapshot.last_opened_at_ms,
+            last_half_opened_at_ms: snapshot.last_half_opened_at_ms,
+            last_recovered_at_ms: snapshot.last_recovered_at_ms,
+            event_log: snapshot.event_log,
+        }
+    }
+
     fn circuit_detail(&self, snapshot: &CircuitSnapshot) -> String {
         match snapshot.state {
             ProviderCircuitState::Open => format!(
                 "circuit open after {} failures; retry in {}ms; last failure: {}",
                 snapshot.failure_count,
                 snapshot.cooldown_remaining_ms.unwrap_or(0),
-                snapshot.last_failure.clone().unwrap_or_else(|| String::from("unknown"))
+                snapshot
+                    .recent_failure_reason
+                    .clone()
+                    .unwrap_or_else(|| String::from("unknown"))
             ),
             ProviderCircuitState::HalfOpen => format!(
                 "circuit half-open; probing recovery after {} failures; last failure: {}",
                 snapshot.failure_count,
-                snapshot.last_failure.clone().unwrap_or_else(|| String::from("unknown"))
+                snapshot
+                    .recent_failure_reason
+                    .clone()
+                    .unwrap_or_else(|| String::from("unknown"))
             ),
             ProviderCircuitState::Closed => snapshot
-                .last_failure
+                .recent_failure_reason
                 .clone()
                 .unwrap_or_else(|| format!("reachable {}", self.base_url)),
         }
@@ -454,6 +543,22 @@ impl ModelProvider for BuiltinProvider {
             Self::Fallback(provider) => provider.health_catalog(),
         }
     }
+
+    fn circuit_status(&self) -> ProviderCircuitStatus {
+        match self {
+            Self::Stub(provider) => provider.circuit_status(),
+            Self::OpenAiCompatible(provider) => provider.circuit_status(),
+            Self::Fallback(provider) => provider.circuit_status(),
+        }
+    }
+
+    fn circuit_catalog(&self) -> Vec<ProviderCircuitStatus> {
+        match self {
+            Self::Stub(provider) => provider.circuit_catalog(),
+            Self::OpenAiCompatible(provider) => provider.circuit_catalog(),
+            Self::Fallback(provider) => provider.circuit_catalog(),
+        }
+    }
 }
 
 impl ModelProvider for StubProvider {
@@ -478,6 +583,25 @@ impl ModelProvider for StubProvider {
             circuit_state: ProviderCircuitState::Closed,
             failure_count: 0,
             cooldown_remaining_ms: None,
+        }
+    }
+
+    fn circuit_status(&self) -> ProviderCircuitStatus {
+        ProviderCircuitStatus {
+            provider_id: self.descriptor.id.clone(),
+            display_name: self.descriptor.display_name.clone(),
+            circuit_state: ProviderCircuitState::Closed,
+            failure_count: 0,
+            cooldown_remaining_ms: None,
+            recent_failure_reason: None,
+            last_opened_at_ms: None,
+            last_half_opened_at_ms: None,
+            last_recovered_at_ms: None,
+            event_log: vec![ProviderCircuitEvent {
+                at_ms: now_ms(),
+                kind: ProviderCircuitEventKind::Recovered,
+                detail: String::from("stub fallback ready"),
+            }],
         }
     }
 }
@@ -523,6 +647,10 @@ impl ModelProvider for OpenAiCompatibleProvider {
 
     fn health(&self) -> ProviderHealth {
         self.probe()
+    }
+
+    fn circuit_status(&self) -> ProviderCircuitStatus {
+        self.circuit_status_from_snapshot(self.snapshot_circuit())
     }
 }
 
@@ -570,6 +698,31 @@ impl ModelProvider for FallbackProvider {
 
     fn health_catalog(&self) -> Vec<ProviderHealth> {
         self.candidates.iter().map(ModelProvider::health).collect()
+    }
+
+    fn circuit_status(&self) -> ProviderCircuitStatus {
+        self.pick_active()
+            .and_then(|health| {
+                self.circuit_catalog()
+                    .into_iter()
+                    .find(|status| status.provider_id == health.provider_id)
+            })
+            .unwrap_or_else(|| ProviderCircuitStatus {
+                provider_id: self.descriptor.id.clone(),
+                display_name: self.descriptor.display_name.clone(),
+                circuit_state: ProviderCircuitState::Open,
+                failure_count: 0,
+                cooldown_remaining_ms: None,
+                recent_failure_reason: Some(String::from("no healthy fallback provider available")),
+                last_opened_at_ms: None,
+                last_half_opened_at_ms: None,
+                last_recovered_at_ms: None,
+                event_log: Vec::new(),
+            })
+    }
+
+    fn circuit_catalog(&self) -> Vec<ProviderCircuitStatus> {
+        self.candidates.iter().map(ModelProvider::circuit_status).collect()
     }
 }
 
@@ -623,6 +776,25 @@ fn circuit_book() -> &'static Mutex<HashMap<String, CircuitState>> {
     CIRCUIT_BREAKERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+fn now_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+}
+
+fn push_event(log: &mut Vec<ProviderCircuitEvent>, kind: ProviderCircuitEventKind, detail: String) {
+    log.push(ProviderCircuitEvent {
+        at_ms: now_ms(),
+        kind,
+        detail,
+    });
+    if log.len() > 24 {
+        let drain_count = log.len() - 24;
+        log.drain(0..drain_count);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -642,10 +814,15 @@ mod tests {
         )
     }
 
+    fn clear_circuit(provider: &OpenAiCompatibleProvider) {
+        let mut guard = circuit_book().lock().expect("circuit book lock poisoned");
+        guard.remove(&provider.cache_key());
+    }
+
     #[test]
     fn circuit_opens_after_threshold_failures() {
         let provider = provider();
-        provider.reset_circuit();
+        clear_circuit(&provider);
 
         let first = provider.record_failure(String::from("timeout-1"));
         assert_eq!(first.state, ProviderCircuitState::Closed);
@@ -657,13 +834,13 @@ mod tests {
         assert_eq!(second.failure_count, CIRCUIT_FAILURE_THRESHOLD);
         assert!(second.cooldown_remaining_ms.unwrap_or(0) > 0);
 
-        provider.reset_circuit();
+        clear_circuit(&provider);
     }
 
     #[test]
     fn circuit_moves_to_half_open_after_cooldown() {
         let provider = provider();
-        provider.reset_circuit();
+        clear_circuit(&provider);
 
         {
             let mut guard = circuit_book().lock().expect("circuit book lock poisoned");
@@ -672,7 +849,11 @@ mod tests {
                 CircuitState {
                     consecutive_failures: CIRCUIT_FAILURE_THRESHOLD,
                     open_until: Some(Instant::now() - Duration::from_millis(1)),
-                    last_failure: Some(String::from("expired cooldown")),
+                    last_failure_reason: Some(String::from("expired cooldown")),
+                    last_opened_at_ms: Some(now_ms()),
+                    last_half_opened_at_ms: None,
+                    last_recovered_at_ms: None,
+                    event_log: Vec::new(),
                 },
             );
         }
@@ -681,7 +862,7 @@ mod tests {
         assert_eq!(snapshot.state, ProviderCircuitState::HalfOpen);
         assert_eq!(snapshot.failure_count, CIRCUIT_FAILURE_THRESHOLD);
 
-        provider.reset_circuit();
+        clear_circuit(&provider);
     }
 }
 

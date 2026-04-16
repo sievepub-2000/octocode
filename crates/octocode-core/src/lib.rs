@@ -127,6 +127,35 @@ pub enum ProviderCircuitState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderCircuitEventKind {
+    Failure,
+    Opened,
+    HalfOpen,
+    Recovered,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderCircuitEvent {
+    pub at_ms: u128,
+    pub kind: ProviderCircuitEventKind,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderCircuitStatus {
+    pub provider_id: String,
+    pub display_name: String,
+    pub circuit_state: ProviderCircuitState,
+    pub failure_count: u32,
+    pub cooldown_remaining_ms: Option<u128>,
+    pub recent_failure_reason: Option<String>,
+    pub last_opened_at_ms: Option<u128>,
+    pub last_half_opened_at_ms: Option<u128>,
+    pub last_recovered_at_ms: Option<u128>,
+    pub event_log: Vec<ProviderCircuitEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigPaths {
     pub config_home: String,
     pub cache_home: String,
@@ -157,6 +186,7 @@ pub struct RuntimeStatus {
     pub permission_mode: PermissionMode,
     pub session_count: usize,
     pub provider_health: ProviderHealth,
+    pub provider_circuit: ProviderCircuitStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,6 +195,7 @@ pub struct DoctorReport {
     pub paths: ConfigPaths,
     pub config: RuntimeConfig,
     pub provider_healths: Vec<ProviderHealth>,
+    pub provider_circuits: Vec<ProviderCircuitStatus>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -199,6 +230,7 @@ pub struct UiSnapshot {
     pub config: RuntimeConfig,
     pub providers: Vec<ProviderDescriptor>,
     pub provider_healths: Vec<ProviderHealth>,
+    pub provider_circuits: Vec<ProviderCircuitStatus>,
     pub commands: Vec<CommandDescriptor>,
     pub tools: Vec<ToolDescriptor>,
     pub sessions: Vec<SessionSummary>,
@@ -237,6 +269,30 @@ pub trait ModelProvider: Send + Sync {
 
     fn health_catalog(&self) -> Vec<ProviderHealth> {
         vec![self.health()]
+    }
+
+    fn circuit_status(&self) -> ProviderCircuitStatus {
+        let health = self.health();
+        ProviderCircuitStatus {
+            provider_id: health.provider_id.clone(),
+            display_name: health.display_name.clone(),
+            circuit_state: health.circuit_state.clone(),
+            failure_count: health.failure_count,
+            cooldown_remaining_ms: health.cooldown_remaining_ms,
+            recent_failure_reason: if health.detail == "ready" {
+                None
+            } else {
+                Some(health.detail)
+            },
+            last_opened_at_ms: None,
+            last_half_opened_at_ms: None,
+            last_recovered_at_ms: None,
+            event_log: Vec::new(),
+        }
+    }
+
+    fn circuit_catalog(&self) -> Vec<ProviderCircuitStatus> {
+        vec![self.circuit_status()]
     }
 }
 

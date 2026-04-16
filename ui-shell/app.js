@@ -21,6 +21,8 @@ const sessionCount = document.querySelector('#session-count');
 const providerList = document.querySelector('#provider-list');
 const toolList = document.querySelector('#tool-list');
 const terminalOutput = document.querySelector('#terminal-output');
+const terminalCanvas = document.querySelector('#terminal-canvas');
+const terminalContext = terminalCanvas.getContext('2d');
 const breadcrumbSession = document.querySelector('#breadcrumb-session');
 const composerSession = document.querySelector('#composer-session');
 const menuProvider = document.querySelector('#menu-provider');
@@ -35,7 +37,11 @@ const chatForm = document.querySelector('#chat-form');
 const chatInput = document.querySelector('#chat-input');
 const commandForm = document.querySelector('#command-form');
 const commandPalette = document.querySelector('#command-palette');
+const commandPreviewCanvas = document.querySelector('#command-preview-canvas');
+const commandPreviewContext = commandPreviewCanvas.getContext('2d');
 const settingsForm = document.querySelector('#settings-form');
+const settingsCanvas = document.querySelector('#settings-canvas');
+const settingsContext = settingsCanvas.getContext('2d');
 const settingProvider = document.querySelector('#setting-provider');
 const settingBaseUrl = document.querySelector('#setting-base-url');
 const settingModel = document.querySelector('#setting-model');
@@ -123,6 +129,7 @@ function render(state) {
   renderSidebar(state, currentView, sessionId);
   renderMessages(activeSession?.messages || []);
   renderTerminal(state, activeSession);
+  drawCommandPreviewCanvas();
   drawWorkbench(state, activeHealth, activeSession);
 }
 
@@ -161,6 +168,7 @@ function renderSettings(state) {
   toolList.replaceChildren(
     ...state.tools.map((tool) => createTag(`${tool.name}:${tool.minimumPermission}`))
   );
+  drawSettingsCanvas(state);
 }
 
 function renderSidebar(state, view, activeSessionId) {
@@ -257,6 +265,10 @@ function renderTerminal(state, activeSession) {
     (health) =>
       `${health.providerId} state=${health.circuitState} healthy=${health.healthy} fails=${health.failureCount} cooldown=${health.cooldownRemainingMs ?? 0}ms`
   );
+  const circuitLines = (state.providerCircuits || []).flatMap((circuit) => [
+    `${circuit.providerId} recent=${circuit.recentFailureReason || '-'} opened=${circuit.lastOpenedAtMs || '-'} recovered=${circuit.lastRecoveredAtMs || '-'}`,
+    ...circuit.eventLog.slice(-3).map((event) => `  [${event.atMs}] ${event.kind} ${event.detail}`),
+  ]);
 
   terminalOutput.textContent = [
     '[events]',
@@ -265,12 +277,16 @@ function renderTerminal(state, activeSession) {
     '[health]',
     ...(healthLines.length ? healthLines : ['no provider health data']),
     '',
+    '[circuits]',
+    ...(circuitLines.length ? circuitLines : ['no circuit events']),
+    '',
     '[config]',
     ...configLines,
     '',
     '[transcript tail]',
     ...(transcriptLines.length ? transcriptLines : ['system> no transcript loaded']),
   ].join('\n');
+  drawTerminalCanvas(terminalOutput.textContent.split('\n'));
 }
 
 function renderError(error) {
@@ -295,7 +311,93 @@ function renderError(error) {
   drawSidebarCanvas('无法加载侧栏数据');
   drawMessageCanvas(false, '请运行 octocode-cli serve 999 demo 或 start-webui 脚本后再刷新页面。');
   terminalOutput.textContent = `load-error\n${error.message}`;
+  drawTerminalCanvas(terminalOutput.textContent.split('\n'));
+  drawSettingsCanvas(null, error.message);
+  drawCommandPreviewCanvas('API unavailable');
   drawWorkbench(null, null, null);
+}
+
+function drawCommandPreviewCanvas(overrideHint) {
+  const { width, height } = prepareCanvas(commandPreviewCanvas, commandPreviewContext);
+  commandPreviewContext.clearRect(0, 0, width, height);
+  drawPanel(commandPreviewContext, 0.5, 0.5, width - 1, height - 1, 'rgba(251,253,255,0.94)', 'rgba(214,222,236,0.9)');
+
+  const query = overrideHint || commandPalette.value.trim();
+  const commands = currentState?.commands || [];
+  const matches = query
+    ? commands.filter((command) => `${command.name} ${command.summary}`.toLowerCase().includes(query.toLowerCase())).slice(0, 3)
+    : commands.slice(0, 3);
+
+  commandPreviewContext.fillStyle = '#233149';
+  commandPreviewContext.font = '600 12px JetBrains Mono';
+  commandPreviewContext.fillText('Command Palette Preview', 16, 24);
+  commandPreviewContext.font = '500 11px JetBrains Mono';
+  commandPreviewContext.fillStyle = '#60708a';
+  commandPreviewContext.fillText(query || 'type to filter commands', 16, 42);
+
+  if (!matches.length) {
+    drawWrappedText(commandPreviewContext, 'no matching commands', 16, 68, width - 32, 16, 2);
+    return;
+  }
+
+  matches.forEach((command, index) => {
+    const y = 58 + index * 16;
+    commandPreviewContext.fillStyle = '#2b3954';
+    commandPreviewContext.font = '600 11px JetBrains Mono';
+    commandPreviewContext.fillText(command.name, 16, y);
+    commandPreviewContext.fillStyle = '#73819a';
+    commandPreviewContext.font = '500 11px JetBrains Mono';
+    drawWrappedText(commandPreviewContext, command.summary, 122, y, width - 138, 14, 1);
+  });
+}
+
+function drawSettingsCanvas(state, errorMessage) {
+  const { width, height } = prepareCanvas(settingsCanvas, settingsContext);
+  settingsContext.clearRect(0, 0, width, height);
+  drawPanel(settingsContext, 0.5, 0.5, width - 1, height - 1, 'rgba(250,252,255,0.9)', 'rgba(214,222,236,0.88)');
+
+  settingsContext.fillStyle = '#20304a';
+  settingsContext.font = '600 12px JetBrains Mono';
+  settingsContext.fillText('Canvas Settings List', 16, 24);
+  settingsContext.font = '500 11px JetBrains Mono';
+  settingsContext.fillStyle = '#6d7b92';
+
+  if (!state) {
+    drawWrappedText(settingsContext, errorMessage || 'settings unavailable', 16, 48, width - 32, 16, 4);
+    return;
+  }
+
+  const lines = [
+    `provider  ${state.config.providerId || '-'}`,
+    `base url  ${state.config.providerBaseUrl || '-'}`,
+    `model     ${state.config.defaultModel || '-'}`,
+    `mode      ${state.config.permissionMode}`,
+    `history   ${state.config.historyLimit}`,
+  ];
+  lines.forEach((line, index) => {
+    const y = 52 + index * 24;
+    drawPanel(settingsContext, 14, y - 14, width - 28, 18, 'rgba(255,255,255,0.9)', 'rgba(220,226,238,0.9)');
+    settingsContext.fillStyle = '#2a3850';
+    settingsContext.fillText(line, 22, y);
+  });
+}
+
+function drawTerminalCanvas(lines) {
+  const { width, height } = prepareCanvas(terminalCanvas, terminalContext);
+  terminalContext.clearRect(0, 0, width, height);
+  drawPanel(terminalContext, 0.5, 0.5, width - 1, height - 1, 'rgba(13,18,27,0.96)', 'rgba(72,84,104,0.85)');
+
+  terminalContext.fillStyle = '#8fe1b1';
+  terminalContext.font = '600 12px JetBrains Mono';
+  terminalContext.fillText('terminal.viewer', 16, 22);
+  terminalContext.fillStyle = '#9eb3d1';
+  terminalContext.font = '500 11px JetBrains Mono';
+
+  const visibleLines = (lines || []).slice(0, Math.max(1, Math.floor((height - 38) / 16)));
+  visibleLines.forEach((line, index) => {
+    const y = 44 + index * 16;
+    drawWrappedText(terminalContext, line, 16, y, width - 32, 14, 1);
+  });
 }
 
 function drawWorkbench(state, activeHealth, activeSession) {
@@ -817,6 +919,8 @@ commandForm.addEventListener('submit', async (event) => {
   }
 });
 
+commandPalette.addEventListener('input', () => drawCommandPreviewCanvas());
+
 [...sidebarTabs, ...activityButtons].forEach((control) => {
   control.addEventListener('click', () => {
     currentView = control.dataset.view;
@@ -865,6 +969,9 @@ window.addEventListener('resize', () => {
   drawWorkbench(currentState, currentState?.status?.providerHealth, currentState?.activeSession);
   drawSidebarCanvas();
   drawMessageCanvas(false);
+  drawCommandPreviewCanvas();
+  drawSettingsCanvas(currentState);
+  drawTerminalCanvas(terminalOutput.textContent.split('\n'));
 });
 
 setInterval(updateClock, 60_000);

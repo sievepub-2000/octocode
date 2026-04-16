@@ -6,9 +6,10 @@ use std::time::SystemTime;
 use octocode_core::{
     CommandDescriptor, ConfigPaths, ConversationMessage, ConversationRole, ConversationSession,
     ConversationStore, DoctorReport, ModelProvider, OctoError, PermissionMode, PlatformKind,
-    PlatformSupport, PromptRequest, PromptResponse, ProviderDescriptor, ProviderHealth,
-    RuntimeConfig, RuntimeStatus, SessionStore, SessionSummary, ShellKind, ToolCall,
-    ToolDescriptor, ToolExecutor, ToolResult, UiSnapshot, WorkspaceContext,
+    PlatformSupport, PromptRequest, PromptResponse, ProviderCircuitEvent,
+    ProviderCircuitStatus, ProviderDescriptor, ProviderHealth, RuntimeConfig, RuntimeStatus,
+    SessionStore, SessionSummary, ShellKind, ToolCall, ToolDescriptor, ToolExecutor, ToolResult,
+    UiSnapshot, WorkspaceContext,
 };
 
 const DEFAULT_PROVIDER_ID: &str = "local-openai";
@@ -343,6 +344,23 @@ impl WorkspaceToolExecutor {
         .join("\n");
         ToolResult { output }
     }
+
+    fn agent_action(&self, input: &str) -> ToolResult {
+        let task = input.trim();
+        let headline = if task.is_empty() {
+            "continue current task"
+        } else {
+            task
+        };
+        let output = [
+            format!("agent action: {headline}"),
+            String::from("mode: delegated"),
+            String::from("next: inspect the local slice before making edits"),
+            String::from("validation: run the cheapest behavior-scoped check after the first edit"),
+        ]
+        .join("\n");
+        ToolResult { output }
+    }
 }
 
 impl ToolExecutor for WorkspaceToolExecutor {
@@ -401,6 +419,7 @@ impl ToolExecutor for WorkspaceToolExecutor {
             "shell-command" => self.run_shell(&call.input),
             "search-text" => self.search_text(&call.input),
             "workflow-plan" => Ok(self.workflow_plan(&call.input)),
+            "agent-action" => Ok(self.agent_action(&call.input)),
             _ => Err(OctoError::Runtime(format!("unknown tool: {}", call.name))),
         }
     }
@@ -566,6 +585,22 @@ const COMMANDS: &[CommandDescriptor] = &[
         summary: "Draft a workflow plan into the current session",
     },
     CommandDescriptor {
+        name: "workflow",
+        summary: "Append a workflow step into the current session",
+    },
+    CommandDescriptor {
+        name: "agent",
+        summary: "Append an agent action stub into the current session",
+    },
+    CommandDescriptor {
+        name: "repl",
+        summary: "Evaluate a nested runtime command inside the current session",
+    },
+    CommandDescriptor {
+        name: "circuit-log",
+        summary: "Show circuit event log and recovery timeline",
+    },
+    CommandDescriptor {
         name: "health",
         summary: "Inspect provider health and fallback readiness",
     },
@@ -653,6 +688,11 @@ const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "workflow-plan",
         summary: "Generate a focused implementation plan for the current task",
+        minimum_permission: PermissionMode::ReadOnly,
+    },
+    ToolDescriptor {
+        name: "agent-action",
+        summary: "Draft a concrete next action set for the current session",
         minimum_permission: PermissionMode::ReadOnly,
     },
 ];
@@ -767,13 +807,7 @@ where
 
     pub fn prompt_in_session(&self, session_id: &str, text: &str) -> Result<PromptResponse, OctoError> {
         self.ensure_session_exists(session_id)?;
-        self.sessions.append_message(
-            session_id,
-            ConversationMessage {
-                role: ConversationRole::User,
-                content: String::from(text),
-            },
-        )?;
+        self.append_session_message(session_id, ConversationRole::User, String::from(text))?;
 
         let response = self.provider.prompt(PromptRequest {
             text: String::from(text),
@@ -782,23 +816,19 @@ where
 
         match response {
             Ok(response) => {
-                self.sessions.append_message(
+                self.append_session_message(
                     session_id,
-                    ConversationMessage {
-                        role: ConversationRole::Assistant,
-                        content: response.output.clone(),
-                    },
+                    ConversationRole::Assistant,
+                    response.output.clone(),
                 )?;
                 self.apply_history_limit(session_id)?;
                 Ok(response)
             }
             Err(error) => {
-                self.sessions.append_message(
+                self.append_session_message(
                     session_id,
-                    ConversationMessage {
-                        role: ConversationRole::System,
-                        content: format!("provider-error: {error}"),
-                    },
+                    ConversationRole::System,
+                    format!("provider-error: {error}"),
                 )?;
                 self.apply_history_limit(session_id)?;
                 Err(error)
@@ -818,15 +848,24 @@ where
         call.permission = descriptor.minimum_permission.clone();
         self.ensure_permission(&call.permission, descriptor.name)?;
         let result = self.tools.execute(call.clone())?;
-        self.sessions.append_message(
+        self.append_session_message(
             session_id,
-            ConversationMessage {
-                role: ConversationRole::Tool,
-                content: format!("{} => {}", call.name, result.output),
-            },
+            ConversationRole::Tool,
+            format!("{} => {}", call.name, result.output),
         )?;
         self.apply_history_limit(session_id)?;
         Ok(result)
+    }
+
+    pub fn append_session_message(
+        &self,
+        session_id: &str,
+        role: ConversationRole,
+        content: String,
+    ) -> Result<(), OctoError> {
+        self.ensure_session_exists(session_id)?;
+        self.sessions
+            .append_message(session_id, ConversationMessage { role, content })
     }
 
     pub fn provider_descriptor(&self) -> ProviderDescriptor {
@@ -891,11 +930,16 @@ where
             paths: self.config_paths(),
             config: self.config.clone(),
             provider_healths: self.provider.health_catalog(),
+            provider_circuits: self.provider.circuit_catalog(),
         }
     }
 
     pub fn provider_healths(&self) -> Vec<ProviderHealth> {
         self.provider.health_catalog()
+    }
+
+    pub fn provider_circuits(&self) -> Vec<ProviderCircuitStatus> {
+        self.provider.circuit_catalog()
     }
 
     pub fn commands(&self) -> &'static [CommandDescriptor] {
@@ -937,6 +981,7 @@ where
     pub fn status(&self) -> Result<RuntimeStatus, OctoError> {
         let provider = self.provider.descriptor();
         let provider_health = self.provider.health();
+        let provider_circuit = self.provider.circuit_status();
         Ok(RuntimeStatus {
             provider_id: provider.id,
             active_provider_id: self.provider.active_provider_id(),
@@ -945,6 +990,7 @@ where
             permission_mode: self.config.permission_mode.clone(),
             session_count: self.sessions.list_sessions()?.len(),
             provider_health,
+            provider_circuit,
         })
     }
 
@@ -996,6 +1042,7 @@ where
             config: self.config.clone(),
             providers: self.providers().to_vec(),
             provider_healths: self.provider_healths(),
+            provider_circuits: self.provider_circuits(),
             commands: self.commands().to_vec(),
             tools: self.tools().to_vec(),
             sessions: self.sessions()?,
@@ -1110,6 +1157,67 @@ fn escape_json(value: &str) -> String {
         .replace('\t', "\\t")
 }
 
+fn option_string_json(value: Option<&str>) -> String {
+    value
+        .map(|value| format!("\"{}\"", escape_json(value)))
+        .unwrap_or_else(|| String::from("null"))
+}
+
+fn provider_circuit_event_to_json(event: &ProviderCircuitEvent) -> String {
+    format!(
+        "{{\"atMs\":{},\"kind\":\"{:?}\",\"detail\":\"{}\"}}",
+        event.at_ms,
+        event.kind,
+        escape_json(&event.detail)
+    )
+}
+
+fn provider_circuit_to_json(circuit: &ProviderCircuitStatus) -> String {
+    format!(
+        concat!(
+            "{{",
+            "\"providerId\":\"{}\",",
+            "\"displayName\":\"{}\",",
+            "\"circuitState\":\"{:?}\",",
+            "\"failureCount\":{},",
+            "\"cooldownRemainingMs\":{},",
+            "\"recentFailureReason\":{},",
+            "\"lastOpenedAtMs\":{},",
+            "\"lastHalfOpenedAtMs\":{},",
+            "\"lastRecoveredAtMs\":{},",
+            "\"eventLog\":[{}]",
+            "}}"
+        ),
+        escape_json(&circuit.provider_id),
+        escape_json(&circuit.display_name),
+        circuit.circuit_state,
+        circuit.failure_count,
+        circuit
+            .cooldown_remaining_ms
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| String::from("null")),
+        option_string_json(circuit.recent_failure_reason.as_deref()),
+        circuit
+            .last_opened_at_ms
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| String::from("null")),
+        circuit
+            .last_half_opened_at_ms
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| String::from("null")),
+        circuit
+            .last_recovered_at_ms
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| String::from("null")),
+        circuit
+            .event_log
+            .iter()
+            .map(provider_circuit_event_to_json)
+            .collect::<Vec<_>>()
+            .join(",")
+    )
+}
+
 fn snapshot_to_json(snapshot: &UiSnapshot) -> String {
     let providers = snapshot
         .providers
@@ -1173,6 +1281,12 @@ fn snapshot_to_json(snapshot: &UiSnapshot) -> String {
                     .unwrap_or_else(|| String::from("null"))
             )
         })
+        .collect::<Vec<_>>()
+        .join(",");
+    let provider_circuits = snapshot
+        .provider_circuits
+        .iter()
+        .map(provider_circuit_to_json)
         .collect::<Vec<_>>()
         .join(",");
     let tools = snapshot
@@ -1244,6 +1358,7 @@ fn snapshot_to_json(snapshot: &UiSnapshot) -> String {
             "\"failureCount\":{},",
             "\"cooldownRemainingMs\":{}",
             "}}",
+            ",\"providerCircuit\":{}",
             "}},",
             "\"workspace\":{{",
             "\"root\":\"{}\",",
@@ -1259,6 +1374,7 @@ fn snapshot_to_json(snapshot: &UiSnapshot) -> String {
             "}},",
             "\"providers\":[{}],",
             "\"providerHealths\":[{}],",
+            "\"providerCircuits\":[{}],",
             "\"commands\":[{}],",
             "\"tools\":[{}],",
             "\"sessions\":[{}],",
@@ -1290,6 +1406,7 @@ fn snapshot_to_json(snapshot: &UiSnapshot) -> String {
             .cooldown_remaining_ms
             .map(|value| value.to_string())
             .unwrap_or_else(|| String::from("null")),
+        provider_circuit_to_json(&snapshot.status.provider_circuit),
         escape_json(&snapshot.workspace.root),
         snapshot.workspace.platform,
         snapshot.workspace.preferred_shell,
@@ -1300,6 +1417,7 @@ fn snapshot_to_json(snapshot: &UiSnapshot) -> String {
         snapshot.config.history_limit,
         providers,
         provider_healths,
+        provider_circuits,
         commands,
         tools,
         sessions,

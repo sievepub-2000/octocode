@@ -4,6 +4,7 @@ use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 
 use octocode_api::{BuiltinProvider, ProviderRegistry};
+use octocode_commands::{execute_command, CliCommand};
 use octocode_core::{OctoError, PermissionMode, PlatformSupport, RuntimeConfig, ToolCall};
 use octocode_runtime::{
     ConfigLoader, FileSessionStore, NativePlatform, OctocodeRuntime, WorkspaceToolExecutor,
@@ -242,6 +243,46 @@ fn handle_command(
             )?;
             return json_response(runtime.snapshot_json(Some(&session_id))?);
         }
+        "workflow" => {
+            let session_id = session_id.unwrap_or_else(|| String::from("demo"));
+            let text = parts.collect::<Vec<_>>().join(" ");
+            let mut runtime = build_runtime(workspace_root, config)?;
+            execute_command(
+                &mut runtime,
+                CliCommand::Workflow {
+                    session_id: session_id.clone(),
+                    text,
+                },
+            )?;
+            return json_response(runtime.snapshot_json(Some(&session_id))?);
+        }
+        "agent" => {
+            let session_id = session_id.unwrap_or_else(|| String::from("demo"));
+            let text = parts.collect::<Vec<_>>().join(" ");
+            let mut runtime = build_runtime(workspace_root, config)?;
+            execute_command(
+                &mut runtime,
+                CliCommand::Agent {
+                    session_id: session_id.clone(),
+                    text,
+                },
+            )?;
+            return json_response(runtime.snapshot_json(Some(&session_id))?);
+        }
+        "repl" => {
+            let session_id = session_id.unwrap_or_else(|| String::from("demo"));
+            let text = parts.collect::<Vec<_>>().join(" ");
+            let mut runtime = build_runtime(workspace_root, config)?;
+            execute_command(
+                &mut runtime,
+                CliCommand::Repl {
+                    session_id: session_id.clone(),
+                    text,
+                },
+            )?;
+            return json_response(runtime.snapshot_json(Some(&session_id))?);
+        }
+        "circuit-log" => {}
         "search" => {
             let session_id = session_id.unwrap_or_else(|| String::from("demo"));
             let input = parts.collect::<Vec<_>>().join(" ");

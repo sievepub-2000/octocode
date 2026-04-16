@@ -36,10 +36,14 @@ The current repository already provides a locally runnable baseline:
 10. `octocode-cli tools`
 11. `octocode-cli tool read-file <path>`
 12. `octocode-cli tool write-file "path|content"`
-13. `octocode-cli ui-export ui-shell/data/app-state.json <session-id>`
-14. `octocode-cli --json <command>` for machine-readable output
-15. `octocode-cli serve <port> <session-id>` for the local backend workbench server
-16. `octocode-cli desktop <port> <session-id>` for the embedded Wry desktop shell
+13. `octocode-cli workflow <session-id> <goal>`
+14. `octocode-cli agent <session-id> <action>`
+15. `octocode-cli repl <session-id> "status|health|providers|tools|workspace|commands|doctor|circuit-log|sessions"`
+16. `octocode-cli circuit-log`
+17. `octocode-cli ui-export ui-shell/data/app-state.json <session-id>`
+18. `octocode-cli --json <command>` for machine-readable output
+19. `octocode-cli serve <port> <session-id>` for the local backend workbench server
+20. `octocode-cli desktop <port> <session-id>` for the embedded Wry desktop shell
 
 ## Local deployment
 
@@ -66,6 +70,7 @@ The current `ui-shell` follows these interface constraints:
 4. A right-top workspace and settings pane
 5. A right-bottom integrated terminal area
 6. Direct local backend calls for chat, tool execution, settings writeback, and command palette actions
+7. Canvas-rendered sidebar, message list, command preview, settings summary list, and terminal viewer, while keeping high-friction text entry native for now
 
 To preview the current shell:
 
@@ -77,5 +82,5 @@ To preview the current shell:
 
 ## Provider note
 
-The default local provider target is currently `http://192.168.110.2:8000/v1` with `gemma-4-31b-it-q8-prod`. Octocode now performs provider health checks and automatically falls back from `local-openai` to `remote-openai` and finally `stub` when the preferred endpoint times out or becomes unavailable. The workbench surfaces that fallback state through provider health badges, terminal logs, and session transcript entries.
+The default local provider target is currently `http://192.168.110.2:8000/v1` with `gemma-4-31b-it-q8-prod`. Octocode now performs provider health checks and automatically falls back from `local-openai` to `remote-openai` and finally `stub` when the preferred endpoint times out or becomes unavailable. The runtime snapshot also exports provider circuit state, recent failure reason, open/half-open/recovered timestamps, and recent circuit events so the CLI, HTTP surface, WebUI, and desktop shell all observe the same breaker state.
 

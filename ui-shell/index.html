@@ -45,6 +45,7 @@
         <form id="command-form" class="command-palette-shell">
           <input id="command-palette" name="command" type="text" placeholder="输入命令: provider local-openai / model gemma-4-31b-it-q8-prod / permission workspace-write" />
           <button type="submit">Run</button>
+          <canvas id="command-preview-canvas" class="command-preview-canvas"></canvas>
         </form>
       </section>
 
@@ -151,6 +152,7 @@
                       <h3>Provider Settings</h3>
                       <span>real config writeback</span>
                     </div>
+                    <canvas id="settings-canvas" class="settings-canvas"></canvas>
                     <form id="settings-form" class="stack-form">
                       <label>
                         <span>Provider</span>
@@ -220,6 +222,7 @@
                   <span class="terminal-tab">state</span>
                   <span class="terminal-tab">workflow</span>
                 </div>
+                <canvas id="terminal-canvas" class="terminal-canvas"></canvas>
                 <pre id="terminal-output" class="terminal-output"></pre>
               </section>
             </div>

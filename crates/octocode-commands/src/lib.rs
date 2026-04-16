@@ -1,8 +1,8 @@
 use octocode_core::{
-    CommandDescriptor, ConversationSession, ConversationStore, DoctorReport, ModelProvider,
-    OctoError, OutputMode, PermissionMode, PromptResponse, ProviderDescriptor, ProviderHealth,
-    RuntimeStatus, SessionSummary, ToolDescriptor, ToolExecutor, ToolResult, UiSnapshot,
-    WorkspaceContext,
+    CommandDescriptor, ConversationRole, ConversationSession, ConversationStore, DoctorReport,
+    ModelProvider, OctoError, OutputMode, PermissionMode, PromptResponse, ProviderCircuitStatus,
+    ProviderDescriptor, ProviderHealth, RuntimeStatus, SessionSummary, ToolDescriptor,
+    ToolExecutor, ToolResult, UiSnapshot, WorkspaceContext,
 };
 use octocode_runtime::OctocodeRuntime;
 
@@ -17,9 +17,13 @@ pub enum CliCommand {
     SessionExport { path: String },
     Tool { name: String, input: String },
     Plan { session_id: String, text: String },
+    Workflow { session_id: String, text: String },
+    Agent { session_id: String, text: String },
+    Repl { session_id: String, text: String },
     Tools,
     Workspace,
     Providers,
+    CircuitLog,
     Health,
     Doctor,
     Status,
@@ -48,6 +52,7 @@ pub enum CommandResponse {
     Tools(Vec<ToolDescriptor>),
     Workspace(WorkspaceContext),
     Providers(Vec<ProviderDescriptor>),
+    Circuits(Vec<ProviderCircuitStatus>),
     Health(Vec<ProviderHealth>),
     Doctor(DoctorReport),
     Status(RuntimeStatus),
@@ -105,9 +110,25 @@ where
             let text = args.collect::<Vec<_>>().join(" ");
             CliCommand::Plan { session_id, text }
         }
+        Some("workflow") => {
+            let session_id = args.next().unwrap_or_else(|| String::from("demo"));
+            let text = args.collect::<Vec<_>>().join(" ");
+            CliCommand::Workflow { session_id, text }
+        }
+        Some("agent") => {
+            let session_id = args.next().unwrap_or_else(|| String::from("demo"));
+            let text = args.collect::<Vec<_>>().join(" ");
+            CliCommand::Agent { session_id, text }
+        }
+        Some("repl") => {
+            let session_id = args.next().unwrap_or_else(|| String::from("demo"));
+            let text = args.collect::<Vec<_>>().join(" ");
+            CliCommand::Repl { session_id, text }
+        }
         Some("tools") => CliCommand::Tools,
         Some("workspace") => CliCommand::Workspace,
         Some("providers") => CliCommand::Providers,
+        Some("circuit-log") => CliCommand::CircuitLog,
         Some("health") => CliCommand::Health,
         Some("doctor") => CliCommand::Doctor,
         Some("status") => CliCommand::Status,
@@ -204,9 +225,50 @@ where
             )?;
             Ok(CommandResponse::Session(runtime.session(&session_id)?))
         }
+        CliCommand::Workflow { session_id, text } => {
+            runtime.run_tool_in_session(
+                &session_id,
+                octocode_core::ToolCall {
+                    name: String::from("workflow-plan"),
+                    input: if text.trim().is_empty() {
+                        String::from("workflow step")
+                    } else {
+                        text
+                    },
+                    permission: PermissionMode::ReadOnly,
+                },
+            )?;
+            Ok(CommandResponse::Session(runtime.session(&session_id)?))
+        }
+        CliCommand::Agent { session_id, text } => {
+            runtime.run_tool_in_session(
+                &session_id,
+                octocode_core::ToolCall {
+                    name: String::from("agent-action"),
+                    input: if text.trim().is_empty() {
+                        String::from("continue current task")
+                    } else {
+                        text
+                    },
+                    permission: PermissionMode::ReadOnly,
+                },
+            )?;
+            Ok(CommandResponse::Session(runtime.session(&session_id)?))
+        }
+        CliCommand::Repl { session_id, text } => {
+            let nested = parse_cli_args(tokenize_command_line(&text)).command;
+            let nested_response = execute_command(runtime, nested_repl_command(nested)?)?;
+            runtime.append_session_message(
+                &session_id,
+                ConversationRole::Tool,
+                format!("repl => {}", render_text(&nested_response)),
+            )?;
+            Ok(CommandResponse::Session(runtime.session(&session_id)?))
+        }
         CliCommand::Tools => Ok(CommandResponse::Tools(runtime.tools().to_vec())),
         CliCommand::Workspace => Ok(CommandResponse::Workspace(runtime.workspace().clone())),
         CliCommand::Providers => Ok(CommandResponse::Providers(runtime.providers().to_vec())),
+        CliCommand::CircuitLog => Ok(CommandResponse::Circuits(runtime.provider_circuits())),
         CliCommand::Health => Ok(CommandResponse::Health(runtime.provider_healths())),
         CliCommand::Doctor => Ok(CommandResponse::Doctor(runtime.doctor())),
         CliCommand::Status => Ok(CommandResponse::Status(runtime.status()?)),
@@ -284,6 +346,27 @@ pub fn render_text(response: &CommandResponse) -> String {
                     "{} kind={:?} tools={} streaming={}",
                     provider.id, provider.kind, provider.supports_tools, provider.supports_streaming
                 )
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        CommandResponse::Circuits(circuits) => circuits
+            .iter()
+            .map(|circuit| {
+                let mut lines = vec![format!(
+                    "{} state={:?} fails={} cooldown={} recent_failure={}",
+                    circuit.provider_id,
+                    circuit.circuit_state,
+                    circuit.failure_count,
+                    circuit
+                        .cooldown_remaining_ms
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| String::from("-")),
+                    circuit.recent_failure_reason.as_deref().unwrap_or("-")
+                )];
+                lines.extend(circuit.event_log.iter().map(|event| {
+                    format!("  [{}] {:?} {}", event.at_ms, event.kind, event.detail)
+                }));
+                lines.join("\n")
             })
             .collect::<Vec<_>>()
             .join("\n"),
@@ -428,6 +511,44 @@ pub fn render_json(response: &CommandResponse) -> String {
                 .collect::<Vec<_>>()
                 .join(",")
         ),
+        CommandResponse::Circuits(circuits) => format!(
+            "{{\"kind\":\"circuits\",\"items\":[{}]}}",
+            circuits
+                .iter()
+                .map(|circuit| format!(
+                    concat!(
+                        "{{",
+                        "\"providerId\":\"{}\",",
+                        "\"displayName\":\"{}\",",
+                        "\"circuitState\":\"{:?}\",",
+                        "\"failureCount\":{},",
+                        "\"cooldownRemainingMs\":{},",
+                        "\"recentFailureReason\":{},",
+                        "\"lastOpenedAtMs\":{},",
+                        "\"lastHalfOpenedAtMs\":{},",
+                        "\"lastRecoveredAtMs\":{},",
+                        "\"eventLog\":[{}]",
+                        "}}"
+                    ),
+                    escape_json(&circuit.provider_id),
+                    escape_json(&circuit.display_name),
+                    circuit.circuit_state,
+                    circuit.failure_count,
+                    circuit.cooldown_remaining_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null")),
+                    option_json_string(circuit.recent_failure_reason.as_deref()),
+                    circuit.last_opened_at_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null")),
+                    circuit.last_half_opened_at_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null")),
+                    circuit.last_recovered_at_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null")),
+                    circuit.event_log.iter().map(|event| format!(
+                        "{{\"atMs\":{},\"kind\":\"{:?}\",\"detail\":\"{}\"}}",
+                        event.at_ms,
+                        event.kind,
+                        escape_json(&event.detail)
+                    )).collect::<Vec<_>>().join(",")
+                ))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
         CommandResponse::Health(healths) => format!(
             "{{\"kind\":\"health\",\"items\":[{}]}}",
             healths
@@ -540,4 +661,42 @@ mod tests {
         let parsed = parse_cli_args(vec![String::from("desktop")]);
         assert!(matches!(parsed.command, CliCommand::Desktop { port: 999, .. }));
     }
+
+    #[test]
+    fn parses_workflow_command() {
+        let parsed = parse_cli_args(vec![
+            String::from("workflow"),
+            String::from("demo"),
+            String::from("plan"),
+            String::from("fallback"),
+        ]);
+        assert!(matches!(parsed.command, CliCommand::Workflow { session_id, .. } if session_id == "demo"));
+    }
+}
+
+fn tokenize_command_line(input: &str) -> Vec<String> {
+    input.split_whitespace().map(String::from).collect()
+}
+
+fn nested_repl_command(command: CliCommand) -> Result<CliCommand, OctoError> {
+    match command {
+        CliCommand::Status
+        | CliCommand::Health
+        | CliCommand::Providers
+        | CliCommand::Tools
+        | CliCommand::Workspace
+        | CliCommand::Commands
+        | CliCommand::Doctor
+        | CliCommand::CircuitLog
+        | CliCommand::Sessions => Ok(command),
+        _ => Err(OctoError::Runtime(String::from(
+            "repl currently supports status/health/providers/tools/workspace/commands/doctor/circuit-log/sessions",
+        ))),
+    }
+}
+
+fn option_json_string(value: Option<&str>) -> String {
+    value
+        .map(|value| format!("\"{}\"", escape_json(value)))
+        .unwrap_or_else(|| String::from("null"))
 }
