@@ -47,6 +47,11 @@
 25. CLI parity 新增 `routes` 与 `snapshot`
 26. unified runtime event feed：CLI / HTTP / Canvas UI 共享同一条 runtime event surface
 27. Canvas terminal / provider 面开始只消费 runtime snapshot + `/api/events`
+28. Canvas settings summary / tool shell / composer summary 继续切到 runtime snapshot + `/api/events`，移除更多 UI 侧业务状态回推
+29. `snapshot --json` 扩展为更完整的 unified runtime surface，不再只返回摘要对象
+30. Windows desktop bundle 打包链路可生成版本化产物
+31. Windows IExpress 安装器链路可生成可静默安装的 setup.exe
+32. 已安装版本的 CLI、WebUI 与核心 API 已完成真实回归
 
 ### 当前验证通过项
 
@@ -78,6 +83,19 @@
 26. `cargo run -p octocode-cli -- events demo`
 27. `http://127.0.0.1:999/api/events?session=demo` 已确认输出 `items` / `scope` / `message`
 28. `http://127.0.0.1:999/api/state?session=demo` 已确认输出 `eventFeed` / `providerRoutes` / `activeSession`
+29. `cargo run -p octocode-cli -- --json snapshot demo` 已确认输出 `status` / `providers` / `providerHealths` / `providerCircuits` / `providerRoutes` / `commands` / `tools` / `sessions` / `eventFeed` / `activeSession`
+30. `http://127.0.0.1:999/ui-shell/?session=demo` 已确认 live Canvas shell 继续加载 `sidebar-canvas` / `message-canvas` / `composer-canvas` 与 `app.js`
+31. `powershell -File .\scripts\package-desktop.ps1 -Profile release` 已生成 `out/desktop/octocode-v0.1.0-windows-x64`
+32. `powershell -File .\scripts\package-windows-installer.ps1 -Profile release` 已生成 `out/installers/windows/Octocode-0.1.0-windows-x64-setup.exe`
+33. `Octocode-0.1.0-windows-x64-setup.exe /Q:A` 已完成静默安装到 `%LOCALAPPDATA%\Programs\Octocode\0.1.0`
+34. 已安装版本 `app\octocode-cli.exe status`
+35. 已安装版本 `app\octocode-cli.exe --json snapshot demo`
+36. 已安装版本 `app\octocode-cli.exe serve 10001 demo`
+37. `http://127.0.0.1:10001/api/state?session=demo` 已确认输出 `status` / `providerRoutes` / `commands` / `tools` / `eventFeed`
+38. `http://127.0.0.1:10001/api/events?session=demo` 已确认输出 `items`
+39. `http://127.0.0.1:10001/api/health` 已确认输出 `items`
+40. 安装版 `/api/chat`、`/api/tool`、`/api/settings`、`/api/command` 均已完成真实 POST 验证
+41. `http://127.0.0.1:10001/ui-shell/?session=demo` 已确认输出 `sidebar-canvas` / `message-canvas` / `composer-canvas`
 
 ## 未完成
 
@@ -90,8 +108,8 @@
 7. VS Code / Cline / Cursor integration layer
 8. skills / plugins / hooks / MCP lifecycle
 9. 本地模型与闭源模型完整接入与 provider failover
-10. release packaging
-11. Windows/macOS 图形壳部署
+10. macOS 安装器与发行验证
+11. Linux/macOS 安装分发闭环
 
 ## 当前里程碑定位
 

@@ -80,18 +80,6 @@ let messageContentHeight = 0;
 let messageHitRegions = [];
 let currentEventFeed = [];
 let activeLocale = 'zh-CN';
-const composerDiagnostics = {
-  composing: false,
-  compositionCommits: 0,
-  compositionUpdates: 0,
-  pasteCount: 0,
-  undoCount: 0,
-  redoCount: 0,
-  lineBreakCount: 0,
-  lastInputType: 'insertText',
-  lastComposition: '',
-  recentEvents: [],
-};
 
 async function loadState(sessionId = currentSessionId) {
   updateClock();
@@ -410,10 +398,23 @@ function drawToolCanvas(state, errorMessage) {
     return;
   }
 
-  const activeTool = toolName.value || state.tools[0]?.name || 'echo';
-  const summary = state.tools.find((tool) => tool.name === activeTool)?.summary || 'select a tool';
-  drawWrappedText(toolContext, `${activeTool} · ${summary}`, 16, 48, width - 32, 16, 2);
-  drawWrappedText(toolContext, 'Use the native controls below as an input layer while the visual shell stays on canvas.', 16, 86, width - 32, 16, 3);
+  const latestToolEvent = findLatestEvent(state.eventFeed, (event) => event.scope === 'transcript' && event.message.startsWith('tool '));
+  const runtimeTool = parseToolNameFromEvent(latestToolEvent) || state.tools[0]?.name || 'echo';
+  const runtimeSummary = state.tools.find((tool) => tool.name === runtimeTool)?.summary || 'runtime tool summary unavailable';
+  const pendingTool = toolName.value || runtimeTool;
+  drawWrappedText(toolContext, `${runtimeTool} · ${runtimeSummary}`, 16, 48, width - 32, 16, 2);
+  drawWrappedText(
+    toolContext,
+    latestToolEvent || 'Runtime tool activity will appear here after the next tool call.',
+    16,
+    86,
+    width - 32,
+    16,
+    3
+  );
+  drawStatusBadge(toolContext, 16, height - 34, '#eef3ff', '#4462c1', `runtime ${runtimeTool}`);
+  drawStatusBadge(toolContext, 156, height - 34, '#edf8f1', '#2c8b63', `pending ${pendingTool}`);
+  drawStatusBadge(toolContext, 296, height - 34, '#fff4e8', '#b96a18', `permission ${state.config.permissionMode}`);
 }
 
 function drawComposerCanvas(activeSession, errorMessage) {
@@ -426,15 +427,16 @@ function drawComposerCanvas(activeSession, errorMessage) {
   composerContext.font = '500 11px JetBrains Mono';
   composerContext.fillStyle = '#67748b';
 
-  const text = errorMessage || chatInput.value.trim() || 'Native textarea retained for IME-safe input while the shell is canvas-rendered.';
+  const latestTranscript = findLatestEvent(currentState?.eventFeed, (event) => event.scope === 'transcript');
+  const text = errorMessage || chatInput.value.trim() || latestTranscript || 'Native textarea retained as the input layer while runtime state comes from snapshot/event feed.';
   drawWrappedText(composerContext, text, 16, 46, width - 32, 16, 3);
 
   const metrics = [
-    `IME ${composerDiagnostics.composing ? 'active' : 'idle'}`,
-    `commit ${composerDiagnostics.compositionCommits}`,
-    `undo ${composerDiagnostics.undoCount}`,
-    `paste ${composerDiagnostics.pasteCount}`,
-    `multi ${composerDiagnostics.lineBreakCount}`,
+    `provider ${currentState?.status?.activeProviderId || '-'}`,
+    `routes ${currentState?.providerRoutes?.length || 0}`,
+    `events ${currentState?.eventFeed?.length || 0}`,
+    `messages ${activeSession?.messages?.length || 0}`,
+    `draft ${chatInput.value.length}`,
   ];
   metrics.forEach((metric, index) => {
     const column = index % 3;
@@ -453,8 +455,9 @@ function drawComposerCanvas(activeSession, errorMessage) {
   composerContext.font = '500 10px JetBrains Mono';
   drawWrappedText(
     composerContext,
-    `lastInputType=${composerDiagnostics.lastInputType} lastComposition=${composerDiagnostics.lastComposition || '-'} ` +
-      `events=${composerDiagnostics.recentEvents.join(' | ') || '-'}`,
+    `session=${activeSession?.summary?.id || currentSessionId || '-'} ` +
+      `permission=${currentState?.status?.permissionMode || '-'} ` +
+      `latest=${truncateUiText(latestTranscript || '-', 96)}`,
     16,
     146,
     width - 32,
@@ -483,7 +486,7 @@ async function loadLocalePlugin() {
       applyLocaleMessages(messages);
       return;
     } catch (error) {
-      logEvent(`locale load failed: ${candidate}`);
+      console.warn(`locale load failed: ${candidate}`, error);
     }
   }
 }
@@ -543,13 +546,6 @@ async function setActiveLocale(locale) {
   window.history.replaceState({}, '', urlState);
   await loadLocalePlugin();
   toggleViewLanguageMenu(false);
-}
-
-function pushComposerDiagnostic(label) {
-  composerDiagnostics.recentEvents.unshift(label);
-  if (composerDiagnostics.recentEvents.length > 4) {
-    composerDiagnostics.recentEvents.length = 4;
-  }
 }
 
 function drawCommandPreviewCanvas(overrideHint) {
@@ -615,6 +611,10 @@ function drawSettingsCanvas(state, errorMessage) {
     settingsContext.fillStyle = '#2a3850';
     settingsContext.fillText(line, 22, y);
   });
+
+  drawStatusBadge(settingsContext, 16, height - 34, '#eef3ff', '#4462c1', `active ${state.status.activeProviderId || '-'}`);
+  drawStatusBadge(settingsContext, 150, height - 34, '#edf8f1', '#2c8b63', `routes ${state.providerRoutes?.length || 0}`);
+  drawStatusBadge(settingsContext, 274, height - 34, '#fff4e8', '#b96a18', `events ${state.eventFeed?.length || 0}`);
 }
 
 function drawTerminalCanvas(lines) {
@@ -996,6 +996,24 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+function findLatestEvent(events, predicate) {
+  const feed = events || [];
+  for (let index = feed.length - 1; index >= 0; index -= 1) {
+    if (predicate(feed[index])) {
+      return feed[index].message;
+    }
+  }
+  return '';
+}
+
+function parseToolNameFromEvent(message) {
+  if (!message) {
+    return '';
+  }
+  const match = message.match(/^tool\s+([^\s]+)\s+=>/i);
+  return match ? match[1] : '';
+}
+
 function createTag(label) {
   const tag = document.createElement('span');
   tag.className = 'tag';
@@ -1093,40 +1111,7 @@ chatForm.addEventListener('submit', async (event) => {
 });
 
 chatInput.addEventListener('input', () => drawComposerCanvas(currentState?.activeSession));
-chatInput.addEventListener('compositionstart', () => {
-  composerDiagnostics.composing = true;
-  pushComposerDiagnostic('compositionstart');
-  drawComposerCanvas(currentState?.activeSession);
-});
-chatInput.addEventListener('compositionupdate', (event) => {
-  composerDiagnostics.compositionUpdates += 1;
-  composerDiagnostics.lastComposition = event.data || '';
-  pushComposerDiagnostic(`update:${truncateUiText(event.data || '-', 10)}`);
-  drawComposerCanvas(currentState?.activeSession);
-});
-chatInput.addEventListener('compositionend', (event) => {
-  composerDiagnostics.composing = false;
-  composerDiagnostics.compositionCommits += 1;
-  composerDiagnostics.lastComposition = event.data || '';
-  pushComposerDiagnostic(`commit:${truncateUiText(event.data || '-', 10)}`);
-  drawComposerCanvas(currentState?.activeSession);
-});
-chatInput.addEventListener('beforeinput', (event) => {
-  composerDiagnostics.lastInputType = event.inputType || 'unknown';
-  if (event.inputType === 'historyUndo') {
-    composerDiagnostics.undoCount += 1;
-  } else if (event.inputType === 'historyRedo') {
-    composerDiagnostics.redoCount += 1;
-  } else if (event.inputType === 'insertFromPaste') {
-    composerDiagnostics.pasteCount += 1;
-  } else if (event.inputType === 'insertLineBreak') {
-    composerDiagnostics.lineBreakCount += 1;
-  }
-  drawComposerCanvas(currentState?.activeSession);
-    await refreshEventFeed(currentSessionId);
-});
-  composerDiagnostics.pasteCount += 1;
-  pushComposerDiagnostic('paste');
+chatInput.addEventListener('beforeinput', () => {
   drawComposerCanvas(currentState?.activeSession);
 });
 
@@ -1141,10 +1126,9 @@ settingsForm.addEventListener('submit', async (event) => {
       permissionMode: settingPermission.value,
       historyLimit: settingHistory.value,
     });
-    logEvent('POST /api/settings');
     applyState(state, currentSessionId);
+    await refreshEventFeed(currentSessionId);
   } catch (error) {
-    logEvent(`settings error: ${error.message}`);
     alert(`保存设置失败: ${error.message}`);
   }
 });

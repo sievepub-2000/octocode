@@ -4,6 +4,21 @@
 
 This file records project-level execution policy for Octocode.
 
+## Default Skills
+
+Load these local skill files by default for every Octocode task before planning or editing:
+
+1. `skills/spec-kit/SKILL.md`
+2. `skills/vibecoding-guide/SKILL.md`
+3. `skills/get-shit-down/SKILL.md`
+4. `skills/autoresearch/SKILL.md`
+
+Skill classification rules:
+
+1. `spec-kit`, `vibecoding-guide`, and `get-shit-down` are operating-method skills, not MCP servers.
+2. `karpathy/autoresearch` is also not an MCP server and not a published `skills add` package for this repo shape; use it as a local skill derived from its `program.md` workflow.
+3. Treat all four as instruction overlays that shape planning, analysis, and validation.
+
 ## GitHub Update Strategy
 
 ### Verified history

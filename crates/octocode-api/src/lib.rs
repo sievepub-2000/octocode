@@ -818,7 +818,7 @@ fn push_event(log: &mut Vec<ProviderCircuitEvent>, kind: ProviderCircuitEventKin
 mod tests {
     use super::*;
 
-    fn provider() -> OpenAiCompatibleProvider {
+    fn provider(cache_suffix: &str) -> OpenAiCompatibleProvider {
         OpenAiCompatibleProvider::new(
             ProviderDescriptor {
                 id: String::from("local-openai"),
@@ -826,8 +826,9 @@ mod tests {
                 kind: ProviderKind::LlamaCpp,
                 supports_tools: false,
                 supports_streaming: false,
+                capabilities: ProviderCapabilities::compatible(false, false),
             },
-            String::from(DEFAULT_LOCAL_BASE_URL),
+            format!("{DEFAULT_LOCAL_BASE_URL}/{cache_suffix}"),
             None,
             Some(String::from(DEFAULT_LOCAL_MODEL)),
         )
@@ -840,7 +841,7 @@ mod tests {
 
     #[test]
     fn circuit_opens_after_threshold_failures() {
-        let provider = provider();
+        let provider = provider("opens-after-threshold");
         clear_circuit(&provider);
 
         let first = provider.record_failure(String::from("timeout-1"));
@@ -858,7 +859,7 @@ mod tests {
 
     #[test]
     fn circuit_moves_to_half_open_after_cooldown() {
-        let provider = provider();
+        let provider = provider("half-open-after-cooldown");
         clear_circuit(&provider);
 
         {

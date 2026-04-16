@@ -41,24 +41,24 @@ New-Item -ItemType Directory -Force -Path $sourceRoot | Out-Null
 
 Compress-Archive -Path (Join-Path $bundleRoot "*") -DestinationPath $zipPath -Force
 
-$installScript = @"
+$installScript = @'
 param(
-  [string]4Zip,
-  [string]4Version,
-  [string]4Quiet = "0"
+  [string]$Zip,
+  [string]$Version,
+  [string]$Quiet = "0"
 )
 
-4target = Join-Path 4env:LOCALAPPDATA "Programs/Octocode/4Version"
-New-Item -ItemType Directory -Force -Path 4target | Out-Null
-Expand-Archive -Path 4Zip -DestinationPath 4target -Force
-4readme = Join-Path 4target "START-HERE.txt"
-if (4Quiet -ne "1") {
-  Write-Host "Installed Octocode to 4target"
-  if (Test-Path 4readme) {
-    Write-Host "See 4readme for startup instructions"
+$target = Join-Path $env:LOCALAPPDATA "Programs/Octocode/$Version"
+New-Item -ItemType Directory -Force -Path $target | Out-Null
+Expand-Archive -Path $Zip -DestinationPath $target -Force
+$readme = Join-Path $target "START-HERE.txt"
+if ($Quiet -ne "1") {
+  Write-Host "Installed Octocode to $target"
+  if (Test-Path $readme) {
+    Write-Host "See $readme for startup instructions"
   }
 }
-"@
+'@
 Set-Content -Path (Join-Path $sourceRoot "install.ps1") -Value $installScript -Encoding ASCII
 Copy-Item $zipPath (Join-Path $sourceRoot (Split-Path $zipPath -Leaf)) -Force
 

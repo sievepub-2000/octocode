@@ -83,7 +83,7 @@ The current `ui-shell` follows these interface constraints:
 8. Native text inputs remain only as the input layer for composer/settings/tool controls until IME-safe textarea replacement is validated
 9. Menu labels and placeholders can be translated through built-in locale files under `ui-shell/locales/` or a runtime locale plugin override
 10. The View > Language menu ships with four built-in locales: English, Japanese, Korean, and Chinese
-11. The terminal and provider surfaces now consume the unified runtime snapshot plus `/api/events` feed rather than reconstructing provider/runtime state inside the UI shell
+11. The terminal, provider, settings summary, tool shell, and composer summary surfaces now consume the unified runtime snapshot plus `/api/events` feed rather than reconstructing provider/runtime state inside the UI shell
 
 To preview the current shell:
 
@@ -95,14 +95,15 @@ To preview the current shell:
 6. To emit a runnable desktop bundle directory, run `./scripts/package-desktop.ps1` on Windows or `./scripts/package-desktop.sh` on Unix-like systems
 7. To emit a Windows installer EXE, run `./scripts/package-windows-installer.ps1`
 8. To prepare the macOS installer path on a macOS host, run `./scripts/package-macos-installer.sh`
+9. The generated Windows installer supports silent installation with `Octocode-<version>-windows-x64-setup.exe /Q:A`
+10. The default Windows install target is `%LOCALAPPDATA%\Programs\Octocode\<version>`
 
 ## Provider note
 
-The default local provider target is currently `http://192.168.110.2:8000/v1` with `gemma-4-31b-it-q8-prod`. Octocode now performs provider health checks and automatically falls back from `local-openai` to `remote-openai` and finally `stub` when the preferred endpoint times out or becomes unavailable. The runtime snapshot also exports provider route state, provider circuit state, recent failure reason, open/half-open/recovered timestamps, and a unified runtime event feed so the CLI, HTTP surface, WebUI, and desktop shell all observe the same breaker state.
+The default local provider target is currently `http://192.168.110.2:8000/v1` with `gemma-4-31b-it-q8-prod`. Octocode now performs provider health checks and automatically falls back from `local-openai` to `remote-openai` and finally `stub` when the preferred endpoint times out or becomes unavailable. The runtime snapshot also exports provider route state, provider circuit state, recent failure reason, open/half-open/recovered timestamps, active session state, tool descriptors, and a unified runtime event feed so the CLI `snapshot --json`, HTTP surface, WebUI, and desktop shell all observe the same runtime state.
 
 ## Agent action note
 
 `octocode-cli agent` and the `agent-action` tool now run through a real session-scoped runtime orchestration path. The runtime appends an agent request, builds a workflow scaffold, optionally gathers local read-only observations from inline directives such as `search ...`, `read ...`, and `list ...`, then dispatches a provider prompt. If the provider is unavailable, the runtime emits a local fallback action summary instead of dropping back to a stub string.
 
 The agent path now also supports session-aware workspace plans, chained local directives like `chain list ui-shell => read README.md`, and provider-strategy summaries so local orchestration remains inspectable before provider dispatch.
-

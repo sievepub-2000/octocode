@@ -740,30 +740,336 @@ pub fn render_json(response: &CommandResponse) -> String {
         CommandResponse::UiExport(path) | CommandResponse::Acknowledged(path) => {
             format!("{{\"kind\":\"ack\",\"value\":\"{}\"}}", escape_json(path))
         }
-        CommandResponse::Snapshot(snapshot) => format!(
+        CommandResponse::Snapshot(snapshot) => render_snapshot_json(snapshot),
+    }
+}
+
+fn render_snapshot_json(snapshot: &UiSnapshot) -> String {
+    let providers = snapshot
+        .providers
+        .iter()
+        .map(|provider| format!(
             concat!(
                 "{{",
-                "\"kind\":\"snapshot\",",
-                "\"providerId\":\"{}\",",
-                "\"activeProviderId\":\"{}\",",
-                "\"sessionCount\":{},",
-                "\"toolCount\":{},",
-                "\"routeCount\":{},",
-                "\"eventCount\":{},",
-                "\"workspaceRoot\":\"{}\",",
-                "\"activeSessionId\":{}",
+                "\"id\":\"{}\",",
+                "\"displayName\":\"{}\",",
+                "\"kind\":\"{:?}\",",
+                "\"supportsTools\":{},",
+                "\"supportsStreaming\":{},",
+                "\"capabilities\":{{",
+                "\"chat\":{},",
+                "\"streaming\":{},",
+                "\"toolCalls\":{},",
+                "\"sessionMemory\":{},",
+                "\"jsonOutput\":{}",
+                "}}",
                 "}}"
             ),
-            escape_json(&snapshot.status.provider_id),
-            escape_json(&snapshot.status.active_provider_id),
-            snapshot.status.session_count,
-            snapshot.tools.len(),
-            snapshot.provider_routes.len(),
-            snapshot.event_feed.len(),
-            escape_json(&snapshot.workspace.root),
-            option_json_string(snapshot.active_session.as_ref().map(|session| session.summary.id.as_str()))
+            escape_json(&provider.id),
+            escape_json(&provider.display_name),
+            provider.kind,
+            provider.supports_tools,
+            provider.supports_streaming,
+            provider.capabilities.chat,
+            provider.capabilities.streaming,
+            provider.capabilities.tool_calls,
+            provider.capabilities.session_memory,
+            provider.capabilities.json_output
+        ))
+        .collect::<Vec<_>>()
+        .join(",");
+    let provider_healths = snapshot
+        .provider_healths
+        .iter()
+        .map(|health| format!(
+            concat!(
+                "{{",
+                "\"providerId\":\"{}\",",
+                "\"displayName\":\"{}\",",
+                "\"healthy\":{},",
+                "\"detail\":\"{}\",",
+                "\"model\":\"{}\",",
+                "\"latencyMs\":{},",
+                "\"circuitState\":\"{:?}\",",
+                "\"failureCount\":{},",
+                "\"cooldownRemainingMs\":{}",
+                "}}"
+            ),
+            escape_json(&health.provider_id),
+            escape_json(&health.display_name),
+            health.healthy,
+            escape_json(&health.detail),
+            escape_json(health.model.as_deref().unwrap_or("")),
+            health.latency_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null")),
+            health.circuit_state,
+            health.failure_count,
+            health.cooldown_remaining_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null"))
+        ))
+        .collect::<Vec<_>>()
+        .join(",");
+    let provider_routes = snapshot
+        .provider_routes
+        .iter()
+        .map(|route| format!(
+            concat!(
+                "{{",
+                "\"providerId\":\"{}\",",
+                "\"displayName\":\"{}\",",
+                "\"kind\":\"{:?}\",",
+                "\"healthy\":{},",
+                "\"circuitState\":\"{:?}\",",
+                "\"detail\":\"{}\",",
+                "\"latencyMs\":{},",
+                "\"isPrimary\":{},",
+                "\"isActive\":{}",
+                "}}"
+            ),
+            escape_json(&route.provider_id),
+            escape_json(&route.display_name),
+            route.kind,
+            route.healthy,
+            route.circuit_state,
+            escape_json(&route.detail),
+            route.latency_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null")),
+            route.is_primary,
+            route.is_active
+        ))
+        .collect::<Vec<_>>()
+        .join(",");
+    let provider_circuits = snapshot
+        .provider_circuits
+        .iter()
+        .map(|circuit| format!(
+            concat!(
+                "{{",
+                "\"providerId\":\"{}\",",
+                "\"displayName\":\"{}\",",
+                "\"circuitState\":\"{:?}\",",
+                "\"failureCount\":{},",
+                "\"cooldownRemainingMs\":{},",
+                "\"recentFailureReason\":{},",
+                "\"lastOpenedAtMs\":{},",
+                "\"lastHalfOpenedAtMs\":{},",
+                "\"lastRecoveredAtMs\":{},",
+                "\"eventLog\":[{}]",
+                "}}"
+            ),
+            escape_json(&circuit.provider_id),
+            escape_json(&circuit.display_name),
+            circuit.circuit_state,
+            circuit.failure_count,
+            circuit.cooldown_remaining_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null")),
+            option_json_string(circuit.recent_failure_reason.as_deref()),
+            circuit.last_opened_at_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null")),
+            circuit.last_half_opened_at_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null")),
+            circuit.last_recovered_at_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null")),
+            circuit
+                .event_log
+                .iter()
+                .map(|event| format!(
+                    "{{\"atMs\":{},\"kind\":\"{:?}\",\"detail\":\"{}\"}}",
+                    event.at_ms,
+                    event.kind,
+                    escape_json(&event.detail)
+                ))
+                .collect::<Vec<_>>()
+                .join(",")
+        ))
+        .collect::<Vec<_>>()
+        .join(",");
+    let commands = snapshot
+        .commands
+        .iter()
+        .map(|command| format!(
+            "{{\"name\":\"{}\",\"summary\":\"{}\"}}",
+            escape_json(command.name),
+            escape_json(command.summary)
+        ))
+        .collect::<Vec<_>>()
+        .join(",");
+    let tools = snapshot
+        .tools
+        .iter()
+        .map(|tool| format!(
+            "{{\"name\":\"{}\",\"summary\":\"{}\",\"minimumPermission\":\"{:?}\"}}",
+            escape_json(tool.name),
+            escape_json(tool.summary),
+            tool.minimum_permission
+        ))
+        .collect::<Vec<_>>()
+        .join(",");
+    let sessions = snapshot
+        .sessions
+        .iter()
+        .map(|session| format!(
+            "{{\"id\":\"{}\",\"title\":\"{}\",\"model\":\"{}\"}}",
+            escape_json(&session.id),
+            escape_json(&session.title),
+            escape_json(session.model.as_deref().unwrap_or(""))
+        ))
+        .collect::<Vec<_>>()
+        .join(",");
+    let active_session = snapshot.active_session.as_ref().map(|session| {
+        format!(
+            "{{\"summary\":{{\"id\":\"{}\",\"title\":\"{}\",\"model\":\"{}\"}},\"messages\":[{}]}}",
+            escape_json(&session.summary.id),
+            escape_json(&session.summary.title),
+            escape_json(session.summary.model.as_deref().unwrap_or("")),
+            session
+                .messages
+                .iter()
+                .map(|message| format!(
+                    "{{\"role\":\"{}\",\"content\":\"{}\"}}",
+                    message.role.as_str(),
+                    escape_json(&message.content)
+                ))
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+    });
+    let event_feed = snapshot
+        .event_feed
+        .iter()
+        .map(|event| format!(
+            "{{\"scope\":\"{}\",\"message\":\"{}\",\"atMs\":{}}}",
+            escape_json(&event.scope),
+            escape_json(&event.message),
+            event.at_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null"))
+        ))
+        .collect::<Vec<_>>()
+        .join(",");
+
+    format!(
+        concat!(
+            "{{",
+            "\"kind\":\"snapshot\",",
+            "\"status\":{{",
+            "\"providerId\":\"{}\",",
+            "\"activeProviderId\":\"{}\",",
+            "\"providerKind\":\"{:?}\",",
+            "\"platform\":\"{:?}\",",
+            "\"permissionMode\":\"{:?}\",",
+            "\"sessionCount\":{},",
+            "\"providerHealth\":{{",
+            "\"providerId\":\"{}\",",
+            "\"displayName\":\"{}\",",
+            "\"healthy\":{},",
+            "\"detail\":\"{}\",",
+            "\"model\":\"{}\",",
+            "\"latencyMs\":{},",
+            "\"circuitState\":\"{:?}\",",
+            "\"failureCount\":{},",
+            "\"cooldownRemainingMs\":{}",
+            "}},",
+            "\"providerCircuit\":{},",
+            "\"providerRoutes\":[{}]",
+            "}},",
+            "\"workspace\":{{\"root\":\"{}\",\"platform\":\"{:?}\",\"shell\":\"{:?}\"}},",
+            "\"config\":{{\"providerId\":\"{}\",\"providerBaseUrl\":\"{}\",\"defaultModel\":\"{}\",\"permissionMode\":\"{:?}\",\"historyLimit\":{}}},",
+            "\"providers\":[{}],",
+            "\"providerHealths\":[{}],",
+            "\"providerCircuits\":[{}],",
+            "\"providerRoutes\":[{}],",
+            "\"commands\":[{}],",
+            "\"tools\":[{}],",
+            "\"sessions\":[{}],",
+            "\"eventFeed\":[{}],",
+            "\"activeSession\":{}",
+            "}}"
         ),
-    }
+        escape_json(&snapshot.status.provider_id),
+        escape_json(&snapshot.status.active_provider_id),
+        snapshot.status.provider_kind,
+        snapshot.status.platform,
+        snapshot.status.permission_mode,
+        snapshot.status.session_count,
+        escape_json(&snapshot.status.provider_health.provider_id),
+        escape_json(&snapshot.status.provider_health.display_name),
+        snapshot.status.provider_health.healthy,
+        escape_json(&snapshot.status.provider_health.detail),
+        escape_json(snapshot.status.provider_health.model.as_deref().unwrap_or("")),
+        snapshot.status.provider_health.latency_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null")),
+        snapshot.status.provider_health.circuit_state,
+        snapshot.status.provider_health.failure_count,
+        snapshot.status.provider_health.cooldown_remaining_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null")),
+        provider_circuits
+            .split(',')
+            .next()
+            .filter(|_| !snapshot.status.provider_circuit.provider_id.is_empty())
+            .map(|_| format!(
+                concat!(
+                    "{{",
+                    "\"providerId\":\"{}\",",
+                    "\"displayName\":\"{}\",",
+                    "\"circuitState\":\"{:?}\",",
+                    "\"failureCount\":{},",
+                    "\"cooldownRemainingMs\":{},",
+                    "\"recentFailureReason\":{},",
+                    "\"lastOpenedAtMs\":{},",
+                    "\"lastHalfOpenedAtMs\":{},",
+                    "\"lastRecoveredAtMs\":{},",
+                    "\"eventLog\":[{}]",
+                    "}}"
+                ),
+                escape_json(&snapshot.status.provider_circuit.provider_id),
+                escape_json(&snapshot.status.provider_circuit.display_name),
+                snapshot.status.provider_circuit.circuit_state,
+                snapshot.status.provider_circuit.failure_count,
+                snapshot.status.provider_circuit.cooldown_remaining_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null")),
+                option_json_string(snapshot.status.provider_circuit.recent_failure_reason.as_deref()),
+                snapshot.status.provider_circuit.last_opened_at_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null")),
+                snapshot.status.provider_circuit.last_half_opened_at_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null")),
+                snapshot.status.provider_circuit.last_recovered_at_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null")),
+                snapshot.status.provider_circuit.event_log.iter().map(|event| format!(
+                    "{{\"atMs\":{},\"kind\":\"{:?}\",\"detail\":\"{}\"}}",
+                    event.at_ms,
+                    event.kind,
+                    escape_json(&event.detail)
+                )).collect::<Vec<_>>().join(",")
+            ))
+            .unwrap_or_else(|| String::from("null")),
+        provider_routes,
+        escape_json(&snapshot.workspace.root),
+        snapshot.workspace.platform,
+        snapshot.workspace.preferred_shell,
+        escape_json(snapshot.config.provider_id.as_deref().unwrap_or("")),
+        escape_json(snapshot.config.provider_base_url.as_deref().unwrap_or("")),
+        escape_json(snapshot.config.default_model.as_deref().unwrap_or("")),
+        snapshot.config.permission_mode,
+        snapshot.config.history_limit,
+        providers,
+        provider_healths,
+        provider_circuits,
+        snapshot.provider_routes.iter().map(|route| format!(
+            concat!(
+                "{{",
+                "\"providerId\":\"{}\",",
+                "\"displayName\":\"{}\",",
+                "\"kind\":\"{:?}\",",
+                "\"healthy\":{},",
+                "\"circuitState\":\"{:?}\",",
+                "\"detail\":\"{}\",",
+                "\"latencyMs\":{},",
+                "\"isPrimary\":{},",
+                "\"isActive\":{}",
+                "}}"
+            ),
+            escape_json(&route.provider_id),
+            escape_json(&route.display_name),
+            route.kind,
+            route.healthy,
+            route.circuit_state,
+            escape_json(&route.detail),
+            route.latency_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null")),
+            route.is_primary,
+            route.is_active
+        )).collect::<Vec<_>>().join(","),
+        commands,
+        tools,
+        sessions,
+        event_feed,
+        active_session.unwrap_or_else(|| String::from("null"))
+    )
 }
 
 fn escape_json(input: &str) -> String {
