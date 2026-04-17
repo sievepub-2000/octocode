@@ -8,6 +8,7 @@ use octocode_core::{
 };
 
 const TOOLS: &[ToolDescriptor] = &[
+    // ── original 8 ──────────────────────────────────────────────────────────
     ToolDescriptor {
         name: "echo",
         summary: "Echo input for debugging",
@@ -46,6 +47,42 @@ const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "agent-action",
         summary: "Run a real session agent action through runtime orchestration",
+        minimum_permission: PermissionMode::ReadOnly,
+    },
+    // ── iteration 1: 7 new tools ────────────────────────────────────────────
+    ToolDescriptor {
+        name: "git-status",
+        summary: "Show git working tree status in the workspace",
+        minimum_permission: PermissionMode::ReadOnly,
+    },
+    ToolDescriptor {
+        name: "git-diff",
+        summary: "Show git diff for a file or the entire workspace",
+        minimum_permission: PermissionMode::ReadOnly,
+    },
+    ToolDescriptor {
+        name: "git-log",
+        summary: "Show recent git commit log (default 10 entries)",
+        minimum_permission: PermissionMode::ReadOnly,
+    },
+    ToolDescriptor {
+        name: "file-tree",
+        summary: "Show a recursive directory tree up to a given depth",
+        minimum_permission: PermissionMode::ReadOnly,
+    },
+    ToolDescriptor {
+        name: "append-file",
+        summary: "Append content to a file in the workspace",
+        minimum_permission: PermissionMode::WorkspaceWrite,
+    },
+    ToolDescriptor {
+        name: "http-get",
+        summary: "Perform an HTTP GET request and return the response body",
+        minimum_permission: PermissionMode::ReadOnly,
+    },
+    ToolDescriptor {
+        name: "read-context",
+        summary: "Read CLAUDE.md or AGENTS.md project context files",
         minimum_permission: PermissionMode::ReadOnly,
     },
 ];
@@ -162,6 +199,137 @@ impl WorkspaceToolExecutor {
         ]
         .join("\n");
         ToolResult { output }
+    }
+
+    fn git_status(&self) -> Result<ToolResult, OctoError> {
+        self.run_shell("git status --short")
+    }
+
+    fn git_diff(&self, input: &str) -> Result<ToolResult, OctoError> {
+        let target = input.trim();
+        let cmd = if target.is_empty() {
+            String::from("git diff --stat HEAD")
+        } else {
+            format!("git diff HEAD -- {}", target.replace('"', "\\\""))
+        };
+        self.run_shell(&cmd)
+    }
+
+    fn git_log(&self, input: &str) -> Result<ToolResult, OctoError> {
+        let count: usize = input.trim().parse().unwrap_or(10).max(1).min(100);
+        let cmd = format!(
+            "git log --oneline --decorate -n {}",
+            count
+        );
+        self.run_shell(&cmd)
+    }
+
+    fn file_tree(&self, input: &str) -> Result<ToolResult, OctoError> {
+        let parts: Vec<&str> = input.split_whitespace().collect();
+        let dir = parts.first().copied().unwrap_or(".");
+        let depth: u32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(3).min(10);
+
+        let path = self.resolve_workspace_path(dir);
+        let mut lines = Vec::new();
+        self.collect_tree(&path, 0, depth, &mut lines);
+        Ok(ToolResult { output: lines.join("\n") })
+    }
+
+    fn collect_tree(&self, path: &std::path::Path, depth: u32, max_depth: u32, lines: &mut Vec<String>) {
+        if depth > max_depth {
+            return;
+        }
+        let indent = "  ".repeat(depth as usize);
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or(".");
+        if path.is_dir() {
+            lines.push(format!("{}{}/", indent, name));
+            if depth < max_depth {
+                if let Ok(entries) = fs::read_dir(path) {
+                    let mut names: Vec<_> = entries
+                        .filter_map(|e| e.ok())
+                        .collect();
+                    names.sort_by_key(|e| e.file_name());
+                    // Skip hidden and common noise dirs
+                    for entry in names.iter().take(50) {
+                        let n = entry.file_name();
+                        let s = n.to_string_lossy();
+                        if s.starts_with('.') || s == "target" || s == "node_modules" || s == "__pycache__" {
+                            continue;
+                        }
+                        self.collect_tree(&entry.path(), depth + 1, max_depth, lines);
+                    }
+                }
+            }
+        } else {
+            lines.push(format!("{}{}", indent, name));
+        }
+    }
+
+    fn append_file(&self, input: &str) -> Result<ToolResult, OctoError> {
+        let (path_text, content) = input.split_once('|').ok_or_else(|| {
+            OctoError::Runtime(String::from("append-file expects input: path|content"))
+        })?;
+        let path = self.resolve_workspace_path(path_text.trim());
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .map_err(|e| OctoError::Runtime(format!("append-file open {}: {e}", path.display())))?;
+        writeln!(file, "{}", content).map_err(|e| {
+            OctoError::Runtime(format!("append-file write {}: {e}", path.display()))
+        })?;
+        Ok(ToolResult { output: format!("appended to {}", path.display()) })
+    }
+
+    fn http_get(&self, input: &str) -> Result<ToolResult, OctoError> {
+        let url = input.trim();
+        if url.is_empty() {
+            return Err(OctoError::Runtime(String::from("http-get requires a URL")));
+        }
+        // Security: only allow http/https schemes
+        if !url.starts_with("http://") && !url.starts_with("https://") {
+            return Err(OctoError::Runtime(String::from("http-get only supports http/https")));
+        }
+        let cmd = if cfg!(target_os = "windows") {
+            format!(
+                "(Invoke-WebRequest -Uri '{}' -UseBasicParsing -TimeoutSec 15).Content | Select-Object -First 1 | ForEach-Object {{ $_.Substring(0, [Math]::Min(2000, $_.Length)) }}",
+                url.replace('\'', "''")
+            )
+        } else {
+            format!("curl -s --max-time 15 -L '{}' | head -c 2000", url.replace('\'', "'\\''"))
+        };
+        self.run_shell(&cmd)
+    }
+
+    fn read_context(&self, input: &str) -> Result<ToolResult, OctoError> {
+        // Read CLAUDE.md, AGENTS.md, or .context files for project context
+        let candidates = if input.trim().is_empty() {
+            vec!["CLAUDE.md", "AGENTS.md", ".context", "README.md"]
+        } else {
+            vec![input.trim()]
+        };
+        let mut parts = Vec::new();
+        for candidate in candidates {
+            let path = self.resolve_workspace_path(candidate);
+            if path.is_file() {
+                if let Ok(content) = fs::read_to_string(&path) {
+                    let truncated = if content.len() > 4000 {
+                        format!("{}...[truncated at 4000 chars]", &content[..4000])
+                    } else {
+                        content
+                    };
+                    parts.push(format!("=== {} ===\n{}", candidate, truncated));
+                }
+            }
+        }
+        if parts.is_empty() {
+            Ok(ToolResult {
+                output: String::from("No context files found (CLAUDE.md, AGENTS.md, .context, README.md)"),
+            })
+        } else {
+            Ok(ToolResult { output: parts.join("\n\n") })
+        }
     }
 }
 
@@ -297,6 +465,14 @@ impl ToolExecutor for WorkspaceToolExecutor {
             "search-text" => self.search_text(&call.input),
             "workflow-plan" => Ok(self.workflow_plan(&call.input)),
             "agent-action" => Ok(self.agent_action(&call.input)),
+            // iteration-1 tools
+            "git-status" => self.git_status(),
+            "git-diff" => self.git_diff(&call.input),
+            "git-log" => self.git_log(&call.input),
+            "file-tree" => self.file_tree(&call.input),
+            "append-file" => self.append_file(&call.input),
+            "http-get" => self.http_get(&call.input),
+            "read-context" => self.read_context(&call.input),
             _ => Err(OctoError::Runtime(format!("unknown tool: {}", call.name))),
         }
     }

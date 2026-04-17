@@ -97,12 +97,16 @@ try {
     $state = Invoke-RestMethod -Uri "$base/api/state?session=$Session"
     Assert ($null -ne $state.status) "state.status present"
     Assert ($null -ne $state.providerRoutes) "state.providerRoutes present"
+    Assert ($null -ne $state.providers) "state.providers present"
     Assert ($null -ne $state.commands) "state.commands present"
     Assert ($null -ne $state.tools) "state.tools present"
     Assert ($null -ne $state.eventFeed) "state.eventFeed present"
     Assert ($null -ne $state.sessions) "state.sessions present"
     Assert ($state.commands.Count -gt 0) "commands.Count > 0" "count=$($state.commands.Count)"
     Assert ($state.tools.Count -gt 0) "tools.Count > 0" "count=$($state.tools.Count)"
+    $providers = @($state.providers)
+    Assert ($providers.Count -gt 0) "providers.Count > 0" "count=$($providers.Count)"
+    Assert ((@($providers | Where-Object { $_.id -eq 'ollama' })).Count -ge 1) "providers include ollama"
 } catch {
     Write-Fail "GET /api/state" $_.Exception.Message
 }
@@ -138,6 +142,7 @@ try {
     Assert ($null -ne $chat.activeSession) "chat.activeSession present"
     Assert ($null -ne $chat.activeSession.messages) "chat.activeSession.messages present"
     Assert ($chat.activeSession.messages.Count -gt 0) "messages.Count > 0"
+    Assert (($chat.eventFeed | Where-Object { $_.scope -eq 'plugin' }).Count -ge 1) "chat response includes plugin audit event"
 } catch {
     Write-Fail "POST /api/chat" $_.Exception.Message
 }
@@ -150,6 +155,7 @@ try {
     $tool = PostForm "$base/api/tool" @{ sessionId=$Session; name="echo"; input="regression-echo" }
     Assert ($null -ne $tool.activeSession) "tool response has activeSession"
     Assert ($tool.eventFeed.Count -gt 0) "tool response has eventFeed" "count=$($tool.eventFeed.Count)"
+    Assert (($tool.eventFeed | Where-Object { $_.scope -eq 'plugin' }).Count -ge 1) "tool response includes plugin audit event"
 } catch {
     Write-Fail "POST /api/tool (echo)" $_.Exception.Message
 }
@@ -205,6 +211,15 @@ try {
     Write-Fail "POST /api/command (provider)" $_.Exception.Message
 }
 
+Write-Host "-- 9b. POST /api/command (provider ollama)" -ForegroundColor Yellow
+try {
+    $ollamaCmd = PostForm "$base/api/command" @{ sessionId=$Session; command="provider ollama" }
+    Assert ($null -ne $ollamaCmd.status) "provider ollama response has status"
+    Assert ($ollamaCmd.status.providerId -eq "ollama") "providerId=ollama" "got $($ollamaCmd.status.providerId)"
+} catch {
+    Write-Fail "POST /api/command (provider ollama)" $_.Exception.Message
+}
+
 # ──────────────────────────────────────────
 # 10. Slash-commands routed via /api/command
 # ──────────────────────────────────────────
@@ -219,6 +234,11 @@ $slashTests += @{ cmd="doctor";               label="doctor returns workspace" }
 $slashTests += @{ cmd="history 20";           label="history 20 updates historyLimit" }
 $slashTests += @{ cmd="read README.md";       label="read README.md appends tool event" }
 $slashTests += @{ cmd="list .";               label="list . appends list-files event" }
+$slashTests += @{ cmd="git status";           label="git status routes to git-status tool" }
+$slashTests += @{ cmd="git log 3";            label="git log routes to git-log tool" }
+$slashTests += @{ cmd="tree . 2";             label="tree routes to file-tree tool" }
+$slashTests += @{ cmd="context";              label="context routes to read-context tool" }
+$slashTests += @{ cmd="fetch https://example.com"; label="fetch routes to http-get tool" }
 $slashTests += @{ cmd="tool echo hello";      label="tool echo runs tool" }
 $slashTests += @{ cmd="plan regression step"; label="plan appends workflow-plan" }
 $slashTests += @{ cmd="search TODO";          label="search appends search-text" }
@@ -245,6 +265,31 @@ try {
     Assert ($eventsCmd.items.Count -ge 0) "events payload is enumerable"
 } catch {
     Write-Fail "events returns eventFeed" $_.Exception.Message
+}
+
+try {
+    $tokensCmd = PostForm "$base/api/command" @{ sessionId=$Session; command="tokens" }
+    Assert ($null -ne $tokensCmd.tokenInfo) "tokens returns tokenInfo"
+    Assert ($tokensCmd.tokenInfo.charCount -ge 0) "tokens charCount is numeric" "got $($tokensCmd.tokenInfo.charCount)"
+    Assert ($tokensCmd.tokenInfo.tokenEstimate -ge 0) "tokens tokenEstimate is numeric" "got $($tokensCmd.tokenInfo.tokenEstimate)"
+} catch {
+    Write-Fail "tokens returns tokenInfo" $_.Exception.Message
+}
+
+try {
+    $appendPath = "scripts/regression-append.tmp"
+    $appendText = "regression-line"
+    $appendCmd = PostForm "$base/api/command" @{ sessionId=$Session; command="append $appendPath $appendText" }
+    Assert ($null -ne $appendCmd.status) "append returns snapshot"
+    $appendFile = Join-Path (Join-Path $PSScriptRoot "..") "scripts\regression-append.tmp"
+    Assert (Test-Path $appendFile) "append created temp file"
+    $appendContent = if (Test-Path $appendFile) { Get-Content -Path $appendFile -Raw } else { "" }
+    Assert ($appendContent -match [regex]::Escape($appendText)) "append wrote expected content"
+    if (Test-Path $appendFile) {
+        Remove-Item $appendFile -Force
+    }
+} catch {
+    Write-Fail "append writes file" $_.Exception.Message
 }
 
 # Verify history persisted
@@ -281,6 +326,9 @@ try {
     Assert ($js -match 'SLASH_COMMANDS') "SLASH_COMMANDS array present in app.js"
     Assert ($js -match 'isSlashCommand') "isSlashCommand function present in app.js"
     Assert ($js -match '/api/command') "/api/command referenced in app.js"
+    Assert ($js -match "'git'") "app.js includes git slash command"
+    Assert ($js -match "'context'") "app.js includes context slash command"
+    Assert ($js -match "'tokens'") "app.js includes tokens slash command"
     Assert ($js -match 'drawComposerCanvas') "drawComposerCanvas function present"
     Assert ($js -match 'findLatestEvent') "findLatestEvent function present"
     Assert ($js -match 'renderWorkflowTab') "workflow timeline renderer present"
@@ -295,7 +343,7 @@ try {
 Write-Host "-- 13. GET /ui-shell/locales/zh-CN.json" -ForegroundColor Yellow
 try {
     $locale = Invoke-RestMethod -Uri "$base/ui-shell/locales/zh-CN.json"
-    Assert ($null -ne $locale) "zh-CN locale loads"
+    Assert ([bool]$locale) "zh-CN locale loads"
 } catch {
     Write-Fail "GET /ui-shell/locales/zh-CN.json" $_.Exception.Message
 }
@@ -303,10 +351,12 @@ try {
 # ──────────────────────────────────────────
 # 14. 404 for unknown path
 # ──────────────────────────────────────────
-Write-Host "-- 14. GET /nonexistent → 404" -ForegroundColor Yellow
+Write-Host "-- 14. GET /nonexistent -> 404" -ForegroundColor Yellow
 try {
     $r = Invoke-WebRequest -Uri "$base/nonexistent-path" -UseBasicParsing -ErrorAction SilentlyContinue
-    Assert ($r.StatusCode -eq 404) "404 for unknown path" "got $($r.StatusCode)"
+    $statusCode = if ($null -ne $r) { [int]$r.StatusCode } else { -1 }
+    Assert ($null -ne $r) "404 response captured"
+    Assert (404 -eq $statusCode) "404 for unknown path" "got $statusCode"
 } catch {
     # Invoke-WebRequest throws on 4xx, which is expected here
     Write-Pass "404 for unknown path (exception thrown as expected)"
@@ -315,10 +365,12 @@ try {
 # ──────────────────────────────────────────
 # 15. Path traversal guard
 # ──────────────────────────────────────────
-Write-Host "-- 15. GET /ui-shell/../README.md → 403" -ForegroundColor Yellow
+Write-Host "-- 15. GET /ui-shell/../README.md -> 403" -ForegroundColor Yellow
 try {
     $r = Invoke-WebRequest -Uri "$base/ui-shell/../README.md" -UseBasicParsing -ErrorAction SilentlyContinue
-    Assert ($r.StatusCode -in @(403, 404)) "path traversal blocked" "got $($r.StatusCode)"
+    $statusCode = if ($null -ne $r) { [int]$r.StatusCode } else { -1 }
+    Assert ($null -ne $r) "path traversal response captured"
+    Assert ($statusCode -in @(403, 404)) "path traversal blocked" "got $statusCode"
 } catch {
     Write-Pass "path traversal blocked (exception thrown as expected)"
 }

@@ -1226,8 +1226,9 @@ async function postForm(url, fields) {
 // Slash-commands recognized in the composer — routed to /api/command instead of /api/chat
 const SLASH_COMMANDS = [
   'plan', 'workflow', 'agent', 'repl', 'search', 'pipe',
-  'snapshot', 'sessions', 'status', 'events', 'health', 'circuit-log', 'doctor',
-  'history', 'read', 'list', 'write', 'tool',
+  'snapshot', 'sessions', 'status', 'events', 'health', 'circuit-log', 'doctor', 'tokens',
+  'history', 'read', 'list', 'write', 'append', 'tree', 'tool',
+  'git', 'context', 'fetch',
   'session-add', 'session',
   'provider', 'model', 'permission', 'approve',
   'reload', 'refresh',

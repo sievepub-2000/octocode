@@ -461,6 +461,129 @@ fn handle_command(
             )?;
             return json_response(runtime.snapshot_json(Some(&session_id))?);
         }
+        // ── iteration-1: git + context + tokens + tree slash-commands ──────
+        "git" => {
+            let subcommand = parts.next().unwrap_or("status");
+            let eff_session = session_id.clone().unwrap_or_else(|| String::from("demo"));
+            let input = parts.collect::<Vec<_>>().join(" ");
+            let tool_name_str = match subcommand {
+                "diff" => "git-diff",
+                "log" => "git-log",
+                _ => "git-status",
+            };
+            let runtime = build_runtime(workspace_root, config)?;
+            let _ = runtime.run_tool_in_session(
+                &eff_session,
+                ToolCall {
+                    name: String::from(tool_name_str),
+                    input,
+                    permission: PermissionMode::ReadOnly,
+                },
+            );
+            return json_response(runtime.snapshot_json(Some(&eff_session))?);
+        }
+        "context" => {
+            let eff_session = session_id.clone().unwrap_or_else(|| String::from("demo"));
+            let input = parts.collect::<Vec<_>>().join(" ");
+            let runtime = build_runtime(workspace_root, config)?;
+            let _ = runtime.run_tool_in_session(
+                &eff_session,
+                ToolCall {
+                    name: String::from("read-context"),
+                    input,
+                    permission: PermissionMode::ReadOnly,
+                },
+            );
+            return json_response(runtime.snapshot_json(Some(&eff_session))?);
+        }
+        "tree" => {
+            let eff_session = session_id.clone().unwrap_or_else(|| String::from("demo"));
+            let input = parts.collect::<Vec<_>>().join(" ");
+            let runtime = build_runtime(workspace_root, config)?;
+            let _ = runtime.run_tool_in_session(
+                &eff_session,
+                ToolCall {
+                    name: String::from("file-tree"),
+                    input: if input.is_empty() { String::from(". 3") } else { input },
+                    permission: PermissionMode::ReadOnly,
+                },
+            );
+            return json_response(runtime.snapshot_json(Some(&eff_session))?);
+        }
+        "tokens" => {
+            // Return token count summary for the active session
+            let eff_session = session_id.clone().unwrap_or_else(|| String::from("demo"));
+            let runtime = build_runtime(workspace_root, config)?;
+            let snapshot = runtime.snapshot_json(Some(&eff_session))?;
+            // Rough char-based token estimate from messages in snapshot JSON
+            // Count chars between "content":"..." fields
+            let total_chars: usize = {
+                let mut count = 0usize;
+                let mut search = snapshot.as_str();
+                while let Some(pos) = search.find("\"content\":\"") {
+                    let after = &search[pos + 11..];
+                    if let Some(end) = after.find('"') {
+                        count += end;
+                        search = &after[end + 1..];
+                    } else {
+                        break;
+                    }
+                }
+                count
+            };
+            let token_estimate = total_chars / 4;
+            let token_json = format!(
+                "{{\"tokenEstimate\":{},\"charCount\":{},\"session\":\"{}\"}}",
+                token_estimate, total_chars, escape_json(&eff_session)
+            );
+            let injected = if snapshot.ends_with('}') {
+                let mut s = String::with_capacity(snapshot.len() + 64);
+                s.push_str(&snapshot[..snapshot.len() - 1]);
+                s.push_str(",\"tokenInfo\":");
+                s.push_str(&token_json);
+                s.push('}');
+                s
+            } else {
+                snapshot
+            };
+            return json_response(injected);
+        }
+        "fetch" => {
+            let eff_session = session_id.clone().unwrap_or_else(|| String::from("demo"));
+            let url = parts.collect::<Vec<_>>().join(" ");
+            if url.is_empty() {
+                return error_response(400, "fetch requires a URL");
+            }
+            let runtime = build_runtime(workspace_root, config)?;
+            let _ = runtime.run_tool_in_session(
+                &eff_session,
+                ToolCall {
+                    name: String::from("http-get"),
+                    input: url,
+                    permission: PermissionMode::ReadOnly,
+                },
+            );
+            return json_response(runtime.snapshot_json(Some(&eff_session))?);
+        }
+        "append" => {
+            let eff_session = session_id.clone().unwrap_or_else(|| String::from("demo"));
+            let remaining = parts.collect::<Vec<_>>();
+            if remaining.is_empty() {
+                return error_response(400, "append requires: append <path> <content>");
+            }
+            let file_path = remaining[0].to_string();
+            let content = remaining[1..].join(" ");
+            let runtime = build_runtime(workspace_root, config)?;
+            let _ = runtime.run_tool_in_session(
+                &eff_session,
+                ToolCall {
+                    name: String::from("append-file"),
+                    input: format!("{file_path}|{content}"),
+                    permission: PermissionMode::WorkspaceWrite,
+                },
+            );
+            return json_response(runtime.snapshot_json(Some(&eff_session))?);
+        }
         "reload" | "refresh" | "" => {}
         _ => {
             return error_response(400, &format!("unsupported command: {command}"));

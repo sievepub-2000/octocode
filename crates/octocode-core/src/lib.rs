@@ -98,11 +98,34 @@ pub struct WorkspaceContext {
     pub preferred_shell: ShellKind,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TokenInfo {
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+}
+
+impl TokenInfo {
+    pub fn total(&self) -> u32 {
+        self.input_tokens + self.output_tokens
+    }
+
+    pub fn new(input_tokens: u32, output_tokens: u32) -> Self {
+        Self {
+            input_tokens,
+            output_tokens,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionSummary {
     pub id: String,
     pub title: String,
     pub model: Option<String>,
+    pub parent_id: Option<String>,
+    pub branch_name: Option<String>,
+    pub total_input_tokens: u32,
+    pub total_output_tokens: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,6 +149,7 @@ pub struct PromptRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PromptResponse {
     pub output: String,
+    pub tokens: Option<TokenInfo>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

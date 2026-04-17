@@ -19,6 +19,10 @@ impl MemorySessionStore {
                 id: String::from("bootstrap"),
                 title: String::from("Bootstrap Session"),
                 model: None,
+                parent_id: None,
+                branch_name: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
             }],
         }
     }
@@ -115,7 +119,7 @@ impl FileSessionStore {
         if id.is_empty() {
             return Err(OctoError::Session(String::from("session id is empty")));
         }
-        Ok(SessionSummary { id, title, model })
+        Ok(SessionSummary { id, title, model, parent_id: None, branch_name: None, total_input_tokens: 0, total_output_tokens: 0 })
     }
 
     fn load_messages(&self, id: &str) -> Vec<ConversationMessage> {

@@ -209,6 +209,10 @@ where
                     title
                 },
                 model: runtime.config().default_model.clone(),
+                parent_id: None,
+                branch_name: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
             })?;
             Ok(CommandResponse::Acknowledged(String::from("session saved")))
         }

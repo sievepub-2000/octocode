@@ -4,6 +4,7 @@ members = [
     "crates/octocode-cli",
     "crates/octocode-commands",
     "crates/octocode-core",
+    "crates/octocode-plugins",
     "crates/octocode-runtime",
 ]
 resolver = "2"

@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
 use octocode_core::{
     CommandDescriptor, ConfigPaths, ConversationMessage, ConversationRole, ConversationSession,
@@ -10,6 +11,7 @@ use octocode_core::{
     SessionSummary, ShellKind, ToolCall, ToolCatalog, ToolDescriptor,
     ToolExecutor, ToolResult, UiSnapshot, WorkspaceContext,
 };
+use octocode_plugins::{PluginHook, PluginHost};
 
 mod permission;
 mod router;
@@ -25,6 +27,11 @@ const DEFAULT_PROVIDER_ID: &str = "local-openai";
 const DEFAULT_PROVIDER_BASE_URL: &str = "http://192.168.110.2:8000/v1";
 const DEFAULT_MODEL: &str = "gemma-4-31b-it-q8-prod";
 const DEFAULT_HISTORY_LIMIT: usize = 24;
+const AUTO_CONTEXT_FILES: &[&str] = &["CLAUDE.md", "AGENTS.md"];
+const AUTO_CONTEXT_CHAR_LIMIT: usize = 4000;
+
+static WORKSPACE_CONTEXT_CACHE: OnceLock<Mutex<std::collections::HashMap<String, Option<String>>>> =
+    OnceLock::new();
 
 pub struct NativePlatform {
     context: WorkspaceContext,
@@ -344,6 +351,7 @@ pub struct OctocodeRuntime<P, S, T> {
     available_providers: Vec<ProviderDescriptor>,
     permission_policy: RuntimePermissionPolicy,
     tool_catalog: RuntimeToolCatalog,
+    plugin_host: PluginHost,
 }
 
 impl<P, S, T> OctocodeRuntime<P, S, T>
@@ -372,6 +380,7 @@ where
             available_providers,
             permission_policy: RuntimePermissionPolicy,
             tool_catalog: RuntimeToolCatalog,
+            plugin_host: PluginHost::default(),
         }
     }
 
@@ -383,13 +392,23 @@ where
         self.ensure_session_exists(session_id)?;
         self.append_session_message(session_id, ConversationRole::User, String::from(text))?;
 
-        let response = self.provider.prompt(PromptRequest {
+        let request = PromptRequest {
             text: String::from(text),
             model: self.config.default_model.clone(),
+        };
+        self.plugin_host.dispatch(PluginHook::BeforePrompt {
+            session_id,
+            request: &request,
         });
+
+        let response = self.provider.prompt(request);
 
         match response {
             Ok(response) => {
+                self.plugin_host.dispatch(PluginHook::AfterPrompt {
+                    session_id,
+                    response: Ok(&response),
+                });
                 self.append_session_message(
                     session_id,
                     ConversationRole::Assistant,
@@ -399,6 +418,10 @@ where
                 Ok(response)
             }
             Err(error) => {
+                self.plugin_host.dispatch(PluginHook::AfterPrompt {
+                    session_id,
+                    response: Err(&error.to_string()),
+                });
                 self.append_session_message(
                     session_id,
                     ConversationRole::System,
@@ -525,6 +548,7 @@ where
                     &observations,
                     Some("all providers unavailable or circuit-open; skipped provider dispatch"),
                 ),
+                tokens: None,
             };
             self.append_session_message(
                 session_id,
@@ -563,6 +587,7 @@ where
                         &observations,
                         Some(&format!("provider dispatch failed: {error}")),
                     ),
+                    tokens: None,
                 };
                 self.append_session_message(
                     session_id,
@@ -592,7 +617,28 @@ where
             .ok_or_else(|| OctoError::Runtime(format!("unknown tool: {}", call.name)))?;
         call.permission = descriptor.minimum_permission.clone();
         self.ensure_permission(&call.permission, descriptor.name)?;
-        let result = self.tools.execute(call.clone())?;
+        self.plugin_host.dispatch(PluginHook::BeforeTool {
+            session_id,
+            call: &call,
+        });
+        let result = match self.tools.execute(call.clone()) {
+            Ok(result) => {
+                self.plugin_host.dispatch(PluginHook::AfterTool {
+                    session_id,
+                    call: &call,
+                    result: Ok(&result),
+                });
+                result
+            }
+            Err(error) => {
+                self.plugin_host.dispatch(PluginHook::AfterTool {
+                    session_id,
+                    call: &call,
+                    result: Err(&error.to_string()),
+                });
+                return Err(error);
+            }
+        };
         self.append_session_message(
             session_id,
             ConversationRole::Tool,
@@ -847,20 +893,71 @@ where
         Ok(path)
     }
 
+    pub fn fork_session(&self, parent_session_id: &str, new_session_id: &str, branch_name: &str) -> Result<(), OctoError> {
+        // Load parent session
+        let parent_session = self.sessions.load_session(parent_session_id)?;
+        
+        // Create new session summary with parent reference
+        let mut new_summary = parent_session.summary.clone();
+        new_summary.id = String::from(new_session_id);
+        new_summary.title = format!("{} (branch: {})", parent_session.summary.title, branch_name);
+        new_summary.parent_id = Some(String::from(parent_session_id));
+        new_summary.branch_name = Some(String::from(branch_name));
+        
+        // Save new session with cloned messages
+        self.sessions.save_session(new_summary)?;
+        for message in parent_session.messages {
+            self.sessions.append_message(new_session_id, message)?;
+        }
+        
+        self.plugin_host.dispatch(PluginHook::SessionStart { session_id: new_session_id });
+        Ok(())
+    }
+
+    pub fn list_session_branches(&self, parent_session_id: &str) -> Result<Vec<SessionSummary>, OctoError> {
+        let all_sessions = self.sessions.list_sessions()?;
+        Ok(all_sessions
+            .into_iter()
+            .filter(|s| s.parent_id.as_ref() == Some(&parent_session_id.to_string()))
+            .collect())
+    }
+
     fn ensure_session_exists(&self, session_id: &str) -> Result<(), OctoError> {
-        if self
+        let exists = self
             .sessions
             .list_sessions()?
             .iter()
-            .any(|session| session.id == session_id)
-        {
+            .any(|session| session.id == session_id);
+        if !exists {
+            self.sessions.save_session(SessionSummary {
+                id: String::from(session_id),
+                title: format!("Session {session_id}"),
+                model: self.config.default_model.clone(),
+                parent_id: None,
+                branch_name: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+            })?;
+            self.plugin_host.dispatch(PluginHook::SessionStart { session_id });
+        }
+        self.bootstrap_session_context(session_id)
+    }
+
+    fn bootstrap_session_context(&self, session_id: &str) -> Result<(), OctoError> {
+        let session = self.sessions.load_session(session_id)?;
+        if !session.messages.is_empty() {
             return Ok(());
         }
-        self.sessions.save_session(SessionSummary {
-            id: String::from(session_id),
-            title: format!("Session {session_id}"),
-            model: self.config.default_model.clone(),
-        })
+        if let Some(context) = collect_workspace_context(self.workspace())? {
+            self.sessions.append_message(
+                session_id,
+                ConversationMessage {
+                    role: ConversationRole::System,
+                    content: context,
+                },
+            )?;
+        }
+        Ok(())
     }
 
     fn apply_history_limit(&self, session_id: &str) -> Result<(), OctoError> {
@@ -988,6 +1085,12 @@ where
                     }),
             );
         }
+
+        events.extend(self.plugin_host.audit_events().into_iter().rev().take(8).rev().map(|event| RuntimeEvent {
+            scope: String::from("plugin"),
+            message: format!("{} {} {}", event.plugin_id, event.hook, event.detail),
+            at_ms: Some(event.at_ms),
+        }));
 
         events
     }
@@ -1215,6 +1318,61 @@ where
         }
         lines.join("\n")
     }
+}
+
+fn collect_workspace_context(workspace: &WorkspaceContext) -> Result<Option<String>, OctoError> {
+    let cache_key = workspace.root.clone();
+    if let Some(cached) = workspace_context_cache()
+        .lock()
+        .expect("workspace context cache lock poisoned")
+        .get(&cache_key)
+        .cloned()
+    {
+        return Ok(cached);
+    }
+
+    let root = PathBuf::from(&workspace.root);
+    let mut blocks = Vec::new();
+
+    for relative in AUTO_CONTEXT_FILES {
+        let path = root.join(relative);
+        if !path.is_file() {
+            continue;
+        }
+        let raw = fs::read_to_string(&path).map_err(|error| {
+            OctoError::Runtime(format!("failed to read workspace context {}: {error}", path.display()))
+        })?;
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let excerpt = if trimmed.chars().count() > AUTO_CONTEXT_CHAR_LIMIT {
+            let prefix = trimmed.chars().take(AUTO_CONTEXT_CHAR_LIMIT).collect::<String>();
+            format!("{prefix}\n...[truncated at {AUTO_CONTEXT_CHAR_LIMIT} chars]")
+        } else {
+            String::from(trimmed)
+        };
+        blocks.push(format!("=== {relative} ===\n{excerpt}"));
+    }
+
+    let context = if blocks.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "Workspace bootstrap context loaded automatically. Use this as project-level operating guidance unless later session messages override it.\n\n{}",
+            blocks.join("\n\n")
+        ))
+    };
+
+    workspace_context_cache()
+        .lock()
+        .expect("workspace context cache lock poisoned")
+        .insert(cache_key, context.clone());
+    Ok(context)
+}
+
+fn workspace_context_cache() -> &'static Mutex<std::collections::HashMap<String, Option<String>>> {
+    WORKSPACE_CONTEXT_CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
 
 fn truncate_preview(value: &str, max_len: usize) -> String {
@@ -1611,9 +1769,10 @@ fn snapshot_to_json(snapshot: &UiSnapshot) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::RuntimePermissionPolicy;
+    use super::{collect_workspace_context, workspace_context_cache, RuntimePermissionPolicy};
     use crate::tools::NativeShellInvocation;
-    use octocode_core::{PermissionMode, PermissionPolicy, ShellKind};
+    use octocode_core::{PermissionMode, PermissionPolicy, ShellKind, WorkspaceContext, PlatformKind};
+    use std::fs;
 
     #[test]
     fn permission_policy_rejects_write_from_read_only() {
@@ -1649,5 +1808,60 @@ mod tests {
         assert_eq!(invocation.args.len(), 2);
         assert_eq!(invocation.args[0], "-lc");
         assert_eq!(invocation.args[1], "printf ok");
+    }
+
+    #[test]
+    fn collect_workspace_context_reads_claude_and_agents() {
+        let temp_root = std::env::temp_dir().join(format!("octocode-runtime-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_root);
+        fs::create_dir_all(&temp_root).expect("create temp root");
+        fs::write(temp_root.join("CLAUDE.md"), "claude guidance").expect("write claude");
+        fs::write(temp_root.join("AGENTS.md"), "agent guidance").expect("write agents");
+
+        let context = collect_workspace_context(&WorkspaceContext {
+            root: temp_root.to_string_lossy().to_string(),
+            platform: PlatformKind::Windows,
+            preferred_shell: ShellKind::PowerShell,
+        })
+        .expect("collect context")
+        .expect("context present");
+
+        assert!(context.contains("CLAUDE.md"));
+        assert!(context.contains("AGENTS.md"));
+        assert!(context.contains("claude guidance"));
+        assert!(context.contains("agent guidance"));
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn collect_workspace_context_caches_first_result() {
+        let temp_root = std::env::temp_dir().join(format!("octocode-runtime-cache-test-{}", std::process::id()));
+        let key = temp_root.to_string_lossy().to_string();
+        let _ = fs::remove_dir_all(&temp_root);
+        fs::create_dir_all(&temp_root).expect("create temp root");
+        fs::write(temp_root.join("CLAUDE.md"), "cached guidance").expect("write claude");
+
+        let workspace = WorkspaceContext {
+            root: key.clone(),
+            platform: PlatformKind::Windows,
+            preferred_shell: ShellKind::PowerShell,
+        };
+
+        let first = collect_workspace_context(&workspace)
+            .expect("collect first")
+            .expect("first context");
+        fs::remove_file(temp_root.join("CLAUDE.md")).expect("remove claude");
+        let second = collect_workspace_context(&workspace)
+            .expect("collect second")
+            .expect("second context");
+
+        assert_eq!(first, second);
+
+        workspace_context_cache()
+            .lock()
+            .expect("workspace context cache lock poisoned")
+            .remove(&key);
+        let _ = fs::remove_dir_all(&temp_root);
     }
 }

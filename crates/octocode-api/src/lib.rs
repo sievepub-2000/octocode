@@ -11,7 +11,9 @@ use octocode_core::{
 
 const DEFAULT_LOCAL_BASE_URL: &str = "http://192.168.110.2:8000/v1";
 const DEFAULT_REMOTE_BASE_URL: &str = "https://api.openai.com/v1";
+const DEFAULT_OLLAMA_BASE_URL: &str = "http://127.0.0.1:11434/v1";
 const DEFAULT_LOCAL_MODEL: &str = "gemma-4-31b-it-q8-prod";
+const DEFAULT_OLLAMA_MODEL: &str = "qwen2.5-coder:14b";
 const CIRCUIT_FAILURE_THRESHOLD: u32 = 2;
 const CIRCUIT_COOLDOWN: Duration = Duration::from_secs(30);
 const HEALTH_CACHE_TTL: Duration = Duration::from_secs(5);
@@ -452,6 +454,14 @@ impl ProviderRegistry {
                     supports_streaming: true,
                     capabilities: ProviderCapabilities::compatible(true, false),
                 },
+                ProviderDescriptor {
+                    id: String::from("ollama"),
+                    display_name: String::from("Ollama Local Runtime"),
+                    kind: ProviderKind::Ollama,
+                    supports_tools: false,
+                    supports_streaming: true,
+                    capabilities: ProviderCapabilities::compatible(true, false),
+                },
             ],
         }
     }
@@ -498,6 +508,58 @@ impl ProviderRegistry {
         let descriptor = self.providers.iter().find(|provider| provider.id == id)?.clone();
         let provider = match descriptor.id.as_str() {
             "stub" => BuiltinProvider::Stub(StubProvider::new(descriptor)),
+            "ollama" => BuiltinProvider::Fallback(FallbackProvider::new(
+                descriptor.clone(),
+                vec![
+                    BuiltinProvider::OpenAiCompatible(OpenAiCompatibleProvider::new(
+                        descriptor,
+                        config
+                            .provider_base_url
+                            .clone()
+                            .or_else(|| std::env::var("OCTOCODE_OLLAMA_BASE_URL").ok())
+                            .unwrap_or_else(|| String::from(DEFAULT_OLLAMA_BASE_URL)),
+                        std::env::var("OCTOCODE_OLLAMA_API_TOKEN")
+                            .ok()
+                            .or_else(|| std::env::var("OCTOCODE_LOCAL_API_TOKEN").ok())
+                            .or_else(|| std::env::var("OCTOCODE_API_TOKEN").ok()),
+                        config
+                            .default_model
+                            .clone()
+                            .or_else(|| std::env::var("OCTOCODE_OLLAMA_MODEL").ok())
+                            .or_else(|| Some(String::from(DEFAULT_OLLAMA_MODEL))),
+                    )),
+                    BuiltinProvider::OpenAiCompatible(OpenAiCompatibleProvider::new(
+                        self.providers
+                            .iter()
+                            .find(|provider| provider.id == "local-openai")?
+                            .clone(),
+                        std::env::var("OCTOCODE_PROVIDER_BASE_URL")
+                            .ok()
+                            .unwrap_or_else(|| String::from(DEFAULT_LOCAL_BASE_URL)),
+                        std::env::var("OCTOCODE_LOCAL_API_TOKEN")
+                            .ok()
+                            .or_else(|| std::env::var("OCTOCODE_API_TOKEN").ok()),
+                        config
+                            .default_model
+                            .clone()
+                            .or_else(|| Some(String::from(DEFAULT_LOCAL_MODEL))),
+                    )),
+                    BuiltinProvider::OpenAiCompatible(OpenAiCompatibleProvider::new(
+                        self.providers
+                            .iter()
+                            .find(|provider| provider.id == "remote-openai")?
+                            .clone(),
+                        std::env::var("OCTOCODE_REMOTE_BASE_URL")
+                            .ok()
+                            .unwrap_or_else(|| String::from(DEFAULT_REMOTE_BASE_URL)),
+                        std::env::var("OCTOCODE_API_TOKEN").ok(),
+                        config.default_model.clone(),
+                    )),
+                    BuiltinProvider::Stub(StubProvider::new(
+                        self.providers.iter().find(|provider| provider.id == "stub")?.clone(),
+                    )),
+                ],
+            )),
             "remote-openai" => BuiltinProvider::Fallback(FallbackProvider::new(
                 descriptor.clone(),
                 vec![
@@ -549,6 +611,24 @@ impl ProviderRegistry {
                             .default_model
                             .clone()
                             .or_else(|| Some(String::from(DEFAULT_LOCAL_MODEL))),
+                    )),
+                    BuiltinProvider::OpenAiCompatible(OpenAiCompatibleProvider::new(
+                        self.providers
+                            .iter()
+                            .find(|provider| provider.id == "ollama")?
+                            .clone(),
+                        std::env::var("OCTOCODE_OLLAMA_BASE_URL")
+                            .ok()
+                            .unwrap_or_else(|| String::from(DEFAULT_OLLAMA_BASE_URL)),
+                        std::env::var("OCTOCODE_OLLAMA_API_TOKEN")
+                            .ok()
+                            .or_else(|| std::env::var("OCTOCODE_LOCAL_API_TOKEN").ok())
+                            .or_else(|| std::env::var("OCTOCODE_API_TOKEN").ok()),
+                        config
+                            .default_model
+                            .clone()
+                            .or_else(|| std::env::var("OCTOCODE_OLLAMA_MODEL").ok())
+                            .or_else(|| Some(String::from(DEFAULT_OLLAMA_MODEL))),
                     )),
                     BuiltinProvider::OpenAiCompatible(OpenAiCompatibleProvider::new(
                         self.providers
@@ -653,6 +733,7 @@ impl ModelProvider for StubProvider {
     fn prompt(&self, request: PromptRequest) -> Result<PromptResponse, OctoError> {
         Ok(PromptResponse {
             output: format!("[stub:{}] {}", request.model.unwrap_or_default(), request.text),
+            tokens: None,
         })
     }
 
@@ -726,7 +807,7 @@ impl ModelProvider for OpenAiCompatibleProvider {
             ))
         })?;
         self.reset_circuit();
-        Ok(PromptResponse { output })
+        Ok(PromptResponse { output, tokens: None })
     }
 
     fn health(&self) -> ProviderHealth {
@@ -948,6 +1029,29 @@ mod tests {
         assert_eq!(snapshot.failure_count, CIRCUIT_FAILURE_THRESHOLD);
 
         clear_circuit(&provider);
+    }
+
+    #[test]
+    fn registry_exposes_ollama_descriptor() {
+        let registry = ProviderRegistry::new();
+        assert!(registry.all().iter().any(|provider| provider.id == "ollama" && provider.kind == ProviderKind::Ollama));
+    }
+
+    #[test]
+    fn registry_builds_ollama_provider() {
+        let registry = ProviderRegistry::new();
+        let provider = registry.create_by_id_with_config(
+            "ollama",
+            &RuntimeConfig {
+                provider_id: Some(String::from("ollama")),
+                provider_base_url: None,
+                default_model: None,
+                permission_mode: octocode_core::PermissionMode::WorkspaceWrite,
+                history_limit: 24,
+            },
+        );
+        assert!(provider.is_some());
+        assert_eq!(provider.unwrap().descriptor().kind, ProviderKind::Ollama);
     }
 }
 
