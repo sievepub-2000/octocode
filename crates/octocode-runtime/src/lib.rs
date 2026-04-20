@@ -4,155 +4,78 @@ use std::sync::{Mutex, OnceLock};
 
 use octocode_core::{
     CommandDescriptor, ConfigPaths, ConversationMessage, ConversationRole, ConversationSession,
-    ConversationStore, DoctorReport, ModelProvider, OctoError, PermissionMode, PermissionPolicy,
-    PlatformKind, PlatformSupport, PromptRequest, PromptResponse, ProviderCircuitEvent,
+    ConversationStore, DoctorReport, McpServerStatus, ModelProvider, OctoError, PermissionMode,
+    PermissionPolicy, PlatformKind, PlatformSupport, PromptRequest, PromptResponse,
     ProviderCircuitStatus, ProviderDescriptor, ProviderHealth, ProviderRouteStatus, RuntimeConfig,
-    RuntimeEvent, RuntimeStatus,
-    SessionSummary, ShellKind, ToolCall, ToolCatalog, ToolDescriptor,
-    ToolExecutor, ToolResult, UiSnapshot, WorkspaceContext,
+    RuntimeEvent, RuntimeStatus, SessionSummary, ShellKind, SkillDescriptor, TaskKind, TaskRecord,
+    TaskState, ToolCall, ToolCatalog, ToolDescriptor, ToolExecutor, ToolResult, UiSnapshot,
+    WorkspaceContext,
 };
+use octocode_mcp::McpRegistry;
 use octocode_plugins::{PluginHook, PluginHost};
+use octocode_skills::SkillRegistry;
 
+mod config;
 mod permission;
 mod router;
 mod session;
+mod snapshot_json;
+mod tool_call_parser;
 mod tools;
+pub mod benchmarks;
+pub mod compaction;
+pub mod coordinator;
+pub mod cost_tracker;
+pub mod file_guard;
+pub mod health_guardian;
+pub mod hooks;
+pub mod isolation;
+pub mod memory;
+pub mod permission_rules;
+pub mod sqlite_store;
+pub mod subagent;
+pub mod tasks;
+pub mod todo_store;
 
+pub use config::ConfigLoader;
 pub use permission::RuntimePermissionPolicy;
 pub use router::RuntimeProviderRouter;
 pub use session::{FileSessionStore, MemorySessionStore};
 pub use tools::{RuntimeToolCatalog, WorkspaceToolExecutor};
+pub use compaction::{
+    CompactionConfig, CompactionResult, away_summary, compact_conversation,
+    estimate_conversation_tokens, extract_memories, should_compact,
+};
+pub use coordinator::CoordinatorEngine;
+pub use cost_tracker::CostTracker;
+pub use hooks::{HooksConfig, HookDef, HookResult, HookTiming, run_hook};
+pub use memory::{MemoryStore, MemoryEntry, MemoryScope};
+pub use permission_rules::{PermissionRules, ToolPermissionRule, ToolPermissionMode};
+pub use sqlite_store::SqliteStore;
+pub use subagent::{SubAgentManager, SubAgentTask, SubAgentState, SubAgentExecutor, SubAgentWorkFn, ExecutorResult};
+pub use tasks::TaskStore;
+pub use todo_store::TodoStore;
+pub use health_guardian::{HealthGuardian, GuardianConfig, ProviderHealthSnapshot, FailoverEvent, make_provider_probe, make_http_health_probe};
+pub use isolation::{IsolatedSessionStore, WorkspaceId, WorkspaceAuthToken, WorkspaceTokenStore};
+pub use benchmarks::{Benchmark, BenchmarkSuite, PercentileReport, RegressionCheckResult, run_standard_suite, check_regression, gate_benchmarks};
 
-const DEFAULT_PROVIDER_ID: &str = "local-openai";
-const DEFAULT_PROVIDER_BASE_URL: &str = "http://192.168.110.2:8000/v1";
-const DEFAULT_MODEL: &str = "gemma-4-31b-it-q8-prod";
-const DEFAULT_HISTORY_LIMIT: usize = 24;
+use config::{
+    DEFAULT_MODEL, DEFAULT_PROVIDER_ID, permission_mode_label,
+};
+use snapshot_json::{runtime_event_to_json, snapshot_to_json};
+
 const AUTO_CONTEXT_FILES: &[&str] = &["CLAUDE.md", "AGENTS.md"];
 const AUTO_CONTEXT_CHAR_LIMIT: usize = 4000;
+/// Maximum iterations of the agent tool-call loop before forcing termination.
+const MAX_AGENT_ITERATIONS: usize = 12;
+/// Token threshold at which auto-compaction is triggered.
+const AUTO_COMPACT_TOKEN_THRESHOLD: usize = 24_000;
 
 static WORKSPACE_CONTEXT_CACHE: OnceLock<Mutex<std::collections::HashMap<String, Option<String>>>> =
     OnceLock::new();
 
 pub struct NativePlatform {
     context: WorkspaceContext,
-}
-
-#[derive(Debug, Clone)]
-pub struct ConfigLoader {
-    paths: ConfigPaths,
-}
-
-impl ConfigLoader {
-    pub fn new(paths: ConfigPaths) -> Self {
-        Self { paths }
-    }
-
-    pub fn load(&self) -> Result<RuntimeConfig, OctoError> {
-        let path = self.config_file_path();
-        if !path.is_file() {
-            return Ok(Self::default_config());
-        }
-
-        let raw = fs::read_to_string(&path).map_err(|error| {
-            OctoError::Runtime(format!("failed to read config {}: {error}", path.display()))
-        })?;
-
-        let mut config = Self::default_config();
-
-        for line in raw.lines() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.starts_with('#') {
-                continue;
-            }
-            let Some((key, value)) = trimmed.split_once('=') else {
-                continue;
-            };
-            match key.trim() {
-                "provider_id" => {
-                    let value = value.trim();
-                    if !value.is_empty() {
-                        config.provider_id = Some(String::from(value));
-                    }
-                }
-                "provider_base_url" => {
-                    let value = value.trim();
-                    if !value.is_empty() {
-                        config.provider_base_url = Some(String::from(value));
-                    }
-                }
-                "default_model" => {
-                    let value = value.trim();
-                    if !value.is_empty() {
-                        config.default_model = Some(String::from(value));
-                    }
-                }
-                "permission_mode" => {
-                    config.permission_mode = parse_permission_mode(value.trim());
-                }
-                "history_limit" => {
-                    config.history_limit = value.trim().parse::<usize>().unwrap_or(DEFAULT_HISTORY_LIMIT);
-                }
-                _ => {}
-            }
-        }
-
-        Ok(config)
-    }
-
-    pub fn save(&self, config: &RuntimeConfig) -> Result<PathBuf, OctoError> {
-        let path = self.config_file_path();
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|error| {
-                OctoError::Runtime(format!("failed to create config dir {}: {error}", parent.display()))
-            })?;
-        }
-
-        let body = format!(
-            concat!(
-                "# Octocode config\n",
-                "provider_id={}\n",
-                "provider_base_url={}\n",
-                "default_model={}\n",
-                "permission_mode={}\n",
-                "history_limit={}\n"
-            ),
-            config.provider_id.as_deref().unwrap_or(DEFAULT_PROVIDER_ID),
-            config
-                .provider_base_url
-                .as_deref()
-                .unwrap_or(DEFAULT_PROVIDER_BASE_URL),
-            config.default_model.as_deref().unwrap_or(DEFAULT_MODEL),
-            permission_mode_label(&config.permission_mode),
-            config.history_limit.max(1)
-        );
-
-        fs::write(&path, body).map_err(|error| {
-            OctoError::Runtime(format!("failed to write config {}: {error}", path.display()))
-        })?;
-        Ok(path)
-    }
-
-    pub fn ensure_default_file(&self) -> Result<PathBuf, OctoError> {
-        let path = self.config_file_path();
-        if !path.is_file() {
-            self.save(&Self::default_config())?;
-        }
-        Ok(path)
-    }
-
-    pub fn config_file_path(&self) -> PathBuf {
-        PathBuf::from(&self.paths.config_home).join("octocode.conf")
-    }
-
-    pub fn default_config() -> RuntimeConfig {
-        RuntimeConfig {
-            provider_id: Some(String::from(DEFAULT_PROVIDER_ID)),
-            provider_base_url: Some(String::from(DEFAULT_PROVIDER_BASE_URL)),
-            default_model: Some(String::from(DEFAULT_MODEL)),
-            permission_mode: PermissionMode::WorkspaceWrite,
-            history_limit: DEFAULT_HISTORY_LIMIT,
-        }
-    }
 }
 
 const COMMANDS: &[CommandDescriptor] = &[
@@ -352,6 +275,9 @@ pub struct OctocodeRuntime<P, S, T> {
     permission_policy: RuntimePermissionPolicy,
     tool_catalog: RuntimeToolCatalog,
     plugin_host: PluginHost,
+    pub task_store: TaskStore,
+    pub coordinator: CoordinatorEngine,
+    pub cost_tracker: CostTracker,
 }
 
 impl<P, S, T> OctocodeRuntime<P, S, T>
@@ -381,20 +307,37 @@ where
             permission_policy: RuntimePermissionPolicy,
             tool_catalog: RuntimeToolCatalog,
             plugin_host: PluginHost::default(),
+            task_store: TaskStore::new(),
+            coordinator: CoordinatorEngine::new(),
+            cost_tracker: CostTracker::new(),
         }
     }
 
     pub fn prompt(&self, request: PromptRequest) -> Result<PromptResponse, OctoError> {
+        tracing::debug!(model = ?request.model, "prompt request");
         self.provider.prompt(request)
     }
 
+    /// Hot-reload config from disk without restarting.
+    pub fn reload_config(&mut self) -> Result<(), OctoError> {
+        let loader = ConfigLoader::new(self.platform.config_paths());
+        self.config = loader.load()?;
+        tracing::info!("config reloaded");
+        Ok(())
+    }
+
     pub fn prompt_in_session(&self, session_id: &str, text: &str) -> Result<PromptResponse, OctoError> {
+        tracing::info!(session_id, "prompt_in_session");
         self.ensure_session_exists(session_id)?;
+        // Auto-compaction check before adding new message
+        self.maybe_auto_compact(session_id)?;
         self.append_session_message(session_id, ConversationRole::User, String::from(text))?;
 
         let request = PromptRequest {
             text: String::from(text),
             model: self.config.default_model.clone(),
+            system_prompt: None,
+            history: Vec::new(),
         };
         self.plugin_host.dispatch(PluginHook::BeforePrompt {
             session_id,
@@ -562,15 +505,11 @@ where
         match self.provider.prompt(PromptRequest {
             text: prompt,
             model: self.config.default_model.clone(),
+            system_prompt: None,
+            history: Vec::new(),
         }) {
             Ok(response) => {
-                self.append_session_message(
-                    session_id,
-                    ConversationRole::Assistant,
-                    response.output.clone(),
-                )?;
-                self.apply_history_limit(session_id)?;
-                Ok(response)
+                self.run_agent_tool_loop(session_id, response)
             }
             Err(error) => {
                 self.append_session_message(
@@ -600,6 +539,195 @@ where
         }
     }
 
+    /// Agentic tool-call loop: parse embedded tool calls from LLM response,
+    /// execute them, feed results back, repeat until no more calls or max iterations.
+    fn run_agent_tool_loop(
+        &self,
+        session_id: &str,
+        initial_response: PromptResponse,
+    ) -> Result<PromptResponse, OctoError> {
+        use crate::tool_call_parser::{parse_embedded_tool_calls, strip_embedded_tool_calls, summarize_tool_execution_response};
+
+        let mut current_output = initial_response.output.clone();
+        let mut total_tokens = initial_response.tokens;
+
+        for iteration in 0..MAX_AGENT_ITERATIONS {
+            let calls = parse_embedded_tool_calls(&current_output);
+            if calls.is_empty() {
+                // No tool calls — store final response and return
+                self.append_session_message(
+                    session_id,
+                    ConversationRole::Assistant,
+                    current_output.clone(),
+                )?;
+                self.apply_history_limit(session_id)?;
+                return Ok(PromptResponse {
+                    output: current_output,
+                    tokens: total_tokens,
+                });
+            }
+
+            // Store the assistant message (with tool calls included)
+            self.append_session_message(
+                session_id,
+                ConversationRole::Assistant,
+                current_output.clone(),
+            )?;
+
+            // Execute each embedded tool call
+            let mut reports = Vec::new();
+            for embedded_call in &calls {
+                if let Some(tool_call) = embedded_call.to_tool_call() {
+                    let result = match self.execute_tool_for_agent(session_id, tool_call.clone()) {
+                        Ok(result) => result.output,
+                        Err(e) => format!("error: {e}"),
+                    };
+                    reports.push(format!("[{}] {}", tool_call.name, truncate_preview(&result, 2000)));
+                    self.append_session_message(
+                        session_id,
+                        ConversationRole::Tool,
+                        format!("{} => {}", tool_call.name, truncate_preview(&result, 1200)),
+                    )?;
+                }
+            }
+
+            // Build summary and re-prompt
+            let clean_output = strip_embedded_tool_calls(&current_output);
+            let tool_summary = summarize_tool_execution_response(&clean_output, &reports);
+
+            // Auto-compaction check
+            self.maybe_auto_compact(session_id)?;
+
+            let follow_up = format!(
+                "Tool execution results (iteration {}/{}):\n{}\n\nContinue with the next steps. If done, provide the final summary without tool calls.",
+                iteration + 1,
+                MAX_AGENT_ITERATIONS,
+                tool_summary,
+            );
+
+            self.append_session_message(
+                session_id,
+                ConversationRole::System,
+                follow_up.clone(),
+            )?;
+
+            // Re-prompt the LLM
+            match self.provider.prompt(PromptRequest {
+                text: follow_up,
+                model: self.config.default_model.clone(),
+                system_prompt: None,
+                history: Vec::new(),
+            }) {
+                Ok(next_response) => {
+                    current_output = next_response.output;
+                    if let Some(new_tokens) = next_response.tokens {
+                        total_tokens = Some(match total_tokens {
+                            Some(existing) => octocode_core::TokenInfo::new(
+                                existing.input_tokens + new_tokens.input_tokens,
+                                existing.output_tokens + new_tokens.output_tokens,
+                            ),
+                            None => new_tokens,
+                        });
+                    }
+                }
+                Err(e) => {
+                    // On provider failure mid-loop, return what we have so far
+                    let partial = format!(
+                        "{}\n\n[agent loop interrupted at iteration {} — provider error: {}]",
+                        strip_embedded_tool_calls(&current_output),
+                        iteration + 1,
+                        e
+                    );
+                    self.append_session_message(
+                        session_id,
+                        ConversationRole::Assistant,
+                        partial.clone(),
+                    )?;
+                    self.apply_history_limit(session_id)?;
+                    return Ok(PromptResponse {
+                        output: partial,
+                        tokens: total_tokens,
+                    });
+                }
+            }
+        }
+
+        // Max iterations reached — return final output
+        let final_output = format!(
+            "{}\n\n[agent loop reached max iterations ({})]",
+            strip_embedded_tool_calls(&current_output),
+            MAX_AGENT_ITERATIONS
+        );
+        self.append_session_message(
+            session_id,
+            ConversationRole::Assistant,
+            final_output.clone(),
+        )?;
+        self.apply_history_limit(session_id)?;
+        Ok(PromptResponse {
+            output: final_output,
+            tokens: total_tokens,
+        })
+    }
+
+    /// Execute a tool call on behalf of the agent loop, respecting permissions.
+    fn execute_tool_for_agent(
+        &self,
+        session_id: &str,
+        mut call: ToolCall,
+    ) -> Result<ToolResult, OctoError> {
+        // Check runtime-level tools first
+        if let Some(result) = self.try_runtime_tool(&call)? {
+            return Ok(result);
+        }
+        let descriptor = self
+            .tool_descriptor(&call.name)
+            .ok_or_else(|| OctoError::Runtime(format!("unknown tool: {}", call.name)))?;
+        call.permission = descriptor.minimum_permission.clone();
+        self.ensure_permission(&call.permission, descriptor.name)?;
+        self.plugin_host.dispatch(PluginHook::BeforeTool {
+            session_id,
+            call: &call,
+        });
+        match self.tools.execute(call.clone()) {
+            Ok(result) => {
+                self.plugin_host.dispatch(PluginHook::AfterTool {
+                    session_id,
+                    call: &call,
+                    result: Ok(&result),
+                });
+                Ok(result)
+            }
+            Err(error) => {
+                self.plugin_host.dispatch(PluginHook::AfterTool {
+                    session_id,
+                    call: &call,
+                    result: Err(&error.to_string()),
+                });
+                Err(error)
+            }
+        }
+    }
+
+    /// Auto-compact session if token estimate exceeds threshold.
+    fn maybe_auto_compact(&self, session_id: &str) -> Result<(), OctoError> {
+        let session = self.sessions.load_session(session_id)?;
+        let estimated_tokens = estimate_conversation_tokens(&session.messages);
+        if estimated_tokens > AUTO_COMPACT_TOKEN_THRESHOLD {
+            let config = CompactionConfig::default();
+            if should_compact(&session.messages, &config) {
+                let result = compact_conversation(&session.messages, &config);
+                self.sessions.replace_messages(session_id, result.messages)?;
+                tracing::info!(
+                    session_id,
+                    compacted = result.compacted_count,
+                    "auto-compacted session"
+                );
+            }
+        }
+        Ok(())
+    }
+
     pub fn run_tool_in_session(
         &self,
         session_id: &str,
@@ -611,6 +739,16 @@ where
             return Ok(ToolResult {
                 output: response.output,
             });
+        }
+        // Intercept runtime-level tools that need coordinator/task_store access
+        if let Some(result) = self.try_runtime_tool(&call)? {
+            self.append_session_message(
+                session_id,
+                ConversationRole::Tool,
+                format!("{} => {}", call.name, result.output),
+            )?;
+            self.apply_history_limit(session_id)?;
+            return Ok(result);
         }
         let descriptor = self
             .tool_descriptor(&call.name)
@@ -701,6 +839,231 @@ where
 
     pub fn tools(&self) -> &[ToolDescriptor] {
         self.tool_catalog.descriptors()
+    }
+
+    pub fn skills(&self) -> Result<Vec<SkillDescriptor>, OctoError> {
+        let workspace_root = &self.platform.context().root;
+        let config_home = &self.platform.config_paths().config_home;
+        let registry = SkillRegistry::discover(workspace_root, config_home)
+            .map_err(OctoError::Runtime)?;
+        Ok(registry.skills().to_vec())
+    }
+
+    pub fn mcp_servers(&self) -> Result<Vec<McpServerStatus>, OctoError> {
+        let workspace_root = &self.platform.context().root;
+        let config_home = &self.platform.config_paths().config_home;
+        let registry = McpRegistry::discover(workspace_root, config_home)
+            .map_err(OctoError::Runtime)?;
+        Ok(registry.servers().to_vec())
+    }
+
+    pub fn task_submit(&self, kind: TaskKind, session_id: &str, label: &str) -> TaskRecord {
+        self.task_store.submit(kind, session_id, label)
+    }
+
+    pub fn task_start(&self, task_id: &str, summary: Option<String>) -> bool {
+        self.task_store.start(task_id, summary)
+    }
+
+    pub fn task_finish(&self, task_id: &str, state: TaskState, summary: Option<String>) -> bool {
+        self.task_store.finish(task_id, state, summary)
+    }
+
+    pub fn task_list(&self, session_filter: Option<&str>) -> Vec<TaskRecord> {
+        self.task_store.list(session_filter)
+    }
+
+    /// Handle tools that require runtime-level state (coordinator, task_store, cost_tracker).
+    /// Returns `Ok(Some(result))` if handled, `Ok(None)` to fall through to tool executor.
+    fn try_runtime_tool(&self, call: &ToolCall) -> Result<Option<ToolResult>, OctoError> {
+        match call.name.as_str() {
+            "team-delete" => {
+                let id = call.input.trim();
+                if id.is_empty() {
+                    return Err(OctoError::Runtime(String::from("team-delete requires a team ID")));
+                }
+                let deleted = self.coordinator.delete_team(id);
+                Ok(Some(ToolResult {
+                    output: if deleted {
+                        format!("deleted team '{id}'")
+                    } else {
+                        format!("team '{id}' not found")
+                    },
+                }))
+            }
+            "team-status" => {
+                let id = call.input.trim();
+                if id.is_empty() {
+                    return Err(OctoError::Runtime(String::from("team-status requires a team ID")));
+                }
+                let summary = self.coordinator.team_summary(id)
+                    .unwrap_or_else(|| format!("team '{id}' not found"));
+                Ok(Some(ToolResult { output: summary }))
+            }
+            "task-get" => {
+                let id = call.input.trim();
+                if id.is_empty() {
+                    return Err(OctoError::Runtime(String::from("task-get requires a task ID")));
+                }
+                let output = match self.task_store.get(id) {
+                    Some(rec) => format!(
+                        "task {}: {} [{}] (session: {}, created: {}ms)",
+                        rec.id,
+                        rec.label,
+                        match &rec.state {
+                            TaskState::Pending => "pending",
+                            TaskState::Running => "running",
+                            TaskState::Done => "done",
+                            TaskState::Failed => "failed",
+                        },
+                        rec.session_id,
+                        rec.created_at_ms
+                    ),
+                    None => format!("task '{id}' not found"),
+                };
+                Ok(Some(ToolResult { output }))
+            }
+            "cost-summary" => {
+                let total = self.cost_tracker.total_tokens();
+                let total_cost = self.cost_tracker.total_cost_usd();
+                Ok(Some(ToolResult {
+                    output: format!(
+                        "total tokens: {} in / {} out, estimated cost: ${:.4}",
+                        total.input_tokens, total.output_tokens, total_cost
+                    ),
+                }))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    pub fn prompt_stream_in_session(
+        &self,
+        session_id: &str,
+        text: &str,
+        on_token: &mut dyn FnMut(&str),
+    ) -> Result<PromptResponse, OctoError> {
+        use crate::tool_call_parser::{parse_embedded_tool_calls, strip_embedded_tool_calls};
+
+        self.ensure_session_exists(session_id)?;
+        self.maybe_auto_compact(session_id)?;
+        self.append_session_message(session_id, ConversationRole::User, String::from(text))?;
+
+        let request = PromptRequest {
+            text: String::from(text),
+            model: self.config.default_model.clone(),
+            system_prompt: None,
+            history: Vec::new(),
+        };
+
+        let response = self.provider.prompt(request)?;
+        let mut current_output = response.output.clone();
+        let mut total_tokens = response.tokens;
+
+        // Streaming agent loop with tool call detection
+        for _iteration in 0..MAX_AGENT_ITERATIONS {
+            let calls = parse_embedded_tool_calls(&current_output);
+            if calls.is_empty() {
+                // No tool calls — stream the final output
+                for chunk in current_output.split_inclusive(char::is_whitespace) {
+                    on_token(chunk);
+                }
+                self.append_session_message(
+                    session_id,
+                    ConversationRole::Assistant,
+                    current_output.clone(),
+                )?;
+                self.apply_history_limit(session_id)?;
+                return Ok(PromptResponse {
+                    output: current_output,
+                    tokens: total_tokens,
+                });
+            }
+
+            // Stream the non-tool-call parts
+            let visible = strip_embedded_tool_calls(&current_output);
+            if !visible.trim().is_empty() {
+                for chunk in visible.split_inclusive(char::is_whitespace) {
+                    on_token(chunk);
+                }
+            }
+
+            // Execute tool calls
+            self.append_session_message(
+                session_id,
+                ConversationRole::Assistant,
+                current_output.clone(),
+            )?;
+
+            let mut reports = Vec::new();
+            for embedded_call in &calls {
+                if let Some(tool_call) = embedded_call.to_tool_call() {
+                    on_token(&format!("\n[executing: {}]\n", tool_call.name));
+                    let result = match self.execute_tool_for_agent(session_id, tool_call.clone()) {
+                        Ok(result) => result.output,
+                        Err(e) => format!("error: {e}"),
+                    };
+                    reports.push(format!("[{}] {}", tool_call.name, truncate_preview(&result, 2000)));
+                    self.append_session_message(
+                        session_id,
+                        ConversationRole::Tool,
+                        format!("{} => {}", tool_call.name, truncate_preview(&result, 1200)),
+                    )?;
+                }
+            }
+
+            self.maybe_auto_compact(session_id)?;
+
+            let follow_up = format!(
+                "Tool results:\n{}\n\nContinue or provide final summary.",
+                reports.join("\n")
+            );
+            self.append_session_message(
+                session_id,
+                ConversationRole::System,
+                follow_up.clone(),
+            )?;
+
+            match self.provider.prompt(PromptRequest {
+                text: follow_up,
+                model: self.config.default_model.clone(),
+                system_prompt: None,
+                history: Vec::new(),
+            }) {
+                Ok(next) => {
+                    current_output = next.output;
+                    if let Some(new_tokens) = next.tokens {
+                        total_tokens = Some(match total_tokens {
+                            Some(existing) => octocode_core::TokenInfo::new(
+                                existing.input_tokens + new_tokens.input_tokens,
+                                existing.output_tokens + new_tokens.output_tokens,
+                            ),
+                            None => new_tokens,
+                        });
+                    }
+                }
+                Err(e) => {
+                    let msg = format!("\n[stream interrupted: {}]\n", e);
+                    on_token(&msg);
+                    break;
+                }
+            }
+        }
+
+        // Final output after loop
+        for chunk in strip_embedded_tool_calls(&current_output).split_inclusive(char::is_whitespace) {
+            on_token(chunk);
+        }
+        self.append_session_message(
+            session_id,
+            ConversationRole::Assistant,
+            current_output.clone(),
+        )?;
+        self.apply_history_limit(session_id)?;
+        Ok(PromptResponse {
+            output: current_output,
+            tokens: total_tokens,
+        })
     }
 
     pub fn workspace(&self) -> &WorkspaceContext {
@@ -1334,6 +1697,44 @@ fn collect_workspace_context(workspace: &WorkspaceContext) -> Result<Option<Stri
     let root = PathBuf::from(&workspace.root);
     let mut blocks = Vec::new();
 
+    // --- Hierarchical context file discovery (walk from root up to filesystem root) ---
+    // Collect ancestor context files in order: furthest ancestor first, project root last.
+    let mut ancestor_paths: Vec<PathBuf> = Vec::new();
+    {
+        let mut dir = root.parent();
+        while let Some(parent) = dir {
+            for relative in AUTO_CONTEXT_FILES {
+                let candidate = parent.join(relative);
+                if candidate.is_file() {
+                    ancestor_paths.push(candidate);
+                }
+            }
+            dir = parent.parent();
+        }
+    }
+    // Reverse so that furthest ancestor comes first (most general → most specific).
+    ancestor_paths.reverse();
+
+    // Load ancestor context files with a smaller limit to avoid bloating the prompt.
+    const ANCESTOR_CHAR_LIMIT: usize = 1500;
+    for path in &ancestor_paths {
+        if let Ok(raw) = fs::read_to_string(path) {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let display_path = path.display().to_string();
+            let excerpt = if trimmed.chars().count() > ANCESTOR_CHAR_LIMIT {
+                let prefix: String = trimmed.chars().take(ANCESTOR_CHAR_LIMIT).collect();
+                format!("{prefix}\n...[truncated at {ANCESTOR_CHAR_LIMIT} chars]")
+            } else {
+                String::from(trimmed)
+            };
+            blocks.push(format!("=== (ancestor) {display_path} ===\n{excerpt}"));
+        }
+    }
+
+    // --- Project root context files ---
     for relative in AUTO_CONTEXT_FILES {
         let path = root.join(relative);
         if !path.is_file() {
@@ -1347,12 +1748,29 @@ fn collect_workspace_context(workspace: &WorkspaceContext) -> Result<Option<Stri
             continue;
         }
         let excerpt = if trimmed.chars().count() > AUTO_CONTEXT_CHAR_LIMIT {
-            let prefix = trimmed.chars().take(AUTO_CONTEXT_CHAR_LIMIT).collect::<String>();
+            let prefix: String = trimmed.chars().take(AUTO_CONTEXT_CHAR_LIMIT).collect();
             format!("{prefix}\n...[truncated at {AUTO_CONTEXT_CHAR_LIMIT} chars]")
         } else {
             String::from(trimmed)
         };
         blocks.push(format!("=== {relative} ===\n{excerpt}"));
+    }
+
+    // --- .octocode/instructions.md (project-specific instructions, Claude Code v3 parity) ---
+    let instructions_path = root.join(".octocode").join("instructions.md");
+    if instructions_path.is_file() {
+        if let Ok(raw) = fs::read_to_string(&instructions_path) {
+            let trimmed = raw.trim();
+            if !trimmed.is_empty() {
+                let excerpt = if trimmed.chars().count() > AUTO_CONTEXT_CHAR_LIMIT {
+                    let prefix: String = trimmed.chars().take(AUTO_CONTEXT_CHAR_LIMIT).collect();
+                    format!("{prefix}\n...[truncated at {AUTO_CONTEXT_CHAR_LIMIT} chars]")
+                } else {
+                    String::from(trimmed)
+                };
+                blocks.push(format!("=== .octocode/instructions.md ===\n{excerpt}"));
+            }
+        }
     }
 
     let context = if blocks.is_empty() {
@@ -1383,388 +1801,6 @@ fn truncate_preview(value: &str, max_len: usize) -> String {
     let mut preview = value.chars().take(max_len).collect::<String>();
     preview.push_str(" ...");
     preview
-}
-
-fn parse_permission_mode(value: &str) -> PermissionMode {
-    match value {
-        "read-only" => PermissionMode::ReadOnly,
-        "danger-full-access" => PermissionMode::DangerFullAccess,
-        _ => PermissionMode::WorkspaceWrite,
-    }
-}
-
-fn permission_mode_label(mode: &PermissionMode) -> &'static str {
-    match mode {
-        PermissionMode::ReadOnly => "read-only",
-        PermissionMode::WorkspaceWrite => "workspace-write",
-        PermissionMode::DangerFullAccess => "danger-full-access",
-    }
-}
-
-fn escape_json(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\r', "\\r")
-        .replace('\n', "\\n")
-        .replace('\t', "\\t")
-}
-
-fn option_string_json(value: Option<&str>) -> String {
-    value
-        .map(|value| format!("\"{}\"", escape_json(value)))
-        .unwrap_or_else(|| String::from("null"))
-}
-
-fn provider_circuit_event_to_json(event: &ProviderCircuitEvent) -> String {
-    format!(
-        "{{\"atMs\":{},\"kind\":\"{:?}\",\"detail\":\"{}\"}}",
-        event.at_ms,
-        event.kind,
-        escape_json(&event.detail)
-    )
-}
-
-fn provider_circuit_to_json(circuit: &ProviderCircuitStatus) -> String {
-    format!(
-        concat!(
-            "{{",
-            "\"providerId\":\"{}\",",
-            "\"displayName\":\"{}\",",
-            "\"circuitState\":\"{:?}\",",
-            "\"failureCount\":{},",
-            "\"cooldownRemainingMs\":{},",
-            "\"recentFailureReason\":{},",
-            "\"lastOpenedAtMs\":{},",
-            "\"lastHalfOpenedAtMs\":{},",
-            "\"lastRecoveredAtMs\":{},",
-            "\"eventLog\":[{}]",
-            "}}"
-        ),
-        escape_json(&circuit.provider_id),
-        escape_json(&circuit.display_name),
-        circuit.circuit_state,
-        circuit.failure_count,
-        circuit
-            .cooldown_remaining_ms
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| String::from("null")),
-        option_string_json(circuit.recent_failure_reason.as_deref()),
-        circuit
-            .last_opened_at_ms
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| String::from("null")),
-        circuit
-            .last_half_opened_at_ms
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| String::from("null")),
-        circuit
-            .last_recovered_at_ms
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| String::from("null")),
-        circuit
-            .event_log
-            .iter()
-            .map(provider_circuit_event_to_json)
-            .collect::<Vec<_>>()
-            .join(",")
-    )
-}
-
-fn runtime_event_to_json(event: &RuntimeEvent) -> String {
-    format!(
-        concat!(
-            "{{",
-            "\"scope\":\"{}\",",
-            "\"message\":\"{}\",",
-            "\"atMs\":{}",
-            "}}"
-        ),
-        escape_json(&event.scope),
-        escape_json(&event.message),
-        event
-            .at_ms
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| String::from("null"))
-    )
-}
-
-fn provider_route_to_json(route: &ProviderRouteStatus) -> String {
-    format!(
-        concat!(
-            "{{",
-            "\"providerId\":\"{}\",",
-            "\"displayName\":\"{}\",",
-            "\"kind\":\"{:?}\",",
-            "\"healthy\":{},",
-            "\"circuitState\":\"{:?}\",",
-            "\"detail\":\"{}\",",
-            "\"latencyMs\":{},",
-            "\"isPrimary\":{},",
-            "\"isActive\":{}",
-            "}}"
-        ),
-        escape_json(&route.provider_id),
-        escape_json(&route.display_name),
-        route.kind,
-        route.healthy,
-        route.circuit_state,
-        escape_json(&route.detail),
-        route.latency_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null")),
-        route.is_primary,
-        route.is_active
-    )
-}
-
-fn snapshot_to_json(snapshot: &UiSnapshot) -> String {
-    let providers = snapshot
-        .providers
-        .iter()
-        .map(|provider| {
-            format!(
-                concat!(
-                    "{{",
-                    "\"id\":\"{}\",",
-                    "\"displayName\":\"{}\",",
-                    "\"kind\":\"{:?}\",",
-                    "\"supportsTools\":{},",
-                    "\"supportsStreaming\":{},",
-                    "\"capabilities\":{{",
-                    "\"chat\":{},",
-                    "\"streaming\":{},",
-                    "\"toolCalls\":{},",
-                    "\"sessionMemory\":{},",
-                    "\"jsonOutput\":{}",
-                    "}}",
-                    "}}"
-                ),
-                escape_json(&provider.id),
-                escape_json(&provider.display_name),
-                provider.kind,
-                provider.supports_tools,
-                provider.supports_streaming,
-                provider.capabilities.chat,
-                provider.capabilities.streaming,
-                provider.capabilities.tool_calls,
-                provider.capabilities.session_memory,
-                provider.capabilities.json_output
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    let commands = snapshot
-        .commands
-        .iter()
-        .map(|command| {
-            format!(
-                "{{\"name\":\"{}\",\"summary\":\"{}\"}}",
-                escape_json(command.name),
-                escape_json(command.summary)
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    let provider_healths = snapshot
-        .provider_healths
-        .iter()
-        .map(|health| {
-            format!(
-                concat!(
-                    "{{",
-                    "\"providerId\":\"{}\",",
-                    "\"displayName\":\"{}\",",
-                    "\"healthy\":{},",
-                    "\"detail\":\"{}\",",
-                    "\"model\":\"{}\",",
-                    "\"latencyMs\":{},",
-                    "\"circuitState\":\"{:?}\",",
-                    "\"failureCount\":{},",
-                    "\"cooldownRemainingMs\":{}",
-                    "}}"
-                ),
-                escape_json(&health.provider_id),
-                escape_json(&health.display_name),
-                health.healthy,
-                escape_json(&health.detail),
-                escape_json(health.model.as_deref().unwrap_or("")),
-                health
-                    .latency_ms
-                    .map(|value| value.to_string())
-                    .unwrap_or_else(|| String::from("null")),
-                health.circuit_state,
-                health.failure_count,
-                health
-                    .cooldown_remaining_ms
-                    .map(|value| value.to_string())
-                    .unwrap_or_else(|| String::from("null"))
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    let provider_circuits = snapshot
-        .provider_circuits
-        .iter()
-        .map(provider_circuit_to_json)
-        .collect::<Vec<_>>()
-        .join(",");
-    let provider_routes = snapshot
-        .provider_routes
-        .iter()
-        .map(provider_route_to_json)
-        .collect::<Vec<_>>()
-        .join(",");
-    let tools = snapshot
-        .tools
-        .iter()
-        .map(|tool| {
-            format!(
-                "{{\"name\":\"{}\",\"summary\":\"{}\",\"minimumPermission\":\"{:?}\"}}",
-                escape_json(tool.name),
-                escape_json(tool.summary),
-                tool.minimum_permission
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    let sessions = snapshot
-        .sessions
-        .iter()
-        .map(|session| {
-            format!(
-                "{{\"id\":\"{}\",\"title\":\"{}\",\"model\":\"{}\"}}",
-                escape_json(&session.id),
-                escape_json(&session.title),
-                escape_json(session.model.as_deref().unwrap_or(""))
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    let event_feed = snapshot
-        .event_feed
-        .iter()
-        .map(runtime_event_to_json)
-        .collect::<Vec<_>>()
-        .join(",");
-    let active_session = snapshot.active_session.as_ref().map(|session| {
-        let messages = session
-            .messages
-            .iter()
-            .map(|message| {
-                format!(
-                    "{{\"role\":\"{}\",\"content\":\"{}\"}}",
-                    message.role.as_str(),
-                    escape_json(&message.content)
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(",");
-        format!(
-            "{{\"summary\":{{\"id\":\"{}\",\"title\":\"{}\",\"model\":\"{}\"}},\"messages\":[{}]}}",
-            escape_json(&session.summary.id),
-            escape_json(&session.summary.title),
-            escape_json(session.summary.model.as_deref().unwrap_or("")),
-            messages
-        )
-    });
-
-    format!(
-        concat!(
-            "{{",
-            "\"status\":{{",
-            "\"providerId\":\"{}\",",
-            "\"activeProviderId\":\"{}\",",
-            "\"providerKind\":\"{:?}\",",
-            "\"platform\":\"{:?}\",",
-            "\"permissionMode\":\"{:?}\",",
-            "\"sessionCount\":{},",
-            "\"providerHealth\":{{",
-            "\"providerId\":\"{}\",",
-            "\"displayName\":\"{}\",",
-            "\"healthy\":{},",
-            "\"detail\":\"{}\",",
-            "\"model\":\"{}\",",
-            "\"latencyMs\":{},",
-            "\"circuitState\":\"{:?}\",",
-            "\"failureCount\":{},",
-            "\"cooldownRemainingMs\":{}",
-            "}}",
-            ",\"providerCircuit\":{}",
-            ",\"providerRoutes\":[{}]",
-            "}},",
-            "\"workspace\":{{",
-            "\"root\":\"{}\",",
-            "\"platform\":\"{:?}\",",
-            "\"shell\":\"{:?}\"",
-            "}},",
-            "\"config\":{{",
-            "\"providerId\":\"{}\",",
-            "\"providerBaseUrl\":\"{}\",",
-            "\"defaultModel\":\"{}\",",
-            "\"permissionMode\":\"{:?}\",",
-            "\"historyLimit\":{}",
-            "}},",
-            "\"providers\":[{}],",
-            "\"providerHealths\":[{}],",
-            "\"providerCircuits\":[{}],",
-            "\"providerRoutes\":[{}],",
-            "\"commands\":[{}],",
-            "\"tools\":[{}],",
-            "\"sessions\":[{}],",
-            "\"eventFeed\":[{}],",
-            "\"activeSession\":{}",
-            "}}"
-        ),
-        escape_json(&snapshot.status.provider_id),
-        escape_json(&snapshot.status.active_provider_id),
-        snapshot.status.provider_kind,
-        snapshot.status.platform,
-        snapshot.status.permission_mode,
-        snapshot.status.session_count,
-        escape_json(&snapshot.status.provider_health.provider_id),
-        escape_json(&snapshot.status.provider_health.display_name),
-        snapshot.status.provider_health.healthy,
-        escape_json(&snapshot.status.provider_health.detail),
-        escape_json(snapshot.status.provider_health.model.as_deref().unwrap_or("")),
-        snapshot
-            .status
-            .provider_health
-            .latency_ms
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| String::from("null")),
-        snapshot.status.provider_health.circuit_state,
-        snapshot.status.provider_health.failure_count,
-        snapshot
-            .status
-            .provider_health
-            .cooldown_remaining_ms
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| String::from("null")),
-        provider_circuit_to_json(&snapshot.status.provider_circuit),
-        snapshot
-            .status
-            .provider_routes
-            .iter()
-            .map(provider_route_to_json)
-            .collect::<Vec<_>>()
-            .join(","),
-        escape_json(&snapshot.workspace.root),
-        snapshot.workspace.platform,
-        snapshot.workspace.preferred_shell,
-        escape_json(snapshot.config.provider_id.as_deref().unwrap_or("")),
-        escape_json(snapshot.config.provider_base_url.as_deref().unwrap_or("")),
-        escape_json(snapshot.config.default_model.as_deref().unwrap_or("")),
-        snapshot.config.permission_mode,
-        snapshot.config.history_limit,
-        providers,
-        provider_healths,
-        provider_circuits,
-        provider_routes,
-        commands,
-        tools,
-        sessions,
-        event_feed,
-        active_session.unwrap_or_else(|| String::from("null"))
-    )
 }
 
 #[cfg(test)]

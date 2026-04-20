@@ -1,8 +1,8 @@
 use octocode_core::{
     CommandDescriptor, ConversationRole, ConversationSession, ConversationStore, DoctorReport,
-    ModelProvider, OctoError, OutputMode, PermissionMode, PromptResponse, ProviderCircuitStatus,
+    McpServerStatus, ModelProvider, OctoError, OutputMode, PermissionMode, PromptResponse, ProviderCircuitStatus,
     ProviderDescriptor, ProviderHealth, ProviderRouteStatus, RuntimeEvent, RuntimeStatus, SessionSummary, ToolDescriptor,
-    ToolExecutor, ToolResult, UiSnapshot, WorkspaceContext,
+    SkillDescriptor, ToolExecutor, ToolResult, UiSnapshot, WorkspaceContext,
 };
 use octocode_runtime::OctocodeRuntime;
 
@@ -21,6 +21,7 @@ pub enum CliCommand {
     Agent { session_id: String, text: String },
     Repl { session_id: String, text: String },
     Tools,
+    Skills,
     Workspace,
     Providers,
     Routes,
@@ -30,6 +31,7 @@ pub enum CliCommand {
     Status,
     Snapshot { session_id: Option<String> },
     Events { session_id: Option<String> },
+    Mcp { action: Option<String> },
     Permissions { mode: Option<String> },
     ConfigInit,
     ConfigShow,
@@ -53,14 +55,16 @@ pub enum CommandResponse {
     Session(ConversationSession),
     Tool(ToolResult),
     Tools(Vec<ToolDescriptor>),
+    Skills(Vec<SkillDescriptor>),
     Workspace(WorkspaceContext),
     Providers(Vec<ProviderDescriptor>),
     Routes(Vec<ProviderRouteStatus>),
     Circuits(Vec<ProviderCircuitStatus>),
     Health(Vec<ProviderHealth>),
     Doctor(DoctorReport),
-    Status(RuntimeStatus),
+    Status(Box<RuntimeStatus>),
     Events(Vec<RuntimeEvent>),
+    Mcp(Vec<McpServerStatus>),
     Permission(PermissionMode),
     ConfigInit(String),
     ConfigShow { path: String, content: String },
@@ -68,7 +72,66 @@ pub enum CommandResponse {
     UiExport(String),
     Help(Vec<CommandDescriptor>),
     Acknowledged(String),
-    Snapshot(UiSnapshot),
+    Snapshot(Box<UiSnapshot>),
+}
+
+pub const WEB_PORT_MIN: u16 = 990;
+pub const WEB_PORT_MAX: u16 = 999;
+pub const DEFAULT_WEB_PORT: u16 = 999;
+
+pub fn is_allowed_web_port(port: u16) -> bool {
+    (WEB_PORT_MIN..=WEB_PORT_MAX).contains(&port)
+}
+
+fn parse_web_command_args(args: Vec<String>) -> (u16, Option<String>) {
+    let mut port = DEFAULT_WEB_PORT;
+    let mut session_id: Option<String> = None;
+    let mut iter = args.into_iter();
+
+    while let Some(arg) = iter.next() {
+        if let Some(raw_port) = arg.strip_prefix("--port=") {
+            if let Ok(value) = raw_port.parse::<u16>() {
+                port = value;
+            }
+            continue;
+        }
+
+        if arg == "--port" {
+            if let Some(raw_port) = iter.next() {
+                if let Ok(value) = raw_port.parse::<u16>() {
+                    port = value;
+                }
+            }
+            continue;
+        }
+
+        if let Some(raw_session) = arg.strip_prefix("--session=") {
+            if !raw_session.trim().is_empty() {
+                session_id = Some(String::from(raw_session));
+            }
+            continue;
+        }
+
+        if arg == "--session" {
+            if let Some(value) = iter.next() {
+                if !value.trim().is_empty() {
+                    session_id = Some(value);
+                }
+            }
+            continue;
+        }
+
+        if let Ok(value) = arg.parse::<u16>() {
+            port = value;
+            continue;
+        }
+
+        if session_id.is_none() && !arg.trim().is_empty() {
+            session_id = Some(arg);
+        }
+    }
+
+    (port, session_id)
 }
 
 pub fn parse_cli_args<I>(args: I) -> ParsedCli
@@ -131,6 +194,7 @@ where
             CliCommand::Repl { session_id, text }
         }
         Some("tools") => CliCommand::Tools,
+        Some("skills") => CliCommand::Skills,
         Some("workspace") => CliCommand::Workspace,
         Some("providers") => CliCommand::Providers,
         Some("routes") => CliCommand::Routes,
@@ -140,6 +204,7 @@ where
         Some("status") => CliCommand::Status,
         Some("snapshot") => CliCommand::Snapshot { session_id: args.next() },
         Some("events") => CliCommand::Events { session_id: args.next() },
+        Some("mcp") => CliCommand::Mcp { action: args.next() },
         Some("permissions") => CliCommand::Permissions { mode: args.next() },
         Some("config-init") => CliCommand::ConfigInit,
         Some("config-show") => CliCommand::ConfigShow,
@@ -151,19 +216,11 @@ where
             CliCommand::UiExport { path, session_id }
         }
         Some("serve") => {
-            let port = args
-                .next()
-                .and_then(|value| value.parse::<u16>().ok())
-                .unwrap_or(999);
-            let session_id = args.next();
+            let (port, session_id) = parse_web_command_args(args.collect::<Vec<_>>());
             CliCommand::Serve { port, session_id }
         }
         Some("desktop") => {
-            let port = args
-                .next()
-                .and_then(|value| value.parse::<u16>().ok())
-                .unwrap_or(999);
-            let session_id = args.next();
+            let (port, session_id) = parse_web_command_args(args.collect::<Vec<_>>());
             CliCommand::Desktop { port, session_id }
         }
         Some("commands") => CliCommand::Commands,
@@ -191,6 +248,8 @@ where
                     text
                 },
                 model: runtime.config().default_model.clone(),
+                system_prompt: None,
+                history: vec![],
             },
         )?)),
         CliCommand::Chat { session_id, text } => {
@@ -274,19 +333,29 @@ where
             Ok(CommandResponse::Session(runtime.session(&session_id)?))
         }
         CliCommand::Tools => Ok(CommandResponse::Tools(runtime.tools().to_vec())),
+        CliCommand::Skills => Ok(CommandResponse::Skills(runtime.skills()?)),
         CliCommand::Workspace => Ok(CommandResponse::Workspace(runtime.workspace().clone())),
         CliCommand::Providers => Ok(CommandResponse::Providers(runtime.providers().to_vec())),
         CliCommand::Routes => Ok(CommandResponse::Routes(runtime.provider_routes())),
         CliCommand::CircuitLog => Ok(CommandResponse::Circuits(runtime.provider_circuits())),
         CliCommand::Health => Ok(CommandResponse::Health(runtime.provider_healths())),
         CliCommand::Doctor => Ok(CommandResponse::Doctor(runtime.doctor())),
-        CliCommand::Status => Ok(CommandResponse::Status(runtime.status()?)),
-        CliCommand::Snapshot { session_id } => Ok(CommandResponse::Snapshot(
+        CliCommand::Status => Ok(CommandResponse::Status(Box::new(runtime.status()?))),
+        CliCommand::Snapshot { session_id } => Ok(CommandResponse::Snapshot(Box::new(
             runtime.snapshot(session_id.as_deref())?,
-        )),
+        ))),
         CliCommand::Events { session_id } => Ok(CommandResponse::Events(
             runtime.event_feed(session_id.as_deref())?,
         )),
+        CliCommand::Mcp { action } => {
+            let action = action.unwrap_or_else(|| String::from("list"));
+            match action.as_str() {
+                "list" => Ok(CommandResponse::Mcp(runtime.mcp_servers()?)),
+                _ => Err(OctoError::Runtime(format!(
+                    "unsupported mcp action: {action} (supported: list)"
+                ))),
+            }
+        }
         CliCommand::Permissions { mode } => {
             if let Some(mode) = mode {
                 let parsed = match mode.as_str() {
@@ -348,6 +417,19 @@ pub fn render_text(response: &CommandResponse) -> String {
         CommandResponse::Tools(tools) => tools
             .iter()
             .map(|tool| format!("{} - {} ({:?})", tool.name, tool.summary, tool.minimum_permission))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        CommandResponse::Skills(skills) => skills
+            .iter()
+            .map(|skill| {
+                format!(
+                    "{} [{}] - {} ({})",
+                    skill.id,
+                    skill.scope.as_str(),
+                    skill.summary,
+                    skill.path
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n"),
         CommandResponse::Workspace(workspace) => format!(
@@ -452,7 +534,7 @@ pub fn render_text(response: &CommandResponse) -> String {
             format!("provider.route.count={}", report.provider_routes.len()),
         ]
         .join("\n"),
-        CommandResponse::Status(status) => vec![
+        CommandResponse::Status(status) => [
             String::from("Octocode Status"),
             format!("provider.id={}", status.provider_id),
             format!("provider.active={}", status.active_provider_id),
@@ -472,6 +554,26 @@ pub fn render_text(response: &CommandResponse) -> String {
             })
             .collect::<Vec<_>>()
             .join("\n"),
+        CommandResponse::Mcp(servers) => {
+            if servers.is_empty() {
+                return String::from("no MCP servers configured under .octocode/mcp, mcp, or config_home/mcp");
+            }
+            servers
+                .iter()
+                .map(|server| {
+                    format!(
+                        "{} transport={} state={} trusted={} source={} detail={}",
+                        server.descriptor.id,
+                        server.descriptor.transport.as_str(),
+                        server.state.as_str(),
+                        server.descriptor.trusted,
+                        server.descriptor.manifest_path,
+                        server.detail,
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
         CommandResponse::Permission(mode) => format!("{:?}", mode),
         CommandResponse::ConfigInit(path) => path.clone(),
         CommandResponse::ConfigShow { path, content } => format!("{}\n{}", path, content),
@@ -714,6 +816,58 @@ pub fn render_json(response: &CommandResponse) -> String {
                     escape_json(&event.scope),
                     escape_json(&event.message),
                     event.at_ms.map(|value| value.to_string()).unwrap_or_else(|| String::from("null"))
+                ))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        CommandResponse::Mcp(servers) => format!(
+            "{{\"kind\":\"mcp\",\"items\":[{}]}}",
+            servers
+                .iter()
+                .map(|server| format!(
+                    concat!(
+                        "{{",
+                        "\"id\":\"{}\",",
+                        "\"transport\":\"{}\",",
+                        "\"state\":\"{}\",",
+                        "\"trusted\":{},",
+                        "\"command\":{},",
+                        "\"endpoint\":{},",
+                        "\"description\":{},",
+                        "\"manifestPath\":\"{}\",",
+                        "\"detail\":\"{}\"",
+                        "}}"
+                    ),
+                    escape_json(&server.descriptor.id),
+                    server.descriptor.transport.as_str(),
+                    server.state.as_str(),
+                    server.descriptor.trusted,
+                    option_json_string(server.descriptor.command.as_deref()),
+                    option_json_string(server.descriptor.endpoint.as_deref()),
+                    option_json_string(server.descriptor.description.as_deref()),
+                    escape_json(&server.descriptor.manifest_path),
+                    escape_json(&server.detail),
+                ))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        CommandResponse::Skills(skills) => format!(
+            "{{\"kind\":\"skills\",\"items\":[{}]}}",
+            skills
+                .iter()
+                .map(|skill| format!(
+                    concat!(
+                        "{{",
+                        "\"id\":\"{}\",",
+                        "\"summary\":\"{}\",",
+                        "\"path\":\"{}\",",
+                        "\"scope\":\"{}\"",
+                        "}}"
+                    ),
+                    escape_json(&skill.id),
+                    escape_json(&skill.summary),
+                    escape_json(&skill.path),
+                    skill.scope.as_str(),
                 ))
                 .collect::<Vec<_>>()
                 .join(",")
@@ -1077,17 +1231,58 @@ fn render_snapshot_json(snapshot: &UiSnapshot) -> String {
 }
 
 fn escape_json(input: &str) -> String {
-    input
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\r', "\\r")
-        .replace('\n', "\\n")
-        .replace('\t', "\\t")
+    let mut result = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '\\' => result.push_str("\\\\"),
+            '"' => result.push_str("\\\""),
+            '\r' => result.push_str("\\r"),
+            '\n' => result.push_str("\\n"),
+            '\t' => result.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                result.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c => result.push(c),
+        }
+    }
+    result
+}
+
+fn tokenize_command_line(input: &str) -> Vec<String> {
+    input.split_whitespace().map(String::from).collect()
+}
+
+fn nested_repl_command(command: CliCommand) -> Result<CliCommand, OctoError> {
+    match command {
+        CliCommand::Status
+        | CliCommand::Health
+        | CliCommand::Providers
+        | CliCommand::Routes
+        | CliCommand::Snapshot { .. }
+        | CliCommand::Events { .. }
+        | CliCommand::Mcp { .. }
+        | CliCommand::Tools
+        | CliCommand::Skills
+        | CliCommand::Workspace
+        | CliCommand::Commands
+        | CliCommand::Doctor
+        | CliCommand::CircuitLog
+        | CliCommand::Sessions => Ok(command),
+        _ => Err(OctoError::Runtime(String::from(
+            "repl currently supports status/health/providers/routes/snapshot/events/mcp/tools/skills/workspace/commands/doctor/circuit-log/sessions",
+        ))),
+    }
+}
+
+fn option_json_string(value: Option<&str>) -> String {
+    value
+        .map(|value| format!("\"{}\"", escape_json(value)))
+        .unwrap_or_else(|| String::from("null"))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_cli_args, CliCommand};
+    use super::{parse_cli_args, CliCommand, DEFAULT_WEB_PORT};
 
     #[test]
     fn parses_json_output_flag() {
@@ -1105,13 +1300,46 @@ mod tests {
             String::from("999"),
             String::from("demo"),
         ]);
-        assert!(matches!(parsed.command, CliCommand::Serve { port: 999, .. }));
+        assert!(matches!(parsed.command, CliCommand::Serve { port: 999, session_id } if session_id.as_deref() == Some("demo")));
     }
 
     #[test]
     fn parses_desktop_command_with_default_port() {
         let parsed = parse_cli_args(vec![String::from("desktop")]);
-        assert!(matches!(parsed.command, CliCommand::Desktop { port: 999, .. }));
+        assert!(matches!(parsed.command, CliCommand::Desktop { port: DEFAULT_WEB_PORT, .. }));
+    }
+
+    #[test]
+    fn parses_serve_command_with_flag_syntax() {
+        let parsed = parse_cli_args(vec![
+            String::from("serve"),
+            String::from("--port"),
+            String::from("995"),
+            String::from("--session"),
+            String::from("demo"),
+        ]);
+        assert!(matches!(parsed.command, CliCommand::Serve { port: 995, session_id } if session_id.as_deref() == Some("demo")));
+    }
+
+    #[test]
+    fn parses_desktop_command_with_equals_flag_syntax() {
+        let parsed = parse_cli_args(vec![
+            String::from("desktop"),
+            String::from("--session=demo"),
+            String::from("--port=996"),
+        ]);
+        assert!(matches!(parsed.command, CliCommand::Desktop { port: 996, session_id } if session_id.as_deref() == Some("demo")));
+    }
+
+    #[test]
+    fn out_of_range_port_is_preserved_for_runtime_validation() {
+        let parsed = parse_cli_args(vec![
+            String::from("serve"),
+            String::from("--port"),
+            String::from("1200"),
+            String::from("demo"),
+        ]);
+        assert!(matches!(parsed.command, CliCommand::Serve { port: 1200, session_id } if session_id.as_deref() == Some("demo")));
     }
 
     #[test]
@@ -1124,34 +1352,4 @@ mod tests {
         ]);
         assert!(matches!(parsed.command, CliCommand::Workflow { session_id, .. } if session_id == "demo"));
     }
-}
-
-fn tokenize_command_line(input: &str) -> Vec<String> {
-    input.split_whitespace().map(String::from).collect()
-}
-
-fn nested_repl_command(command: CliCommand) -> Result<CliCommand, OctoError> {
-    match command {
-        CliCommand::Status
-        | CliCommand::Health
-        | CliCommand::Providers
-        | CliCommand::Routes
-        | CliCommand::Snapshot { .. }
-        | CliCommand::Events { .. }
-        | CliCommand::Tools
-        | CliCommand::Workspace
-        | CliCommand::Commands
-        | CliCommand::Doctor
-        | CliCommand::CircuitLog
-        | CliCommand::Sessions => Ok(command),
-        _ => Err(OctoError::Runtime(String::from(
-            "repl currently supports status/health/providers/routes/snapshot/events/tools/workspace/commands/doctor/circuit-log/sessions",
-        ))),
-    }
-}
-
-fn option_json_string(value: Option<&str>) -> String {
-    value
-        .map(|value| format!("\"{}\"", escape_json(value)))
-        .unwrap_or_else(|| String::from("null"))
 }

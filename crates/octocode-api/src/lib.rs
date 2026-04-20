@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -12,10 +11,12 @@ use octocode_core::{
 const DEFAULT_LOCAL_BASE_URL: &str = "http://192.168.110.2:8000/v1";
 const DEFAULT_REMOTE_BASE_URL: &str = "https://api.openai.com/v1";
 const DEFAULT_OLLAMA_BASE_URL: &str = "http://127.0.0.1:11434/v1";
+const DEFAULT_LINKMIND_BASE_URL: &str = "http://127.0.0.1:8080/v1";
 const DEFAULT_LOCAL_MODEL: &str = "gemma-4-31b-it-q8-prod";
 const DEFAULT_OLLAMA_MODEL: &str = "qwen2.5-coder:14b";
 const CIRCUIT_FAILURE_THRESHOLD: u32 = 2;
-const CIRCUIT_COOLDOWN: Duration = Duration::from_secs(30);
+const CIRCUIT_BASE_COOLDOWN_SECS: u64 = 5;
+const CIRCUIT_MAX_COOLDOWN_SECS: u64 = 120;
 const HEALTH_CACHE_TTL: Duration = Duration::from_secs(5);
 
 static CIRCUIT_BREAKERS: OnceLock<Mutex<HashMap<String, CircuitState>>> = OnceLock::new();
@@ -86,6 +87,13 @@ fn health_cache_book() -> &'static Mutex<HashMap<String, HealthCacheEntry>> {
     HEALTH_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Remove expired entries from the health cache to prevent unbounded growth.
+fn evict_stale_health_cache() {
+    if let Ok(mut cache) = health_cache_book().lock() {
+        cache.retain(|_, entry| entry.captured_at.elapsed() < HEALTH_CACHE_TTL);
+    }
+}
+
 impl OpenAiCompatibleProvider {
     fn new(
         descriptor: ProviderDescriptor,
@@ -120,6 +128,7 @@ impl OpenAiCompatibleProvider {
     }
 
     fn probe(&self) -> ProviderHealth {
+        evict_stale_health_cache();
         if let Some(cached) = health_cache_book()
             .lock()
             .expect("health cache lock poisoned")
@@ -158,7 +167,9 @@ impl OpenAiCompatibleProvider {
 
         let started_at = Instant::now();
         let models_url = format!("{}/models", self.base_url.trim_end_matches('/'));
-        match run_curl_request("GET", &models_url, None, self.api_token.as_deref()) {
+        // Use a short timeout for health probes so the WebUI /api/health
+        // endpoint responds quickly even when providers are unreachable.
+        match run_health_probe(&models_url, self.api_token.as_deref()) {
             Ok(body) => {
                 self.reset_circuit();
                 let health = self.health_from_snapshot(
@@ -299,7 +310,11 @@ impl OpenAiCompatibleProvider {
             detail.clone(),
         );
         if state.consecutive_failures >= CIRCUIT_FAILURE_THRESHOLD {
-            state.open_until = Some(now + CIRCUIT_COOLDOWN);
+            // Exponential backoff: 5s, 10s, 20s, 40s, 80s, 120s (capped)
+            let exponent = (state.consecutive_failures - CIRCUIT_FAILURE_THRESHOLD).min(6);
+            let cooldown_secs = (CIRCUIT_BASE_COOLDOWN_SECS * (1 << exponent)).min(CIRCUIT_MAX_COOLDOWN_SECS);
+            let cooldown = Duration::from_secs(cooldown_secs);
+            state.open_until = Some(now + cooldown);
             state.last_opened_at_ms = Some(now_ms);
             push_event(
                 &mut state.event_log,
@@ -307,7 +322,7 @@ impl OpenAiCompatibleProvider {
                 format!(
                     "circuit opened after {} failures; cooling down for {}ms",
                     state.consecutive_failures,
-                    CIRCUIT_COOLDOWN.as_millis()
+                    cooldown.as_millis()
                 ),
             );
         } else {
@@ -426,6 +441,12 @@ pub struct ProviderRegistry {
     providers: Vec<ProviderDescriptor>,
 }
 
+impl Default for ProviderRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProviderRegistry {
     pub fn new() -> Self {
         Self {
@@ -461,6 +482,14 @@ impl ProviderRegistry {
                     supports_tools: false,
                     supports_streaming: true,
                     capabilities: ProviderCapabilities::compatible(true, false),
+                },
+                ProviderDescriptor {
+                    id: String::from("linkmind"),
+                    display_name: String::from("LinkMind Agent Mate"),
+                    kind: ProviderKind::LinkMind,
+                    supports_tools: true,
+                    supports_streaming: true,
+                    capabilities: ProviderCapabilities::compatible(true, true),
                 },
             ],
         }
@@ -500,6 +529,8 @@ impl ProviderRegistry {
                 default_model: None,
                 permission_mode: octocode_core::PermissionMode::WorkspaceWrite,
                 history_limit: 24,
+                denied_tools: Vec::new(),
+                request_timeout_secs: 90,
             },
         )
     }
@@ -554,6 +585,42 @@ impl ProviderRegistry {
                             .unwrap_or_else(|| String::from(DEFAULT_REMOTE_BASE_URL)),
                         std::env::var("OCTOCODE_API_TOKEN").ok(),
                         config.default_model.clone(),
+                    )),
+                    BuiltinProvider::Stub(StubProvider::new(
+                        self.providers.iter().find(|provider| provider.id == "stub")?.clone(),
+                    )),
+                ],
+            )),
+            "linkmind" => BuiltinProvider::Fallback(FallbackProvider::new(
+                descriptor.clone(),
+                vec![
+                    BuiltinProvider::OpenAiCompatible(OpenAiCompatibleProvider::new(
+                        descriptor,
+                        config
+                            .provider_base_url
+                            .clone()
+                            .or_else(|| std::env::var("OCTOCODE_LINKMIND_BASE_URL").ok())
+                            .unwrap_or_else(|| String::from(DEFAULT_LINKMIND_BASE_URL)),
+                        std::env::var("OCTOCODE_LINKMIND_API_KEY")
+                            .ok()
+                            .or_else(|| std::env::var("OCTOCODE_API_TOKEN").ok()),
+                        config.default_model.clone(),
+                    )),
+                    BuiltinProvider::OpenAiCompatible(OpenAiCompatibleProvider::new(
+                        self.providers
+                            .iter()
+                            .find(|provider| provider.id == "local-openai")?
+                            .clone(),
+                        std::env::var("OCTOCODE_PROVIDER_BASE_URL")
+                            .ok()
+                            .unwrap_or_else(|| String::from(DEFAULT_LOCAL_BASE_URL)),
+                        std::env::var("OCTOCODE_LOCAL_API_TOKEN")
+                            .ok()
+                            .or_else(|| std::env::var("OCTOCODE_API_TOKEN").ok()),
+                        config
+                            .default_model
+                            .clone()
+                            .or_else(|| Some(String::from(DEFAULT_LOCAL_MODEL))),
                     )),
                     BuiltinProvider::Stub(StubProvider::new(
                         self.providers.iter().find(|provider| provider.id == "stub")?.clone(),
@@ -684,6 +751,18 @@ impl ModelProvider for BuiltinProvider {
         }
     }
 
+    fn prompt_stream(
+        &self,
+        request: PromptRequest,
+        on_token: &mut dyn FnMut(&str),
+    ) -> Result<PromptResponse, OctoError> {
+        match self {
+            Self::Stub(provider) => provider.prompt_stream(request, on_token),
+            Self::OpenAiCompatible(provider) => provider.prompt_stream(request, on_token),
+            Self::Fallback(provider) => provider.prompt_stream(request, on_token),
+        }
+    }
+
     fn active_provider_id(&self) -> String {
         match self {
             Self::Stub(provider) => provider.active_provider_id(),
@@ -782,17 +861,12 @@ impl ModelProvider for OpenAiCompatibleProvider {
             return Err(OctoError::Provider(self.circuit_detail(&snapshot)));
         }
 
+        let messages_json = build_messages_json(&request);
         let model = self.resolve_model(request.model)?;
         let body = format!(
-            concat!(
-                "{{",
-                "\"model\":\"{}\",",
-                "\"messages\":[{{\"role\":\"user\",\"content\":\"{}\"}}],",
-                "\"temperature\":0.2",
-                "}}"
-            ),
+            "{{\"model\":\"{}\",\"messages\":[{}],\"temperature\":0.2}}",
             escape_json(&model),
-            escape_json(&request.text)
+            messages_json,
         );
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
         let response = run_curl_request("POST", &url, Some(&body), self.api_token.as_deref())
@@ -808,6 +882,40 @@ impl ModelProvider for OpenAiCompatibleProvider {
         })?;
         self.reset_circuit();
         Ok(PromptResponse { output, tokens: None })
+    }
+
+    fn prompt_stream(
+        &self,
+        request: PromptRequest,
+        on_token: &mut dyn FnMut(&str),
+    ) -> Result<PromptResponse, OctoError> {
+        let snapshot = self.snapshot_circuit();
+        if snapshot.state == ProviderCircuitState::Open {
+            return Err(OctoError::Provider(self.circuit_detail(&snapshot)));
+        }
+
+        let messages_json = build_messages_json(&request);
+        let model = self.resolve_model(request.model)?;
+        let body = format!(
+            "{{\"model\":\"{}\",\"messages\":[{}],\"temperature\":0.2,\"stream\":true}}",
+            escape_json(&model),
+            messages_json,
+        );
+        let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
+
+        match run_curl_stream_request("POST", &url, &body, self.api_token.as_deref(), on_token) {
+            Ok(full_output) => {
+                self.reset_circuit();
+                Ok(PromptResponse {
+                    output: full_output,
+                    tokens: None,
+                })
+            }
+            Err(error) => {
+                let snapshot = self.record_failure(error.to_string());
+                Err(OctoError::Provider(self.circuit_detail(&snapshot)))
+            }
+        }
     }
 
     fn health(&self) -> ProviderHealth {
@@ -897,44 +1005,98 @@ fn run_curl_request(
     body: Option<&str>,
     token: Option<&str>,
 ) -> Result<String, OctoError> {
-    if cfg!(target_os = "windows") {
-        return run_powershell_request(method, url, body, token);
-    }
+    run_native_request(method, url, body, token, None)
+}
 
-    let mut command = Command::new("curl");
-    command
-        .arg("-sS")
-        .arg("--retry")
-        .arg("2")
-        .arg("--retry-delay")
-        .arg("1")
-        .arg("--max-time")
-        .arg("90");
-    command.arg("-X").arg(method);
-    command.arg(url);
-    command.arg("-H").arg("Content-Type: application/json");
+/// Native HTTP client using `ureq` — replaces curl/powershell subprocess.
+fn run_native_request(
+    method: &str,
+    url: &str,
+    body: Option<&str>,
+    token: Option<&str>,
+    timeout_secs: Option<u64>,
+) -> Result<String, OctoError> {
+    let read_timeout = timeout_secs.unwrap_or(90);
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(std::time::Duration::from_secs(10))
+        .timeout_read(std::time::Duration::from_secs(read_timeout))
+        .timeout_write(std::time::Duration::from_secs(30))
+        .build();
+
+    let mut request = match method.to_uppercase().as_str() {
+        "POST" => agent.post(url),
+        "PUT" => agent.put(url),
+        "DELETE" => agent.delete(url),
+        _ => agent.get(url),
+    };
+
+    request = request.set("Content-Type", "application/json");
+
     if let Some(token) = token {
-        command
-            .arg("-H")
-            .arg(format!("Authorization: Bearer {token}"));
-    }
-    if let Some(body) = body {
-        command.arg("-d").arg(body);
+        if !token.is_empty() {
+            request = request.set("Authorization", &format!("Bearer {token}"));
+        }
     }
 
-    let output = command.output().map_err(|error| {
-        OctoError::Provider(format!("failed to launch curl for {} {}: {error}", method, url))
-    })?;
+    let response = if let Some(body) = body {
+        request.send_string(body)
+    } else {
+        request.call()
+    };
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(OctoError::Provider(format!(
-            "curl request failed for {} {}: {}",
-            method, url, stderr
-        )));
+    match response {
+        Ok(resp) => {
+            let text = resp.into_string().map_err(|e| {
+                OctoError::Provider(format!("failed to read response body from {url}: {e}"))
+            })?;
+            Ok(text)
+        }
+        Err(ureq::Error::Status(code, resp)) => {
+            let detail = resp.into_string().unwrap_or_default();
+            Err(OctoError::Provider(format!(
+                "HTTP {code} from {method} {url}: {detail}"
+            )))
+        }
+        Err(ureq::Error::Transport(transport)) => {
+            Err(OctoError::Provider(format!(
+                "transport error for {method} {url}: {transport}"
+            )))
+        }
+    }
+}
+
+/// Health probe with a short timeout (3s connect, 5s read) so the WebUI
+/// /api/health endpoint stays responsive even with unreachable providers.
+fn run_health_probe(url: &str, token: Option<&str>) -> Result<String, OctoError> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(std::time::Duration::from_secs(3))
+        .timeout_read(std::time::Duration::from_secs(5))
+        .timeout_write(std::time::Duration::from_secs(5))
+        .build();
+
+    let mut request = agent.get(url);
+    request = request.set("Content-Type", "application/json");
+    if let Some(token) = token {
+        if !token.is_empty() {
+            request = request.set("Authorization", &format!("Bearer {token}"));
+        }
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    match request.call() {
+        Ok(resp) => {
+            let text = resp
+                .into_string()
+                .map_err(|e| OctoError::Provider(format!("failed to read response body from {url}: {e}")))?;
+            Ok(text)
+        }
+        Err(ureq::Error::Status(code, resp)) => {
+            let detail = resp.into_string().unwrap_or_default();
+            Err(OctoError::Provider(format!("HTTP {code} from GET {url}: {detail}")))
+        }
+        Err(ureq::Error::Transport(transport)) => {
+            Err(OctoError::Provider(format!("transport error for GET {url}: {transport}")))
+        }
+    }
 }
 
 fn circuit_book() -> &'static Mutex<HashMap<String, CircuitState>> {
@@ -958,6 +1120,154 @@ fn push_event(log: &mut Vec<ProviderCircuitEvent>, kind: ProviderCircuitEventKin
         let drain_count = log.len() - 24;
         log.drain(0..drain_count);
     }
+}
+
+/// Native streaming HTTP request using `ureq`. Reads response body line by line,
+/// parses SSE `data: {json}` lines, extracts delta content, and calls `on_token`.
+/// Returns the accumulated full output text.
+fn run_curl_stream_request(
+    _method: &str,
+    url: &str,
+    body: &str,
+    token: Option<&str>,
+    on_token: &mut dyn FnMut(&str),
+) -> Result<String, OctoError> {
+    use std::io::{BufRead, BufReader};
+
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(std::time::Duration::from_secs(10))
+        .timeout_read(std::time::Duration::from_secs(120))
+        .timeout_write(std::time::Duration::from_secs(30))
+        .build();
+
+    let mut request = agent.post(url);
+    request = request.set("Content-Type", "application/json");
+    request = request.set("Accept", "text/event-stream");
+
+    if let Some(token) = token {
+        if !token.is_empty() {
+            request = request.set("Authorization", &format!("Bearer {token}"));
+        }
+    }
+
+    let response = request.send_string(body).map_err(|e| {
+        OctoError::Provider(format!("streaming request failed for {url}: {e}"))
+    })?;
+
+    let reader = BufReader::new(response.into_reader());
+    let mut full_output = String::new();
+
+    for line in reader.lines() {
+        let line = line.map_err(|e| OctoError::Provider(format!("stream read error: {e}")))?;
+        let trimmed = line.trim();
+
+        if trimmed == "data: [DONE]" {
+            break;
+        }
+
+        if let Some(json_str) = trimmed.strip_prefix("data: ") {
+            if let Some(delta) = extract_stream_delta(json_str) {
+                on_token(&delta);
+                full_output.push_str(&delta);
+            }
+        }
+    }
+
+    Ok(full_output)
+}
+
+/// Extract the `choices[0].delta.content` from a streaming SSE chunk.
+fn extract_stream_delta(json_str: &str) -> Option<String> {
+    let delta_marker = "\"delta\"";
+    let delta_pos = json_str.find(delta_marker)?;
+    let after_delta = &json_str[delta_pos..];
+    extract_json_string_after(after_delta, "\"content\":\"")
+}
+
+fn first_model_id(body: &str) -> Option<String> {
+    let data_index = body.find("\"data\"")?;
+    let data_slice = &body[data_index..];
+    extract_json_string_after(data_slice, "\"id\":\"")
+}
+
+fn extract_message_content(body: &str) -> Option<String> {
+    let message_index = body.find("\"message\"")?;
+    let message_slice = &body[message_index..];
+    extract_json_string_after(message_slice, "\"content\":\"")
+}
+
+fn extract_json_string_after(body: &str, marker: &str) -> Option<String> {
+    let start = body.find(marker)? + marker.len();
+    let bytes = body.as_bytes();
+    let mut index = start;
+    let mut escaped = false;
+    let mut output = String::new();
+
+    while index < bytes.len() {
+        let ch = bytes[index] as char;
+        if escaped {
+            output.push(match ch {
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                '"' => '"',
+                '\\' => '\\',
+                other => other,
+            });
+            escaped = false;
+        } else if ch == '\\' {
+            escaped = true;
+        } else if ch == '"' {
+            return Some(output);
+        } else {
+            output.push(ch);
+        }
+        index += 1;
+    }
+
+    None
+}
+
+/// Build a JSON messages array string from a PromptRequest.
+/// Includes system_prompt (if present), history, and the current user text.
+fn build_messages_json(request: &PromptRequest) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(sys) = &request.system_prompt {
+        parts.push(format!(
+            "{{\"role\":\"system\",\"content\":\"{}\"}}",
+            escape_json(sys)
+        ));
+    }
+    for (role, content) in &request.history {
+        parts.push(format!(
+            "{{\"role\":\"{}\",\"content\":\"{}\"}}",
+            role.as_str(),
+            escape_json(content)
+        ));
+    }
+    parts.push(format!(
+        "{{\"role\":\"user\",\"content\":\"{}\"}}",
+        escape_json(&request.text)
+    ));
+    parts.join(",")
+}
+
+fn escape_json(value: &str) -> String {
+    let mut result = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\\' => result.push_str("\\\\"),
+            '"' => result.push_str("\\\""),
+            '\r' => result.push_str("\\r"),
+            '\n' => result.push_str("\\n"),
+            '\t' => result.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                result.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c => result.push(c),
+        }
+    }
+    result
 }
 
 #[cfg(test)]
@@ -1038,6 +1348,37 @@ mod tests {
     }
 
     #[test]
+    fn registry_exposes_linkmind_descriptor() {
+        let registry = ProviderRegistry::new();
+        let desc = registry.all().iter().find(|p| p.id == "linkmind");
+        assert!(desc.is_some(), "linkmind descriptor should exist");
+        let desc = desc.unwrap();
+        assert_eq!(desc.kind, ProviderKind::LinkMind);
+        assert!(desc.supports_tools);
+        assert!(desc.supports_streaming);
+        assert!(desc.capabilities.tool_calls);
+    }
+
+    #[test]
+    fn registry_builds_linkmind_provider() {
+        let registry = ProviderRegistry::new();
+        let provider = registry.create_by_id_with_config(
+            "linkmind",
+            &RuntimeConfig {
+                provider_id: Some(String::from("linkmind")),
+                provider_base_url: None,
+                default_model: None,
+                permission_mode: octocode_core::PermissionMode::WorkspaceWrite,
+                history_limit: 24,
+                denied_tools: Vec::new(),
+                request_timeout_secs: 90,
+            },
+        );
+        assert!(provider.is_some());
+        assert_eq!(provider.unwrap().descriptor().kind, ProviderKind::LinkMind);
+    }
+
+    #[test]
     fn registry_builds_ollama_provider() {
         let registry = ProviderRegistry::new();
         let provider = registry.create_by_id_with_config(
@@ -1048,112 +1389,50 @@ mod tests {
                 default_model: None,
                 permission_mode: octocode_core::PermissionMode::WorkspaceWrite,
                 history_limit: 24,
+                denied_tools: Vec::new(),
+                request_timeout_secs: 90,
             },
         );
         assert!(provider.is_some());
         assert_eq!(provider.unwrap().descriptor().kind, ProviderKind::Ollama);
     }
-}
 
-fn run_powershell_request(
-    method: &str,
-    url: &str,
-    body: Option<&str>,
-    token: Option<&str>,
-) -> Result<String, OctoError> {
-    let body_literal = escape_powershell_single_quoted(body.unwrap_or(""));
-    let token_literal = escape_powershell_single_quoted(token.unwrap_or(""));
-    let script = format!(
-        concat!(
-            "$ProgressPreference='SilentlyContinue';",
-            "$headers=@{{'Content-Type'='application/json'}};",
-            "if ('{token}' -ne '') {{ $headers['Authorization']='Bearer {token}'; }};",
-            "$body='{body}';",
-            "$params=@{{Uri='{url}';Method='{method}';Headers=$headers;TimeoutSec=90;UseBasicParsing=$true}};",
-            "if ('{body}' -ne '') {{ $params['Body']=$body }};",
-            "$response=Invoke-WebRequest @params;",
-            "$response.Content"
-        ),
-        token = token_literal,
-        body = body_literal,
-        url = escape_powershell_single_quoted(url),
-        method = escape_powershell_single_quoted(method),
-    );
-
-    let output = Command::new("powershell")
-        .args(["-NoProfile", "-Command", &script])
-        .output()
-        .map_err(|error| {
-            OctoError::Provider(format!(
-                "failed to launch powershell request for {} {}: {error}",
-                method, url
-            ))
-        })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(OctoError::Provider(format!(
-            "powershell request failed for {} {}: {}",
-            method, url, stderr
-        )));
+    #[test]
+    fn extract_stream_delta_parses_sse_chunk() {
+        let chunk = r#"{"id":"chatcmpl-1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}"#;
+        let delta = super::extract_stream_delta(chunk);
+        assert_eq!(delta.as_deref(), Some("Hello"));
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-}
-
-fn first_model_id(body: &str) -> Option<String> {
-    let data_index = body.find("\"data\"")?;
-    let data_slice = &body[data_index..];
-    extract_json_string_after(data_slice, "\"id\":\"")
-}
-
-fn extract_message_content(body: &str) -> Option<String> {
-    let message_index = body.find("\"message\"")?;
-    let message_slice = &body[message_index..];
-    extract_json_string_after(message_slice, "\"content\":\"")
-}
-
-fn extract_json_string_after(body: &str, marker: &str) -> Option<String> {
-    let start = body.find(marker)? + marker.len();
-    let bytes = body.as_bytes();
-    let mut index = start;
-    let mut escaped = false;
-    let mut output = String::new();
-
-    while index < bytes.len() {
-        let ch = bytes[index] as char;
-        if escaped {
-            output.push(match ch {
-                'n' => '\n',
-                'r' => '\r',
-                't' => '\t',
-                '"' => '"',
-                '\\' => '\\',
-                other => other,
-            });
-            escaped = false;
-        } else if ch == '\\' {
-            escaped = true;
-        } else if ch == '"' {
-            return Some(output);
-        } else {
-            output.push(ch);
-        }
-        index += 1;
+    #[test]
+    fn extract_stream_delta_returns_none_for_empty_delta() {
+        let chunk = r#"{"id":"chatcmpl-1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}"#;
+        let delta = super::extract_stream_delta(chunk);
+        assert!(delta.is_none());
     }
 
-    None
-}
-
-fn escape_json(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\r', "\\r")
-        .replace('\n', "\\n")
-        .replace('\t', "\\t")
-}
-
-fn escape_powershell_single_quoted(value: &str) -> String {
-    value.replace('\'', "''")
+    #[test]
+    fn stub_provider_prompt_stream_calls_callback() {
+        let stub = StubProvider::new(ProviderDescriptor {
+            id: String::from("stub-stream"),
+            display_name: String::from("Stub Stream"),
+            kind: ProviderKind::Stub,
+            supports_tools: false,
+            supports_streaming: false,
+            capabilities: ProviderCapabilities::stub(),
+        });
+        let request = PromptRequest {
+            text: String::from("test stream"),
+            model: None,
+            system_prompt: None,
+            history: vec![],
+        };
+        let mut tokens = Vec::new();
+        let result = stub.prompt_stream(request, &mut |token| {
+            tokens.push(String::from(token));
+        });
+        assert!(result.is_ok());
+        assert_eq!(tokens.len(), 1);
+        assert!(tokens[0].contains("test stream"));
+    }
 }

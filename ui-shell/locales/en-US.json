@@ -31,5 +31,11 @@
   "tool.run": "Run Tool",
   "terminal.events": "events",
   "terminal.state": "state",
-  "terminal.workflow": "workflow"
+  "terminal.workflow": "workflow",
+  "session.noSession": "No sessions available",
+  "panel.taskManager": "Task Manager",
+  "panel.terminalOutput": "Terminal Output",
+  "sidebar.noData": "No data to display",
+  "message.empty": "No messages yet. Send a message below to start a conversation.",
+  "error.cannotConnect": "Cannot connect to server"
 }

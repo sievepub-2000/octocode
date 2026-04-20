@@ -1,0 +1,40 @@
+name: octocode-add-tool
+description: |
+  Use when: Adding a new tool to OctoCode's tool registry.
+  Input: Tool name and description.
+  Output: New tool implemented with tests.
+
+  OctoCode tools are registered in octocode-runtime/src/lib.rs via ToolSpec entries.
+  Tool execution happens in WorkspaceToolExecutor.
+
+nodes:
+  - id: plan
+    prompt: |
+      Plan a new tool for OctoCode.
+      Review the existing tool registration pattern in crates/octocode-runtime/src/lib.rs.
+      Review WorkspaceToolExecutor for how tools are executed.
+      Write a plan to $ARTIFACTS_DIR/tool-plan.md including:
+      - ToolSpec (name, summary, parameters, permission level)
+      - Execution logic
+      - Unit tests
+    context: fresh
+
+  - id: implement
+    depends_on: [plan]
+    prompt: |
+      Read the plan from $ARTIFACTS_DIR/tool-plan.md.
+      Add the new tool to the appropriate crate.
+      Register it in the tool list.
+      Add unit tests.
+      Run cargo clippy and cargo test to verify.
+    context: fresh
+    model: claude-opus-4-6[1m]
+
+  - id: verify
+    depends_on: [implement]
+    bash: |
+      cd $PROJECT_DIR
+      export CARGO_HOME="$PROJECT_DIR/../../.cargo"
+      export RUSTUP_HOME="$PROJECT_DIR/../../.rustup"
+      "$CARGO_HOME/bin/cargo.exe" clippy --workspace --all-targets -- -D warnings
+      "$CARGO_HOME/bin/cargo.exe" test --workspace

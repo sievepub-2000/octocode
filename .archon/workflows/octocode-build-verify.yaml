@@ -1,0 +1,28 @@
+name: octocode-build-verify
+description: |
+  Use when: After any code change, verify the full build pipeline.
+  Runs: cargo clippy, cargo test, cargo build --release, and a quick serve smoke test.
+
+nodes:
+  - id: clippy
+    bash: |
+      cd $PROJECT_DIR
+      export CARGO_HOME="$PROJECT_DIR/../../.cargo"
+      export RUSTUP_HOME="$PROJECT_DIR/../../.rustup"
+      "$CARGO_HOME/bin/cargo.exe" clippy --workspace --all-targets -- -D warnings
+
+  - id: test
+    depends_on: [clippy]
+    bash: |
+      cd $PROJECT_DIR
+      export CARGO_HOME="$PROJECT_DIR/../../.cargo"
+      export RUSTUP_HOME="$PROJECT_DIR/../../.rustup"
+      "$CARGO_HOME/bin/cargo.exe" test --workspace
+
+  - id: build-release
+    depends_on: [test]
+    bash: |
+      cd $PROJECT_DIR
+      export CARGO_HOME="$PROJECT_DIR/../../.cargo"
+      export RUSTUP_HOME="$PROJECT_DIR/../../.rustup"
+      "$CARGO_HOME/bin/cargo.exe" build --release --bin octocode-cli

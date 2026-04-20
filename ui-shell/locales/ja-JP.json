@@ -31,5 +31,11 @@
   "tool.run": "ツール実行",
   "terminal.events": "イベント",
   "terminal.state": "状態",
-  "terminal.workflow": "ワークフロー"
+  "terminal.workflow": "ワークフロー",
+  "session.noSession": "利用可能なセッションなし",
+  "panel.taskManager": "タスク管理",
+  "panel.terminalOutput": "ターミナル出力",
+  "sidebar.noData": "表示するデータなし",
+  "message.empty": "まだメッセージがありません。下の入力欄からメッセージを送信してください。",
+  "error.cannotConnect": "サーバーに接続できません"
 }

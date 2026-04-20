@@ -6,6 +6,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+if ($Port -lt 990 -or $Port -gt 999) {
+  throw "Port must be between 990 and 999. Received: $Port"
+}
+
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $scriptRoot
 Set-Location $repoRoot

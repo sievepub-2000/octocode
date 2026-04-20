@@ -282,12 +282,10 @@ impl PluginDiscovery {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use std::env;
 
     #[test]
     fn discovery_manages_plugin_state() {
-        let mut discovery = PluginDiscovery::new(PathBuf::from("./nonexistent"));
+        let discovery = PluginDiscovery::new(PathBuf::from("./nonexistent"));
 
         discovery.enable_plugin("plugin-a");
         assert!(discovery.is_plugin_enabled("plugin-a"));
@@ -297,20 +295,15 @@ mod tests {
     }
 
     #[test]
-    fn discovery_parses_yaml_config() {
-        let mut discovery = PluginDiscovery::new(PathBuf::from("./"));
-        
-        let yaml_content = r#"id: test-plugin
-summary: A test plugin
-enabled: true
-entry_point: lib.wasm
-"#;
+    fn discovery_empty_dir() {
+        let discovery = PluginDiscovery::new(PathBuf::from("./nonexistent_dir_12345"));
+        let result = discovery.discover().unwrap();
+        assert!(result.is_empty());
+    }
 
-        let result = discovery.parse_yaml_config(&PathBuf::from("test"));
-        // Note: This test is simplified since we can't easily create temp files
-        // In production, the parsing would be tested through integration tests
-        
-        // Verify the parser exists and has the expected signature
-        assert!(true);
+    #[test]
+    fn discovery_unknown_plugin_enabled_by_default() {
+        let discovery = PluginDiscovery::new(PathBuf::from("./nonexistent"));
+        assert!(discovery.is_plugin_enabled("unknown-plugin"));
     }
 }

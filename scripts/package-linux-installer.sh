@@ -6,8 +6,13 @@ set -euo pipefail
 
 PROFILE="${1:-release}"
 SESSION_ID="${2:-demo}"
-PORT="${3:-10001}"
+PORT="${3:-991}"
 ARCH="${ARCH:-$(uname -m)}"
+
+if ! [[ "${PORT}" =~ ^[0-9]+$ ]] || (( PORT < 990 || PORT > 999 )); then
+  echo "Port must be between 990 and 999. Received: ${PORT}" >&2
+  exit 2
+fi
 
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_ROOT/.." && pwd)"
@@ -81,7 +86,7 @@ cat > "$DESKTOP_DIR/octocode.desktop" << EOF
 Type=Application
 Name=Octocode
 Comment=Canvas AI Coding Assistant
-Exec=$BIN_DIR/octocode serve 10001 demo
+Exec=$BIN_DIR/octocode serve 991 demo
 Terminal=true
 Categories=Development;IDE;
 EOF
@@ -89,8 +94,8 @@ EOF
 echo ""
 echo "Octocode installed:"
 echo "  CLI:     $BIN_DIR/octocode"
-echo "  WebUI:   $BIN_DIR/octocode serve 10001 demo"
-echo "           then open http://127.0.0.1:10001/ui-shell/?session=demo"
+echo "  WebUI:   $BIN_DIR/octocode serve 991 demo"
+echo "           then open http://127.0.0.1:991/ui-shell/?session=demo"
 
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
   echo ""
@@ -108,4 +113,4 @@ echo "==> Linux installer ready: $TAR_PATH"
 echo "    Install:"
 echo "      tar -xzf ${BUNDLE_NAME}.tar.gz"
 echo "      bash ${BUNDLE_NAME}/install.sh"
-echo "      octocode serve 10001 demo"
+echo "      octocode serve 991 demo"

@@ -7,253 +7,243 @@
   <link rel="icon" type="image/svg+xml" href="./assets/octocode-icon.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./app.css?v=4" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./app.css?v=8" />
+  <!-- Markdown rendering + syntax highlighting -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" media="(prefers-color-scheme: light)" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" media="(prefers-color-scheme: dark)" />
+  <link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 </head>
 <body>
-  <div class="desktop-canvas">
-    <canvas id="workbench-canvas" aria-hidden="true"></canvas>
-    <div class="mac-window">
-      <header class="menu-bar">
-        <div class="menu-cluster left">
-          <img class="brand-icon" src="./assets/octocode-icon.svg" alt="" />
-          <span class="menu-item strong" data-i18n="brand.name">Octocode</span>
-          <span class="menu-item" data-i18n="menu.file">File</span>
-          <span class="menu-item" data-i18n="menu.edit">Edit</span>
-          <div class="menu-dropdown">
-            <button id="view-menu-button" class="menu-item menu-trigger" type="button" aria-haspopup="true" aria-expanded="false" data-i18n="menu.view">View</button>
-            <div id="view-language-menu" class="menu-dropdown-panel" hidden>
-              <div class="menu-dropdown-group">
-                <span class="menu-dropdown-label" data-i18n="menu.language">Language</span>
-                <button class="menu-dropdown-item" type="button" data-locale="en-US" data-i18n="locale.en-US">English</button>
-                <button class="menu-dropdown-item" type="button" data-locale="ja-JP" data-i18n="locale.ja-JP">日本語</button>
-                <button class="menu-dropdown-item" type="button" data-locale="ko-KR" data-i18n="locale.ko-KR">한국어</button>
-                <button class="menu-dropdown-item" type="button" data-locale="zh-CN" data-i18n="locale.zh-CN">中文</button>
-              </div>
+  <div class="app-root">
+
+    <!-- ─── Top bar: menu + command palette ─── -->
+    <header class="top-bar">
+      <div class="top-bar-left">
+        <img class="brand-icon" src="./assets/octocode-icon.svg" alt="" />
+        <span class="brand-name">Octocode</span>
+        <span class="menu-item" data-i18n="menu.file">File</span>
+        <span class="menu-item" data-i18n="menu.edit">Edit</span>
+        <div class="menu-dropdown">
+          <button id="view-menu-button" class="menu-item menu-trigger" type="button" aria-haspopup="true" aria-expanded="false" data-i18n="menu.view">View</button>
+          <div id="view-language-menu" class="menu-dropdown-panel" hidden>
+            <div class="menu-dropdown-group">
+              <span class="menu-dropdown-label" data-i18n="menu.language">Language</span>
+              <button class="menu-dropdown-item" type="button" data-locale="en-US" data-i18n="locale.en-US">English</button>
+              <button class="menu-dropdown-item" type="button" data-locale="ja-JP" data-i18n="locale.ja-JP">日本語</button>
+              <button class="menu-dropdown-item" type="button" data-locale="ko-KR" data-i18n="locale.ko-KR">한국어</button>
+              <button class="menu-dropdown-item" type="button" data-locale="zh-CN" data-i18n="locale.zh-CN">中文</button>
             </div>
           </div>
-          <span class="menu-item" data-i18n="menu.run">Run</span>
-          <span class="menu-item" data-i18n="menu.terminal">Terminal</span>
-          <span class="menu-item" data-i18n="menu.help">Help</span>
         </div>
-        <div class="menu-cluster right">
-          <span class="menu-badge" id="menu-provider">provider</span>
-          <span class="menu-badge" id="menu-platform">platform</span>
-          <span class="menu-badge" id="menu-time">--:--</span>
-        </div>
-      </header>
-
-      <section class="window-toolbar">
-        <div class="traffic-lights" aria-hidden="true">
-          <span class="light close"></span>
-          <span class="light minimize"></span>
-          <span class="light maximize"></span>
-        </div>
-        <div class="workspace-chip-group">
-          <span class="workspace-chip active" data-i18n="brand.name">Octocode</span>
-          <span class="workspace-chip" data-i18n="toolbar.interactive">Interactive</span>
-          <span class="workspace-chip" data-i18n="toolbar.workbench">Workbench</span>
-        </div>
-        <form id="command-form" class="command-palette-shell">
-          <input id="command-palette" name="command" type="text" placeholder="输入命令: provider local-openai / model gemma-4-31b-it-q8-prod / permission workspace-write" data-i18n-placeholder="command.placeholder" />
-          <button type="submit" data-i18n="command.run">Run</button>
-          <canvas id="command-preview-canvas" class="command-preview-canvas"></canvas>
-        </form>
-      </section>
-
-      <div class="ide-shell">
-        <nav class="activity-bar" aria-label="Workbench Navigation">
-          <button class="activity-button active" data-view="sessions" type="button">EX</button>
-          <button class="activity-button" data-view="providers" type="button">AI</button>
-          <button class="activity-button" data-view="tools" type="button">TL</button>
-          <button class="activity-button" data-view="commands" type="button">CM</button>
-          <div class="activity-spacer"></div>
-          <button class="activity-button" data-view="settings" type="button">ST</button>
-        </nav>
-
-        <aside class="sidebar-pane">
-          <div class="sidebar-head">
-            <div>
-              <p class="eyebrow">Explorer</p>
-              <h1 id="sidebar-title">Sessions</h1>
-            </div>
-            <button id="refresh-button" type="button" data-i18n="sidebar.refresh">Refresh</button>
-          </div>
-          <div class="sidebar-tabs">
-            <button class="sidebar-tab active" data-view="sessions" type="button" data-i18n="sidebar.sessions">Sessions</button>
-            <button class="sidebar-tab" data-view="providers" type="button" data-i18n="sidebar.providers">Providers</button>
-            <button class="sidebar-tab" data-view="tools" type="button" data-i18n="sidebar.tools">Tools</button>
-            <button class="sidebar-tab" data-view="commands" type="button" data-i18n="sidebar.commands">Commands</button>
-            <button class="sidebar-tab" data-view="settings" type="button" data-i18n="sidebar.settings">Settings</button>
-          </div>
-          <canvas id="sidebar-canvas" class="sidebar-list-canvas"></canvas>
-        </aside>
-
-        <main class="editor-shell">
-          <div class="editor-tabs">
-            <button class="editor-tab active" type="button" data-i18n="tabs.conversation">Conversation.md</button>
-            <button class="editor-tab" type="button" data-i18n="tabs.runtime">Runtime.json</button>
-            <button class="editor-tab" type="button" data-i18n="tabs.settings">Settings.conf</button>
-          </div>
-
-          <div class="content-grid">
-            <section class="conversation-column panel-surface">
-              <div class="panel-header">
-                <div>
-                  <p class="eyebrow">Conversation Surface</p>
-                  <h2 id="session-title">没有可用会话</h2>
-                </div>
-                <div class="metric-strip">
-                  <div class="metric-pill">
-                    <span>Platform</span>
-                    <strong id="platform-pill">-</strong>
-                  </div>
-                  <div class="metric-pill accent">
-                    <span>Permission</span>
-                    <strong id="permission-pill">-</strong>
-                  </div>
-                </div>
-              </div>
-              <div class="breadcrumb-row">
-                <span class="breadcrumb-item">workspace</span>
-                <span class="breadcrumb-sep">/</span>
-                <span class="breadcrumb-item">sessions</span>
-                <span class="breadcrumb-sep">/</span>
-                <span class="breadcrumb-item active" id="breadcrumb-session">demo</span>
-              </div>
-              <canvas id="message-canvas" class="message-canvas"></canvas>
-              <form id="chat-form" class="composer-shell">
-                <canvas id="composer-canvas" class="composer-canvas"></canvas>
-                <textarea id="chat-input" name="text" rows="3" placeholder="在这里输入消息，直接走后端 /api/chat 和真实 provider" data-i18n-placeholder="composer.placeholder"></textarea>
-                <div class="composer-actions">
-                  <span id="composer-session" class="form-note">session: demo</span>
-                  <button id="chat-submit" type="submit" data-i18n="composer.send">Send</button>
-                </div>
-              </form>
-            </section>
-
-            <div class="right-stack">
-              <section class="workspace-column panel-surface">
-                <div class="panel-header compact">
-                  <div>
-                    <p class="eyebrow">Workspace</p>
-                    <h2>工作区与设置</h2>
-                  </div>
-                  <span class="panel-badge" id="provider-id">loading</span>
-                </div>
-                <canvas id="workspace-canvas" class="workspace-canvas"></canvas>
-                <div class="workspace-summary-grid">
-                  <div class="summary-card">
-                    <span>Root</span>
-                    <strong id="workspace-root">-</strong>
-                  </div>
-                  <div class="summary-card">
-                    <span>Shell</span>
-                    <strong id="workspace-shell">-</strong>
-                  </div>
-                  <div class="summary-card">
-                    <span>Default Model</span>
-                    <strong id="default-model">-</strong>
-                  </div>
-                  <div class="summary-card">
-                    <span>Sessions</span>
-                    <strong id="session-count">0</strong>
-                  </div>
-                </div>
-                <div class="workspace-sections">
-                  <article class="subpanel">
-                    <div class="subpanel-head">
-                      <h3>Provider Settings</h3>
-                      <span>real config writeback</span>
-                    </div>
-                    <canvas id="settings-canvas" class="settings-canvas"></canvas>
-                    <form id="settings-form" class="stack-form">
-                      <label>
-                        <span>Provider</span>
-                        <select id="setting-provider" name="providerId"></select>
-                      </label>
-                      <label>
-                        <span>Base URL</span>
-                        <input id="setting-base-url" name="providerBaseUrl" type="text" />
-                      </label>
-                      <label>
-                        <span>Model</span>
-                        <input id="setting-model" name="defaultModel" type="text" />
-                      </label>
-                      <label>
-                        <span>Permission</span>
-                        <select id="setting-permission" name="permissionMode">
-                          <option value="read-only">read-only</option>
-                          <option value="workspace-write">workspace-write</option>
-                          <option value="danger-full-access">danger-full-access</option>
-                        </select>
-                      </label>
-                      <label>
-                        <span>History Limit</span>
-                        <input id="setting-history" name="historyLimit" type="number" min="1" step="1" />
-                      </label>
-                      <button type="submit" data-i18n="settings.save">Save Settings</button>
-                    </form>
-                  </article>
-                  <article class="subpanel">
-                    <div class="subpanel-head">
-                      <h3>Tool Runner</h3>
-                      <span>session threaded</span>
-                    </div>
-                    <canvas id="tool-canvas" class="tool-canvas"></canvas>
-                    <form id="tool-form" class="stack-form">
-                      <label>
-                        <span>Tool</span>
-                        <select id="tool-name" name="name"></select>
-                      </label>
-                      <label>
-                        <span>Input</span>
-                        <textarea id="tool-input" name="input" rows="3" placeholder="例如 . 或 README.md 或 path|content" data-i18n-placeholder="tool.placeholder"></textarea>
-                      </label>
-                      <button type="submit" data-i18n="tool.run">Run Tool</button>
-                    </form>
-                  </article>
-                  <article class="subpanel">
-                    <div class="subpanel-head">
-                      <h3>Capabilities</h3>
-                      <span>providers + tools + fallback</span>
-                    </div>
-                    <div id="provider-list" class="tag-cloud"></div>
-                    <div id="tool-list" class="tag-cloud"></div>
-                  </article>
-                </div>
-              </section>
-
-              <section class="terminal-column panel-surface">
-                <div class="panel-header compact">
-                  <div>
-                    <p class="eyebrow">Terminal</p>
-                    <h2>调用日志</h2>
-                  </div>
-                  <span class="panel-badge subtle">API</span>
-                </div>
-                <div class="terminal-tabs">
-                  <span class="terminal-tab active" data-tab="events" data-i18n="terminal.events">events</span>
-                  <span class="terminal-tab" data-tab="state" data-i18n="terminal.state">state</span>
-                  <span class="terminal-tab" data-tab="workflow" data-i18n="terminal.workflow">workflow</span>
-                </div>
-                <canvas id="terminal-canvas" class="terminal-canvas"></canvas>
-                <pre id="terminal-output" class="terminal-output"></pre>
-              </section>
-            </div>
-          </div>
-        </main>
+        <span class="menu-item" data-i18n="menu.run">Run</span>
+        <span class="menu-item" data-i18n="menu.terminal">Terminal</span>
+        <span class="menu-item" data-i18n="menu.help">Help</span>
       </div>
+      <form id="command-form" class="cmd-palette" autocomplete="off">
+        <input id="command-palette" name="command" type="text" placeholder="⌘K 输入命令: provider / model / permission / tool ..." data-i18n-placeholder="command.placeholder" />
+        <button type="submit" data-i18n="command.run">Run</button>
+      </form>
+      <div class="top-bar-right">
+        <button id="theme-toggle" class="theme-toggle" type="button" title="Toggle light/dark theme">☀</button>
+        <span class="top-badge" id="menu-provider">provider</span>
+        <span class="top-badge" id="menu-platform">platform</span>
+        <span class="top-badge accent" id="menu-time">--:--</span>
+      </div>
+    </header>
 
-      <footer class="status-bar">
-        <span id="status-branch">main</span>
-        <span id="status-provider">provider: -</span>
-        <span id="status-workspace">workspace: -</span>
-        <span id="status-shell">shell: -</span>
-        <span id="status-permission">permission: -</span>
-      </footer>
+    <!-- ─── Three-column workspace ─── -->
+    <div class="workspace-grid" id="workspace-grid">
+
+      <!-- LEFT: Session history -->
+      <aside class="panel-left" id="panel-left">
+        <div class="panel-head">
+          <h2 id="sidebar-title" data-i18n="sidebar.sessions">Sessions</h2>
+          <button id="refresh-button" class="icon-btn" type="button" title="Refresh">↻</button>
+        </div>
+        <div class="sidebar-tabs">
+          <button class="sidebar-tab active" data-view="sessions" type="button">Sessions</button>
+          <button class="sidebar-tab" data-view="providers" type="button">Providers</button>
+          <button class="sidebar-tab" data-view="tools" type="button">Tools</button>
+          <button class="sidebar-tab" data-view="commands" type="button">Commands</button>
+          <button class="sidebar-tab" data-view="settings" type="button">Settings</button>
+        </div>
+        <div id="sidebar-list" class="sidebar-list" role="listbox"></div>
+      </aside>
+
+      <!-- Resize handle left -->
+      <div class="resize-handle resize-handle-left" id="resize-left"></div>
+
+      <!-- CENTER: Conversation -->
+      <main class="panel-center" id="panel-center">
+        <div class="conv-header">
+          <div class="conv-title-row">
+            <h2 id="session-title" data-i18n="session.noSession">没有可用会话</h2>
+            <div class="conv-badges">
+              <span class="badge" id="platform-pill">-</span>
+              <span class="badge accent" id="permission-pill">-</span>
+              <div class="view-mode-group">
+                <button class="view-mode-btn active" data-mode="normal" title="Normal view">Normal</button>
+                <button class="view-mode-btn" data-mode="verbose" title="Verbose view">Verbose</button>
+                <button class="view-mode-btn" data-mode="compact" title="Compact view">Compact</button>
+              </div>
+            </div>
+          </div>
+          <div class="breadcrumb-row">
+            <span class="bc">workspace</span><span class="bc-sep">/</span>
+            <span class="bc">sessions</span><span class="bc-sep">/</span>
+            <span class="bc active" id="breadcrumb-session">demo</span>
+          </div>
+        </div>
+
+        <!-- Model info bar -->
+        <div id="model-info-bar" class="model-info-bar">
+          <span class="model-info-label">Model</span>
+          <span id="model-info-name" class="model-info-name">-</span>
+          <span class="model-info-sep">via</span>
+          <span id="model-info-provider" class="model-info-provider">-</span>
+        </div>
+
+        <!-- DOM-based message list -->
+        <div id="message-list" class="message-list"></div>
+
+        <!-- Streaming indicator -->
+        <div id="stream-indicator" class="stream-indicator" hidden>
+          <div class="stream-dots"><span></span><span></span><span></span></div>
+          <span class="stream-label">AI is responding...</span>
+        </div>
+
+        <!-- Composer -->
+        <form id="chat-form" class="composer">
+          <div class="composer-input-wrap">
+            <textarea id="chat-input" name="text" rows="3" placeholder="输入消息，或 /command 调用命令... (Enter 发送, Shift+Enter 换行)" data-i18n-placeholder="composer.placeholder"></textarea>
+            <div class="composer-hints" id="composer-hints"></div>
+          </div>
+          <div class="composer-footer">
+            <span id="composer-session" class="form-note">session: demo</span>
+            <div class="composer-actions">
+              <span class="char-count" id="char-count">0</span>
+              <button id="chat-submit" type="submit" class="send-btn" data-i18n="composer.send">
+                <svg class="send-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/></svg>
+                <svg class="stop-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+              </button>
+            </div>
+          </div>
+        </form>
+      </main>
+
+      <!-- Resize handle right -->
+      <div class="resize-handle resize-handle-right" id="resize-right"></div>
+
+      <!-- RIGHT: Tasks + Terminal -->
+      <aside class="panel-right" id="panel-right">
+        <section class="right-top">
+          <div class="panel-head">
+            <h2 data-i18n="panel.taskManager">任务管理</h2>
+            <span class="top-badge" id="provider-id">loading</span>
+          </div>
+
+          <!-- Workspace info cards (DOM-based) -->
+          <div class="info-cards" id="info-cards">
+            <div class="info-card"><span class="info-label">root</span><span class="info-value" id="workspace-root">-</span></div>
+            <div class="info-card"><span class="info-label">shell</span><span class="info-value" id="workspace-shell">-</span></div>
+            <div class="info-card"><span class="info-label">model</span><span class="info-value" id="default-model">-</span></div>
+            <div class="info-card"><span class="info-label">sessions</span><span class="info-value" id="session-count">0</span></div>
+            <div class="info-card"><span class="info-label">provider</span><span class="info-value" id="active-provider">-</span></div>
+            <div class="info-card"><span class="info-label">circuit</span><span class="info-value" id="circuit-state">-</span></div>
+          </div>
+
+          <!-- Settings -->
+          <details class="collapse-section" open>
+            <summary>Provider Settings</summary>
+            <form id="settings-form" class="stack-form">
+              <label><span>Provider</span><select id="setting-provider" name="providerId"></select></label>
+              <label><span>Base URL</span><input id="setting-base-url" name="providerBaseUrl" type="text" /></label>
+              <label><span>Model</span><input id="setting-model" name="defaultModel" type="text" /></label>
+              <label><span>Permission</span>
+                <select id="setting-permission" name="permissionMode">
+                  <option value="read-only">read-only</option>
+                  <option value="workspace-write">workspace-write</option>
+                  <option value="danger-full-access">danger-full-access</option>
+                </select>
+              </label>
+              <label><span>History Limit</span><input id="setting-history" name="historyLimit" type="number" min="1" step="1" /></label>
+              <button type="submit" data-i18n="settings.save">Save</button>
+            </form>
+          </details>
+
+          <!-- Tool Runner -->
+          <details class="collapse-section">
+            <summary>Tool Runner</summary>
+            <form id="tool-form" class="stack-form">
+              <label><span>Tool</span><select id="tool-name" name="name"></select></label>
+              <label><span>Input</span><textarea id="tool-input" name="input" rows="2" placeholder="README.md" data-i18n-placeholder="tool.placeholder"></textarea></label>
+              <button type="submit" data-i18n="tool.run">Run</button>
+            </form>
+          </details>
+        </section>
+
+        <!-- Bottom: Terminal / Events -->
+        <section class="right-bottom">
+          <div class="panel-head">
+            <h2 data-i18n="panel.terminalOutput">终端输出</h2>
+            <div class="terminal-tabs">
+              <span class="terminal-tab active" data-tab="events">events</span>
+              <span class="terminal-tab" data-tab="state">state</span>
+              <span class="terminal-tab" data-tab="workflow">workflow</span>
+            </div>
+          </div>
+          <div id="terminal-output" class="terminal-output"></div>
+        </section>
+      </aside>
+    </div>
+
+    <!-- ─── Status bar ─── -->
+    <footer class="status-bar">
+      <span id="status-connection" class="status-connection" title="Server connection">● connected</span>
+      <span id="status-branch">main</span>
+      <span id="status-provider">provider: -</span>
+      <span id="status-workspace">workspace: -</span>
+      <span id="status-shell">shell: -</span>
+      <span id="status-permission">permission: -</span>
+      <span class="status-spacer"></span>
+      <span class="keyboard-hint">Ctrl+K: Command Palette</span>
+    </footer>
+
+    <!-- Toast container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Keyboard shortcuts overlay -->
+    <div id="shortcuts-overlay" class="shortcuts-overlay" hidden>
+      <div class="shortcuts-panel">
+        <div class="shortcuts-header">
+          <h3>Keyboard Shortcuts</h3>
+          <button id="close-shortcuts" class="icon-btn" type="button">×</button>
+        </div>
+        <div class="shortcuts-grid">
+          <div class="shortcut-item"><kbd>Ctrl</kbd>+<kbd>K</kbd><span>Command Palette</span></div>
+          <div class="shortcut-item"><kbd>Ctrl</kbd>+<kbd>Enter</kbd><span>Send Message</span></div>
+          <div class="shortcut-item"><kbd>Ctrl</kbd>+<kbd>L</kbd><span>Clear Chat</span></div>
+          <div class="shortcut-item"><kbd>Ctrl</kbd>+<kbd>N</kbd><span>New Session</span></div>
+          <div class="shortcut-item"><kbd>Ctrl</kbd>+<kbd>B</kbd><span>Toggle Sidebar</span></div>
+          <div class="shortcut-item"><kbd>Ctrl</kbd>+<kbd>`</kbd><span>Toggle Terminal</span></div>
+          <div class="shortcut-item"><kbd>Escape</kbd><span>Close Overlay</span></div>
+          <div class="shortcut-item"><kbd>Ctrl</kbd>+<kbd>/</kbd><span>Show Shortcuts</span></div>
+        </div>
+      </div>
     </div>
   </div>
-  <script src="./app.js?v=4"></script>
+
+  <!-- hidden activity buttons for backward compat -->
+  <div style="display:none">
+    <button class="activity-button active" data-view="sessions" type="button">EX</button>
+    <button class="activity-button" data-view="providers" type="button">AI</button>
+    <button class="activity-button" data-view="tools" type="button">TL</button>
+    <button class="activity-button" data-view="commands" type="button">CM</button>
+    <button class="activity-button" data-view="settings" type="button">ST</button>
+  </div>
+  <script src="./app.js?v=8"></script>
 </body>
 </html>

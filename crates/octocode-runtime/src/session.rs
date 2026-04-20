@@ -108,18 +108,60 @@ impl FileSessionStore {
         let raw = fs::read_to_string(&path).map_err(|error| {
             OctoError::Session(format!("failed to read session file {}: {error}", path.display()))
         })?;
-        let mut parts = raw.lines();
-        let id = parts.next().unwrap_or_default().trim().to_string();
-        let title = parts.next().unwrap_or_default().trim().to_string();
-        let model = parts
-            .next()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string);
-        if id.is_empty() {
+
+        // Support both legacy 3-line format and new key=value format
+        let mut kv_id = String::new();
+        let mut kv_title = String::new();
+        let mut kv_model: Option<String> = None;
+        let mut kv_parent_id: Option<String> = None;
+        let mut kv_branch_name: Option<String> = None;
+        let mut kv_total_input_tokens: u32 = 0;
+        let mut kv_total_output_tokens: u32 = 0;
+
+        let lines: Vec<&str> = raw.lines().collect();
+        let is_kv = lines.first().map(|l| l.contains('=')).unwrap_or(false);
+
+        if is_kv {
+            for line in &lines {
+                let trimmed = line.trim();
+                if trimmed.is_empty() || trimmed.starts_with('#') { continue; }
+                if let Some((key, val)) = trimmed.split_once('=') {
+                    let val = val.trim();
+                    match key.trim() {
+                        "id" => kv_id = val.to_string(),
+                        "title" => kv_title = val.to_string(),
+                        "model" => { if !val.is_empty() { kv_model = Some(val.to_string()); } }
+                        "parent_id" => { if !val.is_empty() { kv_parent_id = Some(val.to_string()); } }
+                        "branch_name" => { if !val.is_empty() { kv_branch_name = Some(val.to_string()); } }
+                        "total_input_tokens" => kv_total_input_tokens = val.parse().unwrap_or(0),
+                        "total_output_tokens" => kv_total_output_tokens = val.parse().unwrap_or(0),
+                        _ => {}
+                    }
+                }
+            }
+        } else {
+            // Legacy 3-line format: id\ntitle\nmodel
+            let mut parts = lines.iter();
+            kv_id = parts.next().unwrap_or(&"").trim().to_string();
+            kv_title = parts.next().unwrap_or(&"").trim().to_string();
+            kv_model = parts.next()
+                .map(|v| v.trim())
+                .filter(|v| !v.is_empty())
+                .map(str::to_string);
+        }
+
+        if kv_id.is_empty() {
             return Err(OctoError::Session(String::from("session id is empty")));
         }
-        Ok(SessionSummary { id, title, model, parent_id: None, branch_name: None, total_input_tokens: 0, total_output_tokens: 0 })
+        Ok(SessionSummary {
+            id: kv_id,
+            title: kv_title,
+            model: kv_model,
+            parent_id: kv_parent_id,
+            branch_name: kv_branch_name,
+            total_input_tokens: kv_total_input_tokens,
+            total_output_tokens: kv_total_output_tokens,
+        })
     }
 
     fn load_messages(&self, id: &str) -> Vec<ConversationMessage> {
@@ -181,6 +223,43 @@ impl FileSessionStore {
             .ok()
             .or_else(|| session_path.metadata().and_then(|meta| meta.modified()).ok())
     }
+
+    /// Remove sessions older than `max_age` and keep at most `max_count` sessions.
+    pub fn cleanup(&self, max_age: std::time::Duration, max_count: usize) -> Result<usize, OctoError> {
+        let now = SystemTime::now();
+        let mut entries: Vec<(String, SystemTime)> = Vec::new();
+
+        let dir = fs::read_dir(&self.sessions_dir).map_err(|e| {
+            OctoError::Session(format!("cleanup: failed to read sessions dir: {e}"))
+        })?;
+        for entry in dir {
+            let entry = entry.map_err(|e| OctoError::Session(format!("cleanup entry: {e}")))?;
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("session") {
+                continue;
+            }
+            let Some(id) = path.file_stem().and_then(|v| v.to_str()).map(String::from) else {
+                continue;
+            };
+            let modified = self.last_modified_for(&id).unwrap_or(SystemTime::UNIX_EPOCH);
+            entries.push((id, modified));
+        }
+
+        // Sort newest first
+        entries.sort_by(|a, b| b.1.cmp(&a.1));
+
+        let mut removed = 0usize;
+        for (index, (id, modified)) in entries.iter().enumerate() {
+            let expired = now.duration_since(*modified).unwrap_or_default() > max_age;
+            let over_limit = index >= max_count;
+            if expired || over_limit {
+                let _ = fs::remove_file(self.session_file_path(id));
+                let _ = fs::remove_file(self.transcript_file_path(id));
+                removed += 1;
+            }
+        }
+        Ok(removed)
+    }
 }
 
 impl SessionStore for FileSessionStore {
@@ -209,13 +288,29 @@ impl SessionStore for FileSessionStore {
     fn save_session(&self, session: SessionSummary) -> Result<(), OctoError> {
         let file_path = self.session_file_path(&session.id);
         let body = format!(
-            "{}\n{}\n{}\n",
-            session.id,
-            session.title,
-            session.model.unwrap_or_default()
+            concat!(
+                "id={id}\n",
+                "title={title}\n",
+                "model={model}\n",
+                "parent_id={parent_id}\n",
+                "branch_name={branch_name}\n",
+                "total_input_tokens={ti}\n",
+                "total_output_tokens={to}\n",
+            ),
+            id = session.id,
+            title = session.title,
+            model = session.model.as_deref().unwrap_or(""),
+            parent_id = session.parent_id.as_deref().unwrap_or(""),
+            branch_name = session.branch_name.as_deref().unwrap_or(""),
+            ti = session.total_input_tokens,
+            to = session.total_output_tokens,
         );
-        fs::write(file_path, body)
-            .map_err(|error| OctoError::Session(format!("failed to write session file: {error}")))
+        // Atomic write: write to temp then rename.
+        let tmp_path = file_path.with_extension("session.tmp");
+        fs::write(&tmp_path, &body)
+            .map_err(|error| OctoError::Session(format!("failed to write session tmp: {error}")))?;
+        fs::rename(&tmp_path, &file_path)
+            .map_err(|error| OctoError::Session(format!("failed to rename session file: {error}")))
     }
 }
 
@@ -249,5 +344,64 @@ impl ConversationStore for FileSessionStore {
             .max_by_key(|session| self.last_modified_for(&session.id))
             .map(|session| session.id.clone());
         Ok(latest)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::time::Duration;
+
+    fn temp_store(label: &str) -> (FileSessionStore, std::path::PathBuf) {
+        let root = std::env::temp_dir().join(format!("octocode-session-test-{}-{}", label, std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let paths = ConfigPaths {
+            config_home: root.join("config").to_string_lossy().to_string(),
+            cache_home: root.join("cache").to_string_lossy().to_string(),
+            data_home: root.join("data").to_string_lossy().to_string(),
+        };
+        let store = FileSessionStore::new(&paths).expect("create store");
+        (store, root)
+    }
+
+    #[test]
+    fn cleanup_removes_excess_sessions() {
+        let (store, root) = temp_store("cleanup");
+        for i in 0..5 {
+            let summary = SessionSummary {
+                id: format!("sess-{i}"),
+                title: format!("Title {i}"),
+                model: None,
+                parent_id: None,
+                branch_name: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+            };
+            store.save_session(summary).expect("save");
+        }
+        let removed = store.cleanup(Duration::from_secs(3600), 3).expect("cleanup");
+        assert_eq!(removed, 2, "should remove 2 excess sessions");
+        let remaining = store.list_sessions().expect("list");
+        assert_eq!(remaining.len(), 3);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn cleanup_preserves_recent_sessions() {
+        let (store, root) = temp_store("preserve");
+        let summary = SessionSummary {
+            id: String::from("recent"),
+            title: String::from("Recent"),
+            model: None,
+            parent_id: None,
+            branch_name: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+        };
+        store.save_session(summary).expect("save");
+        let removed = store.cleanup(Duration::from_secs(3600), 100).expect("cleanup");
+        assert_eq!(removed, 0);
+        let _ = fs::remove_dir_all(&root);
     }
 }

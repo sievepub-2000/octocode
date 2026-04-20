@@ -31,5 +31,11 @@
   "tool.run": "도구 실행",
   "terminal.events": "이벤트",
   "terminal.state": "상태",
-  "terminal.workflow": "워크플로"
+  "terminal.workflow": "워크플로",
+  "session.noSession": "사용 가능한 세션 없음",
+  "panel.taskManager": "작업 관리",
+  "panel.terminalOutput": "터미널 출력",
+  "sidebar.noData": "표시할 데이터 없음",
+  "message.empty": "아직 메시지가 없습니다. 아래 입력란에서 메시지를 보내세요.",
+  "error.cannotConnect": "서버에 연결할 수 없습니다"
 }

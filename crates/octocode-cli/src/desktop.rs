@@ -2,6 +2,7 @@ use std::net::TcpStream;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use octocode_commands::{is_allowed_web_port, WEB_PORT_MAX, WEB_PORT_MIN};
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoop};
 use tao::window::{Icon, WindowBuilder};
@@ -15,6 +16,14 @@ pub fn launch_desktop(
     port: u16,
     session_id: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    if !is_allowed_web_port(port) {
+        return Err(format!(
+            "port {} is out of allowed range {}-{}",
+            port, WEB_PORT_MIN, WEB_PORT_MAX
+        )
+        .into());
+    }
+
     let server_session = session_id.clone();
     thread::spawn(move || {
         if let Err(error) = server::run_server(port, server_session) {
@@ -131,6 +140,7 @@ fn paint_circle(rgba: &mut [u8], size: usize, cx: i32, cy: i32, radius: i32, col
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_rounded_bar(
     rgba: &mut [u8],
     size: usize,

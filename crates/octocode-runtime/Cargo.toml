@@ -6,4 +6,14 @@ license.workspace = true
 
 [dependencies]
 octocode-core = { path = "../octocode-core" }
+octocode-mcp = { path = "../octocode-mcp" }
 octocode-plugins = { path = "../octocode-plugins" }
+octocode-skills = { path = "../octocode-skills" }
+ureq = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rusqlite = { workspace = true }
+
+[dev-dependencies]
+octocode-mock-provider = { path = "../octocode-mock-provider" }

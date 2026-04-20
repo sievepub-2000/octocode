@@ -31,5 +31,11 @@
   "tool.run": "运行工具",
   "terminal.events": "事件",
   "terminal.state": "状态",
-  "terminal.workflow": "工作流"
+  "terminal.workflow": "工作流",
+  "session.noSession": "没有可用会话",
+  "panel.taskManager": "任务管理",
+  "panel.terminalOutput": "终端输出",
+  "sidebar.noData": "当前没有可以显示的数据",
+  "message.empty": "当前没有消息。通过下方输入框发送消息开始对话。",
+  "error.cannotConnect": "无法连接到服务器"
 }

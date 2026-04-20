@@ -136,6 +136,29 @@ where
         )))
     }
 
+    fn prompt_stream(
+        &self,
+        request: PromptRequest,
+        on_token: &mut dyn FnMut(&str),
+    ) -> Result<PromptResponse, OctoError> {
+        let mut failures = Vec::new();
+        for provider in &self.providers {
+            let provider_id = provider.descriptor().id;
+            match provider.prompt_stream(request.clone(), on_token) {
+                Ok(response) => {
+                    self.remember_active(&provider_id);
+                    return Ok(response);
+                }
+                Err(error) => failures.push(format!("{provider_id} failed: {error}")),
+            }
+        }
+
+        Err(OctoError::Provider(format!(
+            "all routed providers failed (stream): {}",
+            failures.join(" | ")
+        )))
+    }
+
     fn active_provider_id(&self) -> String {
         self.providers
             .iter()
@@ -217,6 +240,7 @@ mod tests {
             self.prompt_output
                 .map(|output| PromptResponse {
                     output: String::from(output),
+                    tokens: None,
                 })
                 .ok_or_else(|| OctoError::Provider(format!("{} unavailable", self.descriptor.id)))
         }
@@ -322,6 +346,8 @@ mod tests {
                 default_model: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 history_limit: 8,
+                denied_tools: Vec::new(),
+                request_timeout_secs: 90,
             },
         )
         .expect("router builds");
@@ -330,6 +356,8 @@ mod tests {
             .prompt(PromptRequest {
                 text: String::from("hello"),
                 model: None,
+                system_prompt: None,
+                history: vec![],
             })
             .expect("router prompt succeeds");
         assert_eq!(response.output, "secondary");

@@ -5,6 +5,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+if ($Port -lt 990 -or $Port -gt 999) {
+    throw "Port must be between 990 and 999. Received: $Port"
+}
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $repoRoot
 

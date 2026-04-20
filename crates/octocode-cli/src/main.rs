@@ -1,17 +1,52 @@
+#[allow(dead_code)]
 mod desktop;
 mod server;
+#[allow(dead_code)]
+mod tls;
+#[allow(dead_code)]
+mod tui;
+#[allow(dead_code)]
+mod ws;
 
-use octocode_commands::{execute_command, parse_cli_args, render_json, render_text, CliCommand};
+use octocode_commands::{
+    execute_command, is_allowed_web_port, parse_cli_args, render_json, render_text, CliCommand,
+    WEB_PORT_MAX, WEB_PORT_MIN,
+};
 use octocode_core::{OutputMode, PlatformSupport};
 use octocode_runtime::{ConfigLoader, NativePlatform};
+use tracing_subscriber::EnvFilter;
+
+fn ensure_web_port_in_range(port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    if is_allowed_web_port(port) {
+        return Ok(());
+    }
+
+    Err(format!(
+        "port {} is out of allowed range {}-{}",
+        port, WEB_PORT_MIN, WEB_PORT_MAX
+    )
+    .into())
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize structured logging; defaults to WARN, controlled via OCTOCODE_LOG env.
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_env("OCTOCODE_LOG")
+                .unwrap_or_else(|_| EnvFilter::new("warn")),
+        )
+        .with_target(true)
+        .compact()
+        .init();
+
     let parsed = parse_cli_args(std::env::args().skip(1));
     if let CliCommand::Serve { port, session_id } = parsed.command.clone() {
+        ensure_web_port_in_range(port)?;
         server::run_server(port, session_id)?;
         return Ok(());
     }
     if let CliCommand::Desktop { port, session_id } = parsed.command.clone() {
+        ensure_web_port_in_range(port)?;
         desktop::launch_desktop(port, session_id)?;
         return Ok(());
     }
