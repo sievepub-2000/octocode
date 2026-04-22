@@ -983,7 +983,13 @@ function renderStatusBar(state) {
       : t('stream.responding', 'AI is responding...');
   }
   if (streamIndicator && !isSubmitting) {
-    const shouldShow = phase === 'running';
+    // Only show the "AI is responding" indicator when there is a real
+    // in-flight turn: backend phase is running AND there is either a local
+    // submission, an active SSE client, or the indicator was already shown
+    // by streamChat. Without this guard, a stale `running` phase (e.g. from
+    // a crashed turn) leaves the indicator permanently visible.
+    const hasActiveSse = Number(turn?.activeSseClients || 0) > 0;
+    const shouldShow = phase === 'running' && hasActiveSse;
     streamIndicator.hidden = !shouldShow;
     if (shouldShow) scheduleRecoveryRefresh();
   }
@@ -2732,8 +2738,22 @@ async function streamChat(text, sessionId) {
       }
       if (updated) {
         if (isViewing()) {
-          renderMessages(currentMessages);
-          messageList.scrollTop = messageList.scrollHeight;
+          // Incremental update: only patch the last assistant bubble's content
+          // element rather than rebuilding the whole message list. This avoids
+          // the flicker/full-screen-refresh effect during streaming.
+          const bubbles = messageList.querySelectorAll('.msg-bubble');
+          const lastBubble = bubbles[bubbles.length - 1];
+          const contentEl = lastBubble ? lastBubble.querySelector('.msg-content') : null;
+          if (contentEl && lastBubble.classList.contains('role-assistant')) {
+            contentEl.innerHTML = renderMarkdown(assistantMessage.content);
+            const nearBottom = messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight < 80;
+            if (nearBottom) messageList.scrollTop = messageList.scrollHeight;
+          } else {
+            // Fallback: first frame after adding the assistant placeholder —
+            // full render once, then subsequent frames go through the fast path.
+            renderMessages(currentMessages);
+            messageList.scrollTop = messageList.scrollHeight;
+          }
         }
       }
       if (streamDone) {

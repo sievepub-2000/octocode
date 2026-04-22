@@ -703,8 +703,8 @@ where
         match self.prompt(PromptRequest {
             text: prompt,
             model: self.config.default_model.clone(),
-            system_prompt: None,
-            history: Vec::new(),
+            system_prompt: Some(self.build_agent_system_prompt()),
+            history: self.build_prompt_history(session_id, false),
         }) {
             Ok(response) => {
                 self.run_agent_tool_loop(session_id, response)
@@ -813,8 +813,8 @@ where
             match self.prompt(PromptRequest {
                 text: follow_up,
                 model: self.config.default_model.clone(),
-                system_prompt: None,
-                history: Vec::new(),
+                system_prompt: Some(self.build_agent_system_prompt()),
+                history: self.build_prompt_history(session_id, true),
             }) {
                 Ok(next_response) => {
                     current_output = next_response.output;
@@ -1041,6 +1041,106 @@ where
         self.tool_catalog.descriptors()
     }
 
+    /// Build the system prompt that informs the model about its current
+    /// capabilities: granted permission level, available tools (filtered by
+    /// permission), workspace context, and the exact tool-call syntax.
+    ///
+    /// Without this, the upstream model has no idea what it can do and will
+    /// (correctly) claim to only be a chat API.
+    fn build_agent_system_prompt(&self) -> String {
+        let perm = &self.config.permission_mode;
+        let perm_label = match perm {
+            PermissionMode::ReadOnly => "READ_ONLY (can read files and search; no writes, no shell)",
+            PermissionMode::WorkspaceWrite => {
+                "WORKSPACE_WRITE (can read, write, edit files inside the workspace; can run safe shell commands)"
+            }
+            PermissionMode::DangerFullAccess => {
+                "DANGER_FULL_ACCESS (full read/write/shell including destructive operations)"
+            }
+        };
+
+        let ws = self.platform.context();
+        let mut prompt = String::new();
+        prompt.push_str(
+            "You are the Octocode coding agent running locally on the user's workstation. \
+You have real execution capability — you are NOT a stateless chat API. \
+You can invoke tools to read/write files, run shell commands, search text, and inspect the workspace.\n\n",
+        );
+        prompt.push_str(&format!("Current permission level: {}\n", perm_label));
+        prompt.push_str(&format!(
+            "Workspace root: {}\nPlatform: {:?}\nShell: {:?}\n\n",
+            ws.root, ws.platform, ws.preferred_shell
+        ));
+
+        // Only list tools the current permission level can actually invoke.
+        let perm_rank = |p: &PermissionMode| match p {
+            PermissionMode::ReadOnly => 0u8,
+            PermissionMode::WorkspaceWrite => 1,
+            PermissionMode::DangerFullAccess => 2,
+        };
+        let current_rank = perm_rank(perm);
+        let denied: std::collections::HashSet<&str> = self
+            .config
+            .denied_tools
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
+        let mut available: Vec<&ToolDescriptor> = self
+            .tool_catalog
+            .descriptors()
+            .iter()
+            .filter(|d| perm_rank(&d.minimum_permission) <= current_rank)
+            .filter(|d| !denied.contains(d.name))
+            .collect();
+        available.sort_by_key(|d| d.name);
+
+        prompt.push_str("Available tools (invoke them when they help the user):\n");
+        for d in &available {
+            prompt.push_str(&format!("  - {} : {}\n", d.name, d.summary));
+        }
+        prompt.push_str(
+            "\nTool-call syntax (EMIT EXACTLY, one per block, no code fences):\n\
+<|tool_call>tool-name(key=\"value\", key2=\"value2\")<tool_call|>\n\n\
+Rules:\n\
+  1. Emit a tool call only when it advances the user's task.\n\
+  2. After a tool result is delivered back to you, continue reasoning and optionally call more tools or produce a final answer.\n\
+  3. Do NOT fabricate file contents — read them first with read-file.\n\
+  4. Never claim you lack capability if a matching tool is listed above.\n\
+  5. Respond in the same language as the user.\n",
+        );
+        prompt
+    }
+
+    /// Load recent conversation history for the session, ready to hand to a
+    /// provider. The most recently appended user message is excluded because
+    /// the caller passes it as `PromptRequest::text`.
+    fn build_prompt_history(
+        &self,
+        session_id: &str,
+        skip_trailing_user: bool,
+    ) -> Vec<(ConversationRole, String)> {
+        let Ok(session) = self.sessions.load_session(session_id) else {
+            return Vec::new();
+        };
+        let mut messages: Vec<&ConversationMessage> = session.messages.iter().collect();
+        if skip_trailing_user {
+            if let Some(last) = messages.last() {
+                if matches!(last.role, ConversationRole::User) {
+                    messages.pop();
+                }
+            }
+        }
+        let limit = self.config.history_limit.max(1);
+        if messages.len() > limit {
+            let drop = messages.len() - limit;
+            messages.drain(..drop);
+        }
+        messages
+            .into_iter()
+            .map(|m| (m.role.clone(), m.content.clone()))
+            .collect()
+    }
+
     pub fn skills(&self) -> Result<Vec<SkillDescriptor>, OctoError> {
         let workspace_root = &self.platform.context().root;
         let config_home = &self.platform.config_paths().config_home;
@@ -1151,11 +1251,12 @@ where
 
         let stop_flag = session_stop_flag(session_id);
 
+        let history = self.build_prompt_history(session_id, false);
         let request = PromptRequest {
             text: String::from(text),
             model: self.config.default_model.clone(),
-            system_prompt: None,
-            history: Vec::new(),
+            system_prompt: Some(self.build_agent_system_prompt()),
+            history,
         };
         self.plugin_host.dispatch(PluginHook::BeforePrompt {
             session_id,
@@ -1268,12 +1369,13 @@ where
                 )?;
 
                 current_output.clear();
+                let follow_history = self.build_prompt_history(session_id, true);
                 match self.provider.prompt_stream(
                     PromptRequest {
                         text: follow_up,
                         model: self.config.default_model.clone(),
-                        system_prompt: None,
-                        history: Vec::new(),
+                        system_prompt: Some(self.build_agent_system_prompt()),
+                        history: follow_history,
                     },
                     &mut |token: &str| {
                         if stop_flag.load(Ordering::SeqCst) {
