@@ -4,7 +4,7 @@ use std::time::SystemTime;
 
 use octocode_core::{
     ConfigPaths, ConversationMessage, ConversationRole, ConversationSession, ConversationStore,
-    OctoError, SessionStore, SessionSummary,
+    OctoError, SessionStore, SessionSummary, TurnLifecycle, TurnLifecyclePhase, TurnStateStore,
 };
 
 #[derive(Default)]
@@ -51,6 +51,7 @@ impl ConversationStore for MemorySessionStore {
         Ok(ConversationSession {
             summary,
             messages: Vec::new(),
+            turn: TurnLifecycle::default(),
         })
     }
 
@@ -72,6 +73,18 @@ impl ConversationStore for MemorySessionStore {
 
     fn latest_session_id(&self) -> Result<Option<String>, OctoError> {
         Ok(self.sessions.last().map(|session| session.id.clone()))
+    }
+}
+
+impl TurnStateStore for MemorySessionStore {
+    fn load_turn_state(&self, _session_id: &str) -> Result<TurnLifecycle, OctoError> {
+        Ok(TurnLifecycle::default())
+    }
+
+    fn save_turn_state(&self, _session_id: &str, _turn: &TurnLifecycle) -> Result<(), OctoError> {
+        Err(OctoError::Session(String::from(
+            "memory session store does not persist turn state",
+        )))
     }
 }
 
@@ -178,6 +191,97 @@ impl FileSessionStore {
             .collect()
     }
 
+    fn load_turn(&self, id: &str) -> Result<TurnLifecycle, OctoError> {
+        let path = self.session_file_path(id);
+        let raw = fs::read_to_string(&path).map_err(|error| {
+            OctoError::Session(format!("failed to read session file {}: {error}", path.display()))
+        })?;
+
+        let mut turn = TurnLifecycle::default();
+        for line in raw.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            let Some((key, value)) = trimmed.split_once('=') else {
+                continue;
+            };
+            let value = value.trim();
+            match key.trim() {
+                "turn_id" => {
+                    if !value.is_empty() {
+                        turn.turn_id = Some(String::from(value));
+                    }
+                }
+                "turn_phase" => turn.phase = TurnLifecyclePhase::parse(value),
+                "turn_started_at_ms" => turn.started_at_ms = value.parse::<u128>().ok(),
+                "turn_updated_at_ms" => turn.updated_at_ms = value.parse::<u128>().ok(),
+                "turn_finished_at_ms" => turn.finished_at_ms = value.parse::<u128>().ok(),
+                "turn_last_error" => {
+                    if !value.is_empty() {
+                        turn.last_error = Some(String::from(value));
+                    }
+                }
+                "turn_active_sse_clients" => {
+                    turn.active_sse_clients = value.parse::<usize>().unwrap_or(0)
+                }
+                _ => {}
+            }
+        }
+
+        Ok(turn)
+    }
+
+    fn write_turn(&self, session_id: &str, turn: &TurnLifecycle) -> Result<(), OctoError> {
+        let summary = self.load_summary(session_id)?;
+        let file_path = self.session_file_path(session_id);
+        let body = format!(
+            concat!(
+                "id={id}\n",
+                "title={title}\n",
+                "model={model}\n",
+                "parent_id={parent_id}\n",
+                "branch_name={branch_name}\n",
+                "total_input_tokens={ti}\n",
+                "total_output_tokens={to}\n",
+                "turn_id={turn_id}\n",
+                "turn_phase={turn_phase}\n",
+                "turn_started_at_ms={turn_started_at_ms}\n",
+                "turn_updated_at_ms={turn_updated_at_ms}\n",
+                "turn_finished_at_ms={turn_finished_at_ms}\n",
+                "turn_last_error={turn_last_error}\n",
+                "turn_active_sse_clients={turn_active_sse_clients}\n",
+            ),
+            id = summary.id,
+            title = summary.title,
+            model = summary.model.as_deref().unwrap_or(""),
+            parent_id = summary.parent_id.as_deref().unwrap_or(""),
+            branch_name = summary.branch_name.as_deref().unwrap_or(""),
+            ti = summary.total_input_tokens,
+            to = summary.total_output_tokens,
+            turn_id = turn.turn_id.as_deref().unwrap_or(""),
+            turn_phase = turn.phase.as_str(),
+            turn_started_at_ms = turn.started_at_ms.map(|value| value.to_string()).unwrap_or_default(),
+            turn_updated_at_ms = turn.updated_at_ms.map(|value| value.to_string()).unwrap_or_default(),
+            turn_finished_at_ms = turn.finished_at_ms.map(|value| value.to_string()).unwrap_or_default(),
+            turn_last_error = turn.last_error.as_deref().unwrap_or(""),
+            turn_active_sse_clients = turn.active_sse_clients,
+        );
+        let tmp_path = file_path.with_extension("session.tmp");
+        fs::write(&tmp_path, &body)
+            .map_err(|error| OctoError::Session(format!("failed to write session tmp: {error}")))?;
+        fs::rename(&tmp_path, &file_path)
+            .map_err(|error| OctoError::Session(format!("failed to rename session file: {error}")))
+    }
+
+    pub fn load_turn_state(&self, id: &str) -> Result<TurnLifecycle, OctoError> {
+        self.load_turn(id)
+    }
+
+    pub fn save_turn_state(&self, session_id: &str, turn: &TurnLifecycle) -> Result<(), OctoError> {
+        self.write_turn(session_id, turn)
+    }
+
     fn write_messages(&self, id: &str, messages: &[ConversationMessage]) -> Result<(), OctoError> {
         let transcript_path = self.transcript_file_path(id);
         if let Some(parent) = transcript_path.parent() {
@@ -260,6 +364,49 @@ impl FileSessionStore {
         }
         Ok(removed)
     }
+
+    pub fn delete_session(&self, id: &str) -> Result<bool, OctoError> {
+        let mut removed = false;
+        let session_path = self.session_file_path(id);
+        let transcript_path = self.transcript_file_path(id);
+
+        if session_path.exists() {
+            fs::remove_file(&session_path).map_err(|error| {
+                OctoError::Session(format!(
+                    "failed to delete session file {}: {error}",
+                    session_path.display()
+                ))
+            })?;
+            removed = true;
+        }
+
+        if transcript_path.exists() {
+            fs::remove_file(&transcript_path).map_err(|error| {
+                OctoError::Session(format!(
+                    "failed to delete transcript file {}: {error}",
+                    transcript_path.display()
+                ))
+            })?;
+            removed = true;
+        }
+
+        Ok(removed)
+    }
+
+    pub fn delete_all_sessions(&self) -> Result<usize, OctoError> {
+        let session_ids = self
+            .list_sessions()?
+            .into_iter()
+            .map(|session| session.id)
+            .collect::<Vec<_>>();
+        let mut removed = 0usize;
+        for session_id in session_ids {
+            if self.delete_session(&session_id)? {
+                removed += 1;
+            }
+        }
+        Ok(removed)
+    }
 }
 
 impl SessionStore for FileSessionStore {
@@ -296,6 +443,13 @@ impl SessionStore for FileSessionStore {
                 "branch_name={branch_name}\n",
                 "total_input_tokens={ti}\n",
                 "total_output_tokens={to}\n",
+                "turn_id=\n",
+                "turn_phase=idle\n",
+                "turn_started_at_ms=\n",
+                "turn_updated_at_ms=\n",
+                "turn_finished_at_ms=\n",
+                "turn_last_error=\n",
+                "turn_active_sse_clients=0\n",
             ),
             id = session.id,
             title = session.title,
@@ -320,6 +474,7 @@ impl ConversationStore for FileSessionStore {
         Ok(ConversationSession {
             summary,
             messages: self.load_messages(id),
+            turn: self.load_turn(id)?,
         })
     }
 
@@ -344,6 +499,16 @@ impl ConversationStore for FileSessionStore {
             .max_by_key(|session| self.last_modified_for(&session.id))
             .map(|session| session.id.clone());
         Ok(latest)
+    }
+}
+
+impl TurnStateStore for FileSessionStore {
+    fn load_turn_state(&self, session_id: &str) -> Result<TurnLifecycle, OctoError> {
+        self.load_turn(session_id)
+    }
+
+    fn save_turn_state(&self, session_id: &str, turn: &TurnLifecycle) -> Result<(), OctoError> {
+        self.write_turn(session_id, turn)
     }
 }
 
@@ -402,6 +567,60 @@ mod tests {
         store.save_session(summary).expect("save");
         let removed = store.cleanup(Duration::from_secs(3600), 100).expect("cleanup");
         assert_eq!(removed, 0);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn delete_session_removes_summary_and_transcript() {
+        let (store, root) = temp_store("delete-one");
+        let summary = SessionSummary {
+            id: String::from("delete-me"),
+            title: String::from("Delete Me"),
+            model: None,
+            parent_id: None,
+            branch_name: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+        };
+        store.save_session(summary).expect("save");
+        store
+            .append_message(
+                "delete-me",
+                ConversationMessage {
+                    role: ConversationRole::User,
+                    content: String::from("hello"),
+                },
+            )
+            .expect("append");
+
+        let removed = store.delete_session("delete-me").expect("delete");
+
+        assert!(removed);
+        assert!(store.list_sessions().expect("list").is_empty());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn delete_all_sessions_removes_everything() {
+        let (store, root) = temp_store("delete-all");
+        for index in 0..3 {
+            store
+                .save_session(SessionSummary {
+                    id: format!("sess-{index}"),
+                    title: format!("Session {index}"),
+                    model: None,
+                    parent_id: None,
+                    branch_name: None,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                })
+                .expect("save");
+        }
+
+        let removed = store.delete_all_sessions().expect("delete all");
+
+        assert_eq!(removed, 3);
+        assert!(store.list_sessions().expect("list").is_empty());
         let _ = fs::remove_dir_all(&root);
     }
 }

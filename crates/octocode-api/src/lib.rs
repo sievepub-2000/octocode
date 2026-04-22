@@ -754,7 +754,7 @@ impl ModelProvider for BuiltinProvider {
     fn prompt_stream(
         &self,
         request: PromptRequest,
-        on_token: &mut dyn FnMut(&str),
+        on_token: &mut dyn FnMut(&str) -> bool,
     ) -> Result<PromptResponse, OctoError> {
         match self {
             Self::Stub(provider) => provider.prompt_stream(request, on_token),
@@ -887,7 +887,7 @@ impl ModelProvider for OpenAiCompatibleProvider {
     fn prompt_stream(
         &self,
         request: PromptRequest,
-        on_token: &mut dyn FnMut(&str),
+        on_token: &mut dyn FnMut(&str) -> bool,
     ) -> Result<PromptResponse, OctoError> {
         let snapshot = self.snapshot_circuit();
         if snapshot.state == ProviderCircuitState::Open {
@@ -944,6 +944,27 @@ impl ModelProvider for FallbackProvider {
 
         Err(OctoError::Provider(format!(
             "all fallback providers failed for {}: {}",
+            self.descriptor.id,
+            failures.join(" | ")
+        )))
+    }
+
+    fn prompt_stream(
+        &self,
+        request: PromptRequest,
+        on_token: &mut dyn FnMut(&str) -> bool,
+    ) -> Result<PromptResponse, OctoError> {
+        let mut failures = Vec::new();
+
+        for candidate in &self.candidates {
+            match candidate.prompt_stream(request.clone(), on_token) {
+                Ok(response) => return Ok(response),
+                Err(error) => failures.push(format!("{} failed: {}", candidate.active_provider_id(), error)),
+            }
+        }
+
+        Err(OctoError::Provider(format!(
+            "all fallback providers failed for {} (stream): {}",
             self.descriptor.id,
             failures.join(" | ")
         )))
@@ -1130,7 +1151,7 @@ fn run_curl_stream_request(
     url: &str,
     body: &str,
     token: Option<&str>,
-    on_token: &mut dyn FnMut(&str),
+    on_token: &mut dyn FnMut(&str) -> bool,
 ) -> Result<String, OctoError> {
     use std::io::{BufRead, BufReader};
 
@@ -1167,7 +1188,9 @@ fn run_curl_stream_request(
 
         if let Some(json_str) = trimmed.strip_prefix("data: ") {
             if let Some(delta) = extract_stream_delta(json_str) {
-                on_token(&delta);
+                if !on_token(&delta) {
+                    return Err(OctoError::Runtime(String::from("stream cancelled")));
+                }
                 full_output.push_str(&delta);
             }
         }
@@ -1198,22 +1221,40 @@ fn extract_message_content(body: &str) -> Option<String> {
 
 fn extract_json_string_after(body: &str, marker: &str) -> Option<String> {
     let start = body.find(marker)? + marker.len();
-    let bytes = body.as_bytes();
-    let mut index = start;
+    let mut chars = body[start..].chars();
     let mut escaped = false;
     let mut output = String::new();
 
-    while index < bytes.len() {
-        let ch = bytes[index] as char;
+    while let Some(ch) = chars.next() {
         if escaped {
-            output.push(match ch {
-                'n' => '\n',
-                'r' => '\r',
-                't' => '\t',
-                '"' => '"',
-                '\\' => '\\',
-                other => other,
-            });
+            match ch {
+                'n' => output.push('\n'),
+                'r' => output.push('\r'),
+                't' => output.push('\t'),
+                'b' => output.push('\u{0008}'),
+                'f' => output.push('\u{000c}'),
+                '"' => output.push('"'),
+                '\\' => output.push('\\'),
+                '/' => output.push('/'),
+                'u' => {
+                    let first = decode_json_u16_escape(&mut chars)?;
+                    if (0xD800..=0xDBFF).contains(&first) {
+                        if chars.next()? != '\\' || chars.next()? != 'u' {
+                            return None;
+                        }
+                        let second = decode_json_u16_escape(&mut chars)?;
+                        if !(0xDC00..=0xDFFF).contains(&second) {
+                            return None;
+                        }
+                        let scalar = 0x10000
+                            + (((first as u32 - 0xD800) << 10) | (second as u32 - 0xDC00));
+                        output.push(char::from_u32(scalar)?);
+                    } else {
+                        output.push(char::from_u32(first as u32)?);
+                    }
+                }
+                other => output.push(other),
+            }
             escaped = false;
         } else if ch == '\\' {
             escaped = true;
@@ -1222,10 +1263,17 @@ fn extract_json_string_after(body: &str, marker: &str) -> Option<String> {
         } else {
             output.push(ch);
         }
-        index += 1;
     }
 
     None
+}
+
+fn decode_json_u16_escape(chars: &mut std::str::Chars<'_>) -> Option<u16> {
+    let mut hex = String::with_capacity(4);
+    for _ in 0..4 {
+        hex.push(chars.next()?);
+    }
+    u16::from_str_radix(&hex, 16).ok()
 }
 
 /// Build a JSON messages array string from a PromptRequest.
@@ -1412,6 +1460,20 @@ mod tests {
     }
 
     #[test]
+    fn extract_stream_delta_preserves_utf8_content() {
+        let chunk = r#"{"id":"chatcmpl-1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"你好，世界"},"finish_reason":null}]}"#;
+        let delta = super::extract_stream_delta(chunk);
+        assert_eq!(delta.as_deref(), Some("你好，世界"));
+    }
+
+    #[test]
+    fn extract_message_content_decodes_unicode_escape_sequences() {
+        let body = r#"{"message":{"content":"\u4f60\u597d\uff0c\u4e16\u754c"}}"#;
+        let content = super::extract_message_content(body);
+        assert_eq!(content.as_deref(), Some("你好，世界"));
+    }
+
+    #[test]
     fn stub_provider_prompt_stream_calls_callback() {
         let stub = StubProvider::new(ProviderDescriptor {
             id: String::from("stub-stream"),
@@ -1430,6 +1492,7 @@ mod tests {
         let mut tokens = Vec::new();
         let result = stub.prompt_stream(request, &mut |token| {
             tokens.push(String::from(token));
+            true
         });
         assert!(result.is_ok());
         assert_eq!(tokens.len(), 1);

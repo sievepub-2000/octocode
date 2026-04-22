@@ -13,7 +13,8 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $repoRoot
 
 try {
-    cargo run -p octocode-cli -- desktop $Port $SessionId
+    Write-Host "Starting WebUI server on http://127.0.0.1:$Port/ui-shell/?session=$SessionId"
+    cargo run -p octocode-cli -- serve $Port $SessionId
 }
 finally {
     Pop-Location

@@ -156,13 +156,14 @@ impl ModelProvider for MockProvider {
     fn prompt_stream(
         &self,
         request: PromptRequest,
-        on_token: &mut dyn FnMut(&str),
+        on_token: &mut dyn FnMut(&str) -> bool,
     ) -> Result<PromptResponse, OctoError> {
         let response = self.prompt(request)?;
         // Simulate streaming by emitting word-by-word.
         for word in response.output.split_whitespace() {
-            on_token(word);
-            on_token(" ");
+            if !on_token(word) || !on_token(" ") {
+                return Err(OctoError::Runtime(String::from("stream cancelled")));
+            }
         }
         Ok(response)
     }
@@ -284,7 +285,10 @@ mod tests {
                 system_prompt: None,
                 history: vec![],
             },
-            &mut |token| tokens.push(String::from(token)),
+            &mut |token| {
+                tokens.push(String::from(token));
+                true
+            },
         ).unwrap();
         assert!(!tokens.is_empty());
     }

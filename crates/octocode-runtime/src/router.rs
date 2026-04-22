@@ -139,7 +139,7 @@ where
     fn prompt_stream(
         &self,
         request: PromptRequest,
-        on_token: &mut dyn FnMut(&str),
+        on_token: &mut dyn FnMut(&str) -> bool,
     ) -> Result<PromptResponse, OctoError> {
         let mut failures = Vec::new();
         for provider in &self.providers {

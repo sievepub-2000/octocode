@@ -6,7 +6,7 @@ set -euo pipefail
 
 PROFILE="${1:-release}"
 SESSION_ID="${2:-demo}"
-PORT="${3:-991}"
+PORT="${3:-999}"
 ARCH="${ARCH:-$(uname -m)}"
 
 if ! [[ "${PORT}" =~ ^[0-9]+$ ]] || (( PORT < 990 || PORT > 999 )); then

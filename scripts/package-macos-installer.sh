@@ -3,7 +3,7 @@ set -euo pipefail
 
 PROFILE="${1:-release}"
 SESSION_ID="${2:-demo}"
-PORT="${3:-991}"
+PORT="${3:-999}"
 
 if ! [[ "${PORT}" =~ ^[0-9]+$ ]] || (( PORT < 990 || PORT > 999 )); then
   echo "Port must be between 990 and 999. Received: ${PORT}" >&2

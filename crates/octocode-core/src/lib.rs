@@ -176,6 +176,67 @@ pub struct SessionSummary {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub enum TurnLifecyclePhase {
+    Idle,
+    Running,
+    Completed,
+    Cancelled,
+    Failed,
+    Interrupted,
+}
+
+impl TurnLifecyclePhase {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Running => "running",
+            Self::Completed => "completed",
+            Self::Cancelled => "cancelled",
+            Self::Failed => "failed",
+            Self::Interrupted => "interrupted",
+        }
+    }
+
+    pub fn parse(value: &str) -> Self {
+        match value.trim() {
+            "running" => Self::Running,
+            "completed" => Self::Completed,
+            "cancelled" => Self::Cancelled,
+            "failed" => Self::Failed,
+            "interrupted" => Self::Interrupted,
+            _ => Self::Idle,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnLifecycle {
+    pub turn_id: Option<String>,
+    pub phase: TurnLifecyclePhase,
+    pub started_at_ms: Option<u128>,
+    pub updated_at_ms: Option<u128>,
+    pub finished_at_ms: Option<u128>,
+    pub last_error: Option<String>,
+    pub active_sse_clients: usize,
+}
+
+impl Default for TurnLifecycle {
+    fn default() -> Self {
+        Self {
+            turn_id: None,
+            phase: TurnLifecyclePhase::Idle,
+            started_at_ms: None,
+            updated_at_ms: None,
+            finished_at_ms: None,
+            last_error: None,
+            active_sse_clients: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConversationMessage {
     pub role: ConversationRole,
     pub content: String,
@@ -186,6 +247,7 @@ pub struct ConversationMessage {
 pub struct ConversationSession {
     pub summary: SessionSummary,
     pub messages: Vec<ConversationMessage>,
+    pub turn: TurnLifecycle,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -513,15 +575,18 @@ pub trait ModelProvider: Send + Sync {
     fn prompt(&self, request: PromptRequest) -> Result<PromptResponse, OctoError>;
 
     /// Stream a prompt response token-by-token via callback.
-    /// Each call to `on_token` receives a text delta.
+    /// Each call to `on_token` receives a text delta and returns whether
+    /// streaming should continue.
     /// Default implementation falls back to non-streaming prompt.
     fn prompt_stream(
         &self,
         request: PromptRequest,
-        on_token: &mut dyn FnMut(&str),
+        on_token: &mut dyn FnMut(&str) -> bool,
     ) -> Result<PromptResponse, OctoError> {
         let response = self.prompt(request)?;
-        on_token(&response.output);
+        if !on_token(&response.output) {
+            return Err(OctoError::Runtime(String::from("stream cancelled")));
+        }
         Ok(response)
     }
 
@@ -603,6 +668,11 @@ pub trait ConversationStore: SessionStore + Send + Sync {
         messages: Vec<ConversationMessage>,
     ) -> Result<(), OctoError>;
     fn latest_session_id(&self) -> Result<Option<String>, OctoError>;
+}
+
+pub trait TurnStateStore: Send + Sync {
+    fn load_turn_state(&self, session_id: &str) -> Result<TurnLifecycle, OctoError>;
+    fn save_turn_state(&self, session_id: &str, turn: &TurnLifecycle) -> Result<(), OctoError>;
 }
 
 pub trait ToolExecutor: Send + Sync {

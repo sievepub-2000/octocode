@@ -16,7 +16,7 @@ static TOKEN_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 use octocode_core::{
     ConversationMessage, ConversationRole, ConversationSession, ConversationStore, OctoError,
-    SessionStore, SessionSummary,
+    SessionStore, SessionSummary, TurnLifecycle, TurnStateStore,
 };
 
 /// Workspace identity for isolation.
@@ -211,7 +211,11 @@ impl ConversationStore for IsolatedSessionStore {
             Vec::new()
         };
 
-        Ok(ConversationSession { summary, messages })
+        Ok(ConversationSession {
+            summary,
+            messages,
+            turn: TurnLifecycle::default(),
+        })
     }
 
     fn append_message(&self, session_id: &str, message: ConversationMessage) -> Result<(), OctoError> {
@@ -246,6 +250,16 @@ impl ConversationStore for IsolatedSessionStore {
     fn latest_session_id(&self) -> Result<Option<String>, OctoError> {
         let sessions = self.list_sessions()?;
         Ok(sessions.last().map(|s| s.id.clone()))
+    }
+}
+
+impl TurnStateStore for IsolatedSessionStore {
+    fn load_turn_state(&self, _session_id: &str) -> Result<TurnLifecycle, OctoError> {
+        Ok(TurnLifecycle::default())
+    }
+
+    fn save_turn_state(&self, _session_id: &str, _turn: &TurnLifecycle) -> Result<(), OctoError> {
+        Ok(())
     }
 }
 

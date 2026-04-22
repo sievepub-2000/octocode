@@ -2,7 +2,7 @@ use octocode_core::{
     CommandDescriptor, ConversationRole, ConversationSession, ConversationStore, DoctorReport,
     McpServerStatus, ModelProvider, OctoError, OutputMode, PermissionMode, PromptResponse, ProviderCircuitStatus,
     ProviderDescriptor, ProviderHealth, ProviderRouteStatus, RuntimeEvent, RuntimeStatus, SessionSummary, ToolDescriptor,
-    SkillDescriptor, ToolExecutor, ToolResult, UiSnapshot, WorkspaceContext,
+    SkillDescriptor, ToolExecutor, ToolResult, TurnStateStore, UiSnapshot, WorkspaceContext,
 };
 use octocode_runtime::OctocodeRuntime;
 
@@ -236,7 +236,7 @@ pub fn execute_command<P, S, T>(
 ) -> Result<CommandResponse, OctoError>
 where
     P: ModelProvider,
-    S: ConversationStore,
+    S: ConversationStore + TurnStateStore,
     T: ToolExecutor,
 {
     match command {

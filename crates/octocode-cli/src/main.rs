@@ -1,6 +1,8 @@
 #[allow(dead_code)]
 mod desktop;
+mod manage_config;
 mod server;
+mod terminal;
 #[allow(dead_code)]
 mod tls;
 #[allow(dead_code)]

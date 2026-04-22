@@ -79,15 +79,11 @@ impl ConfigLoader {
                 }
                 "provider_base_url" => {
                     let value = value.trim();
-                    if !value.is_empty() {
-                        config.provider_base_url = Some(String::from(value));
-                    }
+                    config.provider_base_url = optional_config_value(value);
                 }
                 "default_model" => {
                     let value = value.trim();
-                    if !value.is_empty() {
-                        config.default_model = Some(String::from(value));
-                    }
+                    config.default_model = optional_config_value(value);
                 }
                 "permission_mode" => {
                     config.permission_mode = parse_permission_mode(value.trim());
@@ -136,11 +132,8 @@ impl ConfigLoader {
                 "request_timeout_secs={}\n"
             ),
             config.provider_id.as_deref().unwrap_or(DEFAULT_PROVIDER_ID),
-            config
-                .provider_base_url
-                .as_deref()
-                .unwrap_or(DEFAULT_PROVIDER_BASE_URL),
-            config.default_model.as_deref().unwrap_or(DEFAULT_MODEL),
+            config.provider_base_url.as_deref().unwrap_or(""),
+            config.default_model.as_deref().unwrap_or(""),
             permission_mode_label(&config.permission_mode),
             config.history_limit.max(1),
             config.denied_tools.join(","),
@@ -240,6 +233,15 @@ impl ConfigLoader {
     }
 }
 
+fn optional_config_value(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(String::from(trimmed))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -291,6 +293,24 @@ mod tests {
         assert_eq!(loaded.history_limit, 42);
         assert_eq!(loaded.denied_tools, vec!["shell", "write"]);
         assert_eq!(loaded.request_timeout_secs, 120);
+    }
+
+    #[test]
+    fn save_and_load_preserves_cleared_provider_fields() {
+        let loader = temp_config("cleared_provider_fields");
+        let mut config = ConfigLoader::default_config();
+        config.provider_base_url = None;
+        config.default_model = None;
+
+        loader.save(&config).unwrap();
+
+        let raw = std::fs::read_to_string(loader.config_file_path()).unwrap();
+        assert!(raw.contains("provider_base_url=\n"));
+        assert!(raw.contains("default_model=\n"));
+
+        let loaded = loader.load().unwrap();
+        assert_eq!(loaded.provider_base_url, None);
+        assert_eq!(loaded.default_model, None);
     }
 
     #[test]

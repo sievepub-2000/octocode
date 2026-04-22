@@ -12,4 +12,5 @@ if ! [[ "${PORT}" =~ ^[0-9]+$ ]] || (( PORT < 990 || PORT > 999 )); then
 fi
 
 cd "${REPO_ROOT}"
-cargo run -p octocode-cli -- desktop "${PORT}" "${SESSION_ID}"
+echo "Starting WebUI server on http://127.0.0.1:${PORT}/ui-shell/?session=${SESSION_ID}"
+cargo run -p octocode-cli -- serve "${PORT}" "${SESSION_ID}"

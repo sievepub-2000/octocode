@@ -1,10 +1,11 @@
 # test-regression.ps1 — Full WebUI interaction regression test suite
 # Usage: powershell -ExecutionPolicy Bypass -File scripts\test-regression.ps1
-#        or: .\scripts\test-regression.ps1 -Port 991 -Session demo
+#        or: .\scripts\test-regression.ps1 -Port 999 -Session demo
 param(
-    [int]$Port = 991,
+    [int]$Port = 999,
     [string]$Session = "demo",
     [string]$BinaryPath = "",
+    [string]$AuthToken = "",
     [switch]$StartServer = $false,
     [switch]$StopServerAfter = $false
 )
@@ -16,6 +17,7 @@ $base = "http://127.0.0.1:$Port"
 $pass = 0
 $fail = 0
 $serverProcess = $null
+$script:authToken = $AuthToken
 
 function Write-Pass([string]$label) {
     Write-Host "  [PASS] $label" -ForegroundColor Green
@@ -31,11 +33,75 @@ function Assert([bool]$cond, [string]$label, [string]$detail = "") {
     if ($cond) { Write-Pass $label } else { Write-Fail $label $detail }
 }
 
+function Get-AuthToken([switch]$Refresh = $false) {
+    if (-not $Refresh -and -not [string]::IsNullOrWhiteSpace($script:authToken)) {
+        return $script:authToken
+    }
+    $html = (Invoke-WebRequest -Uri "$base/ui-shell/?session=$Session" -UseBasicParsing -ErrorAction Stop).Content
+    $patterns = @(
+        'window\.__OCTOCODE_AUTH_TOKEN__\s*=\s*"([^"]+)"',
+        "window\.__OCTOCODE_AUTH_TOKEN__\s*=\s*'([^']+)'"
+    )
+    foreach ($pattern in $patterns) {
+        if ($html -match $pattern) {
+            $script:authToken = $Matches[1]
+            return $script:authToken
+        }
+    }
+    throw "Unable to resolve X-Auth-Token from /ui-shell/"
+}
+
+function Get-AuthHeaders() {
+    $token = Get-AuthToken
+    if ([string]::IsNullOrWhiteSpace($token)) {
+        return @{}
+    }
+    return @{ 'X-Auth-Token' = $token }
+}
+
+function GetJson([string]$url) {
+    $headers = Get-AuthHeaders
+    if ($headers.Count -gt 0) {
+        Invoke-RestMethod -Method Get -Uri $url -Headers $headers
+    } else {
+        Invoke-RestMethod -Method Get -Uri $url
+    }
+}
+
+function GetWeb([string]$url, [int]$TimeoutSec = 0) {
+    $params = @{
+        Uri = $url
+        UseBasicParsing = $true
+        ErrorAction = 'Stop'
+    }
+    $headers = Get-AuthHeaders
+    if ($headers.Count -gt 0) {
+        $params.Headers = $headers
+    }
+    if ($TimeoutSec -gt 0) {
+        $params.TimeoutSec = $TimeoutSec
+    }
+    Invoke-WebRequest @params
+}
+
+function PostFormBody([string]$url, [string]$body) {
+    $params = @{
+        Method = 'Post'
+        Uri = $url
+        ContentType = 'application/x-www-form-urlencoded'
+        Body = $body
+        ErrorAction = 'Stop'
+    }
+    $headers = Get-AuthHeaders
+    if ($headers.Count -gt 0) {
+        $params.Headers = $headers
+    }
+    Invoke-RestMethod @params
+}
+
 function PostForm([string]$url, [hashtable]$fields) {
     $body = ($fields.GetEnumerator() | ForEach-Object { "$($_.Key)=$([uri]::EscapeDataString($_.Value))" }) -join "&"
-    Invoke-RestMethod -Method Post -Uri $url `
-        -ContentType "application/x-www-form-urlencoded" `
-        -Body $body
+    PostFormBody $url $body
 }
 
 function WaitForServer([int]$timeoutSec = 10) {
@@ -89,12 +155,20 @@ try {
     Write-Fail "GET /api/health" $_.Exception.Message
 }
 
+Write-Host "-- 1b. Resolve WebUI auth token" -ForegroundColor Yellow
+try {
+    $resolvedToken = Get-AuthToken -Refresh
+    Assert (-not [string]::IsNullOrWhiteSpace($resolvedToken)) "auth token resolved from ui-shell"
+} catch {
+    Write-Fail "Resolve WebUI auth token" $_.Exception.Message
+}
+
 # ──────────────────────────────────────────
 # 2. State / snapshot
 # ──────────────────────────────────────────
 Write-Host "-- 2. GET /api/state" -ForegroundColor Yellow
 try {
-    $state = Invoke-RestMethod -Uri "$base/api/state?session=$Session"
+    $state = GetJson "$base/api/state?session=$Session"
     Assert ($null -ne $state.status) "state.status present"
     Assert ($null -ne $state.providerRoutes) "state.providerRoutes present"
     Assert ($null -ne $state.providers) "state.providers present"
@@ -120,7 +194,7 @@ try {
 # ──────────────────────────────────────────
 Write-Host "-- 3. GET /api/events" -ForegroundColor Yellow
 try {
-    $events = Invoke-RestMethod -Uri "$base/api/events?session=$Session"
+    $events = GetJson "$base/api/events?session=$Session"
     Assert ($null -ne $events.items) "events.items present"
 } catch {
     Write-Fail "GET /api/events" $_.Exception.Message
@@ -131,7 +205,7 @@ try {
 # ──────────────────────────────────────────
 Write-Host "-- 3b. GET /api/timeline" -ForegroundColor Yellow
 try {
-    $timeline = Invoke-RestMethod -Uri "$base/api/timeline?session=$Session"
+    $timeline = GetJson "$base/api/timeline?session=$Session"
     Assert ($null -ne $timeline.items) "timeline.items present"
 } catch {
     Write-Fail "GET /api/timeline" $_.Exception.Message
@@ -298,7 +372,7 @@ try {
 
 # Verify history persisted
 try {
-    $s2 = Invoke-RestMethod -Uri "$base/api/state?session=$Session"
+    $s2 = GetJson "$base/api/state?session=$Session"
     Assert ($s2.config.historyLimit -eq 20) "history 20 persisted" "got $($s2.config.historyLimit)"
 } catch {
     Write-Fail "history 20 verify" $_.Exception.Message
@@ -335,8 +409,8 @@ try {
     Assert ($js -match "'tokens'") "app.js includes tokens slash command"
     Assert ($js -match 'renderMessages') "renderMessages function present (DOM v6)"
     Assert ($js -match 'renderSidebar') "renderSidebar function present (DOM v6)"
-    Assert ($js -match 'renderWorkflowTab') "workflow timeline renderer present"
-    Assert ($js -match 'activeTerminalTab') "terminal tab state present"
+    Assert ($js -match 'refreshEventFeed') "event feed refresher present"
+    Assert ($js -match 'renderTerminalTabs') "terminal tabs renderer present"
     Assert ($js -match 'streamChat') "SSE streamChat function present"
     Assert ($js -match 'escapeHtml') "escapeHtml XSS protection present"
 } catch {
@@ -387,7 +461,7 @@ try {
 Write-Host "-- 20. Task Registry /api/tasks" -ForegroundColor Yellow
 
 try {
-    $taskList = Invoke-RestMethod -Uri "$base/api/tasks" -Method Get
+    $taskList = GetJson "$base/api/tasks"
     Assert ($null -ne $taskList) "GET /api/tasks returns data"
     Assert ($null -ne $taskList.items) "GET /api/tasks has items array"
     Write-Pass "GET /api/tasks structure OK"
@@ -397,7 +471,7 @@ try {
 
 try {
     $body = "sessionId=test-reg&label=autoresearch-test&kind=agent"
-    $submitted = Invoke-RestMethod -Uri "$base/api/tasks" -Method Post -Body $body -ContentType "application/x-www-form-urlencoded"
+    $submitted = PostFormBody "$base/api/tasks" $body
     Assert ($null -ne $submitted) "POST /api/tasks returns data"
     Assert ($submitted.id -like "t-*") "task id has t- prefix"
     Assert ($submitted.sessionId -eq "test-reg") "task sessionId round-trips"
@@ -414,13 +488,13 @@ Write-Host "-- 21. Permission Refinement - deny-list" -ForegroundColor Yellow
 # Ensure clean state first (allow echo in case a prior run left it denied)
 try {
     $body = "allowTool=echo&sessionId=$session"
-    $null = Invoke-RestMethod -Uri "$base/api/settings" -Method Post -Body $body -ContentType "application/x-www-form-urlencoded"
+    $null = PostFormBody "$base/api/settings" $body
 } catch { }
 
 try {
     # 1. Deny echo tool
     $body = "denyTool=echo&sessionId=$session"
-    $denied = Invoke-RestMethod -Uri "$base/api/settings" -Method Post -Body $body -ContentType "application/x-www-form-urlencoded"
+    $denied = PostFormBody "$base/api/settings" $body
     Assert ($null -ne $denied.config) "deny: settings returns config"
     Assert ($denied.config.deniedTools -contains "echo") "deny: echo appears in deniedTools"
 } catch {
@@ -430,7 +504,7 @@ try {
 # 2. Running denied tool should fail (HTTP 500)
 try {
     $body = "name=echo&input=hi&sessionId=$session"
-    $null = Invoke-RestMethod -Uri "$base/api/tool" -Method Post -Body $body -ContentType "application/x-www-form-urlencoded" -ErrorAction Stop
+    $null = PostFormBody "$base/api/tool" $body
     Write-Fail "tool echo after deny" "expected HTTP 500 but got success"
 } catch {
     $msg = $_.Exception.Message
@@ -440,7 +514,7 @@ try {
 try {
     # 3. Restore echo
     $body = "allowTool=echo&sessionId=$session"
-    $restored = Invoke-RestMethod -Uri "$base/api/settings" -Method Post -Body $body -ContentType "application/x-www-form-urlencoded"
+    $restored = PostFormBody "$base/api/settings" $body
     Assert ($null -ne $restored.config) "allow: settings returns config"
     Assert (-not ($restored.config.deniedTools -contains "echo")) "allow: echo removed from deniedTools"
 } catch {
@@ -450,7 +524,7 @@ try {
 # 4. Echo should work again after restore
 try {
     $body = "name=echo&input=hi&sessionId=$session"
-    $ok = Invoke-RestMethod -Uri "$base/api/tool" -Method Post -Body $body -ContentType "application/x-www-form-urlencoded"
+    $ok = PostFormBody "$base/api/tool" $body
     Assert ($null -ne $ok.activeSession) "tool echo works again after allow"
 } catch {
     Write-Fail "tool echo after allow" $_.Exception.Message
@@ -484,7 +558,7 @@ Write-Host "-- 23. SSE Streaming /api/stream" -ForegroundColor Yellow
 
 try {
     $streamUrl = "$base/api/stream?session=$Session&text=hello"
-    $response = Invoke-WebRequest -Uri $streamUrl -UseBasicParsing -TimeoutSec 30
+    $response = GetWeb $streamUrl 30
     Assert ($response.StatusCode -eq 200) "GET /api/stream returns 200"
     Assert ($response.Headers.'Content-Type' -match "text/event-stream") "GET /api/stream Content-Type is text/event-stream"
     $content = $response.Content
@@ -573,7 +647,7 @@ try {
 
 # 24.7  tool catalog count (30 tools)
 try {
-    $catalog = Invoke-RestMethod -Uri "$base/api/tools" -UseBasicParsing
+    $catalog = GetJson "$base/api/tools"
     Assert ($catalog.Count -ge 30) "tool catalog has >= 30 tools"
     Write-Pass "tool catalog count >= 30"
 } catch {

@@ -470,6 +470,23 @@ where
 
     fn start_turn(&self, session_id: &str, active_sse_clients: usize) -> Result<TurnLifecycle, OctoError> {
         let started_at_ms = turn_now_ms();
+        // Reject concurrent turns on the same session — prevents two tabs from
+        // clobbering each other's turn state. We consult the store (not the
+        // process-wide static) so parallel tests with distinct runtimes don't
+        // cross-contaminate. Stale entries (>10 min with no progress) are
+        // considered abandoned and allowed to be replaced.
+        if let Ok(existing) = self.sessions.load_turn_state(session_id) {
+            if matches!(existing.phase, TurnLifecyclePhase::Running) {
+                let updated = existing.updated_at_ms.unwrap_or(0);
+                let age_ms = started_at_ms.saturating_sub(updated);
+                if age_ms < 600_000 {
+                    return Err(OctoError::Session(format!(
+                        "session {session_id} is already running turn {} (another tab or process may be streaming)",
+                        existing.turn_id.as_deref().unwrap_or("?")
+                    )));
+                }
+            }
+        }
         let turn_id = next_turn_id(session_id);
         let turn = TurnLifecycle {
             turn_id: Some(turn_id.clone()),
