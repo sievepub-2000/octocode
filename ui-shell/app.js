@@ -2673,6 +2673,7 @@ async function streamChat(text, sessionId) {
   runtime.watcherPromise = monitorConversationSettlement(runtime);
   let sawToken = false;
   let streamEstablished = false;
+  const isViewing = () => currentSessionId === sessionId;
   currentMessages.push({ role: 'user', content: text, timestamp: Date.now() });
   renderMessages(currentMessages);
   const assistantMessage = { role: 'assistant', content: '', timestamp: Date.now() };
@@ -2730,8 +2731,10 @@ async function streamChat(text, sessionId) {
         }
       }
       if (updated) {
-        renderMessages(currentMessages);
-        messageList.scrollTop = messageList.scrollHeight;
+        if (isViewing()) {
+          renderMessages(currentMessages);
+          messageList.scrollTop = messageList.scrollHeight;
+        }
       }
       if (streamDone) {
         break;

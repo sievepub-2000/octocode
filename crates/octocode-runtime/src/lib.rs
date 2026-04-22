@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use octocode_core::{
     CommandDescriptor, ConfigPaths, ConversationMessage, ConversationRole, ConversationSession,
@@ -8,44 +10,93 @@ use octocode_core::{
     PermissionPolicy, PlatformKind, PlatformSupport, PromptRequest, PromptResponse,
     ProviderCircuitStatus, ProviderDescriptor, ProviderHealth, ProviderRouteStatus, RuntimeConfig,
     RuntimeEvent, RuntimeStatus, SessionSummary, ShellKind, SkillDescriptor, TaskKind, TaskRecord,
-    TaskState, ToolCall, ToolCatalog, ToolDescriptor, ToolExecutor, ToolResult, UiSnapshot,
-    WorkspaceContext,
+    TaskState, ToolCall, ToolCatalog, ToolDescriptor, ToolExecutor, ToolResult, TurnLifecycle,
+    TurnLifecyclePhase, TurnStateStore, UiSnapshot, WorkspaceContext,
 };
 use octocode_mcp::McpRegistry;
 use octocode_plugins::{PluginHook, PluginHost};
 use octocode_skills::SkillRegistry;
 
+mod compaction;
 mod config;
+mod coordinator;
+mod cost_tracker;
+mod file_guard;
+mod health_guardian;
+mod hooks;
+mod isolation;
+mod memory;
 mod permission;
+mod permission_rules;
 mod router;
 mod session;
 mod snapshot_json;
+mod sqlite_store;
+mod subagent;
+mod tasks;
 mod tool_call_parser;
 mod tools;
+mod todo_store;
 pub mod benchmarks;
-pub mod compaction;
-pub mod coordinator;
-pub mod cost_tracker;
-pub mod file_guard;
-pub mod health_guardian;
-pub mod hooks;
-pub mod isolation;
-pub mod memory;
-pub mod permission_rules;
-pub mod sqlite_store;
-pub mod subagent;
-pub mod tasks;
-pub mod todo_store;
 
-pub use config::ConfigLoader;
-pub use permission::RuntimePermissionPolicy;
+impl<P, S> OctocodeRuntime<P, S, tools::WorkspaceToolExecutor>
+where
+    P: ModelProvider,
+    S: ConversationStore + TurnStateStore,
+{
+    pub fn run_shell_command_in_session(
+        &self,
+        session_id: &str,
+        tool_name: &str,
+        command_line: &str,
+        permission: PermissionMode,
+    ) -> Result<ToolResult, OctoError> {
+        self.ensure_session_exists(session_id)?;
+        self.ensure_permission(&permission, tool_name)?;
+
+        let call = ToolCall {
+            name: String::from(tool_name),
+            input: String::from(command_line),
+            permission,
+        };
+
+        self.plugin_host.dispatch(PluginHook::BeforeTool {
+            session_id,
+            call: &call,
+        });
+
+        let result = match self.tools.execute_shell_command(command_line) {
+            Ok(result) => {
+                self.plugin_host.dispatch(PluginHook::AfterTool {
+                    session_id,
+                    call: &call,
+                    result: Ok(&result),
+                });
+                result
+            }
+            Err(error) => {
+                self.plugin_host.dispatch(PluginHook::AfterTool {
+                    session_id,
+                    call: &call,
+                    result: Err(&error.to_string()),
+                });
+                return Err(error);
+            }
+        };
+
+        self.append_session_message(
+            session_id,
+            ConversationRole::Tool,
+            format!("{} => {}", tool_name, result.output),
+        )?;
+        self.apply_history_limit(session_id)?;
+        Ok(result)
+    }
+}
 pub use router::RuntimeProviderRouter;
 pub use session::{FileSessionStore, MemorySessionStore};
 pub use tools::{RuntimeToolCatalog, WorkspaceToolExecutor};
-pub use compaction::{
-    CompactionConfig, CompactionResult, away_summary, compact_conversation,
-    estimate_conversation_tokens, extract_memories, should_compact,
-};
+pub use config::ConfigLoader;
 pub use coordinator::CoordinatorEngine;
 pub use cost_tracker::CostTracker;
 pub use hooks::{HooksConfig, HookDef, HookResult, HookTiming, run_hook};
@@ -59,9 +110,9 @@ pub use health_guardian::{HealthGuardian, GuardianConfig, ProviderHealthSnapshot
 pub use isolation::{IsolatedSessionStore, WorkspaceId, WorkspaceAuthToken, WorkspaceTokenStore};
 pub use benchmarks::{Benchmark, BenchmarkSuite, PercentileReport, RegressionCheckResult, run_standard_suite, check_regression, gate_benchmarks};
 
-use config::{
-    DEFAULT_MODEL, DEFAULT_PROVIDER_ID, permission_mode_label,
-};
+use compaction::{compact_conversation, estimate_conversation_tokens, should_compact, CompactionConfig};
+use config::{DEFAULT_MODEL, DEFAULT_PROVIDER_ID, permission_mode_label};
+use permission::RuntimePermissionPolicy;
 use snapshot_json::{runtime_event_to_json, snapshot_to_json};
 
 const AUTO_CONTEXT_FILES: &[&str] = &["CLAUDE.md", "AGENTS.md"];
@@ -70,9 +121,85 @@ const AUTO_CONTEXT_CHAR_LIMIT: usize = 4000;
 const MAX_AGENT_ITERATIONS: usize = 12;
 /// Token threshold at which auto-compaction is triggered.
 const AUTO_COMPACT_TOKEN_THRESHOLD: usize = 24_000;
+const STREAM_CANCELLED_MESSAGE: &str = "stream cancelled";
 
 static WORKSPACE_CONTEXT_CACHE: OnceLock<Mutex<std::collections::HashMap<String, Option<String>>>> =
     OnceLock::new();
+static SESSION_STOP_FLAGS: OnceLock<Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>> =
+    OnceLock::new();
+static ACTIVE_SESSION_TURNS: OnceLock<Mutex<std::collections::HashMap<String, ActiveTurnState>>> =
+    OnceLock::new();
+static TURN_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Clone)]
+struct ActiveTurnState {
+    turn_id: String,
+    started_at_ms: u128,
+    updated_at_ms: u128,
+    active_sse_clients: usize,
+}
+
+fn session_stop_flags() -> &'static Mutex<std::collections::HashMap<String, Arc<AtomicBool>>> {
+    SESSION_STOP_FLAGS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+fn active_session_turns() -> &'static Mutex<std::collections::HashMap<String, ActiveTurnState>> {
+    ACTIVE_SESSION_TURNS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+fn turn_now_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0)
+}
+
+fn next_turn_id(session_id: &str) -> String {
+    let sequence = TURN_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
+    format!("{session_id}-{}-{sequence}", turn_now_ms())
+}
+
+fn session_stop_flag(session_id: &str) -> Arc<AtomicBool> {
+    let mut flags = session_stop_flags().lock().unwrap();
+    flags.entry(String::from(session_id))
+        .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+        .clone()
+}
+
+fn stream_cancelled_error() -> OctoError {
+    OctoError::Runtime(String::from(STREAM_CANCELLED_MESSAGE))
+}
+
+fn is_stream_cancelled(error: &OctoError) -> bool {
+    matches!(error, OctoError::Runtime(message) if message == STREAM_CANCELLED_MESSAGE)
+}
+
+fn emit_stream_token(
+    stop_flag: &Arc<AtomicBool>,
+    on_token: &mut dyn FnMut(&str) -> bool,
+    token: &str,
+) -> Result<(), OctoError> {
+    if stop_flag.load(Ordering::SeqCst) || !on_token(token) {
+        stop_flag.store(false, Ordering::SeqCst);
+        return Err(stream_cancelled_error());
+    }
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn emit_stream_content(
+    stop_flag: &Arc<AtomicBool>,
+    on_token: &mut dyn FnMut(&str) -> bool,
+    content: &str,
+) -> Result<(), OctoError> {
+    // Retained for tool-call fallback paths; not part of normal streaming.
+    #[allow(dead_code)]
+    fn _marker() {}
+    for chunk in content.split_inclusive(char::is_whitespace) {
+        emit_stream_token(stop_flag, on_token, chunk)?;
+    }
+    Ok(())
+}
 
 pub struct NativePlatform {
     context: WorkspaceContext,
@@ -283,7 +410,7 @@ pub struct OctocodeRuntime<P, S, T> {
 impl<P, S, T> OctocodeRuntime<P, S, T>
 where
     P: ModelProvider,
-    S: ConversationStore,
+    S: ConversationStore + TurnStateStore,
     T: ToolExecutor,
 {
     pub fn new(
@@ -315,7 +442,22 @@ where
 
     pub fn prompt(&self, request: PromptRequest) -> Result<PromptResponse, OctoError> {
         tracing::debug!(model = ?request.model, "prompt request");
-        self.provider.prompt(request)
+        self.prompt_via_stream(request)
+    }
+
+    fn prompt_via_stream(&self, request: PromptRequest) -> Result<PromptResponse, OctoError> {
+        let mut streamed_output = String::new();
+        let response = self.provider.prompt_stream(request, &mut |token: &str| {
+            streamed_output.push_str(token);
+            true
+        })?;
+        if response.output.is_empty() && !streamed_output.is_empty() {
+            return Ok(PromptResponse {
+                output: streamed_output,
+                tokens: response.tokens,
+            });
+        }
+        Ok(response)
     }
 
     /// Hot-reload config from disk without restarting.
@@ -326,54 +468,110 @@ where
         Ok(())
     }
 
-    pub fn prompt_in_session(&self, session_id: &str, text: &str) -> Result<PromptResponse, OctoError> {
-        tracing::info!(session_id, "prompt_in_session");
-        self.ensure_session_exists(session_id)?;
-        // Auto-compaction check before adding new message
-        self.maybe_auto_compact(session_id)?;
-        self.append_session_message(session_id, ConversationRole::User, String::from(text))?;
-
-        let request = PromptRequest {
-            text: String::from(text),
-            model: self.config.default_model.clone(),
-            system_prompt: None,
-            history: Vec::new(),
+    fn start_turn(&self, session_id: &str, active_sse_clients: usize) -> Result<TurnLifecycle, OctoError> {
+        let started_at_ms = turn_now_ms();
+        let turn_id = next_turn_id(session_id);
+        let turn = TurnLifecycle {
+            turn_id: Some(turn_id.clone()),
+            phase: TurnLifecyclePhase::Running,
+            started_at_ms: Some(started_at_ms),
+            updated_at_ms: Some(started_at_ms),
+            finished_at_ms: None,
+            last_error: None,
+            active_sse_clients,
         };
-        self.plugin_host.dispatch(PluginHook::BeforePrompt {
-            session_id,
-            request: &request,
-        });
 
-        let response = self.provider.prompt(request);
+        active_session_turns().lock().unwrap().insert(
+            String::from(session_id),
+            ActiveTurnState {
+                turn_id,
+                started_at_ms,
+                updated_at_ms: started_at_ms,
+                active_sse_clients,
+            },
+        );
 
-        match response {
-            Ok(response) => {
-                self.plugin_host.dispatch(PluginHook::AfterPrompt {
-                    session_id,
-                    response: Ok(&response),
-                });
-                self.append_session_message(
-                    session_id,
-                    ConversationRole::Assistant,
-                    response.output.clone(),
-                )?;
-                self.apply_history_limit(session_id)?;
-                Ok(response)
+        if let Err(error) = self.sessions.save_turn_state(session_id, &turn) {
+            active_session_turns().lock().unwrap().remove(session_id);
+            return Err(error);
+        }
+
+        Ok(turn)
+    }
+
+    fn finish_turn(
+        &self,
+        session_id: &str,
+        phase: TurnLifecyclePhase,
+        last_error: Option<String>,
+    ) -> Result<TurnLifecycle, OctoError> {
+        let finished_at_ms = turn_now_ms();
+        let active = active_session_turns().lock().unwrap().remove(session_id);
+        let mut turn = self
+            .sessions
+            .load_turn_state(session_id)
+            .unwrap_or_else(|_| TurnLifecycle::default());
+
+        if let Some(active) = active {
+            if turn.turn_id.is_none() {
+                turn.turn_id = Some(active.turn_id);
             }
-            Err(error) => {
-                self.plugin_host.dispatch(PluginHook::AfterPrompt {
-                    session_id,
-                    response: Err(&error.to_string()),
-                });
-                self.append_session_message(
-                    session_id,
-                    ConversationRole::System,
-                    format!("provider-error: {error}"),
-                )?;
-                self.apply_history_limit(session_id)?;
-                Err(error)
+            if turn.started_at_ms.is_none() {
+                turn.started_at_ms = Some(active.started_at_ms);
             }
         }
+
+        turn.phase = phase;
+        turn.updated_at_ms = Some(finished_at_ms);
+        turn.finished_at_ms = Some(finished_at_ms);
+        turn.last_error = last_error;
+        turn.active_sse_clients = 0;
+        self.sessions.save_turn_state(session_id, &turn)?;
+        Ok(turn)
+    }
+
+    fn current_turn_state(&self, session_id: &str) -> Result<TurnLifecycle, OctoError> {
+        let mut turn = self.sessions.load_turn_state(session_id)?;
+        let active = active_session_turns().lock().unwrap().get(session_id).cloned();
+
+        match active {
+            Some(active) => {
+                turn.turn_id = Some(active.turn_id);
+                turn.phase = TurnLifecyclePhase::Running;
+                if turn.started_at_ms.is_none() {
+                    turn.started_at_ms = Some(active.started_at_ms);
+                }
+                turn.updated_at_ms = Some(active.updated_at_ms);
+                turn.finished_at_ms = None;
+                turn.last_error = None;
+                turn.active_sse_clients = active.active_sse_clients;
+            }
+            None if matches!(turn.phase, TurnLifecyclePhase::Running) => {
+                let recovered_at_ms = turn_now_ms();
+                turn.phase = TurnLifecyclePhase::Interrupted;
+                turn.updated_at_ms = Some(recovered_at_ms);
+                if turn.finished_at_ms.is_none() {
+                    turn.finished_at_ms = Some(recovered_at_ms);
+                }
+                if turn.last_error.is_none() {
+                    turn.last_error = Some(String::from(
+                        "turn ownership was lost before completion",
+                    ));
+                }
+                turn.active_sse_clients = 0;
+                self.sessions.save_turn_state(session_id, &turn)?;
+            }
+            None => {
+                turn.active_sse_clients = 0;
+            }
+        }
+
+        Ok(turn)
+    }
+
+    pub fn prompt_in_session(&self, session_id: &str, text: &str) -> Result<PromptResponse, OctoError> {
+        tracing::info!(session_id, "prompt_in_session");
+        self.prompt_stream_in_session(session_id, text, &mut |_token| true)
     }
 
     pub fn agent_action_in_session(
@@ -502,7 +700,7 @@ where
             return Ok(fallback);
         }
 
-        match self.provider.prompt(PromptRequest {
+        match self.prompt(PromptRequest {
             text: prompt,
             model: self.config.default_model.clone(),
             system_prompt: None,
@@ -612,7 +810,7 @@ where
             )?;
 
             // Re-prompt the LLM
-            match self.provider.prompt(PromptRequest {
+            match self.prompt(PromptRequest {
                 text: follow_up,
                 model: self.config.default_model.clone(),
                 system_prompt: None,
@@ -810,7 +1008,9 @@ where
     }
 
     pub fn session(&self, id: &str) -> Result<ConversationSession, OctoError> {
-        self.sessions.load_session(id)
+        let mut session = self.sessions.load_session(id)?;
+        session.turn = self.current_turn_state(id)?;
+        Ok(session)
     }
 
     pub fn resume_session(&self, id: Option<&str>) -> Result<ConversationSession, OctoError> {
@@ -941,13 +1141,15 @@ where
         &self,
         session_id: &str,
         text: &str,
-        on_token: &mut dyn FnMut(&str),
+        on_token: &mut dyn FnMut(&str) -> bool,
     ) -> Result<PromptResponse, OctoError> {
         use crate::tool_call_parser::{parse_embedded_tool_calls, strip_embedded_tool_calls};
 
         self.ensure_session_exists(session_id)?;
-        self.maybe_auto_compact(session_id)?;
-        self.append_session_message(session_id, ConversationRole::User, String::from(text))?;
+        self.clear_session_stop(session_id);
+        self.start_turn(session_id, 1)?;
+
+        let stop_flag = session_stop_flag(session_id);
 
         let request = PromptRequest {
             text: String::from(text),
@@ -955,115 +1157,221 @@ where
             system_prompt: None,
             history: Vec::new(),
         };
+        self.plugin_host.dispatch(PluginHook::BeforePrompt {
+            session_id,
+            request: &request,
+        });
 
-        let response = self.provider.prompt(request)?;
-        let mut current_output = response.output.clone();
-        let mut total_tokens = response.tokens;
+        let result = (|| -> Result<(PromptResponse, TurnLifecyclePhase, Option<String>), OctoError> {
+            self.maybe_auto_compact(session_id)?;
+            self.append_session_message(session_id, ConversationRole::User, String::from(text))?;
 
-        // Streaming agent loop with tool call detection
-        for _iteration in 0..MAX_AGENT_ITERATIONS {
-            let calls = parse_embedded_tool_calls(&current_output);
-            if calls.is_empty() {
-                // No tool calls — stream the final output
-                for chunk in current_output.split_inclusive(char::is_whitespace) {
-                    on_token(chunk);
+            let mut current_output = String::new();
+            // Pipe upstream tokens directly to the browser in real-time, while
+            // still accumulating into `current_output` for tool-call parsing.
+            let response = match self.provider.prompt_stream(request.clone(), &mut |token: &str| {
+                if stop_flag.load(Ordering::SeqCst) {
+                    return false;
                 }
+                current_output.push_str(token);
+                on_token(token)
+            }) {
+                Ok(response) => response,
+                Err(error) if stop_flag.load(Ordering::SeqCst) || is_stream_cancelled(&error) => {
+                    stop_flag.store(false, Ordering::SeqCst);
+                    return Err(stream_cancelled_error());
+                }
+                Err(error) => return Err(error),
+            };
+            // Prefer the provider's canonical output when available (some providers
+            // return a normalized/cleaned version). Otherwise keep what we streamed.
+            if !response.output.is_empty() {
+                current_output = response.output.clone();
+            }
+            let mut total_tokens = response.tokens;
+            let mut interrupted_error = None;
+
+            for _iteration in 0..MAX_AGENT_ITERATIONS {
+                if stop_flag.load(Ordering::SeqCst) {
+                    stop_flag.store(false, Ordering::SeqCst);
+                    return Err(stream_cancelled_error());
+                }
+                let calls = parse_embedded_tool_calls(&current_output);
+                if calls.is_empty() {
+                    // Content already streamed above — do not re-emit.
+                    self.append_session_message(
+                        session_id,
+                        ConversationRole::Assistant,
+                        current_output.clone(),
+                    )?;
+                    self.apply_history_limit(session_id)?;
+                    return Ok((
+                        PromptResponse {
+                            output: current_output,
+                            tokens: total_tokens,
+                        },
+                        TurnLifecyclePhase::Completed,
+                        None,
+                    ));
+                }
+
+                // Tool calls detected: content already streamed (including raw
+                // tool-call syntax). Client will receive tool execution markers
+                // next. We do not re-emit `visible` since that would duplicate
+                // content already delivered.
+
                 self.append_session_message(
                     session_id,
                     ConversationRole::Assistant,
                     current_output.clone(),
                 )?;
-                self.apply_history_limit(session_id)?;
-                return Ok(PromptResponse {
-                    output: current_output,
-                    tokens: total_tokens,
-                });
-            }
 
-            // Stream the non-tool-call parts
-            let visible = strip_embedded_tool_calls(&current_output);
-            if !visible.trim().is_empty() {
-                for chunk in visible.split_inclusive(char::is_whitespace) {
-                    on_token(chunk);
+                let mut reports = Vec::new();
+                for embedded_call in &calls {
+                    if stop_flag.load(Ordering::SeqCst) {
+                        stop_flag.store(false, Ordering::SeqCst);
+                        return Err(stream_cancelled_error());
+                    }
+                    if let Some(tool_call) = embedded_call.to_tool_call() {
+                        emit_stream_token(
+                            &stop_flag,
+                            on_token,
+                            &format!("\n[executing: {}]\n", tool_call.name),
+                        )?;
+                        let result = match self.execute_tool_for_agent(session_id, tool_call.clone()) {
+                            Ok(result) => result.output,
+                            Err(error) => format!("error: {error}"),
+                        };
+                        reports.push(format!(
+                            "[{}] {}",
+                            tool_call.name,
+                            truncate_preview(&result, 2000)
+                        ));
+                        self.append_session_message(
+                            session_id,
+                            ConversationRole::Tool,
+                            format!("{} => {}", tool_call.name, truncate_preview(&result, 1200)),
+                        )?;
+                    }
+                }
+
+                self.maybe_auto_compact(session_id)?;
+
+                let follow_up = format!(
+                    "Tool results:\n{}\n\nContinue or provide final summary.",
+                    reports.join("\n")
+                );
+                self.append_session_message(
+                    session_id,
+                    ConversationRole::System,
+                    follow_up.clone(),
+                )?;
+
+                current_output.clear();
+                match self.provider.prompt_stream(
+                    PromptRequest {
+                        text: follow_up,
+                        model: self.config.default_model.clone(),
+                        system_prompt: None,
+                        history: Vec::new(),
+                    },
+                    &mut |token: &str| {
+                        if stop_flag.load(Ordering::SeqCst) {
+                            return false;
+                        }
+                        current_output.push_str(token);
+                        on_token(token)
+                    },
+                ) {
+                    Ok(next) => {
+                        if !next.output.is_empty() {
+                            current_output = next.output;
+                        }
+                        if let Some(new_tokens) = next.tokens {
+                            total_tokens = Some(match total_tokens {
+                                Some(existing) => octocode_core::TokenInfo::new(
+                                    existing.input_tokens + new_tokens.input_tokens,
+                                    existing.output_tokens + new_tokens.output_tokens,
+                                ),
+                                None => new_tokens,
+                            });
+                        }
+                    }
+                    Err(error) if stop_flag.load(Ordering::SeqCst) || is_stream_cancelled(&error) => {
+                        stop_flag.store(false, Ordering::SeqCst);
+                        return Err(stream_cancelled_error());
+                    }
+                    Err(error) => {
+                        interrupted_error = Some(error.to_string());
+                        let msg = format!("\n[stream interrupted: {}]\n", error);
+                        emit_stream_token(&stop_flag, on_token, &msg)?;
+                        break;
+                    }
                 }
             }
 
-            // Execute tool calls
+            let _visible = strip_embedded_tool_calls(&current_output);
+            // Content already streamed via provider.prompt_stream callback.
             self.append_session_message(
                 session_id,
                 ConversationRole::Assistant,
                 current_output.clone(),
             )?;
+            self.apply_history_limit(session_id)?;
+            let phase = if interrupted_error.is_some() {
+                TurnLifecyclePhase::Interrupted
+            } else {
+                TurnLifecyclePhase::Completed
+            };
+            Ok((
+                PromptResponse {
+                    output: current_output,
+                    tokens: total_tokens,
+                },
+                phase,
+                interrupted_error,
+            ))
+        })();
 
-            let mut reports = Vec::new();
-            for embedded_call in &calls {
-                if let Some(tool_call) = embedded_call.to_tool_call() {
-                    on_token(&format!("\n[executing: {}]\n", tool_call.name));
-                    let result = match self.execute_tool_for_agent(session_id, tool_call.clone()) {
-                        Ok(result) => result.output,
-                        Err(e) => format!("error: {e}"),
-                    };
-                    reports.push(format!("[{}] {}", tool_call.name, truncate_preview(&result, 2000)));
-                    self.append_session_message(
-                        session_id,
-                        ConversationRole::Tool,
-                        format!("{} => {}", tool_call.name, truncate_preview(&result, 1200)),
-                    )?;
-                }
+        self.clear_session_stop(session_id);
+
+        match result {
+            Ok((response, phase, last_error)) => {
+                self.plugin_host.dispatch(PluginHook::AfterPrompt {
+                    session_id,
+                    response: Ok(&response),
+                });
+                self.finish_turn(session_id, phase, last_error)?;
+                Ok(response)
             }
-
-            self.maybe_auto_compact(session_id)?;
-
-            let follow_up = format!(
-                "Tool results:\n{}\n\nContinue or provide final summary.",
-                reports.join("\n")
-            );
-            self.append_session_message(
-                session_id,
-                ConversationRole::System,
-                follow_up.clone(),
-            )?;
-
-            match self.provider.prompt(PromptRequest {
-                text: follow_up,
-                model: self.config.default_model.clone(),
-                system_prompt: None,
-                history: Vec::new(),
-            }) {
-                Ok(next) => {
-                    current_output = next.output;
-                    if let Some(new_tokens) = next.tokens {
-                        total_tokens = Some(match total_tokens {
-                            Some(existing) => octocode_core::TokenInfo::new(
-                                existing.input_tokens + new_tokens.input_tokens,
-                                existing.output_tokens + new_tokens.output_tokens,
-                            ),
-                            None => new_tokens,
-                        });
-                    }
-                }
-                Err(e) => {
-                    let msg = format!("\n[stream interrupted: {}]\n", e);
-                    on_token(&msg);
-                    break;
-                }
+            Err(error) => {
+                let error_text = error.to_string();
+                self.plugin_host.dispatch(PluginHook::AfterPrompt {
+                    session_id,
+                    response: Err(&error_text),
+                });
+                let phase = if is_stream_cancelled(&error) {
+                    TurnLifecyclePhase::Cancelled
+                } else {
+                    TurnLifecyclePhase::Failed
+                };
+                let last_error = if matches!(phase, TurnLifecyclePhase::Failed) {
+                    Some(error_text)
+                } else {
+                    None
+                };
+                let _ = self.finish_turn(session_id, phase, last_error);
+                Err(error)
             }
         }
+    }
 
-        // Final output after loop
-        for chunk in strip_embedded_tool_calls(&current_output).split_inclusive(char::is_whitespace) {
-            on_token(chunk);
-        }
-        self.append_session_message(
-            session_id,
-            ConversationRole::Assistant,
-            current_output.clone(),
-        )?;
-        self.apply_history_limit(session_id)?;
-        Ok(PromptResponse {
-            output: current_output,
-            tokens: total_tokens,
-        })
+    pub fn request_session_stop(&self, session_id: &str) {
+        session_stop_flag(session_id).store(true, Ordering::SeqCst);
+    }
+
+    pub fn clear_session_stop(&self, session_id: &str) {
+        session_stop_flag(session_id).store(false, Ordering::SeqCst);
     }
 
     pub fn workspace(&self) -> &WorkspaceContext {
@@ -1257,22 +1565,44 @@ where
     }
 
     pub fn fork_session(&self, parent_session_id: &str, new_session_id: &str, branch_name: &str) -> Result<(), OctoError> {
-        // Load parent session
+        self.fork_session_from_index(parent_session_id, new_session_id, branch_name, None)
+    }
+
+    pub fn fork_session_from_index(
+        &self,
+        parent_session_id: &str,
+        new_session_id: &str,
+        branch_name: &str,
+        upto_message_index: Option<usize>,
+    ) -> Result<(), OctoError> {
         let parent_session = self.sessions.load_session(parent_session_id)?;
-        
-        // Create new session summary with parent reference
         let mut new_summary = parent_session.summary.clone();
         new_summary.id = String::from(new_session_id);
         new_summary.title = format!("{} (branch: {})", parent_session.summary.title, branch_name);
         new_summary.parent_id = Some(String::from(parent_session_id));
         new_summary.branch_name = Some(String::from(branch_name));
-        
-        // Save new session with cloned messages
+
+        let messages = if let Some(index) = upto_message_index {
+            if index >= parent_session.messages.len() {
+                return Err(OctoError::Runtime(format!(
+                    "fork message index out of range: {index} >= {}",
+                    parent_session.messages.len()
+                )));
+            }
+            parent_session
+                .messages
+                .into_iter()
+                .take(index + 1)
+                .collect::<Vec<_>>()
+        } else {
+            parent_session.messages
+        };
+
         self.sessions.save_session(new_summary)?;
-        for message in parent_session.messages {
+        for message in messages {
             self.sessions.append_message(new_session_id, message)?;
         }
-        
+
         self.plugin_host.dispatch(PluginHook::SessionStart { session_id: new_session_id });
         Ok(())
     }
@@ -1343,6 +1673,16 @@ where
     }
 
     fn ensure_permission(&self, requested: &PermissionMode, tool_name: &str) -> Result<(), OctoError> {
+        if self
+            .config
+            .denied_tools
+            .iter()
+            .any(|denied| denied.eq_ignore_ascii_case(tool_name))
+        {
+            return Err(OctoError::Runtime(format!(
+                "tool '{tool_name}' is denied by config"
+            )));
+        }
         self.permission_policy.ensure_allowed(
             &self.config.permission_mode,
             requested,
@@ -1427,6 +1767,18 @@ where
                     session.messages.len(),
                 ),
                 at_ms: None,
+            });
+            events.push(RuntimeEvent {
+                scope: String::from("turn"),
+                message: format!(
+                    "session={} turn={} phase={} activeSseClients={} error={}",
+                    session.summary.id,
+                    session.turn.turn_id.as_deref().unwrap_or("-"),
+                    session.turn.phase.as_str(),
+                    session.turn.active_sse_clients,
+                    session.turn.last_error.as_deref().unwrap_or("-"),
+                ),
+                at_ms: session.turn.updated_at_ms,
             });
             events.extend(
                 session
@@ -1805,10 +2157,167 @@ fn truncate_preview(value: &str, max_len: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_workspace_context, workspace_context_cache, RuntimePermissionPolicy};
+    use super::{
+        active_session_turns, collect_workspace_context, workspace_context_cache,
+        FileSessionStore, OctocodeRuntime, RuntimePermissionPolicy,
+    };
     use crate::tools::NativeShellInvocation;
-    use octocode_core::{PermissionMode, PermissionPolicy, ShellKind, WorkspaceContext, PlatformKind};
+    use octocode_core::{
+        ConfigPaths, ConversationRole, ModelProvider, OctoError, PermissionMode,
+        PermissionPolicy, PlatformKind, PromptRequest, PromptResponse, ProviderCapabilities,
+        ProviderDescriptor, ProviderKind, SessionSummary, ShellKind, TokenInfo, ToolCall,
+        ToolExecutor, ToolResult, TurnLifecycle, TurnLifecyclePhase, WorkspaceContext,
+    };
     use std::fs;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone)]
+    struct StubProvider {
+        prompt_output: String,
+        stream_results: Arc<Mutex<Vec<Result<String, OctoError>>>>,
+    }
+
+    impl StubProvider {
+        fn prompt_only(output: &str) -> Self {
+            Self {
+                prompt_output: String::from(output),
+                stream_results: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+
+        fn with_stream_results(output: &str, stream_results: Vec<Result<String, OctoError>>) -> Self {
+            Self {
+                prompt_output: String::from(output),
+                stream_results: Arc::new(Mutex::new(stream_results)),
+            }
+        }
+    }
+
+    impl ModelProvider for StubProvider {
+        fn descriptor(&self) -> ProviderDescriptor {
+            ProviderDescriptor {
+                id: String::from("stub-test"),
+                display_name: String::from("Stub Test"),
+                kind: ProviderKind::Stub,
+                supports_tools: false,
+                supports_streaming: true,
+                capabilities: ProviderCapabilities::compatible(true, false),
+            }
+        }
+
+        fn prompt(&self, _request: PromptRequest) -> Result<PromptResponse, OctoError> {
+            Ok(PromptResponse {
+                output: self.prompt_output.clone(),
+                tokens: Some(TokenInfo::new(8, 12)),
+            })
+        }
+
+        fn prompt_stream(
+            &self,
+            _request: PromptRequest,
+            on_token: &mut dyn FnMut(&str) -> bool,
+        ) -> Result<PromptResponse, OctoError> {
+            let next = self
+                .stream_results
+                .lock()
+                .expect("stream results lock")
+                .pop()
+                .unwrap_or_else(|| Ok(self.prompt_output.clone()));
+            let output = next?;
+            for chunk in output.split_inclusive(char::is_whitespace) {
+                if !on_token(chunk) {
+                    return Err(OctoError::Runtime(String::from("stream cancelled")));
+                }
+            }
+            Ok(PromptResponse {
+                output,
+                tokens: Some(TokenInfo::new(10, 16)),
+            })
+        }
+    }
+
+    struct NoopTools;
+
+    impl ToolExecutor for NoopTools {
+        fn execute(&self, _call: ToolCall) -> Result<ToolResult, OctoError> {
+            Ok(ToolResult {
+                output: String::from("noop"),
+            })
+        }
+    }
+
+    fn temp_paths(label: &str) -> (ConfigPaths, std::path::PathBuf, WorkspaceContext) {
+        let root = std::env::temp_dir().join(format!(
+            "octocode-runtime-lifecycle-test-{}-{}",
+            label,
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create temp workspace");
+        let paths = ConfigPaths {
+            config_home: root.join("config").to_string_lossy().to_string(),
+            cache_home: root.join("cache").to_string_lossy().to_string(),
+            data_home: root.join("data").to_string_lossy().to_string(),
+        };
+        let workspace = WorkspaceContext {
+            root: root.to_string_lossy().to_string(),
+            platform: PlatformKind::Windows,
+            preferred_shell: ShellKind::PowerShell,
+        };
+        (paths, root, workspace)
+    }
+
+    fn build_runtime(
+        label: &str,
+        provider: StubProvider,
+    ) -> (OctocodeRuntime<StubProvider, FileSessionStore, NoopTools>, std::path::PathBuf) {
+        active_session_turns().lock().expect("turn registry lock").clear();
+        let (paths, root, workspace) = temp_paths(label);
+        let store = FileSessionStore::new(&paths).expect("create session store");
+        let runtime = OctocodeRuntime::new(
+            provider.clone(),
+            store,
+            NoopTools,
+            workspace,
+            vec![provider.descriptor()],
+        );
+        (runtime, root)
+    }
+
+    fn reopen_runtime(
+        root: &std::path::Path,
+        provider: StubProvider,
+    ) -> OctocodeRuntime<StubProvider, FileSessionStore, NoopTools> {
+        let paths = ConfigPaths {
+            config_home: root.join("config").to_string_lossy().to_string(),
+            cache_home: root.join("cache").to_string_lossy().to_string(),
+            data_home: root.join("data").to_string_lossy().to_string(),
+        };
+        let workspace = WorkspaceContext {
+            root: root.to_string_lossy().to_string(),
+            platform: PlatformKind::Windows,
+            preferred_shell: ShellKind::PowerShell,
+        };
+        OctocodeRuntime::new(
+            provider.clone(),
+            FileSessionStore::new(&paths).expect("reopen session store"),
+            NoopTools,
+            workspace,
+            vec![provider.descriptor()],
+        )
+    }
+
+    fn test_session_summary(id: &str) -> SessionSummary {
+        SessionSummary {
+            id: String::from(id),
+            title: format!("Session {id}"),
+            model: Some(String::from("stub-model")),
+            parent_id: None,
+            branch_name: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+        }
+    }
 
     #[test]
     fn permission_policy_rejects_write_from_read_only() {
@@ -1899,5 +2408,142 @@ mod tests {
             .expect("workspace context cache lock poisoned")
             .remove(&key);
         let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn transcript_recovery_restores_completed_turn_state() {
+        let (runtime, root) = build_runtime("transcript-recovery", StubProvider::prompt_only("assistant done"));
+        runtime
+            .prompt_in_session("turn-recovery", "hello lifecycle")
+            .expect("prompt in session");
+
+        let reopened = reopen_runtime(&root, StubProvider::prompt_only("unused"));
+        let session = reopened.session("turn-recovery").expect("restore session");
+
+        assert_eq!(session.turn.phase, TurnLifecyclePhase::Completed);
+        assert!(session.turn.turn_id.is_some());
+        assert!(session
+            .messages
+            .iter()
+            .any(|message| message.role == ConversationRole::User && message.content == "hello lifecycle"));
+        assert!(session
+            .messages
+            .iter()
+            .any(|message| message.role == ConversationRole::Assistant && message.content == "assistant done"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn service_restart_rewrites_running_turn_as_interrupted() {
+        let (runtime, root) = build_runtime("restart-interrupted", StubProvider::prompt_only("unused"));
+        runtime
+            .save_session(test_session_summary("stale-turn"))
+            .expect("save session summary");
+        runtime
+            .append_session_message(
+                "stale-turn",
+                ConversationRole::User,
+                String::from("unfinished request"),
+            )
+            .expect("append transcript");
+        runtime
+            .sessions
+            .save_turn_state(
+                "stale-turn",
+                &TurnLifecycle {
+                    turn_id: Some(String::from("turn-stale")),
+                    phase: TurnLifecyclePhase::Running,
+                    started_at_ms: Some(1),
+                    updated_at_ms: Some(2),
+                    finished_at_ms: None,
+                    last_error: None,
+                    active_sse_clients: 1,
+                },
+            )
+            .expect("save stale running turn");
+
+        let reopened = reopen_runtime(&root, StubProvider::prompt_only("unused"));
+        let snapshot = reopened.snapshot(Some("stale-turn")).expect("snapshot after restart");
+        let turn = snapshot
+            .active_session
+            .expect("active session")
+            .turn;
+
+        assert_eq!(turn.phase, TurnLifecyclePhase::Interrupted);
+        assert_eq!(turn.active_sse_clients, 0);
+        assert!(turn
+            .last_error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("ownership was lost"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn sse_disconnect_marks_turn_cancelled() {
+        let (runtime, root) = build_runtime(
+            "stream-cancelled",
+            StubProvider::with_stream_results("streamed answer", vec![Ok(String::from("streamed answer"))]),
+        );
+
+        let error = runtime
+            .prompt_stream_in_session("stream-cancelled", "cancel me", &mut |_token| false)
+            .expect_err("stream should cancel when client stops reading");
+
+        assert!(matches!(error, OctoError::Runtime(message) if message == "stream cancelled"));
+        let session = runtime.session("stream-cancelled").expect("load cancelled session");
+        assert_eq!(session.turn.phase, TurnLifecyclePhase::Cancelled);
+        assert_eq!(session.turn.active_sse_clients, 0);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn compaction_resume_keeps_new_reply_and_completes_turn() {
+        let (runtime, root) = build_runtime("compaction-resume", StubProvider::prompt_only("continued after compaction"));
+        runtime
+            .save_session(test_session_summary("compact-turn"))
+            .expect("save compact session summary");
+
+        let large = "lifecycle ".repeat(2400);
+        for index in 0..20 {
+            runtime
+                .append_session_message(
+                    "compact-turn",
+                    ConversationRole::User,
+                    format!("user-{index} {large}"),
+                )
+                .expect("append large user message");
+            runtime
+                .append_session_message(
+                    "compact-turn",
+                    ConversationRole::Assistant,
+                    format!("assistant-{index} {large}"),
+                )
+                .expect("append large assistant message");
+        }
+
+        runtime
+            .prompt_in_session("compact-turn", "resume after compaction")
+            .expect("prompt after compaction");
+
+        let session = runtime.session("compact-turn").expect("load compacted session");
+        assert_eq!(session.turn.phase, TurnLifecyclePhase::Completed);
+        assert!(session.messages.iter().any(|message| {
+            message.role == ConversationRole::System
+                && message.content.starts_with("[Context compacted:")
+        }));
+        assert!(session.messages.iter().any(|message| {
+            message.role == ConversationRole::Assistant
+                && message.content == "continued after compaction"
+        }));
+        assert!(session.messages.iter().any(|message| {
+            message.role == ConversationRole::User
+                && message.content == "resume after compaction"
+        }));
+
+        let _ = fs::remove_dir_all(root);
     }
 }
