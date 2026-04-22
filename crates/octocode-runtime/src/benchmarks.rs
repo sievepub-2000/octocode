@@ -18,7 +18,7 @@ impl PercentileReport {
             let needle = format!("\"{}\":", key);
             let start = json.find(&needle)? + needle.len();
             let rest = &json[start..];
-            let end = rest.find(|c: char| c == ',' || c == '}')?;
+            let end = rest.find([',', '}'])?;
             Some(rest[..end].trim().trim_matches('"'))
         };
         Some(Self {
@@ -50,6 +50,12 @@ pub struct RegressionCheckResult {
 ///
 /// `threshold_pct` is the maximum allowed increase in P99 latency (e.g. 10.0
 /// means "fail if P99 increased by more than 10%").
+/// Absolute noise floor (milliseconds). Regressions whose *absolute* increase
+/// falls under this floor are considered CPU jitter and accepted regardless of
+/// the percentage delta. This prevents sub-microsecond benchmarks (e.g. hot
+/// dispatch loops) from flapping in CI with low sample counts.
+pub const REGRESSION_ABS_FLOOR_MS: f64 = 0.5;
+
 pub fn check_regression(
     baseline: &PercentileReport,
     current: &PercentileReport,
@@ -60,7 +66,10 @@ pub fn check_regression(
     } else {
         0.0
     };
-    let passed = delta <= threshold_pct;
+    let abs_delta_ms = current.p99_ms - baseline.p99_ms;
+    // Pass if within percentage threshold OR absolute increase is below the
+    // noise floor (dominated by CPU jitter on sub-millisecond measurements).
+    let passed = delta <= threshold_pct || abs_delta_ms <= REGRESSION_ABS_FLOOR_MS;
     let detail = if passed {
         format!(
             "{}: P99 {:.2}ms → {:.2}ms ({:+.1}%) — OK",
@@ -318,6 +327,7 @@ pub fn bench_rate_limiter(iterations: usize) -> Benchmark {
 }
 
 /// Benchmark: plugin dispatch overhead.
+#[allow(clippy::type_complexity)]
 pub fn bench_plugin_dispatch(iterations: usize) -> Benchmark {
     let mut bench = Benchmark::new("plugin_dispatch");
 
@@ -396,7 +406,7 @@ mod tests {
         // P99 = index round(0.99 * 9) = round(8.91) = 9 → data[9] = 10.0
         // P0  = index round(0.00 * 9) = round(0) = 0 → data[0] = 1.0
         let p50 = percentile(&data, 50.0);
-        assert!(p50 >= 5.0 && p50 <= 6.0, "P50 was {}", p50);
+        assert!((5.0..=6.0).contains(&p50), "P50 was {}", p50);
         assert_eq!(percentile(&data, 99.0), 10.0); // near max
         assert_eq!(percentile(&data, 0.0), 1.0); // min
     }

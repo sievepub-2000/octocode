@@ -123,6 +123,7 @@ impl Default for SubAgentExecutor {
 }
 
 /// Sub-agent manager that tracks and orchestrates spawned agent instances.
+#[allow(clippy::type_complexity)]
 pub struct SubAgentManager {
     tasks: Arc<Mutex<Vec<SubAgentTask>>>,
     max_concurrent: usize,

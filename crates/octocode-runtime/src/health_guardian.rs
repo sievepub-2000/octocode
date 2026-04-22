@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn guardian_triggers_failover_on_failures() {
         let call_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
-        let call_count_clone = Arc::clone(&call_count);
+        let _call_count_clone = Arc::clone(&call_count);
 
         let probe: Arc<HealthProbe> = Arc::new(Box::new(move |id| {
             if id == "primary" {

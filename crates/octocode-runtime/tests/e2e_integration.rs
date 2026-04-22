@@ -5,6 +5,8 @@
 //!
 //! Uses the mock provider to deterministically verify behavior.
 
+#![allow(clippy::type_complexity)]
+
 use octocode_core::{
     ModelProvider, OctoError, PlatformKind, PermissionMode, PromptRequest,
     ProviderDescriptor, ProviderKind, ShellKind, ToolCall, ToolExecutor,
@@ -280,6 +282,7 @@ fn e2e_streaming_emits_tokens_then_completes() {
     let response = provider
         .prompt_stream(request, &mut |token| {
             tokens.push(String::from(token));
+            true
         })
         .unwrap();
 

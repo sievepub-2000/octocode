@@ -12,6 +12,7 @@ pub struct ModelPricing {
 
 /// A single usage record.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct UsageRecord {
     pub session_id: String,
     pub provider_id: String,

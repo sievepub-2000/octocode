@@ -1,3 +1,5 @@
+#![allow(clippy::items_after_test_module)]
+
 use std::collections::HashMap;
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -334,6 +336,10 @@ impl WorkspaceToolExecutor {
         }
     }
 
+    pub(crate) fn execute_shell_command(&self, command_line: &str) -> Result<ToolResult, OctoError> {
+        self.run_shell(command_line)
+    }
+
     fn resolve_workspace_path(&self, input: &str) -> PathBuf {
         let path = Path::new(input);
         if path.is_absolute() {
@@ -492,7 +498,21 @@ impl WorkspaceToolExecutor {
 
         let command = if cfg!(target_os = "windows") {
             format!(
-                "Get-ChildItem -Path '{}' -Recurse -File | Select-String -Pattern '{}' | ForEach-Object {{ \"{{0}}:{{1}}:{{2}}\" -f $_.Path, $_.LineNumber, $_.Line.Trim() }}",
+                concat!(
+                    "$rg = Get-Command rg -ErrorAction SilentlyContinue; ",
+                    "if ($rg) {{ ",
+                    "& $rg.Source --line-number --no-heading --color never --max-count 50 ",
+                    "--glob '!target/**' --glob '!node_modules/**' --glob '!.git/**' --glob '!build/**' ",
+                    "-- '{}' '{}'; ",
+                    "}} else {{ ",
+                    "Get-ChildItem -Path '{}' -Recurse -File -ErrorAction SilentlyContinue | ",
+                    "Where-Object {{ $_.FullName -notmatch '\\\\(target|node_modules|\\.git|build)\\\\' }} | ",
+                    "Select-String -Pattern '{}' | Select-Object -First 50 | ",
+                    "ForEach-Object {{ \"{{0}}:{{1}}:{{2}}\" -f $_.Path, $_.LineNumber, $_.Line.Trim() }} ",
+                    "}}"
+                ),
+                pattern,
+                location,
                 location.replace('\'', "''"),
                 pattern.replace('\'', "''")
             )

@@ -13,14 +13,15 @@ use octocode_commands::{
     execute_command, is_allowed_web_port, CliCommand, WEB_PORT_MAX, WEB_PORT_MIN,
 };
 use octocode_core::{
-    OctoError, PermissionMode, PlatformSupport, ProviderFactory, RuntimeConfig, TaskKind,
-    TaskState, ToolCall,
+    ConversationStore, ModelProvider, OctoError, PermissionMode, PlatformSupport,
+    ProviderFactory, RuntimeConfig, SessionStore, SessionSummary, TaskKind, TaskState,
+    ToolCall, ToolExecutor, TurnStateStore,
 };
 use octocode_runtime::{
-    ConfigLoader, CoordinatorEngine, FileSessionStore, NativePlatform, OctocodeRuntime,
-    RuntimeProviderRouter, TaskStore, WorkspaceToolExecutor,
+    ConfigLoader, CoordinatorEngine, FileSessionStore, NativePlatform,
+    OctocodeRuntime, RuntimeProviderRouter, TaskStore, WorkspaceToolExecutor,
 };
-use crate::ws;
+use crate::{manage_config, terminal, ws};
 
 /// Maximum HTTP request body size (10 MB).
 const MAX_BODY_BYTES: usize = 10 * 1024 * 1024;
@@ -66,6 +67,10 @@ pub type AppRuntime = OctocodeRuntime<RuntimeProviderRouter<BuiltinProvider>, Fi
 static SHARED_TASK_STORE: OnceLock<TaskStore> = OnceLock::new();
 static SHARED_COORDINATOR: OnceLock<CoordinatorEngine> = OnceLock::new();
 static SERVER_AUTH_TOKEN: OnceLock<String> = OnceLock::new();
+
+fn is_stream_cancelled(error: &OctoError) -> bool {
+    matches!(error, OctoError::Runtime(message) if message == "stream cancelled")
+}
 
 fn shared_task_store() -> TaskStore {
     SHARED_TASK_STORE.get_or_init(TaskStore::new).clone()
@@ -278,6 +283,20 @@ impl Drop for ThreadPool {
 /// Number of worker threads for the HTTP server.
 const THREAD_POOL_SIZE: usize = 8;
 
+const FS_MAX_RESULTS: usize = 400;
+const FS_MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
+const FS_SKIP_DIRS: &[&str] = &[
+    ".git",
+    ".hg",
+    ".svn",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "node_modules",
+    "target",
+];
+
 pub fn run_server(
     port: u16,
     initial_session_id: Option<String>,
@@ -350,6 +369,654 @@ pub fn run_server(
     Ok(())
 }
 
+fn default_session_id() -> String {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("session-{stamp}")
+}
+
+fn create_session(store: &FileSessionStore, title: Option<String>) -> Result<String, OctoError> {
+    let session_id = default_session_id();
+    let session_title = title
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("New Session");
+
+    store.save_session(SessionSummary {
+        id: session_id.clone(),
+        title: String::from(session_title),
+        model: None,
+        parent_id: None,
+        branch_name: None,
+        total_input_tokens: 0,
+        total_output_tokens: 0,
+    })?;
+    Ok(session_id)
+}
+
+fn ensure_session_exists(store: &FileSessionStore) -> Result<String, OctoError> {
+    if let Some(existing) = store.list_sessions()?.into_iter().next() {
+        return Ok(existing.id);
+    }
+
+    create_session(store, None)
+}
+
+fn resolve_fs_path(workspace_root: &Path, raw: Option<&str>, must_exist: bool) -> Result<PathBuf, OctoError> {
+    let candidate = raw
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| workspace_root.to_path_buf());
+    let full_path = if candidate.is_absolute() {
+        candidate
+    } else {
+        workspace_root.join(candidate)
+    };
+
+    if must_exist {
+        return fs::canonicalize(&full_path).map_err(|error| {
+            OctoError::Runtime(format!(
+                "failed to resolve path {}: {error}",
+                full_path.display()
+            ))
+        });
+    }
+
+    if let Some(parent) = full_path.parent() {
+        if parent.exists() {
+            let canonical_parent = fs::canonicalize(parent).map_err(|error| {
+                OctoError::Runtime(format!(
+                    "failed to resolve parent path {}: {error}",
+                    parent.display()
+                ))
+            })?;
+            if let Some(name) = full_path.file_name() {
+                return Ok(canonical_parent.join(name));
+            }
+        }
+    }
+
+    Ok(full_path)
+}
+
+fn entry_modified_ms(metadata: &fs::Metadata) -> Option<u128> {
+    metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_millis())
+}
+
+fn should_skip_dir(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|value| value.to_str())
+        .map(|name| FS_SKIP_DIRS.contains(&name))
+        .unwrap_or(false)
+}
+
+fn list_fs_entries(path: &Path) -> Result<Vec<serde_json::Value>, OctoError> {
+    let entries = fs::read_dir(path).map_err(|error| {
+        OctoError::Runtime(format!("failed to read directory {}: {error}", path.display()))
+    })?;
+    let mut items = Vec::new();
+
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            OctoError::Runtime(format!("failed to read directory entry: {error}"))
+        })?;
+        let entry_path = entry.path();
+        let metadata = entry.metadata().map_err(|error| {
+            OctoError::Runtime(format!(
+                "failed to read metadata {}: {error}",
+                entry_path.display()
+            ))
+        })?;
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        let is_dir = metadata.is_dir();
+        items.push((
+            is_dir,
+            file_name.to_ascii_lowercase(),
+            serde_json::json!({
+                "name": file_name,
+                "path": entry_path.display().to_string(),
+                "kind": if is_dir { "directory" } else { "file" },
+                "size": if metadata.is_file() { Some(metadata.len()) } else { None },
+                "modifiedAtMs": entry_modified_ms(&metadata),
+                "hidden": entry_path
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .map(|name| name.starts_with('.'))
+                    .unwrap_or(false),
+            }),
+        ));
+    }
+
+    items.sort_by(|left, right| {
+        if left.0 != right.0 {
+            if left.0 {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Greater
+            }
+        } else {
+            left.1.cmp(&right.1)
+        }
+    });
+
+    Ok(items.into_iter().map(|(_, _, item)| item).collect())
+}
+
+fn search_text_in_path(
+    path: &Path,
+    query: &str,
+    results: &mut Vec<serde_json::Value>,
+) -> Result<(), OctoError> {
+    if results.len() >= FS_MAX_RESULTS {
+        return Ok(());
+    }
+
+    let metadata = fs::metadata(path).map_err(|error| {
+        OctoError::Runtime(format!("failed to read metadata {}: {error}", path.display()))
+    })?;
+
+    if metadata.is_dir() {
+        if should_skip_dir(path) {
+            return Ok(());
+        }
+        let entries = fs::read_dir(path).map_err(|error| {
+            OctoError::Runtime(format!("failed to read directory {}: {error}", path.display()))
+        })?;
+        for entry in entries {
+            let entry = entry.map_err(|error| {
+                OctoError::Runtime(format!("failed to read directory entry: {error}"))
+            })?;
+            search_text_in_path(&entry.path(), query, results)?;
+            if results.len() >= FS_MAX_RESULTS {
+                break;
+            }
+        }
+        return Ok(());
+    }
+
+    if metadata.len() > FS_MAX_FILE_BYTES {
+        return Ok(());
+    }
+
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(_) => return Ok(()),
+    };
+
+    for (line_index, line) in content.lines().enumerate() {
+        let mut start = 0usize;
+        while let Some(offset) = line[start..].find(query) {
+            let column = start + offset + 1;
+            results.push(serde_json::json!({
+                "path": path.display().to_string(),
+                "line": line_index + 1,
+                "column": column,
+                "snippet": line.trim(),
+            }));
+            start += offset + query.len().max(1);
+            if results.len() >= FS_MAX_RESULTS {
+                return Ok(());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn replace_text_in_path(
+    path: &Path,
+    old_text: &str,
+    new_text: &str,
+    changed_files: &mut Vec<serde_json::Value>,
+) -> Result<usize, OctoError> {
+    let metadata = fs::metadata(path).map_err(|error| {
+        OctoError::Runtime(format!("failed to read metadata {}: {error}", path.display()))
+    })?;
+
+    if metadata.is_dir() {
+        if should_skip_dir(path) {
+            return Ok(0);
+        }
+        let entries = fs::read_dir(path).map_err(|error| {
+            OctoError::Runtime(format!("failed to read directory {}: {error}", path.display()))
+        })?;
+        let mut total = 0usize;
+        for entry in entries {
+            let entry = entry.map_err(|error| {
+                OctoError::Runtime(format!("failed to read directory entry: {error}"))
+            })?;
+            total += replace_text_in_path(&entry.path(), old_text, new_text, changed_files)?;
+        }
+        return Ok(total);
+    }
+
+    if metadata.len() > FS_MAX_FILE_BYTES {
+        return Ok(0);
+    }
+
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(_) => return Ok(0),
+    };
+
+    let replacements = content.matches(old_text).count();
+    if replacements == 0 {
+        return Ok(0);
+    }
+
+    let updated = content.replace(old_text, new_text);
+    fs::write(path, updated).map_err(|error| {
+        OctoError::Runtime(format!("failed to write file {}: {error}", path.display()))
+    })?;
+    changed_files.push(serde_json::json!({
+        "path": path.display().to_string(),
+        "replacements": replacements,
+    }));
+    Ok(replacements)
+}
+
+fn manage_catalog_json(runtime: &AppRuntime) -> Result<String, Box<dyn std::error::Error>> {
+    let workspace_root = runtime.workspace().root.clone();
+    let config_paths = runtime.config_paths();
+    let workspace_root_path = PathBuf::from(&workspace_root);
+    let config_home_path = PathBuf::from(&config_paths.config_home);
+    let provider_profiles = manage_config::load_provider_profiles(&config_home_path)?;
+    let hook_items = manage_config::list_hook_items(&workspace_root_path, &config_home_path)?;
+    let external_catalog = manage_config::load_external_catalog(&workspace_root_path, &config_home_path)?;
+    let mcp_servers = runtime
+        .mcp_servers()?
+        .into_iter()
+        .map(|server| {
+            let manifest_path = PathBuf::from(&server.descriptor.manifest_path);
+            let scope = infer_manage_scope(&manifest_path, &workspace_root_path, &config_home_path);
+            serde_json::json!({
+                "descriptor": {
+                    "id": server.descriptor.id,
+                    "transport": server.descriptor.transport,
+                    "command": server.descriptor.command,
+                    "endpoint": server.descriptor.endpoint,
+                    "description": server.descriptor.description,
+                    "manifestPath": server.descriptor.manifest_path,
+                    "trusted": server.descriptor.trusted,
+                },
+                "state": server.state,
+                "detail": server.detail,
+                "scope": scope,
+                "manifestContent": fs::read_to_string(&manifest_path).unwrap_or_default(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let skills = runtime
+        .skills()?
+        .into_iter()
+        .map(|skill| {
+            let path = PathBuf::from(&skill.path);
+            serde_json::json!({
+                "id": skill.id,
+                "summary": skill.summary,
+                "path": skill.path,
+                "scope": skill.scope,
+                "content": fs::read_to_string(path).unwrap_or_default(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let tools = runtime
+        .tools()
+        .iter()
+        .map(|tool| {
+            serde_json::json!({
+                "name": tool.name,
+                "summary": tool.summary,
+                "minimumPermission": format!("{:?}", tool.minimum_permission).to_ascii_lowercase().replace("readonly", "read-only").replace("workspacewrite", "workspace-write").replace("dangerfullaccess", "danger-full-access"),
+                "isCustom": false,
+            })
+        })
+        .chain(external_catalog.tools.iter().map(|tool| {
+            serde_json::json!({
+                "name": tool.name,
+                "summary": tool.summary,
+                "minimumPermission": tool.minimum_permission,
+                "commandTemplate": tool.command_template,
+                "scope": tool.scope,
+                "sourcePath": tool.source_path,
+                "isCustom": true,
+            })
+        }))
+        .collect::<Vec<_>>();
+    let commands = runtime
+        .commands()
+        .iter()
+        .map(|command| {
+            serde_json::json!({
+                "name": command.name,
+                "summary": command.summary,
+                "isCustom": false,
+            })
+        })
+        .chain(external_catalog.commands.iter().map(|command| {
+            serde_json::json!({
+                "name": command.name,
+                "summary": command.summary,
+                "template": command.template,
+                "scope": command.scope,
+                "sourcePath": command.source_path,
+                "isCustom": true,
+            })
+        }))
+        .collect::<Vec<_>>();
+
+    Ok(serde_json::json!({
+        "workspace": runtime.workspace(),
+        "paths": config_paths,
+        "settingsPath": runtime.config_file_path(),
+        "providers": runtime.provider_routes(),
+        "providerProfiles": provider_profiles,
+        "tools": tools,
+        "commands": commands,
+        "skills": skills,
+        "mcpServers": mcp_servers,
+        "hooks": {
+            "items": hook_items,
+        },
+    })
+    .to_string())
+}
+
+fn infer_manage_scope(path: &Path, workspace_root: &Path, config_home: &Path) -> &'static str {
+    if path.starts_with(config_home) {
+        return "user";
+    }
+    if path.starts_with(workspace_root) {
+        return "workspace";
+    }
+    "workspace"
+}
+
+fn form_flag(request: &HttpRequest, name: &str) -> bool {
+    request
+        .form_value(name)
+        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
+fn permission_mode_from_str(value: &str) -> PermissionMode {
+    match value.trim() {
+        "read-only" => PermissionMode::ReadOnly,
+        "danger-full-access" => PermissionMode::DangerFullAccess,
+        _ => PermissionMode::WorkspaceWrite,
+    }
+}
+
+fn expand_custom_template(template: &str, input: &str) -> String {
+    if template.contains("{input}") {
+        return template.replace("{input}", input);
+    }
+    if template.contains("{args}") {
+        return template.replace("{args}", input);
+    }
+    if input.trim().is_empty() {
+        String::from(template)
+    } else {
+        format!("{} {}", template.trim(), input.trim())
+    }
+}
+
+fn execute_custom_tool_if_configured(
+    runtime: &AppRuntime,
+    workspace_root: &str,
+    config_home: &str,
+    session_id: &str,
+    name: &str,
+    input: &str,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    let catalog = manage_config::load_external_catalog(Path::new(workspace_root), Path::new(config_home))?;
+    let Some(tool) = catalog.tools.into_iter().find(|entry| entry.name == name) else {
+        return Ok(false);
+    };
+    let command_line = expand_custom_template(&tool.command_template, input);
+    runtime.run_shell_command_in_session(
+        session_id,
+        &tool.name,
+        &command_line,
+        permission_mode_from_str(&tool.minimum_permission),
+    )?;
+    Ok(true)
+}
+
+fn resolve_custom_command(
+    workspace_root: &str,
+    config_home: &str,
+    action: &str,
+    args: &str,
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    let catalog = manage_config::load_external_catalog(Path::new(workspace_root), Path::new(config_home))?;
+    Ok(catalog
+        .commands
+        .into_iter()
+        .find(|entry| entry.name == action)
+        .map(|entry| expand_custom_template(&entry.template, args)))
+}
+
+fn form_usize(request: &HttpRequest, name: &str) -> Result<Option<usize>, Box<dyn std::error::Error>> {
+    match request.form_value(name) {
+        Some(value) if !value.trim().is_empty() => Ok(Some(value.trim().parse::<usize>().map_err(|error| {
+            OctoError::Runtime(format!("invalid {}: {error}", name))
+        })?)),
+        _ => Ok(None),
+    }
+}
+
+fn refresh_manage_catalog(
+    workspace_root: String,
+    config: RuntimeConfig,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let runtime = build_runtime(workspace_root, config)?;
+    json_response(manage_catalog_json(&runtime)?)
+}
+
+fn handle_manage_upsert(
+    request: &HttpRequest,
+    workspace_root: String,
+    config_home: String,
+    config: RuntimeConfig,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let workspace_root_path = PathBuf::from(&workspace_root);
+    let config_home_path = PathBuf::from(&config_home);
+    let kind = request
+        .form_value("kind")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+
+    match kind.as_str() {
+        "providerProfile" => {
+            manage_config::upsert_provider_profile(
+                &config_home_path,
+                request.form_value("originalId").as_deref(),
+                manage_config::ProviderProfile {
+                    id: request.form_value("id").unwrap_or_default(),
+                    display_name: request.form_value("displayName").unwrap_or_default(),
+                    provider_id: request.form_value("providerId").unwrap_or_default(),
+                    provider_base_url: request.form_value("providerBaseUrl"),
+                    default_model: request.form_value("defaultModel"),
+                },
+            )?;
+        }
+        "mcp" => {
+            manage_config::upsert_mcp_manifest(
+                request.form_value("scope").as_deref().unwrap_or("user"),
+                request.form_value("originalId").as_deref(),
+                request.form_value("originalPath").as_deref(),
+                request.form_value("id").as_deref().unwrap_or(""),
+                request.form_value("transport").as_deref().unwrap_or("stdio"),
+                request.form_value("command"),
+                request.form_value("endpoint"),
+                request.form_value("description"),
+                form_flag(request, "trusted"),
+                &workspace_root_path,
+                &config_home_path,
+            )?;
+        }
+        "skill" => {
+            manage_config::upsert_skill(
+                request.form_value("scope").as_deref().unwrap_or("user"),
+                request.form_value("originalId").as_deref(),
+                request.form_value("originalPath").as_deref(),
+                request.form_value("id").as_deref().unwrap_or(""),
+                request.form_value("summary"),
+                request.form_value("content"),
+                &workspace_root_path,
+                &config_home_path,
+            )?;
+        }
+        "hook" => {
+            manage_config::upsert_hook(
+                request.form_value("scope").as_deref().unwrap_or("user"),
+                request.form_value("tool"),
+                request.form_value("command").unwrap_or_default(),
+                request.form_value("timing").unwrap_or_else(|| String::from("before")),
+                form_flag(request, "blocking"),
+                request
+                    .form_value("timeoutMs")
+                    .and_then(|value| value.trim().parse::<u64>().ok())
+                    .unwrap_or(5000),
+                request.form_value("originalTool"),
+                form_usize(request, "originalIndex")?,
+                &workspace_root_path,
+                &config_home_path,
+            )?;
+        }
+        "externalTool" => {
+            let runtime = build_runtime(workspace_root.clone(), config.clone())?;
+            let name = request.form_value("name").unwrap_or_default();
+            if runtime.tools().iter().any(|tool| tool.name == name.trim()) {
+                return error_response(400, "tool name conflicts with a built-in tool");
+            }
+            manage_config::upsert_external_tool(
+                request.form_value("scope").as_deref().unwrap_or("user"),
+                request.form_value("originalName").as_deref(),
+                manage_config::ExternalToolConfig {
+                    scope: request.form_value("scope").unwrap_or_else(|| String::from("user")),
+                    name,
+                    summary: request.form_value("summary").unwrap_or_default(),
+                    command_template: request.form_value("commandTemplate").unwrap_or_default(),
+                    minimum_permission: request.form_value("minimumPermission").unwrap_or_else(|| String::from("danger-full-access")),
+                    source_path: String::new(),
+                },
+                &workspace_root_path,
+                &config_home_path,
+            )?;
+        }
+        "externalCommand" => {
+            let runtime = build_runtime(workspace_root.clone(), config.clone())?;
+            let name = request.form_value("name").unwrap_or_default();
+            if runtime.commands().iter().any(|command| command.name == name.trim()) {
+                return error_response(400, "command name conflicts with a built-in command");
+            }
+            manage_config::upsert_external_command(
+                request.form_value("scope").as_deref().unwrap_or("user"),
+                request.form_value("originalName").as_deref(),
+                manage_config::ExternalCommandConfig {
+                    scope: request.form_value("scope").unwrap_or_else(|| String::from("user")),
+                    name,
+                    summary: request.form_value("summary").unwrap_or_default(),
+                    template: request.form_value("template").unwrap_or_default(),
+                    source_path: String::new(),
+                },
+                &workspace_root_path,
+                &config_home_path,
+            )?;
+        }
+        _ => {
+            return error_response(400, "unsupported manage kind");
+        }
+    }
+
+    refresh_manage_catalog(workspace_root, config)
+}
+
+fn handle_manage_delete(
+    request: &HttpRequest,
+    workspace_root: String,
+    config_home: String,
+    config: RuntimeConfig,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let workspace_root_path = PathBuf::from(&workspace_root);
+    let config_home_path = PathBuf::from(&config_home);
+    let kind = request
+        .form_value("kind")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+
+    match kind.as_str() {
+        "providerProfile" => {
+            manage_config::delete_provider_profile(
+                &config_home_path,
+                request.form_value("id").as_deref().unwrap_or(""),
+            )?;
+        }
+        "mcp" => {
+            manage_config::delete_mcp_manifest(
+                request.form_value("scope").as_deref().unwrap_or("user"),
+                request.form_value("id").as_deref().unwrap_or(""),
+                request.form_value("originalPath").as_deref(),
+                &workspace_root_path,
+                &config_home_path,
+            )?;
+        }
+        "skill" => {
+            manage_config::delete_skill(
+                request.form_value("scope").as_deref().unwrap_or("user"),
+                request.form_value("id").as_deref().unwrap_or(""),
+                request.form_value("originalPath").as_deref(),
+                &workspace_root_path,
+                &config_home_path,
+            )?;
+        }
+        "hook" => {
+            let index = form_usize(request, "index")?
+                .ok_or_else(|| OctoError::Runtime(String::from("missing hook index")))?;
+            manage_config::delete_hook(
+                request.form_value("scope").as_deref().unwrap_or("user"),
+                request.form_value("tool"),
+                index,
+                &workspace_root_path,
+                &config_home_path,
+            )?;
+        }
+        "externalTool" => {
+            manage_config::delete_external_tool(
+                request.form_value("scope").as_deref().unwrap_or("user"),
+                request.form_value("name").as_deref().unwrap_or(""),
+                &workspace_root_path,
+                &config_home_path,
+            )?;
+        }
+        "externalCommand" => {
+            manage_config::delete_external_command(
+                request.form_value("scope").as_deref().unwrap_or("user"),
+                request.form_value("name").as_deref().unwrap_or(""),
+                &workspace_root_path,
+                &config_home_path,
+            )?;
+        }
+        _ => {
+            return error_response(400, "unsupported manage kind");
+        }
+    }
+
+    refresh_manage_catalog(workspace_root, config)
+}
+
 fn handle_connection(
     mut stream: TcpStream,
     initial_session_id: Option<String>,
@@ -414,6 +1081,22 @@ fn handle_connection(
         return handle_sse_stream(&mut stream, &request, initial_session_id);
     }
 
+    if request.method == "GET" && request.path == "/terminal/ws" {
+        let token = request.query_value("token").unwrap_or_default();
+        if token.trim() != get_server_token() {
+            let body = r#"{"error":"unauthorized","message":"missing or invalid terminal token"}"#;
+            let response = format!(
+                "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes())?;
+            stream.flush()?;
+            return Ok(());
+        }
+        return handle_terminal_ws(&mut stream, &request);
+    }
+
     // WebSocket upgrade
     if request.method == "GET"
         && request.path == "/ws"
@@ -449,6 +1132,27 @@ fn handle_sse_stream(
         .unwrap_or_else(|| String::from("demo"));
     let text = request.query_value("text").unwrap_or_default();
 
+    let workspace_root = String::from(".");
+    let platform = NativePlatform::detect(workspace_root.clone());
+    let loader = ConfigLoader::new(platform.config_paths());
+    let config = loader.load()?;
+    let runtime = build_runtime(workspace_root, config)?;
+
+    write_sse_stream_response(stream, &runtime, &session_id, &text)
+}
+
+fn write_sse_stream_response<P, S, T, W>(
+    stream: &mut W,
+    runtime: &OctocodeRuntime<P, S, T>,
+    session_id: &str,
+    text: &str,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    P: ModelProvider,
+    S: ConversationStore + TurnStateStore,
+    T: ToolExecutor,
+    W: Write,
+{
     if text.is_empty() {
         let err = error_response(400, "missing text parameter")?;
         stream.write_all(err.as_bytes())?;
@@ -456,6 +1160,9 @@ fn handle_sse_stream(
         return Ok(());
     }
 
+    // Stream tokens via SSE
+    let stream_ref = std::cell::RefCell::new(stream);
+    let mut token_count: usize = 0;
     // Write SSE headers
     let headers = concat!(
         "HTTP/1.1 200 OK\r\n",
@@ -465,21 +1172,12 @@ fn handle_sse_stream(
         "Access-Control-Allow-Origin: *\r\n",
         "\r\n"
     );
-    stream.write_all(headers.as_bytes())?;
-    stream.flush()?;
+    stream_ref.borrow_mut().write_all(headers.as_bytes())?;
+    stream_ref.borrow_mut().flush()?;
 
-    let workspace_root = String::from(".");
-    let platform = NativePlatform::detect(workspace_root.clone());
-    let loader = ConfigLoader::new(platform.config_paths());
-    let config = loader.load()?;
-    let runtime = build_runtime(workspace_root, config)?;
-
-    // Stream tokens via SSE
-    let stream_ref = std::cell::RefCell::new(stream);
-    let mut token_count: usize = 0;
     let stream_result = runtime.prompt_stream_in_session(
-        &session_id,
-        &text,
+        session_id,
+        text,
         &mut |token: &str| {
             token_count += 1;
             let escaped = escape_json(token);
@@ -488,8 +1186,7 @@ fn handle_sse_stream(
                 escaped, token_count
             );
             let mut s = stream_ref.borrow_mut();
-            let _ = s.write_all(event.as_bytes());
-            let _ = s.flush();
+            s.write_all(event.as_bytes()).and_then(|_| s.flush()).is_ok()
         },
     );
 
@@ -498,6 +1195,9 @@ fn handle_sse_stream(
     match stream_result {
         Ok(_) => {
             s.write_all(b"data: [DONE]\n\n")?;
+        }
+        Err(error) if is_stream_cancelled(&error) => {
+            return Ok(());
         }
         Err(error) => {
             let err_event = format!(
@@ -509,6 +1209,18 @@ fn handle_sse_stream(
     }
     s.flush()?;
     Ok(())
+}
+
+fn snapshot_response_from_runtime<P, S, T>(
+    runtime: &OctocodeRuntime<P, S, T>,
+    session_id: Option<&str>,
+) -> Result<String, Box<dyn std::error::Error>>
+where
+    P: ModelProvider,
+    S: ConversationStore + TurnStateStore,
+    T: ToolExecutor,
+{
+    json_response(runtime.snapshot_json(session_id)?)
 }
 
 // ── WebSocket support ─────────────────────────────────────────────────────────
@@ -585,9 +1297,12 @@ fn handle_ws_upgrade(
                     escaped, token_count
                 );
                 let mut s = stream_ref.borrow_mut();
-                let _ = ws_write_frame(*s, &payload);
+                if ws_write_frame(*s, &payload).is_err() {
+                    return false;
+                }
                 // Broadcast to other connections in the same session
                 hub.send_to_session(&session_id, &payload);
+                true
             },
         );
 
@@ -596,6 +1311,7 @@ fn handle_ws_upgrade(
             Ok(_) => {
                 let _ = ws_write_frame(stream, "{\"done\":true}");
             }
+            Err(error) if is_stream_cancelled(&error) => {}
             Err(error) => {
                 let err_payload = format!(
                     "{{\"error\":\"{}\"}}",
@@ -610,6 +1326,69 @@ fn handle_ws_upgrade(
     let _ = conn_id; // used for tracking; gc removes closed conns
     hub.gc();
 
+    Ok(())
+}
+
+fn handle_terminal_ws(
+    stream: &mut TcpStream,
+    request: &HttpRequest,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let terminal_id = request
+        .query_value("id")
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| OctoError::Runtime(String::from("missing terminal id")))?;
+
+    if terminal::terminal_hub().session_info(&terminal_id).is_none() {
+        return Err(OctoError::Runtime(format!("terminal session not found: {terminal_id}")).into());
+    }
+
+    if ws::WsConnection::accept(stream.try_clone()?, &request.headers).is_none() {
+        return Err(OctoError::Runtime(String::from("terminal websocket handshake failed")).into());
+    }
+
+    let receiver = terminal::terminal_hub()
+        .subscribe(&terminal_id)
+        .ok_or_else(|| OctoError::Runtime(format!("terminal session not found: {terminal_id}")))?;
+
+    let writer_done = Arc::new(AtomicBool::new(false));
+    let writer_done_flag = writer_done.clone();
+    let writer_stream = stream.try_clone()?;
+    let writer_terminal_id = terminal_id.clone();
+
+    let writer_thread = thread::spawn(move || {
+        let mut writer_ws = ws::WsConnection::from_raw_stream(writer_stream, writer_terminal_id);
+        loop {
+            match receiver.recv_timeout(std::time::Duration::from_millis(250)) {
+                Ok(payload) => {
+                    if !writer_ws.send_text(&payload) {
+                        break;
+                    }
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if writer_done_flag.load(Ordering::SeqCst) {
+                        break;
+                    }
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+    });
+
+    let mut reader_ws = ws::WsConnection::from_raw_stream(stream.try_clone()?, terminal_id.clone());
+    while let Some(message) = reader_ws.read_message() {
+        match message.opcode {
+            ws::WsOpcode::Text => {
+                if let Some(text) = message.as_text() {
+                    terminal::terminal_hub().write_input(&terminal_id, text)?;
+                }
+            }
+            ws::WsOpcode::Close => break,
+            ws::WsOpcode::Ping | ws::WsOpcode::Pong | ws::WsOpcode::Binary => {}
+        }
+    }
+
+    writer_done.store(true, Ordering::SeqCst);
+    let _ = writer_thread.join();
     Ok(())
 }
 
@@ -719,7 +1498,7 @@ fn route_request(
                 .query_value("session")
                 .or(initial_session_id.clone());
             let runtime = build_runtime(workspace_root, config)?;
-            json_response(runtime.snapshot_json(session_id.as_deref())?)
+            snapshot_response_from_runtime(&runtime, session_id.as_deref())
         }
         ("GET", "/api/events") => {
             let session_id = request
@@ -779,6 +1558,203 @@ fn route_request(
                 "{{\"connections\":{}}}",
                 ws_hub().connection_count()
             ))
+        }
+        ("GET", "/api/manage/catalog") => {
+            let runtime = build_runtime(workspace_root, config)?;
+            json_response(manage_catalog_json(&runtime)?)
+        }
+        ("POST", "/api/manage/upsert") => {
+            handle_manage_upsert(
+                request,
+                workspace_root,
+                platform.config_paths().config_home,
+                config,
+            )
+        }
+        ("POST", "/api/manage/delete") => {
+            handle_manage_delete(
+                request,
+                workspace_root,
+                platform.config_paths().config_home,
+                config,
+            )
+        }
+        ("GET", "/api/fs/list") => {
+            let workspace_root_path = PathBuf::from(&platform.context().root);
+            let raw_path = request.query_value("path");
+            let dir_path = resolve_fs_path(&workspace_root_path, raw_path.as_deref(), true)?;
+            if !dir_path.is_dir() {
+                return error_response(400, "path is not a directory");
+            }
+            json_response(
+                serde_json::json!({
+                    "workspaceRoot": platform.context().root,
+                    "currentPath": dir_path.display().to_string(),
+                    "parentPath": dir_path.parent().map(|value| value.display().to_string()),
+                    "entries": list_fs_entries(&dir_path)?,
+                })
+                .to_string(),
+            )
+        }
+        ("POST", "/api/fs/create") => {
+            let workspace_root_path = PathBuf::from(&platform.context().root);
+            let raw_path = request.form_value("path");
+            let kind = request.form_value("kind").unwrap_or_else(|| String::from("file"));
+            let target_path = resolve_fs_path(&workspace_root_path, raw_path.as_deref(), false)?;
+
+            match kind.as_str() {
+                "folder" => {
+                    fs::create_dir_all(&target_path).map_err(|error| {
+                        OctoError::Runtime(format!(
+                            "failed to create folder {}: {error}",
+                            target_path.display()
+                        ))
+                    })?;
+                }
+                _ => {
+                    if let Some(parent) = target_path.parent() {
+                        fs::create_dir_all(parent).map_err(|error| {
+                            OctoError::Runtime(format!(
+                                "failed to create parent folder {}: {error}",
+                                parent.display()
+                            ))
+                        })?;
+                    }
+                    if !target_path.exists() {
+                        fs::write(&target_path, "").map_err(|error| {
+                            OctoError::Runtime(format!(
+                                "failed to create file {}: {error}",
+                                target_path.display()
+                            ))
+                        })?;
+                    }
+                }
+            }
+
+            json_response(
+                serde_json::json!({
+                    "ok": true,
+                    "kind": if target_path.is_dir() { "folder" } else { "file" },
+                    "path": target_path.display().to_string(),
+                })
+                .to_string(),
+            )
+        }
+        ("POST", "/api/fs/search") => {
+            let workspace_root_path = PathBuf::from(&platform.context().root);
+            let raw_path = request.form_value("path");
+            let query = request.form_value("query").unwrap_or_default();
+            let query = query.trim().to_string();
+            if query.is_empty() {
+                return error_response(400, "missing search query");
+            }
+
+            let target_path = resolve_fs_path(&workspace_root_path, raw_path.as_deref(), true)?;
+            let mut results = Vec::new();
+            search_text_in_path(&target_path, &query, &mut results)?;
+
+            json_response(
+                serde_json::json!({
+                    "path": target_path.display().to_string(),
+                    "query": query,
+                    "limit": FS_MAX_RESULTS,
+                    "resultCount": results.len(),
+                    "results": results,
+                })
+                .to_string(),
+            )
+        }
+        ("POST", "/api/fs/replace") => {
+            let workspace_root_path = PathBuf::from(&platform.context().root);
+            let raw_path = request.form_value("path");
+            let old_text = request.form_value("oldText").unwrap_or_default();
+            let new_text = request.form_value("newText").unwrap_or_default();
+            if old_text.is_empty() {
+                return error_response(400, "missing replacement source text");
+            }
+
+            let target_path = resolve_fs_path(&workspace_root_path, raw_path.as_deref(), true)?;
+            let mut changed_files = Vec::new();
+            let replacements = replace_text_in_path(&target_path, &old_text, &new_text, &mut changed_files)?;
+
+            json_response(
+                serde_json::json!({
+                    "path": target_path.display().to_string(),
+                    "oldText": old_text,
+                    "newText": new_text,
+                    "filesChanged": changed_files.len(),
+                    "replacementCount": replacements,
+                    "items": changed_files,
+                })
+                .to_string(),
+            )
+        }
+        ("POST", "/api/sessions/delete") => {
+            let session_id = request
+                .form_value("sessionId")
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| OctoError::Runtime(String::from("missing session id")))?;
+            let store = FileSessionStore::new(&platform.config_paths())?;
+            let _ = store.delete_session(&session_id)?;
+            let next_session_id = ensure_session_exists(&store)?;
+            let runtime = build_runtime(workspace_root, config)?;
+            json_response(runtime.snapshot_json(Some(&next_session_id))?)
+        }
+        ("POST", "/api/sessions/create") => {
+            let title = request.form_value("title");
+            let store = FileSessionStore::new(&platform.config_paths())?;
+            let session_id = create_session(&store, title)?;
+            let runtime = build_runtime(workspace_root, config)?;
+            json_response(runtime.snapshot_json(Some(&session_id))?)
+        }
+        ("POST", "/api/sessions/fork") => {
+            let parent_session_id = request
+                .form_value("parentSessionId")
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| OctoError::Runtime(String::from("missing parent session id")))?;
+            let branch_name = request
+                .form_value("branchName")
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| String::from("fork"));
+            let upto_message_index = request
+                .form_value("messageIndex")
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .map(|value| {
+                    value.parse::<usize>().map_err(|_| {
+                        OctoError::Runtime(format!("invalid fork message index: {value}"))
+                    })
+                })
+                .transpose()?;
+            let session_id = default_session_id();
+            let runtime = build_runtime(workspace_root, config)?;
+            runtime.fork_session_from_index(
+                &parent_session_id,
+                &session_id,
+                &branch_name,
+                upto_message_index,
+            )?;
+            json_response(runtime.snapshot_json(Some(&session_id))?)
+        }
+        ("POST", "/api/sessions/stop") => {
+            let session_id = request
+                .form_value("sessionId")
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| String::from("demo"));
+            let runtime = build_runtime(workspace_root, config)?;
+            runtime.request_session_stop(&session_id);
+            json_response(format!(
+                "{{\"ok\":true,\"sessionId\":\"{}\"}}",
+                escape_json(&session_id)
+            ))
+        }
+        ("POST", "/api/sessions/delete-all") => {
+            let store = FileSessionStore::new(&platform.config_paths())?;
+            let _ = store.delete_all_sessions()?;
+            let next_session_id = ensure_session_exists(&store)?;
+            let runtime = build_runtime(workspace_root, config)?;
+            json_response(runtime.snapshot_json(Some(&next_session_id))?)
         }
         ("GET", "/api/tools") => {
             let runtime = build_runtime(workspace_root, config)?;
@@ -872,6 +1848,53 @@ fn route_request(
                 escape_json(&rec.label),
             ))
         }
+        ("POST", "/api/terminal/open") => {
+            let owner_session_id = request
+                .form_value("sessionId")
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| OctoError::Runtime(String::from("missing terminal owner session id")))?;
+            let label = request.form_value("label");
+            let cwd = request.form_value("cwd");
+            let cols = request
+                .form_value("cols")
+                .and_then(|value| value.parse::<u16>().ok());
+            let rows = request
+                .form_value("rows")
+                .and_then(|value| value.parse::<u16>().ok());
+            let info = terminal::terminal_hub().open_session(
+                &workspace_root,
+                &owner_session_id,
+                cwd.as_deref(),
+                label.as_deref(),
+                cols,
+                rows,
+            )?;
+            json_response(serde_json::to_string(&info)?)
+        }
+        ("POST", "/api/terminal/resize") => {
+            let terminal_id = request
+                .form_value("id")
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| OctoError::Runtime(String::from("missing terminal id")))?;
+            let cols = request
+                .form_value("cols")
+                .and_then(|value| value.parse::<u16>().ok())
+                .unwrap_or(120);
+            let rows = request
+                .form_value("rows")
+                .and_then(|value| value.parse::<u16>().ok())
+                .unwrap_or(30);
+            terminal::terminal_hub().resize_session(&terminal_id, cols, rows)?;
+            json_response(String::from("{\"ok\":true}"))
+        }
+        ("POST", "/api/terminal/close") => {
+            let terminal_id = request
+                .form_value("id")
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| OctoError::Runtime(String::from("missing terminal id")))?;
+            terminal::terminal_hub().close_session(&terminal_id);
+            json_response(String::from("{\"ok\":true}"))
+        }
         ("POST", "/api/chat") => {
             let session_id = request
                 .form_value("sessionId")
@@ -893,6 +1916,16 @@ fn route_request(
             let name = request.form_value("name").unwrap_or_else(|| String::from("echo"));
             let input = request.form_value("input").unwrap_or_default();
             let runtime = build_runtime(workspace_root, config)?;
+            if execute_custom_tool_if_configured(
+                &runtime,
+                &platform.context().root,
+                &platform.config_paths().config_home,
+                &session_id,
+                &name,
+                &input,
+            )? {
+                return json_response(runtime.snapshot_json(Some(&session_id))?);
+            }
             let result = runtime.run_tool_in_session(
                 &session_id,
                 ToolCall {
@@ -914,14 +1947,20 @@ fn route_request(
                 }
             }
             if let Some(provider_base_url) = request.form_value("providerBaseUrl") {
-                if !provider_base_url.trim().is_empty() {
-                    next.provider_base_url = Some(provider_base_url.trim().to_string());
-                }
+                let trimmed = provider_base_url.trim();
+                next.provider_base_url = if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                };
             }
             if let Some(default_model) = request.form_value("defaultModel") {
-                if !default_model.trim().is_empty() {
-                    next.default_model = Some(default_model.trim().to_string());
-                }
+                let trimmed = default_model.trim();
+                next.default_model = if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                };
             }
             if let Some(permission_mode) = request.form_value("permissionMode") {
                 next.permission_mode = match permission_mode.trim() {
@@ -966,6 +2005,20 @@ fn handle_command(
 ) -> Result<String, Box<dyn std::error::Error>> {
     let mut parts = command.split_whitespace();
     let action = parts.next().unwrap_or_default();
+    let config_home = loader
+        .config_file_path()
+        .parent()
+        .map(|value: &std::path::Path| value.display().to_string())
+        .unwrap_or_default();
+    let custom_args = parts.clone().collect::<Vec<_>>().join(" ");
+    if let Some(expanded) = resolve_custom_command(
+        &workspace_root,
+        &config_home,
+        action,
+        &custom_args,
+    )? {
+        return handle_command(expanded, session_id, workspace_root, loader, config);
+    }
     match action {
         "events" => {
             let runtime = build_runtime(workspace_root, config)?;
@@ -1387,8 +2440,14 @@ fn serve_static(request: &HttpRequest) -> Result<String, Box<dyn std::error::Err
         return error_response(404, "not found");
     };
 
-    let body = fs::read_to_string(&file_path)
+    let mut body = fs::read_to_string(&file_path)
         .map_err(|e| OctoError::Runtime(format!("failed to read {}: {e}", file_path.display())))?;
+    // Inject auth token into index.html so the WebUI can authenticate API calls
+    if relative == "ui-shell/index.html" {
+        let token = get_server_token();
+        let inject = format!(r#"<script>window.__OCTOCODE_AUTH_TOKEN__="{}";</script>"#, token);
+        body = body.replacen("</head>", &format!("{inject}\n</head>"), 1);
+    }
     let content_type = content_type_for(&file_path);
     Ok(http_response(200, "OK", content_type, body))
 }
@@ -1654,10 +2713,68 @@ fn url_decode(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        error_chain_contains_io_kind, escape_json, parse_pairs, should_suppress_request_error,
-        url_decode,
+        create_session, error_chain_contains_io_kind, escape_json, parse_pairs,
+        should_suppress_request_error, snapshot_response_from_runtime, url_decode,
+        write_sse_stream_response, AppRuntime, NativePlatform,
     };
+    use octocode_api::ProviderRegistry;
+    use octocode_core::{ConfigPaths, PermissionMode, PlatformSupport, ProviderFactory, RuntimeConfig, SessionStore};
+    use octocode_runtime::{CoordinatorEngine, FileSessionStore, RuntimeProviderRouter, TaskStore, WorkspaceToolExecutor};
+    use serde_json::Value;
     use std::io::ErrorKind;
+
+    fn build_test_runtime(label: &str) -> (AppRuntime, std::path::PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "octocode_cli_server_test_{}_{}_{}",
+            std::process::id(),
+            label,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        let paths = ConfigPaths {
+            config_home: root.join("config").to_string_lossy().to_string(),
+            cache_home: root.join("cache").to_string_lossy().to_string(),
+            data_home: root.join("data").to_string_lossy().to_string(),
+        };
+        std::fs::create_dir_all(&paths.config_home).expect("create config dir");
+        std::fs::create_dir_all(&paths.cache_home).expect("create cache dir");
+        std::fs::create_dir_all(&paths.data_home).expect("create data dir");
+
+        let config = RuntimeConfig {
+            provider_id: Some(String::from("stub")),
+            provider_base_url: None,
+            default_model: Some(String::from("stub")),
+            permission_mode: PermissionMode::WorkspaceWrite,
+            history_limit: 24,
+            denied_tools: Vec::new(),
+            request_timeout_secs: 5,
+        };
+        let platform = NativePlatform::detect(root.to_string_lossy().to_string());
+        let registry = ProviderRegistry::new();
+        let store = FileSessionStore::new(&paths).expect("create session store");
+        let mut runtime = super::OctocodeRuntime::new(
+            RuntimeProviderRouter::from_factory(&registry, &config).expect("build router"),
+            store,
+            WorkspaceToolExecutor::with_shell(
+                platform.context().root.clone(),
+                platform.context().preferred_shell.clone(),
+            ),
+            platform.context().clone(),
+            registry.descriptors().to_vec(),
+        );
+        runtime.task_store = TaskStore::new();
+        runtime.coordinator = CoordinatorEngine::new();
+        (runtime, root)
+    }
+
+    fn response_json(response: &str) -> Value {
+        let (_, body) = response
+            .split_once("\r\n\r\n")
+            .expect("http response body");
+        serde_json::from_str(body).expect("valid json body")
+    }
 
     #[test]
     fn url_decode_ascii() {
@@ -1712,6 +2829,71 @@ mod tests {
     fn does_not_suppress_unexpected_runtime_errors() {
         let error = std::io::Error::other("disk full");
         assert!(!should_suppress_request_error(&error));
+    }
+
+    #[test]
+    fn state_endpoint_response_includes_turn_lifecycle_contract() {
+        let (runtime, _root) = build_test_runtime("state-endpoint");
+        runtime
+            .prompt_in_session("demo", "confirm lifecycle")
+            .expect("run prompt in session");
+
+        let response = snapshot_response_from_runtime(&runtime, Some("demo"))
+            .expect("snapshot response");
+        let body = response_json(&response);
+        let turn = &body["activeSession"]["turn"];
+
+        assert_eq!(turn["phase"], "completed");
+        assert!(turn["turnId"].as_str().is_some_and(|value| value.starts_with("demo-")));
+        assert!(turn["startedAtMs"].is_number());
+        assert!(turn["updatedAtMs"].is_number());
+        assert!(turn["finishedAtMs"].is_number());
+        assert_eq!(turn["activeSseClients"], 0);
+    }
+
+    #[test]
+    fn sse_stream_response_emits_done_and_persists_completed_turn() {
+        let (runtime, _root) = build_test_runtime("sse-endpoint");
+        let mut output = Vec::new();
+
+        write_sse_stream_response(&mut output, &runtime, "demo", "stream lifecycle")
+            .expect("write sse response");
+
+        let text = String::from_utf8(output).expect("utf8 sse output");
+        assert!(text.contains("HTTP/1.1 200 OK"));
+        assert!(text.contains("Content-Type: text/event-stream"));
+        assert!(text.contains("data: [DONE]"));
+        assert!(!text.contains("\"error\":"));
+
+        let snapshot = response_json(
+            &snapshot_response_from_runtime(&runtime, Some("demo"))
+                .expect("snapshot response after sse"),
+        );
+        let turn = &snapshot["activeSession"]["turn"];
+        assert_eq!(turn["phase"], "completed");
+        assert_eq!(turn["activeSseClients"], 0);
+    }
+
+    #[test]
+    fn create_session_persists_requested_title() {
+        let (_runtime, root) = build_test_runtime("create-session");
+        let paths = ConfigPaths {
+            config_home: root.join("config").to_string_lossy().to_string(),
+            cache_home: root.join("cache").to_string_lossy().to_string(),
+            data_home: root.join("data").to_string_lossy().to_string(),
+        };
+        let store = FileSessionStore::new(&paths).expect("create store");
+
+        let session_id = create_session(&store, Some(String::from("Browser Session")))
+            .expect("create session");
+
+        let created = store
+            .list_sessions()
+            .expect("list sessions")
+            .into_iter()
+            .find(|session| session.id == session_id)
+            .expect("created session summary");
+        assert_eq!(created.title, "Browser Session");
     }
 
     #[test]

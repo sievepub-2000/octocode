@@ -26,6 +26,7 @@ impl Default for CompactionConfig {
 
 /// Result of a compaction operation.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct CompactionResult {
     /// The compacted conversation (summary + preserved recent messages).
     pub messages: Vec<ConversationMessage>,
@@ -165,6 +166,7 @@ fn build_summary(messages: &[ConversationMessage], config: &CompactionConfig) ->
 /// - Lines starting with "Note:", "Important:", "Remember:"
 /// - Tool results with file paths
 /// - Decision points and conclusions
+#[allow(dead_code)]
 pub fn extract_memories(messages: &[ConversationMessage]) -> Vec<String> {
     let mut memories = Vec::new();
     let keywords = ["note:", "important:", "remember:", "decision:", "conclusion:"];
@@ -190,6 +192,7 @@ pub fn extract_memories(messages: &[ConversationMessage]) -> Vec<String> {
 }
 
 /// Generate a brief session summary for resumption (1-3 sentences).
+#[allow(dead_code)]
 pub fn away_summary(messages: &[ConversationMessage]) -> String {
     if messages.is_empty() {
         return String::from("Empty session.");

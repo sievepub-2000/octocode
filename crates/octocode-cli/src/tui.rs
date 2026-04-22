@@ -310,7 +310,7 @@ impl ProgressBar {
 
     fn render(&self) {
         let width = terminal::size().map(|(w, _)| w as usize).unwrap_or(80);
-        let bar_width = (width - self.label.len() - 20).max(10).min(50);
+        let bar_width = (width - self.label.len() - 20).clamp(10, 50);
         let filled = if self.total > 0 {
             (self.current * bar_width) / self.total
         } else {
