@@ -403,4 +403,197 @@ mod tests {
         assert_eq!(WsOpcode::from_u8(0x8), Some(WsOpcode::Close));
         assert_eq!(WsOpcode::from_u8(0xFF), None);
     }
+
+    // ─── RFC 6455 conformance tests ─────────────────────────────────────────
+    //
+    // These tests exercise `WsConnection::read_message` over a real loopback
+    // TCP socket, feeding hand-crafted frames that match RFC 6455 §5 layouts.
+    // They verify:
+    //   - The canonical handshake Accept-key derivation example from §4.2.2
+    //   - Mask bit handling: client frames MUST be masked; server unmasks
+    //   - Length encoding branches: 7-bit, 16-bit, 64-bit
+    //   - Control opcode parsing for Ping / Pong / Close
+    //   - Client-initiated Close marks connection closed
+    //   - Server-sent frames are never masked (bit 0 of byte 1)
+    //   - FIN bit is always set on server-generated frames (no fragmentation)
+
+    use std::net::{TcpListener, TcpStream};
+
+    /// Create a loopback TCP pair (client_stream, server_stream) on a random port.
+    fn loopback_pair() -> (TcpStream, TcpStream) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let addr = listener.local_addr().unwrap();
+        let client = TcpStream::connect(addr).expect("client connect");
+        let (server, _) = listener.accept().expect("server accept");
+        (client, server)
+    }
+
+    /// Build a masked client frame: FIN=1, given opcode, MASK=1, payload.
+    /// Uses a fixed mask key `[0xAA, 0xBB, 0xCC, 0xDD]` for determinism.
+    fn build_masked_client_frame(opcode: u8, payload: &[u8]) -> Vec<u8> {
+        let mask_key: [u8; 4] = [0xAA, 0xBB, 0xCC, 0xDD];
+        let mut out = Vec::with_capacity(14 + payload.len());
+        out.push(0x80 | (opcode & 0x0F)); // FIN=1
+        let len = payload.len();
+        if len < 126 {
+            out.push(0x80 | len as u8); // MASK=1 + 7-bit length
+        } else if len <= 65535 {
+            out.push(0x80 | 126);
+            out.extend_from_slice(&(len as u16).to_be_bytes());
+        } else {
+            out.push(0x80 | 127);
+            out.extend_from_slice(&(len as u64).to_be_bytes());
+        }
+        out.extend_from_slice(&mask_key);
+        let masked: Vec<u8> = payload
+            .iter()
+            .enumerate()
+            .map(|(i, b)| b ^ mask_key[i % 4])
+            .collect();
+        out.extend_from_slice(&masked);
+        out
+    }
+
+    #[test]
+    fn rfc6455_accept_key_canonical_example() {
+        // RFC 6455 §1.3 / §4.2.2 canonical example:
+        //   Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
+        //   Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+        assert_eq!(
+            compute_accept_key("dGhlIHNhbXBsZSBub25jZQ=="),
+            "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+        );
+    }
+
+    #[test]
+    fn rfc6455_read_text_frame_masked() {
+        let (mut client, server) = loopback_pair();
+        let mut conn = WsConnection::from_raw_stream(server, "s".into());
+        let frame = build_masked_client_frame(0x1, b"hello");
+        client.write_all(&frame).unwrap();
+        let msg = conn.read_message().expect("frame arrives");
+        assert_eq!(msg.opcode, WsOpcode::Text);
+        assert_eq!(msg.payload, b"hello");
+        assert_eq!(msg.as_text(), Some("hello"));
+    }
+
+    #[test]
+    fn rfc6455_read_ping_frame_parsed_as_ping() {
+        let (mut client, server) = loopback_pair();
+        let mut conn = WsConnection::from_raw_stream(server, "s".into());
+        let frame = build_masked_client_frame(0x9, b"pingdata");
+        client.write_all(&frame).unwrap();
+        let msg = conn.read_message().unwrap();
+        assert_eq!(msg.opcode, WsOpcode::Ping);
+        assert_eq!(msg.payload, b"pingdata");
+    }
+
+    #[test]
+    fn rfc6455_read_pong_frame() {
+        let (mut client, server) = loopback_pair();
+        let mut conn = WsConnection::from_raw_stream(server, "s".into());
+        let frame = build_masked_client_frame(0xA, b"");
+        client.write_all(&frame).unwrap();
+        let msg = conn.read_message().unwrap();
+        assert_eq!(msg.opcode, WsOpcode::Pong);
+        assert!(msg.payload.is_empty());
+    }
+
+    #[test]
+    fn rfc6455_client_close_marks_closed() {
+        let (mut client, server) = loopback_pair();
+        let mut conn = WsConnection::from_raw_stream(server, "s".into());
+        // RFC 6455 §5.5.1: close frame body = 2-byte status code + reason
+        let body = {
+            let mut b = Vec::new();
+            b.extend_from_slice(&1000u16.to_be_bytes());
+            b.extend_from_slice(b"bye");
+            b
+        };
+        let frame = build_masked_client_frame(0x8, &body);
+        client.write_all(&frame).unwrap();
+        let msg = conn.read_message().unwrap();
+        assert_eq!(msg.opcode, WsOpcode::Close);
+        assert!(conn.is_closed(), "close frame must set closed flag");
+    }
+
+    #[test]
+    fn rfc6455_extended_length_16_bit() {
+        let (mut client, server) = loopback_pair();
+        let mut conn = WsConnection::from_raw_stream(server, "s".into());
+        let payload = vec![b'z'; 300]; // > 125, <= 65535 → 16-bit length
+        let frame = build_masked_client_frame(0x2, &payload);
+        client.write_all(&frame).unwrap();
+        let msg = conn.read_message().unwrap();
+        assert_eq!(msg.opcode, WsOpcode::Binary);
+        assert_eq!(msg.payload.len(), 300);
+        assert!(msg.payload.iter().all(|&b| b == b'z'));
+    }
+
+    #[test]
+    fn rfc6455_extended_length_64_bit() {
+        let (mut client, server) = loopback_pair();
+        let mut conn = WsConnection::from_raw_stream(server, "s".into());
+        let payload = vec![b'q'; 70_000]; // > 65535 → 64-bit length
+        let frame = build_masked_client_frame(0x2, &payload);
+        client.write_all(&frame).unwrap();
+        let msg = conn.read_message().unwrap();
+        assert_eq!(msg.payload.len(), 70_000);
+    }
+
+    #[test]
+    fn rfc6455_unknown_opcode_closes_connection() {
+        let (mut client, server) = loopback_pair();
+        let mut conn = WsConnection::from_raw_stream(server, "s".into());
+        // Opcode 0x3 is reserved (non-control); our parser must not panic.
+        let frame = build_masked_client_frame(0x3, b"x");
+        client.write_all(&frame).unwrap();
+        let result = conn.read_message();
+        assert!(result.is_none(), "unknown opcode must return None");
+    }
+
+    #[test]
+    fn rfc6455_oversized_payload_rejected() {
+        let (mut client, server) = loopback_pair();
+        let mut conn = WsConnection::from_raw_stream(server, "s".into());
+        // Build a header claiming a 100 MB payload; our parser caps at 16 MB.
+        let mut header = vec![0x81u8, 0x80 | 127];
+        header.extend_from_slice(&(100u64 * 1024 * 1024).to_be_bytes());
+        header.extend_from_slice(&[0xAA, 0xBB, 0xCC, 0xDD]); // mask key
+        // Don't even bother sending the payload — parser should reject.
+        client.write_all(&header).unwrap();
+        let result = conn.read_message();
+        assert!(result.is_none(), "oversized payload must return None");
+        assert!(conn.is_closed(), "oversized payload must close connection");
+    }
+
+    #[test]
+    fn rfc6455_server_frames_unmasked_and_fin_set() {
+        let msg = WsMessage::text("abc");
+        let frame = encode_frame(&msg);
+        // Byte 0: FIN=1 (high bit), RSV=0, opcode=0x1
+        assert_eq!(frame[0] & 0x80, 0x80, "FIN bit must be 1");
+        assert_eq!(frame[0] & 0x70, 0x00, "RSV1-3 must be 0");
+        assert_eq!(frame[0] & 0x0F, 0x1, "text opcode");
+        // Byte 1: MASK=0 (high bit), payload length in low 7 bits
+        assert_eq!(frame[1] & 0x80, 0x00, "server frames MUST NOT be masked");
+        assert_eq!(frame[1] & 0x7F, 3, "payload length = 3");
+    }
+
+    #[test]
+    fn rfc6455_close_frame_encoding() {
+        let msg = WsMessage::close();
+        let frame = encode_frame(&msg);
+        assert_eq!(frame[0] & 0x80, 0x80);
+        assert_eq!(frame[0] & 0x0F, 0x8);
+    }
+
+    #[test]
+    fn rfc6455_pong_frame_encoding() {
+        let msg = WsMessage::pong(b"abc".to_vec());
+        let frame = encode_frame(&msg);
+        assert_eq!(frame[0] & 0x80, 0x80);
+        assert_eq!(frame[0] & 0x0F, 0xA);
+        assert_eq!(&frame[2..], b"abc");
+    }
 }

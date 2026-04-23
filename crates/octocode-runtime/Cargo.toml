@@ -17,3 +17,4 @@ rusqlite = { workspace = true }
 
 [dev-dependencies]
 octocode-mock-provider = { path = "../octocode-mock-provider" }
+tempfile = { workspace = true }
