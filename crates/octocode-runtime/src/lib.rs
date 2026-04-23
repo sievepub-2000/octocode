@@ -96,7 +96,7 @@ where
 }
 pub use router::RuntimeProviderRouter;
 pub use session::{FileSessionStore, MemorySessionStore};
-pub use tools::{RuntimeToolCatalog, WorkspaceToolExecutor};
+pub use tools::{RuntimeToolCatalog, WorkspaceToolExecutor, scan_text_tool_call};
 pub use config::ConfigLoader;
 pub use coordinator::CoordinatorEngine;
 pub use cost_tracker::CostTracker;

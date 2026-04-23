@@ -242,6 +242,7 @@ const managePanelMeta = {
   tools: { titleKey: 'manage.tools', titleFallback: 'Tools', subtitleKey: 'manage.toolsHint', subtitleFallback: '查看当前工具能力与权限要求。' },
   commands: { titleKey: 'manage.commands', titleFallback: 'Commands', subtitleKey: 'manage.commandsHint', subtitleFallback: '查看斜杠命令入口并快速插入对话框。' },
   settings: { titleKey: 'manage.settings', titleFallback: 'Settings', subtitleKey: 'manage.settingsHint', subtitleFallback: '修改 Provider、模型和权限等运行设置。' },
+  github: { titleKey: 'manage.github', titleFallback: 'GitHub 连接', subtitleKey: 'manage.githubHint', subtitleFallback: '管理用户名/密码、项目接入 Key、管理 Token 等 GitHub 主流接入方式。凭据仅保存在本浏览器。' },
 };
 
 const SESSION_TREE_COLLAPSE_STORAGE_KEY = 'octocode-session-tree-collapsed';
@@ -354,6 +355,10 @@ function beginConversationRuntime(promptText) {
     baselineMessageCount: activeSessionMessageCount(),
     baselineTurnId: activeSessionTurn()?.turnId || null,
     tokenCount: 0,
+    // P8-C: track last token arrival so the "AI is responding" indicator can
+    // stay hidden while the assistant is actively streaming output, and show
+    // again when the stream pauses (thinking / tool call / background work).
+    lastTokenAt: 0,
     stopped: false,
     settledState: null,
     settledViaSnapshot: false,
@@ -976,20 +981,36 @@ function renderStatusBar(state) {
     statusBranch.textContent = describeSessionLineage(summary) || t('session.rootBranch', 'branch: root');
   }
   if (streamIndicatorLabel) {
-    streamIndicatorLabel.textContent = phase === 'running'
-      ? (turn?.activeSseClients > 0
-        ? t('stream.running', '后端 turn 运行中...')
-        : t('stream.recovering', '后端 turn 运行中，等待流恢复...'))
-      : t('stream.responding', 'AI is responding...');
+    // P8-C: label reflects the *reason* the indicator is on.
+    // While tokens are streaming (handled below) we HIDE the whole
+    // indicator, so these labels are only seen during thinking /
+    // tool call / background-process gaps.
+    const rt = conversationRuntime;
+    const now = Date.now();
+    const sinceLastToken = rt?.lastTokenAt ? (now - rt.lastTokenAt) : Infinity;
+    const isStreamingOutput = rt && rt.tokenCount > 0 && sinceLastToken < 1200;
+    if (isStreamingOutput) {
+      streamIndicatorLabel.textContent = t('stream.outputting', '输出中...');
+    } else if (phase === 'running') {
+      streamIndicatorLabel.textContent = (turn?.activeSseClients > 0)
+        ? (rt && rt.tokenCount > 0
+          ? t('stream.toolOrThink', '工具调用 / 思考中...')
+          : t('stream.thinking', 'AI 思考中...'))
+        : t('stream.recovering', '后端 turn 运行中，等待流恢复...');
+    } else {
+      streamIndicatorLabel.textContent = t('stream.responding', 'AI is responding...');
+    }
   }
   if (streamIndicator && !isSubmitting) {
-    // Only show the "AI is responding" indicator when there is a real
-    // in-flight turn: backend phase is running AND there is either a local
-    // submission, an active SSE client, or the indicator was already shown
-    // by streamChat. Without this guard, a stale `running` phase (e.g. from
-    // a crashed turn) leaves the indicator permanently visible.
+    // P8-C: Only show the indicator when the assistant is NOT actively
+    // emitting tokens. During real streaming output we hide it; during
+    // thinking, tool-call, or background-process gaps we show it.
+    const rt = conversationRuntime;
+    const now = Date.now();
+    const sinceLastToken = rt?.lastTokenAt ? (now - rt.lastTokenAt) : Infinity;
+    const isStreamingOutput = rt && rt.tokenCount > 0 && sinceLastToken < 1200;
     const hasActiveSse = Number(turn?.activeSseClients || 0) > 0;
-    const shouldShow = phase === 'running' && hasActiveSse;
+    const shouldShow = phase === 'running' && hasActiveSse && !isStreamingOutput;
     streamIndicator.hidden = !shouldShow;
     if (shouldShow) scheduleRecoveryRefresh();
   }
@@ -2738,7 +2759,9 @@ function updateComposerHints() {
 }
 
 async function streamChat(text, sessionId) {
-  streamIndicator.hidden = false;
+  // P8-C: Don't force the indicator on here. `renderStatusBar` will decide
+  // based on backend phase + streaming state so the indicator is only
+  // visible during thinking / tool-call / background gaps.
   streamAbortController = new AbortController();
   const runtime = beginConversationRuntime(text);
   runtime.sessionId = sessionId;
@@ -2792,6 +2815,7 @@ async function streamChat(text, sessionId) {
           if (parsed.token) {
             sawToken = true;
             runtime.tokenCount += 1;
+            runtime.lastTokenAt = Date.now();
             assistantMessage.content += parsed.token;
             updated = true;
           }
@@ -2799,6 +2823,7 @@ async function streamChat(text, sessionId) {
           assistantMessage.content += data;
           sawToken = true;
           runtime.tokenCount += 1;
+          runtime.lastTokenAt = Date.now();
           updated = true;
         }
       }
@@ -3405,6 +3430,109 @@ async function init() {
   await sessionController.initializeSessionContext();
   void ensureManageCatalog();
   setManagePanel(currentManagePanel);
+  initGithubConnectionPanel();
 }
 
 init();
+
+// =====================================================================
+// P8-B: GitHub connection management.
+// Stored ONLY in localStorage under `octocode-github-connection`. The
+// backend never sees these credentials unless the user clicks "测试连通"
+// which performs a direct request from the browser to api.github.com.
+// =====================================================================
+const GITHUB_CONN_STORAGE_KEY = 'octocode-github-connection';
+
+function loadGithubConnection() {
+  try {
+    const raw = localStorage.getItem(GITHUB_CONN_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveGithubConnection(data) {
+  try {
+    localStorage.setItem(GITHUB_CONN_STORAGE_KEY, JSON.stringify(data || {}));
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function initGithubConnectionPanel() {
+  const form = document.getElementById('github-form');
+  if (!form) return;
+  const fields = [
+    'authMethod', 'username', 'password', 'token', 'appId',
+    'installationId', 'privateKey', 'apiBase', 'scopes',
+  ];
+  const statusEl = document.getElementById('github-status');
+  const readForm = () => {
+    const obj = {};
+    for (const name of fields) {
+      const el = form.elements.namedItem(name);
+      if (el) obj[name] = el.value || '';
+    }
+    return obj;
+  };
+  const writeForm = (data) => {
+    for (const name of fields) {
+      const el = form.elements.namedItem(name);
+      if (el && data[name] != null) el.value = data[name];
+    }
+  };
+  writeForm(loadGithubConnection());
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const data = readForm();
+    if (saveGithubConnection(data)) {
+      if (statusEl) statusEl.textContent = t('github.saved', '已保存到本地浏览器。');
+      showToast(t('github.saved', '已保存到本地浏览器。'), 'success');
+    } else {
+      showToast(t('github.saveFailed', '保存失败，请检查浏览器存储权限。'), 'error');
+    }
+  });
+
+  const clearBtn = document.getElementById('github-clear-button');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      if (!window.confirm(t('github.confirmClear', '确定清除本地保存的 GitHub 凭据吗？'))) return;
+      try { localStorage.removeItem(GITHUB_CONN_STORAGE_KEY); } catch (_) {}
+      writeForm({ authMethod: 'pat', username: '', password: '', token: '', appId: '', installationId: '', privateKey: '', apiBase: '', scopes: '' });
+      if (statusEl) statusEl.textContent = t('github.cleared', '本地凭据已清除。');
+      showToast(t('github.cleared', '本地凭据已清除。'), 'success');
+    });
+  }
+
+  const testBtn = document.getElementById('github-test-button');
+  if (testBtn) {
+    testBtn.addEventListener('click', async () => {
+      const data = readForm();
+      const base = (data.apiBase || 'https://api.github.com').replace(/\/+$/, '');
+      const headers = { 'Accept': 'application/vnd.github+json' };
+      if (data.authMethod === 'basic' && data.username && data.password) {
+        headers['Authorization'] = 'Basic ' + btoa(`${data.username}:${data.password}`);
+      } else if (data.token) {
+        headers['Authorization'] = `Bearer ${data.token}`;
+      }
+      if (statusEl) statusEl.textContent = t('github.testing', '正在测试连通...');
+      try {
+        const res = await fetch(`${base}/user`, { headers, credentials: 'omit' });
+        const body = await res.text();
+        const text = `HTTP ${res.status}\n${body.slice(0, 800)}`;
+        if (statusEl) statusEl.textContent = text;
+        if (res.ok) {
+          showToast(t('github.testOk', '连通成功 ✓'), 'success');
+        } else {
+          showToast(t('github.testFail', `连通失败：HTTP ${res.status}`), 'error');
+        }
+      } catch (error) {
+        if (statusEl) statusEl.textContent = `error: ${error.message || String(error)}`;
+        showToast(`${t('github.testFail', '连通失败')}: ${error.message || String(error)}`, 'error');
+      }
+    });
+  }
+}

@@ -2202,6 +2202,52 @@ impl ToolExecutor for WorkspaceToolExecutor {
     }
 }
 
+/// P8-D: Defensive scanner that detects when a model emitted a tool call as
+/// plain text (e.g. `<|tool_call|>tool-web-search(query="…")<tool_call|>`)
+/// instead of a structured `tool_calls` payload. Returning `Some` lets the
+/// runtime surface a *blocked* tool attempt to the user rather than silently
+/// treating the marker as prose.
+///
+/// This is a stop-gap until every provider is fronted by the `cli-proxy-api`
+/// translator (see `skills/cli-proxy-api-bridge/SKILL.md`). When that lands,
+/// this scanner should still run as a belt-and-suspenders guard.
+pub fn scan_text_tool_call(text: &str) -> Option<(String, String)> {
+    // Look for any of the common text markers used by OSS models.
+    const OPEN_MARKERS: &[&str] = &[
+        "<|tool_call|>",
+        "<|tool_calls_begin|>",
+        "<|python_tag|>",
+        "<tool_call>",
+    ];
+    let mut found_at = None;
+    for marker in OPEN_MARKERS {
+        if let Some(idx) = text.find(marker) {
+            found_at = Some(idx + marker.len());
+            break;
+        }
+    }
+    let start = found_at?;
+    let rest = &text[start..];
+    // Extract name up to `(` if present, otherwise up to whitespace.
+    let name_end = rest
+        .find(|c: char| c == '(' || c.is_whitespace() || c == '\n')
+        .unwrap_or(rest.len().min(128));
+    let name = rest[..name_end].trim().to_string();
+    if name.is_empty() {
+        return None;
+    }
+    // Extract everything between the first `(` and matching `)` as raw args.
+    let args = if let Some(open) = rest.find('(') {
+        rest[open + 1..]
+            .find(')')
+            .map(|close| rest[open + 1..open + 1 + close].to_string())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    Some((name, args))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2471,6 +2517,42 @@ mod tests {
         let env_path = root.join(".env");
         assert!(env_path.exists());
         let _ = fs::remove_dir_all(&root);
+    }
+
+    // ── P8-D: text-level tool-call scanner ─────────────────────────────────
+
+    #[test]
+    fn scan_text_tool_call_detects_qwen_marker() {
+        let input = r#"sure, let me look that up <|tool_call|>tool-web-search(query="济南未来三天天气预报")<tool_call|>"#;
+        let (name, args) = scan_text_tool_call(input).expect("qwen marker should be detected");
+        assert_eq!(name, "tool-web-search");
+        assert!(args.contains("济南未来三天天气预报"));
+    }
+
+    #[test]
+    fn scan_text_tool_call_detects_deepseek_marker() {
+        let input = "<|tool_calls_begin|>browse(url=\"https://example.com\")";
+        let (name, args) = scan_text_tool_call(input).expect("deepseek marker should be detected");
+        assert_eq!(name, "browse");
+        assert_eq!(args, "url=\"https://example.com\"");
+    }
+
+    #[test]
+    fn scan_text_tool_call_detects_llama_python_tag() {
+        let input = "<|python_tag|>get_weather(city=\"Jinan\", days=3)";
+        let (name, args) = scan_text_tool_call(input).expect("llama python_tag should be detected");
+        assert_eq!(name, "get_weather");
+        assert!(args.contains("Jinan"));
+    }
+
+    #[test]
+    fn scan_text_tool_call_no_marker_returns_none() {
+        assert!(scan_text_tool_call("plain assistant reply, no tool call here").is_none());
+    }
+
+    #[test]
+    fn scan_text_tool_call_empty_after_marker_returns_none() {
+        assert!(scan_text_tool_call("<|tool_call|>").is_none());
     }
 }
 

@@ -70,6 +70,7 @@
               <button class="menu-dropdown-item" type="button" data-manage-panel="overview" data-i18n="manage.overview">概览</button>
               <button class="menu-dropdown-item" type="button" data-manage-panel="providers" data-i18n="manage.providers">Providers</button>
               <button class="menu-dropdown-item" type="button" data-manage-panel="settings" data-i18n="manage.settings">Settings</button>
+              <button class="menu-dropdown-item" type="button" data-manage-panel="github" data-i18n="manage.github">GitHub 连接</button>
             </div>
           </div>
         </div>
@@ -276,6 +277,37 @@
                   </label>
                   <label><span data-i18n="settings.historyLimit">History Limit</span><input id="setting-history" name="historyLimit" type="number" min="1" step="1" /></label>
                   <button type="submit" data-i18n="settings.save">Save</button>
+                </form>
+              </section>
+              <section id="manage-panel-github" class="manage-panel-section">
+                <form id="github-form" class="stack-form manage-settings-form" autocomplete="off">
+                  <p class="manage-panel-subtitle" data-i18n="manage.githubHint">
+                    管理 GitHub 主流接入方式。凭据仅保存在本浏览器的 localStorage，后端不会持久化。
+                  </p>
+                  <label><span data-i18n="github.authMethod">认证方式</span>
+                    <select id="github-auth-method" name="authMethod">
+                      <option value="pat">Personal Access Token (classic)</option>
+                      <option value="fine-grained">Fine-grained PAT</option>
+                      <option value="oauth-app">OAuth App token</option>
+                      <option value="github-app">GitHub App (Installation Token)</option>
+                      <option value="basic">用户名 + 密码 (Basic, 仅兼容企业版)</option>
+                      <option value="deploy-key">Deploy Key (SSH, 仅引用)</option>
+                    </select>
+                  </label>
+                  <label><span data-i18n="github.username">用户名 / App Slug</span><input id="github-username" name="username" type="text" autocomplete="off" /></label>
+                  <label><span data-i18n="github.password">密码 (可选, 仅 Basic)</span><input id="github-password" name="password" type="password" autocomplete="new-password" /></label>
+                  <label><span data-i18n="github.token">项目接入 Key / 管理 Token</span><input id="github-token" name="token" type="password" autocomplete="new-password" placeholder="ghp_xxx / github_pat_xxx / ghs_xxx" /></label>
+                  <label><span data-i18n="github.appId">GitHub App ID</span><input id="github-app-id" name="appId" type="text" /></label>
+                  <label><span data-i18n="github.installationId">Installation ID</span><input id="github-installation-id" name="installationId" type="text" /></label>
+                  <label><span data-i18n="github.privateKey">App 私钥 (PEM)</span><textarea id="github-private-key" name="privateKey" rows="4" spellcheck="false" placeholder="-----BEGIN RSA PRIVATE KEY-----"></textarea></label>
+                  <label><span data-i18n="github.apiBase">API Base</span><input id="github-api-base" name="apiBase" type="text" placeholder="https://api.github.com" /></label>
+                  <label><span data-i18n="github.scopes">Scopes (逗号分隔)</span><input id="github-scopes" name="scopes" type="text" placeholder="repo,workflow,read:org" /></label>
+                  <div class="manage-button-row">
+                    <button type="submit" data-i18n="github.save">保存到本地</button>
+                    <button type="button" id="github-test-button" data-i18n="github.test">测试连通</button>
+                    <button type="button" id="github-clear-button" data-i18n="github.clear">清除凭据</button>
+                  </div>
+                  <pre id="github-status" class="manage-empty" style="white-space:pre-wrap;"></pre>
                 </form>
               </section>
             </div>
