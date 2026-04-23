@@ -3,6 +3,7 @@ mod desktop;
 mod index;
 mod manage_config;
 mod server;
+mod skills_install;
 mod terminal;
 #[allow(dead_code)]
 mod tls;
@@ -146,6 +147,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ids.join(", ")
                 )));
             }
+        }
+    }
+
+    // P11-A: skills-install <url> — download a remote SKILL.md with a
+    // strict HTTPS allowlist and install it under the user's config home.
+    if raw_args.first().map(|s| s.as_str()) == Some("skills-install") {
+        let url = raw_args.get(1).ok_or_else(|| {
+            Box::<dyn std::error::Error>::from(
+                "usage: octocode-cli skills-install <https-url> [--force]",
+            )
+        })?;
+        let force = raw_args.iter().skip(2).any(|a| a == "--force");
+        let platform = NativePlatform::detect(String::from("."));
+        let config_home = platform.config_paths().config_home.clone();
+        match skills_install::install_from_url(url, std::path::Path::new(&config_home), force) {
+            Ok(installed) => {
+                let out = serde_json::json!({
+                    "id": installed.id,
+                    "path": installed.path.display().to_string(),
+                    "bytes": installed.bytes,
+                });
+                println!("{}", serde_json::to_string_pretty(&out)?);
+                return Ok(());
+            }
+            Err(msg) => return Err(Box::<dyn std::error::Error>::from(msg)),
         }
     }
 
@@ -427,6 +453,7 @@ const ALL_SUBCOMMANDS: &[&str] = &[
     "mcp-config",
     "skills-list",
     "skills-show",
+    "skills-install",
     "providers-list",
     "providers-health",
     "config-show",
@@ -451,6 +478,7 @@ fn render_help_text() -> String {
         ("mcp-config <host> [--output <path>] [--install]", "Emit an MCP client config snippet (claude-desktop | cursor | vscode)."),
         ("skills-list", "JSON list of discovered skills (workspace + user)."),
         ("skills-show <id>", "Print the SKILL.md body for a discovered skill."),
+        ("skills-install <https-url> [--force]", "Download a SKILL.md from an allowlisted host and install it under the user config home."),
         ("providers-list", "JSON list of registered LLM providers."),
         ("providers-health", "Probe provider health and return status JSON."),
         ("config-show", "Emit the effective runtime config as JSON."),

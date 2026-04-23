@@ -3,7 +3,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Instant;
@@ -28,6 +28,12 @@ const MAX_BODY_BYTES: usize = 10 * 1024 * 1024;
 
 /// Maximum API requests per second per IP (simple sliding window).
 const RATE_LIMIT_PER_SEC: usize = 30;
+
+/// P11-C: Prometheus-style process counters. They are deliberately minimal —
+/// the goal is to give operators a single scrape target to confirm the
+/// server is live and see basic request volume. No high-cardinality labels.
+static METRICS_REQUESTS_TOTAL: AtomicU64 = AtomicU64::new(0);
+static METRICS_ERRORS_TOTAL: AtomicU64 = AtomicU64::new(0);
 
 /// Simple sliding-window rate limiter keyed by client address string.
 struct RateLimiter {
@@ -1044,6 +1050,10 @@ fn handle_connection(
         return Ok(());
     }
 
+    // P11-C: count every non-preflight request before auth so we can observe
+    // attempted traffic even when it is rejected.
+    METRICS_REQUESTS_TOTAL.fetch_add(1, Ordering::Relaxed);
+
     // Auth check for API endpoints (exempt: health, static assets, token endpoint)
     let requires_auth = request.path.starts_with("/api/")
         && request.path != "/api/health"
@@ -1113,6 +1123,7 @@ fn handle_connection(
         Ok(r) => r,
         Err(err) => {
             let msg = format!("{err}");
+            METRICS_ERRORS_TOTAL.fetch_add(1, Ordering::Relaxed);
             error_response(500, &msg)?
         }
     };
@@ -1991,6 +2002,33 @@ fn route_request(
             let command = request.form_value("command").unwrap_or_default().trim().to_string();
             let session_id = request.form_value("sessionId");
             handle_command(command, session_id, workspace_root, loader, config)
+        }
+        ("GET", "/metrics") => {
+            let requests = METRICS_REQUESTS_TOTAL.load(Ordering::Relaxed);
+            let errors = METRICS_ERRORS_TOTAL.load(Ordering::Relaxed);
+            let version = env!("CARGO_PKG_VERSION");
+            let body = format!(
+                concat!(
+                    "# HELP octocode_requests_total Total HTTP requests received (excluding CORS preflight).\n",
+                    "# TYPE octocode_requests_total counter\n",
+                    "octocode_requests_total {requests}\n",
+                    "# HELP octocode_errors_total Total HTTP requests that failed with a 5xx response.\n",
+                    "# TYPE octocode_errors_total counter\n",
+                    "octocode_errors_total {errors}\n",
+                    "# HELP octocode_build_info Build information (labeled gauge, always 1).\n",
+                    "# TYPE octocode_build_info gauge\n",
+                    "octocode_build_info{{version=\"{version}\"}} 1\n",
+                ),
+                requests = requests,
+                errors = errors,
+                version = version,
+            );
+            Ok(http_response(
+                200,
+                "OK",
+                "text/plain; version=0.0.4; charset=utf-8",
+                body,
+            ))
         }
         _ => serve_static(request),
     }

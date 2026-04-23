@@ -26,9 +26,13 @@ rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 crossterm = { workspace = true }
 portable-pty = { workspace = true }
+ureq = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
+
+[dev-dependencies]
+tempfile = { workspace = true }
 
 [features]
 e2e = []
