@@ -144,6 +144,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // P4-A: config-show — emit the effective RuntimeConfig as JSON.
+    if raw_args.first().map(|s| s.as_str()) == Some("config-show") {
+        let platform = NativePlatform::detect(String::from("."));
+        let config = ConfigLoader::new(platform.config_paths()).load()?;
+        let json = serde_json::to_string_pretty(&config)?;
+        println!("{json}");
+        return Ok(());
+    }
+
+    // P4-B: sessions-list — emit persisted sessions summary as JSON.
+    if raw_args.first().map(|s| s.as_str()) == Some("sessions-list") {
+        let platform = NativePlatform::detect(String::from("."));
+        let config = ConfigLoader::new(platform.config_paths()).load()?;
+        let runtime = server::build_runtime(platform.context().root.clone(), config)?;
+        let sessions = runtime.sessions()?;
+        let json = serde_json::to_string_pretty(&sessions)?;
+        println!("{json}");
+        return Ok(());
+    }
+
+    // P4-C: providers-health — run health probes against configured providers.
+    if raw_args.first().map(|s| s.as_str()) == Some("providers-health") {
+        let platform = NativePlatform::detect(String::from("."));
+        let config = ConfigLoader::new(platform.config_paths()).load()?;
+        let runtime = server::build_runtime(platform.context().root.clone(), config)?;
+        let healths = runtime.provider_healths();
+        let json = serde_json::to_string_pretty(&healths)?;
+        println!("{json}");
+        return Ok(());
+    }
+
     let parsed = parse_cli_args(std::env::args().skip(1));
     if let CliCommand::Serve { port, session_id } = parsed.command.clone() {
         ensure_web_port_in_range(port)?;
@@ -347,6 +378,28 @@ mod tests {
         assert!(ids.iter().any(|i| i == "gemini"));
         assert!(ids.iter().any(|i| i == "azure-openai"));
         assert!(ids.iter().any(|i| i == "local-openai"));
+    }
+
+    // P4: config-show serializes RuntimeConfig to a JSON object with
+    // the expected camelCase keys.
+    #[test]
+    fn config_show_serializes_runtime_config() {
+        let cfg = octocode_core::RuntimeConfig {
+            provider_id: Some(String::from("local-openai")),
+            provider_base_url: None,
+            default_model: Some(String::from("gpt-4o-mini")),
+            permission_mode: octocode_core::PermissionMode::WorkspaceWrite,
+            history_limit: 100,
+            denied_tools: vec![],
+            request_timeout_secs: 90,
+        };
+        let json = serde_json::to_string(&cfg).expect("serialize");
+        let v: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+        assert_eq!(v["providerId"].as_str(), Some("local-openai"));
+        assert_eq!(v["defaultModel"].as_str(), Some("gpt-4o-mini"));
+        assert_eq!(v["historyLimit"].as_u64(), Some(100));
+        assert_eq!(v["requestTimeoutSecs"].as_u64(), Some(90));
+        assert_eq!(v["permissionMode"].as_str(), Some("workspaceWrite"));
     }
 }
 
