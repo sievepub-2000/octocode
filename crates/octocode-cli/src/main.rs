@@ -207,6 +207,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // P6-A: doctor — emit the full DoctorReport (workspace, paths, config, providers).
+    if raw_args.first().map(|s| s.as_str()) == Some("doctor") {
+        let platform = NativePlatform::detect(String::from("."));
+        let config = ConfigLoader::new(platform.config_paths()).load()?;
+        let runtime = server::build_runtime(platform.context().root.clone(), config)?;
+        let report = runtime.doctor();
+        let json = serde_json::to_string_pretty(&report)?;
+        println!("{json}");
+        return Ok(());
+    }
+
+    // P6-B: tasks-list [<session-id>] — emit known task records as JSON.
+    if raw_args.first().map(|s| s.as_str()) == Some("tasks-list") {
+        let platform = NativePlatform::detect(String::from("."));
+        let config = ConfigLoader::new(platform.config_paths()).load()?;
+        let runtime = server::build_runtime(platform.context().root.clone(), config)?;
+        let filter = raw_args.get(1).map(String::as_str);
+        let tasks = runtime.task_list(filter);
+        let json = serde_json::to_string_pretty(&tasks)?;
+        println!("{json}");
+        return Ok(());
+    }
+
+    // P6-C: completions <shell> — emit static shell-completion snippets.
+    if raw_args.first().map(|s| s.as_str()) == Some("completions") {
+        let shell = raw_args.get(1).map(String::as_str).unwrap_or("bash");
+        print!("{}", render_completions(shell));
+        return Ok(());
+    }
+
     let parsed = parse_cli_args(std::env::args().skip(1));
     if let CliCommand::Serve { port, session_id } = parsed.command.clone() {
         ensure_web_port_in_range(port)?;
@@ -382,6 +412,67 @@ fn write_or_merge_mcp_config(
     std::fs::write(target, serialized)
         .map_err(|e| format!("failed to write {}: {e}", target.display()))?;
     Ok(())
+}
+
+/// P6-C: Static list of all known subcommands used by the completion
+/// generator. Keep in sync with the early-intercept match arms above.
+const ALL_SUBCOMMANDS: &[&str] = &[
+    "mcp-serve",
+    "mcp-config",
+    "skills-list",
+    "skills-show",
+    "providers-list",
+    "providers-health",
+    "config-show",
+    "sessions-list",
+    "tools-list",
+    "commands-list",
+    "doctor",
+    "tasks-list",
+    "completions",
+    "serve",
+    "desktop",
+    "chat",
+    "prompt",
+];
+
+fn render_completions(shell: &str) -> String {
+    let joined = ALL_SUBCOMMANDS.join(" ");
+    match shell {
+        "zsh" => format!(
+            "#compdef octocode-cli\n\
+             _octocode_cli() {{\n\
+             \u{20}\u{20}local -a subs\n\
+             \u{20}\u{20}subs=({joined})\n\
+             \u{20}\u{20}_describe 'subcommand' subs\n\
+             }}\n\
+             compdef _octocode_cli octocode-cli\n"
+        ),
+        "powershell" | "pwsh" => format!(
+            "Register-ArgumentCompleter -Native -CommandName octocode-cli -ScriptBlock {{\n\
+             \u{20}\u{20}param($wordToComplete, $commandAst, $cursorPosition)\n\
+             \u{20}\u{20}@({joined_q}) | Where-Object {{ $_ -like \"$wordToComplete*\" }} |\n\
+             \u{20}\u{20}\u{20}\u{20}ForEach-Object {{ [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }}\n\
+             }}\n",
+            joined_q = ALL_SUBCOMMANDS
+                .iter()
+                .map(|s| format!("'{s}'"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        // default: bash
+        _ => format!(
+            "_octocode_cli() {{\n\
+             \u{20}\u{20}local cur subs\n\
+             \u{20}\u{20}COMPREPLY=()\n\
+             \u{20}\u{20}cur=\"${{COMP_WORDS[COMP_CWORD]}}\"\n\
+             \u{20}\u{20}subs=\"{joined}\"\n\
+             \u{20}\u{20}COMPREPLY=( $(compgen -W \"$subs\" -- \"$cur\") )\n\
+             \u{20}\u{20}return 0\n\
+             }}\n\
+             complete -F _octocode_cli octocode-cli\n"
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -572,6 +663,37 @@ mod tests {
             Some("/bin/octocode")
         );
         let _ = std::fs::remove_file(&tmp);
+    }
+
+    // P6-C: completion snippets mention every known subcommand.
+    #[test]
+    fn completions_bash_lists_all_subcommands() {
+        let out = render_completions("bash");
+        for sub in ALL_SUBCOMMANDS {
+            assert!(out.contains(sub), "bash completion missing '{sub}'");
+        }
+        assert!(out.contains("complete -F _octocode_cli"));
+    }
+
+    #[test]
+    fn completions_zsh_has_compdef_header() {
+        let out = render_completions("zsh");
+        assert!(out.starts_with("#compdef octocode-cli"));
+        assert!(out.contains("doctor"));
+        assert!(out.contains("tasks-list"));
+    }
+
+    #[test]
+    fn completions_powershell_uses_register_argument_completer() {
+        let out = render_completions("powershell");
+        assert!(out.contains("Register-ArgumentCompleter"));
+        assert!(out.contains("'doctor'"));
+        assert!(out.contains("'completions'"));
+    }
+
+    #[test]
+    fn completions_default_is_bash() {
+        assert_eq!(render_completions("unknown-shell"), render_completions("bash"));
     }
 }
 

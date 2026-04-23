@@ -148,4 +148,45 @@ export function formatNumber(value, locale = 'en-US') {
   }
 }
 
+/**
+ * Truncate a string to at most `max` visible characters, appending an
+ * ellipsis when the value exceeds the limit. Never returns longer than
+ * `max` characters (ellipsis counted).
+ * @param {unknown} value
+ * @param {number} [max=80]
+ * @param {string} [ellipsis='…']
+ * @returns {string}
+ */
+export function truncate(value, max = 80, ellipsis = '…') {
+  const s = String(value == null ? '' : value);
+  if (s.length <= max) return s;
+  const slice = Math.max(0, max - ellipsis.length);
+  return s.slice(0, slice) + ellipsis;
+}
+
+/**
+ * Parse a URL query string (with or without leading `?`) into a plain
+ * object. Duplicate keys keep the last value. Invalid input yields an
+ * empty object.
+ * @param {string} query
+ * @returns {Record<string, string>}
+ */
+export function parseUrlQuery(query) {
+  const out = {};
+  if (!query || typeof query !== 'string') return out;
+  const src = query.startsWith('?') ? query.slice(1) : query;
+  for (const pair of src.split('&')) {
+    if (!pair) continue;
+    const eq = pair.indexOf('=');
+    const rawKey = eq === -1 ? pair : pair.slice(0, eq);
+    const rawValue = eq === -1 ? '' : pair.slice(eq + 1);
+    try {
+      out[decodeURIComponent(rawKey)] = decodeURIComponent(rawValue.replace(/\+/g, ' '));
+    } catch (_) {
+      out[rawKey] = rawValue;
+    }
+  }
+  return out;
+}
+
 export const BUILT_IN_LOCALES_LIST = BUILT_IN_LOCALES;

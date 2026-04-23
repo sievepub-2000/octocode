@@ -104,4 +104,23 @@ assert.equal(helpers.formatNumber(1000000, 'en-US'), '1,000,000');
 assert.equal(helpers.formatNumber('not-a-number'), '0');
 assert.equal(helpers.formatNumber(null), '0');
 
+// truncate
+assert.equal(helpers.truncate('hello', 10), 'hello');
+assert.equal(helpers.truncate('abcdefghij', 5), 'abcd…');
+assert.equal(helpers.truncate('abcdefghij', 5, '...'), 'ab...');
+assert.equal(helpers.truncate(null, 10), '');
+assert.equal(helpers.truncate(undefined, 10), '');
+assert.equal(helpers.truncate(12345, 3), '12…');
+
+// parseUrlQuery
+assert.deepEqual(helpers.parseUrlQuery(''), {});
+assert.deepEqual(helpers.parseUrlQuery(null), {});
+assert.deepEqual(helpers.parseUrlQuery('?a=1&b=2'), { a: '1', b: '2' });
+assert.deepEqual(helpers.parseUrlQuery('a=1&b=2'), { a: '1', b: '2' });
+assert.deepEqual(helpers.parseUrlQuery('a=hello+world'), { a: 'hello world' });
+assert.deepEqual(helpers.parseUrlQuery('name=%E5%91%A8%E6%B5%A9'), { name: '周浩' });
+assert.deepEqual(helpers.parseUrlQuery('k'), { k: '' });
+// duplicate key → last wins
+assert.deepEqual(helpers.parseUrlQuery('a=1&a=2'), { a: '2' });
+
 console.log('ui-shell/modules/helpers.js — all smoke tests passed.');
