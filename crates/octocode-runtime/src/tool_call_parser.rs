@@ -295,6 +295,60 @@ fn parse_quoted_tool_argument_value(
     None
 }
 
+/// P10-A: Unified translator that converts an assistant's free-form reply
+/// into a vector of structured `ToolCall`s.
+///
+/// This is the **canonical entry point** the coordinator should call on every
+/// assistant text turn. It subsumes:
+/// * The structured `<|tool_call>...<tool_call|>` parser that already backs
+///   `parse_embedded_tool_calls` (handles Qwen / XML-style dialects).
+/// * The P8 `scan_text_tool_call` marker scanner that covers DeepSeek
+///   (`<|tool_calls_begin|>`) and Llama-3 (`<|python_tag|>`) dialects,
+///   used as a belt-and-suspenders fallback.
+///
+/// Contract:
+/// * Returns an empty `Vec` for plain prose or empty input.
+/// * Never panics. Never performs I/O.
+/// * Does **not** deduplicate — callers that need dedup (e.g. to avoid
+///   running the same file-read twice in one turn) are responsible for it.
+/// * Tool names that are not in the runtime catalog are dropped silently,
+///   since there is no safe way to execute them.
+pub fn translate_text_tool_calls(text: &str) -> Vec<octocode_core::ToolCall> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+    let mut out: Vec<octocode_core::ToolCall> = Vec::new();
+
+    // Path 1: structured `<|tool_call>...(k=v, ...)<tool_call|>` blocks.
+    for embedded in parse_embedded_tool_calls(text) {
+        if let Some(call) = embedded.to_tool_call() {
+            out.push(call);
+        }
+    }
+
+    // Path 2: only consult the loose marker scanner when the structured
+    // parser produced nothing. The scanner is intentionally less precise
+    // and should not compete with the structured path.
+    if out.is_empty() {
+        if let Some((name, raw_args)) = crate::tools::scan_text_tool_call(text) {
+            let canonical = canonicalize_embedded_tool_name(&name);
+            if let Some(canonical_name) = canonical {
+                if let Some(parsed) = parse_embedded_tool_arguments(&raw_args) {
+                    let synthetic = EmbeddedToolCall {
+                        tool_name: canonical_name,
+                        arguments: parsed,
+                    };
+                    if let Some(call) = synthetic.to_tool_call() {
+                        out.push(call);
+                    }
+                }
+            }
+        }
+    }
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -417,4 +471,74 @@ That's all."#;
         };
         assert!(call.to_tool_call().is_none());
     }
+
+    // P10: unified translator tests
+
+    #[test]
+    fn translate_handles_qwen_marker_and_canonicalizes_args() {
+        // Qwen-style: write-file with explicit path + content arguments.
+        let text = r#"<|tool_call>write-file(path="hello.rs", content="fn main() {}")<tool_call|>"#;
+        let calls = super::translate_text_tool_calls(text);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "write-file");
+        assert!(calls[0].input.contains("hello.rs"));
+        assert!(calls[0].input.contains("fn main()"));
+    }
+
+    #[test]
+    fn translate_handles_xml_style_tool_call_marker() {
+        // Some providers use `<tool_call>...<tool_call|>` (xml-ish closer).
+        let text = r#"<tool_call>read-file(path="Cargo.toml")<tool_call|>"#;
+        let calls = super::translate_text_tool_calls(text);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "read-file");
+        assert_eq!(calls[0].input, "Cargo.toml");
+    }
+
+    #[test]
+    fn translate_returns_empty_for_plain_prose() {
+        let calls = super::translate_text_tool_calls("Just a normal assistant reply.");
+        assert!(calls.is_empty());
+    }
+
+    #[test]
+    fn translate_returns_empty_for_empty_string() {
+        let calls = super::translate_text_tool_calls("");
+        assert!(calls.is_empty());
+    }
+
+    #[test]
+    fn translate_deduplicates_identical_calls() {
+        let text = concat!(
+            r#"<|tool_call>read-file(path="a.rs")<tool_call|>"#,
+            r#"<|tool_call>read-file(path="a.rs")<tool_call|>"#,
+        );
+        let calls = super::translate_text_tool_calls(text);
+        // Two identical calls are both surfaced; dedup is left to downstream.
+        // This test locks in the "no dedup at translator layer" contract.
+        assert_eq!(calls.len(), 2);
+    }
+
+    #[test]
+    fn translate_handles_multiple_heterogeneous_calls_in_sequence() {
+        let text = concat!(
+            r#"<|tool_call>read-file(path="a.rs")<tool_call|>"#,
+            "ok now write ",
+            r#"<|tool_call>write-file(path="b.rs", content="done")<tool_call|>"#,
+        );
+        let calls = super::translate_text_tool_calls(text);
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].name, "read-file");
+        assert_eq!(calls[1].name, "write-file");
+    }
+
+    #[test]
+    fn translate_skips_unknown_tool_names_silently() {
+        // `canonicalize_embedded_tool_name` returns None for unknown tools,
+        // so they must not produce a ToolCall.
+        let text = r#"<|tool_call>nonexistent-tool(path="x")<tool_call|>"#;
+        let calls = super::translate_text_tool_calls(text);
+        assert!(calls.is_empty());
+    }
 }
+

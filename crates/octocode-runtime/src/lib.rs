@@ -35,7 +35,7 @@ mod snapshot_json;
 mod sqlite_store;
 mod subagent;
 mod tasks;
-mod tool_call_parser;
+pub mod tool_call_parser;
 mod tools;
 mod todo_store;
 pub mod benchmarks;
@@ -97,6 +97,7 @@ where
 pub use router::RuntimeProviderRouter;
 pub use session::{FileSessionStore, MemorySessionStore};
 pub use tools::{RuntimeToolCatalog, WorkspaceToolExecutor, scan_text_tool_call};
+pub use tool_call_parser::translate_text_tool_calls;
 pub use config::ConfigLoader;
 pub use coordinator::CoordinatorEngine;
 pub use cost_tracker::CostTracker;
