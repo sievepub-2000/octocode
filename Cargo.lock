@@ -1627,8 +1627,10 @@ dependencies = [
  "sha1",
  "sha1_smol",
  "tao",
+ "tempfile",
  "tracing",
  "tracing-subscriber",
+ "ureq",
  "wry",
 ]
 

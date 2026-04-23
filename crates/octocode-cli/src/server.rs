@@ -35,6 +35,31 @@ const RATE_LIMIT_PER_SEC: usize = 30;
 static METRICS_REQUESTS_TOTAL: AtomicU64 = AtomicU64::new(0);
 static METRICS_ERRORS_TOTAL: AtomicU64 = AtomicU64::new(0);
 
+/// P13-B: Render the Prometheus text body for the `/metrics` endpoint.
+/// Exposed as a pub fn so integration tests can assert the format
+/// without binding a socket.
+pub fn render_metrics_body() -> String {
+    let requests = METRICS_REQUESTS_TOTAL.load(Ordering::Relaxed);
+    let errors = METRICS_ERRORS_TOTAL.load(Ordering::Relaxed);
+    let version = env!("CARGO_PKG_VERSION");
+    format!(
+        concat!(
+            "# HELP octocode_requests_total Total HTTP requests received (excluding CORS preflight).\n",
+            "# TYPE octocode_requests_total counter\n",
+            "octocode_requests_total {requests}\n",
+            "# HELP octocode_errors_total Total HTTP requests that failed with a 5xx response.\n",
+            "# TYPE octocode_errors_total counter\n",
+            "octocode_errors_total {errors}\n",
+            "# HELP octocode_build_info Build information (labeled gauge, always 1).\n",
+            "# TYPE octocode_build_info gauge\n",
+            "octocode_build_info{{version=\"{version}\"}} 1\n",
+        ),
+        requests = requests,
+        errors = errors,
+        version = version,
+    )
+}
+
 /// Simple sliding-window rate limiter keyed by client address string.
 struct RateLimiter {
     windows: Mutex<HashMap<String, Vec<Instant>>>,
@@ -2004,25 +2029,7 @@ fn route_request(
             handle_command(command, session_id, workspace_root, loader, config)
         }
         ("GET", "/metrics") => {
-            let requests = METRICS_REQUESTS_TOTAL.load(Ordering::Relaxed);
-            let errors = METRICS_ERRORS_TOTAL.load(Ordering::Relaxed);
-            let version = env!("CARGO_PKG_VERSION");
-            let body = format!(
-                concat!(
-                    "# HELP octocode_requests_total Total HTTP requests received (excluding CORS preflight).\n",
-                    "# TYPE octocode_requests_total counter\n",
-                    "octocode_requests_total {requests}\n",
-                    "# HELP octocode_errors_total Total HTTP requests that failed with a 5xx response.\n",
-                    "# TYPE octocode_errors_total counter\n",
-                    "octocode_errors_total {errors}\n",
-                    "# HELP octocode_build_info Build information (labeled gauge, always 1).\n",
-                    "# TYPE octocode_build_info gauge\n",
-                    "octocode_build_info{{version=\"{version}\"}} 1\n",
-                ),
-                requests = requests,
-                errors = errors,
-                version = version,
-            );
+            let body = render_metrics_body();
             Ok(http_response(
                 200,
                 "OK",
@@ -2962,5 +2969,35 @@ mod tests {
             hasher.finalize(),
         );
         assert_eq!(accept, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
+    }
+
+    // P13-B: `/metrics` body smoke test. Confirms the three Prometheus
+    // series operators depend on are all present and well-formed, without
+    // binding a socket or going through route_request. If this breaks, an
+    // external scraper will break too.
+    #[test]
+    fn metrics_body_contains_required_series() {
+        let body = super::render_metrics_body();
+        assert!(
+            body.contains("# TYPE octocode_requests_total counter"),
+            "requests_total TYPE missing from /metrics body:\n{body}"
+        );
+        assert!(
+            body.contains("# TYPE octocode_errors_total counter"),
+            "errors_total TYPE missing from /metrics body:\n{body}"
+        );
+        assert!(
+            body.contains("# TYPE octocode_build_info gauge"),
+            "build_info TYPE missing from /metrics body:\n{body}"
+        );
+        // The build_info gauge must carry the crate version as a label so
+        // scrapers can correlate a running instance with a release.
+        let expected_version = env!("CARGO_PKG_VERSION");
+        assert!(
+            body.contains(&format!(
+                "octocode_build_info{{version=\"{expected_version}\"}} 1"
+            )),
+            "build_info gauge missing version label; body:\n{body}"
+        );
     }
 }

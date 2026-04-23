@@ -54,7 +54,18 @@ impl EmbeddedToolCall {
 }
 
 pub(crate) fn parse_embedded_tool_calls(output: &str) -> Vec<EmbeddedToolCall> {
+    parse_embedded_tool_calls_ext(output).0
+}
+
+/// P13-A: sibling of [`parse_embedded_tool_calls`] that additionally
+/// returns the raw tool names of blocks we could not canonicalize (i.e.
+/// tool names the runtime does not know about). Callers that only care
+/// about the executable calls should keep using
+/// `parse_embedded_tool_calls`; callers that want to report "the model
+/// tried to call X" to operators use this variant.
+pub(crate) fn parse_embedded_tool_calls_ext(output: &str) -> (Vec<EmbeddedToolCall>, Vec<String>) {
     let mut calls = Vec::new();
+    let mut blocked: Vec<String> = Vec::new();
     let mut remaining = output;
 
     while let Some(start) = remaining.find(TOOL_CALL_START_MARKER) {
@@ -67,13 +78,39 @@ pub(crate) fn parse_embedded_tool_calls(output: &str) -> Vec<EmbeddedToolCall> {
         } else {
             (tail, "")
         };
-        if let Some(parsed) = parse_embedded_tool_call(block) {
-            calls.push(parsed);
+        match parse_embedded_tool_call(block) {
+            Some(parsed) => calls.push(parsed),
+            None => {
+                if let Some(name) = peek_raw_tool_name(block) {
+                    blocked.push(name);
+                }
+            }
         }
         remaining = rest;
     }
 
-    calls
+    (calls, blocked)
+}
+
+/// Extract the raw textual tool name from a `<|tool_call>NAME(...)<tool_call|>`
+/// block without running canonicalization. Used to surface blocked tool
+/// names to operators. Returns `None` for malformed blocks (no `(`).
+fn peek_raw_tool_name(block: &str) -> Option<String> {
+    let trimmed = block.trim().trim_end_matches(';').trim();
+    let open = trimmed.find('(')?;
+    let raw = trimmed[..open].trim();
+    // Strip the same non-alphanumeric prefixes that
+    // canonicalize_embedded_tool_name would before deciding; this makes
+    // the reported name match what the model actually typed.
+    let cleaned: String = raw
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_' || *ch == '-')
+        .collect();
+    if cleaned.is_empty() {
+        None
+    } else {
+        Some(cleaned.to_ascii_lowercase().replace('_', "-"))
+    }
 }
 
 pub(crate) fn strip_embedded_tool_calls(output: &str) -> String {
@@ -314,39 +351,74 @@ fn parse_quoted_tool_argument_value(
 /// * Tool names that are not in the runtime catalog are dropped silently,
 ///   since there is no safe way to execute them.
 pub fn translate_text_tool_calls(text: &str) -> Vec<octocode_core::ToolCall> {
+    translate_text_tool_calls_with_report(text).calls
+}
+
+/// P13-A: A structured result describing what happened when we translated
+/// an assistant reply. `calls` are the executable tool calls that survived
+/// the runtime catalog check. `blocked` captures the raw tool names that
+/// the model tried to invoke but were either unknown or non-canonicalizable.
+///
+/// This is the primitive the coordinator uses to emit `tool_blocked`
+/// entries on the event feed, so WebUI operators can see "the model tried
+/// to call tool X and was denied". We never execute blocked names — this
+/// is purely an observability win.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ToolCallTranslation {
+    pub calls: Vec<octocode_core::ToolCall>,
+    pub blocked: Vec<String>,
+}
+
+/// P13-A: Instrumented sibling of [`translate_text_tool_calls`]. Returns
+/// both the executable calls and the list of tool names that were dropped
+/// because they are not in the runtime catalog. The coordinator is free
+/// to log / event-feed the blocked names; this function itself performs
+/// no I/O and never panics.
+pub fn translate_text_tool_calls_with_report(text: &str) -> ToolCallTranslation {
     if text.is_empty() {
-        return Vec::new();
+        return ToolCallTranslation::default();
     }
-    let mut out: Vec<octocode_core::ToolCall> = Vec::new();
+    let mut calls: Vec<octocode_core::ToolCall> = Vec::new();
+    let mut blocked: Vec<String> = Vec::new();
 
     // Path 1: structured `<|tool_call>...(k=v, ...)<tool_call|>` blocks.
-    for embedded in parse_embedded_tool_calls(text) {
-        if let Some(call) = embedded.to_tool_call() {
-            out.push(call);
+    let (embedded_calls, embedded_blocked) = parse_embedded_tool_calls_ext(text);
+    blocked.extend(embedded_blocked);
+    for embedded in embedded_calls {
+        let raw_name = embedded.tool_name.clone();
+        match embedded.to_tool_call() {
+            Some(call) => calls.push(call),
+            None => blocked.push(raw_name),
         }
     }
 
     // Path 2: only consult the loose marker scanner when the structured
     // parser produced nothing. The scanner is intentionally less precise
     // and should not compete with the structured path.
-    if out.is_empty() {
+    if calls.is_empty() {
         if let Some((name, raw_args)) = crate::tools::scan_text_tool_call(text) {
             let canonical = canonicalize_embedded_tool_name(&name);
-            if let Some(canonical_name) = canonical {
-                if let Some(parsed) = parse_embedded_tool_arguments(&raw_args) {
-                    let synthetic = EmbeddedToolCall {
-                        tool_name: canonical_name,
-                        arguments: parsed,
-                    };
-                    if let Some(call) = synthetic.to_tool_call() {
-                        out.push(call);
+            match canonical {
+                Some(canonical_name) => {
+                    if let Some(parsed) = parse_embedded_tool_arguments(&raw_args) {
+                        let synthetic = EmbeddedToolCall {
+                            tool_name: canonical_name.clone(),
+                            arguments: parsed,
+                        };
+                        match synthetic.to_tool_call() {
+                            Some(call) => calls.push(call),
+                            None => blocked.push(canonical_name),
+                        }
+                    } else {
+                        blocked.push(canonical_name);
                     }
                 }
+                None => blocked.push(name),
             }
         }
     }
 
-    out
+    ToolCallTranslation { calls, blocked }
 }
 
 #[cfg(test)]
@@ -539,6 +611,37 @@ That's all."#;
         let text = r#"<|tool_call>nonexistent-tool(path="x")<tool_call|>"#;
         let calls = super::translate_text_tool_calls(text);
         assert!(calls.is_empty());
+    }
+
+    #[test]
+    fn translate_with_report_captures_blocked_names() {
+        // P13-A: unknown tool names must surface in the `blocked` list so
+        // the coordinator can emit a `tool_blocked` event on the feed.
+        let text = r#"<|tool_call>nonexistent-tool(path="x")<tool_call|>"#;
+        let report = super::translate_text_tool_calls_with_report(text);
+        assert!(report.calls.is_empty(), "blocked tools must not execute");
+        assert_eq!(report.blocked, vec!["nonexistent-tool".to_string()]);
+    }
+
+    #[test]
+    fn translate_with_report_mixes_valid_and_blocked() {
+        // A valid call alongside a blocked one: valid call executes,
+        // blocked name is reported, neither interferes with the other.
+        let text = concat!(
+            r#"<|tool_call>read-file(path="a.rs")<tool_call|>"#,
+            r#"<|tool_call>evil-backdoor(cmd="rm -rf /")<tool_call|>"#,
+        );
+        let report = super::translate_text_tool_calls_with_report(text);
+        assert_eq!(report.calls.len(), 1);
+        assert_eq!(report.calls[0].name, "read-file");
+        assert_eq!(report.blocked, vec!["evil-backdoor".to_string()]);
+    }
+
+    #[test]
+    fn translate_with_report_empty_for_plain_prose() {
+        let report = super::translate_text_tool_calls_with_report("hello, no tools here");
+        assert!(report.calls.is_empty());
+        assert!(report.blocked.is_empty());
     }
 }
 

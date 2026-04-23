@@ -14,6 +14,12 @@ const DEFAULT_OLLAMA_BASE_URL: &str = "http://127.0.0.1:11434/v1";
 const DEFAULT_LINKMIND_BASE_URL: &str = "http://127.0.0.1:8080/v1";
 const DEFAULT_ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com";
 const DEFAULT_ANTHROPIC_MODEL: &str = "claude-sonnet-4-5-20250929";
+/// P13-D: NVIDIA's public OpenAI-compatible endpoint, backing the
+/// `nvidia-free` / "free-claude-code" fallback provider. No API key is
+/// required for the rate-limited free tier; operators may override with
+/// `OCTOCODE_NVIDIA_FREE_API_KEY` for higher limits.
+const DEFAULT_NVIDIA_FREE_BASE_URL: &str = "https://integrate.api.nvidia.com/v1";
+const DEFAULT_NVIDIA_FREE_MODEL: &str = "nvidia/llama-3.1-nemotron-70b-instruct";
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 const DEFAULT_GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai";
 const DEFAULT_GEMINI_MODEL: &str = "gemini-2.0-flash";
@@ -535,6 +541,17 @@ impl ProviderRegistry {
                     supports_streaming: true,
                     capabilities: ProviderCapabilities::compatible(true, true),
                 },
+                ProviderDescriptor {
+                    // P13-D: free-claude-code system fallback. Kept at the end
+                    // of the list so it appears after operator-preferred
+                    // providers in UI dropdowns.
+                    id: String::from("nvidia-free"),
+                    display_name: String::from("NVIDIA NIM Free (system fallback)"),
+                    kind: ProviderKind::OpenAiCompatible,
+                    supports_tools: true,
+                    supports_streaming: true,
+                    capabilities: ProviderCapabilities::compatible(true, true),
+                },
             ],
         }
     }
@@ -768,6 +785,32 @@ impl ProviderRegistry {
                             .clone()
                             .or_else(|| Some(String::from(DEFAULT_LOCAL_MODEL))),
                     )),
+                    BuiltinProvider::Stub(StubProvider::new(
+                        self.providers.iter().find(|provider| provider.id == "stub")?.clone(),
+                    )),
+                ],
+            )),
+            "nvidia-free" => BuiltinProvider::Fallback(FallbackProvider::new(
+                descriptor.clone(),
+                vec![
+                    // P13-D: NVIDIA's public OpenAI-compatible gateway. The
+                    // free tier is keyless at low rate; operators who need
+                    // higher throughput provide OCTOCODE_NVIDIA_FREE_API_KEY.
+                    BuiltinProvider::OpenAiCompatible(OpenAiCompatibleProvider::new(
+                        descriptor,
+                        config
+                            .provider_base_url
+                            .clone()
+                            .or_else(|| std::env::var("OCTOCODE_NVIDIA_FREE_BASE_URL").ok())
+                            .unwrap_or_else(|| String::from(DEFAULT_NVIDIA_FREE_BASE_URL)),
+                        std::env::var("OCTOCODE_NVIDIA_FREE_API_KEY").ok(),
+                        config
+                            .default_model
+                            .clone()
+                            .or_else(|| Some(String::from(DEFAULT_NVIDIA_FREE_MODEL))),
+                    )),
+                    // Trailing stub keeps the runtime deterministic even if
+                    // NVIDIA is unreachable offline.
                     BuiltinProvider::Stub(StubProvider::new(
                         self.providers.iter().find(|provider| provider.id == "stub")?.clone(),
                     )),

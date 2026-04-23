@@ -123,6 +123,7 @@
   "file.opened": "文件对象已打开",
   "folder.created": "文件夹对象已创建",
   "folder.opened": "文件夹对象已打开",
+  "approval.preview": "已自动批准工具调用",
   "edit.prompt.find": "请输入查找文本",
   "edit.prompt.replaceOld": "请输入要替换的旧文本",
   "edit.prompt.replaceNew": "请输入替换后的新文本",

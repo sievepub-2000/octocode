@@ -831,8 +831,29 @@ async function loadState(sessionId) {
 function applyState(state, sessionId) {
   currentState = state;
   const activeSession = state.activeSession || state.sessions?.[0] || null;
-  currentSessionId = sessionId || activeSession?.summary?.id || activeSession?.sessionId || currentSessionId;
-  currentMessages = activeSession?.messages || [];
+  // BugFix-1: session isolation. Pin `currentSessionId` to the caller's
+  // explicit sessionId whenever one was supplied. Previously we fell
+  // through to `activeSession?.summary?.id` — which silently re-pointed
+  // this tab at whichever session the server happened to mark active
+  // (e.g. one another tab just wrote to), causing messages typed in THIS
+  // tab to land in ANOTHER tab's transcript. The server's activeSession
+  // is only used when this tab has no session identity yet.
+  if (sessionId) {
+    currentSessionId = sessionId;
+  } else if (!currentSessionId) {
+    currentSessionId = activeSession?.summary?.id || activeSession?.sessionId || null;
+  }
+  // Always render the transcript for the session this tab is pinned to,
+  // not whatever the server currently considers "active". If the server
+  // snapshot happens to include a different session's messages, ignore
+  // them.
+  const pinnedSession = currentSessionId && activeSession
+    && (activeSession?.summary?.id === currentSessionId
+      || activeSession?.sessionId === currentSessionId)
+    ? activeSession
+    : (state.sessions || []).find((s) =>
+        (s?.summary?.id || s?.sessionId) === currentSessionId) || null;
+  currentMessages = pinnedSession?.messages || [];
   if (currentSessionId) {
     urlState.searchParams.set('session', currentSessionId);
   } else {
@@ -981,16 +1002,21 @@ function renderStatusBar(state) {
     statusBranch.textContent = describeSessionLineage(summary) || t('session.rootBranch', 'branch: root');
   }
   if (streamIndicatorLabel) {
-    // P8-C: label reflects the *reason* the indicator is on.
-    // While tokens are streaming (handled below) we HIDE the whole
-    // indicator, so these labels are only seen during thinking /
-    // tool call / background-process gaps.
+    // P8-C / BugFix-2: label reflects the *reason* the indicator is on.
+    // We prioritize **client-observed** streaming state over the server's
+    // turn phase, because the SSE stream begins before the phase snapshot
+    // rolls forward. That race previously left the label stuck at
+    // "AI is responding..." during the model's think phase.
     const rt = conversationRuntime;
     const now = Date.now();
     const sinceLastToken = rt?.lastTokenAt ? (now - rt.lastTokenAt) : Infinity;
     const isStreamingOutput = rt && rt.tokenCount > 0 && sinceLastToken < 1200;
+    const isAwaitingFirstToken = rt && !rt.stopped && rt.tokenCount === 0;
     if (isStreamingOutput) {
       streamIndicatorLabel.textContent = t('stream.outputting', '输出中...');
+    } else if (isAwaitingFirstToken) {
+      // Active SSE opened, no tokens yet → model is thinking.
+      streamIndicatorLabel.textContent = t('stream.thinking', 'AI 思考中...');
     } else if (phase === 'running') {
       streamIndicatorLabel.textContent = (turn?.activeSseClients > 0)
         ? (rt && rt.tokenCount > 0
@@ -1002,15 +1028,19 @@ function renderStatusBar(state) {
     }
   }
   if (streamIndicator && !isSubmitting) {
-    // P8-C: Only show the indicator when the assistant is NOT actively
-    // emitting tokens. During real streaming output we hide it; during
-    // thinking, tool-call, or background-process gaps we show it.
+    // P8-C / BugFix-2: Show the indicator whenever a client stream is
+    // live (awaiting first token OR between tokens) OR the server turn
+    // is running with no active SSE (recovery window). Hide only when
+    // tokens are actively arriving — in that case the streaming bubble
+    // itself is the user's visual cue.
     const rt = conversationRuntime;
     const now = Date.now();
     const sinceLastToken = rt?.lastTokenAt ? (now - rt.lastTokenAt) : Infinity;
     const isStreamingOutput = rt && rt.tokenCount > 0 && sinceLastToken < 1200;
+    const isAwaitingFirstToken = rt && !rt.stopped && rt.tokenCount === 0;
     const hasActiveSse = Number(turn?.activeSseClients || 0) > 0;
-    const shouldShow = phase === 'running' && hasActiveSse && !isStreamingOutput;
+    const shouldShow = !isStreamingOutput
+      && (isAwaitingFirstToken || (phase === 'running' && hasActiveSse));
     streamIndicator.hidden = !shouldShow;
     if (shouldShow) scheduleRecoveryRefresh();
   }
@@ -2260,7 +2290,25 @@ async function runTool(name, input, options = {}) {
   } catch (error) {
     if (options.autoApprove) {
       const approvedInput = extractApprovalPayload(error.message);
-      if (approvedInput) return runToolRaw(name, approvedInput);
+      if (approvedInput) {
+        // P13-C: surface a human-readable argument preview before the
+        // approval-token replay fires. Operators can now see which tool
+        // they are about to auto-approve and the payload it will run
+        // with. The preview is truncated + type-safe to avoid leaking
+        // binary blobs into the toast.
+        try {
+          const previewArgs = String(input ?? '');
+          const trimmed = previewArgs.length > 200
+            ? `${previewArgs.slice(0, 200)}…`
+            : previewArgs;
+          showToast(
+            t('approval.preview', '已自动批准工具调用')
+              + `: ${name}(${trimmed})`,
+            'info',
+          );
+        } catch (_) { /* toast is best-effort */ }
+        return runToolRaw(name, approvedInput);
+      }
     }
     throw error;
   }

@@ -97,7 +97,7 @@ where
 pub use router::RuntimeProviderRouter;
 pub use session::{FileSessionStore, MemorySessionStore};
 pub use tools::{RuntimeToolCatalog, WorkspaceToolExecutor, scan_text_tool_call};
-pub use tool_call_parser::translate_text_tool_calls;
+pub use tool_call_parser::{translate_text_tool_calls, translate_text_tool_calls_with_report, ToolCallTranslation};
 pub use config::ConfigLoader;
 pub use coordinator::CoordinatorEngine;
 pub use cost_tracker::CostTracker;
@@ -1263,7 +1263,9 @@ Rules:\n\
         text: &str,
         on_token: &mut dyn FnMut(&str) -> bool,
     ) -> Result<PromptResponse, OctoError> {
-        use crate::tool_call_parser::{parse_embedded_tool_calls, strip_embedded_tool_calls};
+        use crate::tool_call_parser::{
+            strip_embedded_tool_calls, translate_text_tool_calls_with_report,
+        };
 
         self.ensure_session_exists(session_id)?;
         self.clear_session_stop(session_id);
@@ -1317,7 +1319,30 @@ Rules:\n\
                     stop_flag.store(false, Ordering::SeqCst);
                     return Err(stream_cancelled_error());
                 }
-                let calls = parse_embedded_tool_calls(&current_output);
+                // BugFix-3 / P13-A: Use the unified translator so we
+                // recognize not just `<|tool_call>...<tool_call|>` blocks
+                // but also DeepSeek `<|tool_calls_begin|>` markers and
+                // Llama-3 `<|python_tag|>` markers. Blocked tool names
+                // (model tried to call something the runtime doesn't
+                // expose) are surfaced to the event feed + stream so
+                // operators can see the attempt.
+                let translation = translate_text_tool_calls_with_report(&current_output);
+                for blocked_name in &translation.blocked {
+                    // Best-effort notify: push into the stream as a
+                    // visible marker AND record as a tool message on the
+                    // transcript so subsequent snapshots surface it.
+                    let _ = emit_stream_token(
+                        &stop_flag,
+                        on_token,
+                        &format!("\n[tool_blocked: {}]\n", blocked_name),
+                    );
+                    let _ = self.append_session_message(
+                        session_id,
+                        ConversationRole::System,
+                        format!("tool_blocked: model tried to call unknown tool `{}`", blocked_name),
+                    );
+                }
+                let calls = translation.calls;
                 if calls.is_empty() {
                     // Content already streamed above — do not re-emit.
                     self.append_session_message(
@@ -1348,32 +1373,30 @@ Rules:\n\
                 )?;
 
                 let mut reports = Vec::new();
-                for embedded_call in &calls {
+                for tool_call in &calls {
                     if stop_flag.load(Ordering::SeqCst) {
                         stop_flag.store(false, Ordering::SeqCst);
                         return Err(stream_cancelled_error());
                     }
-                    if let Some(tool_call) = embedded_call.to_tool_call() {
-                        emit_stream_token(
-                            &stop_flag,
-                            on_token,
-                            &format!("\n[executing: {}]\n", tool_call.name),
-                        )?;
-                        let result = match self.execute_tool_for_agent(session_id, tool_call.clone()) {
-                            Ok(result) => result.output,
-                            Err(error) => format!("error: {error}"),
-                        };
-                        reports.push(format!(
-                            "[{}] {}",
-                            tool_call.name,
-                            truncate_preview(&result, 2000)
-                        ));
-                        self.append_session_message(
-                            session_id,
-                            ConversationRole::Tool,
-                            format!("{} => {}", tool_call.name, truncate_preview(&result, 1200)),
-                        )?;
-                    }
+                    emit_stream_token(
+                        &stop_flag,
+                        on_token,
+                        &format!("\n[executing: {}]\n", tool_call.name),
+                    )?;
+                    let result = match self.execute_tool_for_agent(session_id, tool_call.clone()) {
+                        Ok(result) => result.output,
+                        Err(error) => format!("error: {error}"),
+                    };
+                    reports.push(format!(
+                        "[{}] {}",
+                        tool_call.name,
+                        truncate_preview(&result, 2000)
+                    ));
+                    self.append_session_message(
+                        session_id,
+                        ConversationRole::Tool,
+                        format!("{} => {}", tool_call.name, truncate_preview(&result, 1200)),
+                    )?;
                 }
 
                 self.maybe_auto_compact(session_id)?;

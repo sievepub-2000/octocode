@@ -123,6 +123,7 @@
   "file.opened": "File work object opened",
   "folder.created": "Folder work object created",
   "folder.opened": "Folder work object opened",
+  "approval.preview": "Tool call auto-approved",
   "edit.prompt.find": "Enter the text to find",
   "edit.prompt.replaceOld": "Enter the old text to replace",
   "edit.prompt.replaceNew": "Enter the new replacement text",

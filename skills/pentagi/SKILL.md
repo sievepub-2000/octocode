@@ -3,7 +3,10 @@ name: pentagi
 description: Autonomous penetration-testing AI agents. Registered as an external integration only; not activated by default. Useful reference for multi-step offensive workflows, sandboxing, and tool gating.
 source: https://github.com/vxcontrol/pentagi
 integration: external-agent
-status: descriptor-only
+status: vendored-reference-offensive
+vendored-at: third_party/pentagi
+pinned-ref: main
+fetch-requires: -AllowOffensive
 ---
 
 # pentagi
