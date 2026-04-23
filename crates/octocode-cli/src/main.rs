@@ -1,5 +1,6 @@
 #[allow(dead_code)]
 mod desktop;
+mod index;
 mod manage_config;
 mod server;
 mod terminal;
@@ -246,6 +247,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // P9-A: index <build|query|status> — lightweight workspace index.
+    if raw_args.first().map(|s| s.as_str()) == Some("index") {
+        let platform = NativePlatform::detect(String::from("."));
+        let root = std::path::PathBuf::from(&platform.context().root);
+        let sub_args: Vec<String> = raw_args.iter().skip(1).cloned().collect();
+        let out = index::dispatch(&root, &sub_args)?;
+        println!("{out}");
+        return Ok(());
+    }
+
     let parsed = parse_cli_args(std::env::args().skip(1));
     if let CliCommand::Serve { port, session_id } = parsed.command.clone() {
         ensure_web_port_in_range(port)?;
@@ -429,6 +440,7 @@ const ALL_SUBCOMMANDS: &[&str] = &[
     "desktop",
     "chat",
     "prompt",
+    "index",
 ];
 
 /// P7-A: Short human-readable summary of every interceptor subcommand.
@@ -451,6 +463,7 @@ fn render_help_text() -> String {
         ("serve --port <N>", "Start the web workbench on the given port."),
         ("desktop --port <N>", "Launch the native desktop shell."),
         ("chat / prompt", "Standard chat / single-prompt interactive flows."),
+        ("index <build|query|status>", "Build / query the workspace token index (P9)."),
         ("help | --help | -h", "Show this table."),
     ];
     let mut out = String::from("octocode-cli — subcommand reference\n\n");

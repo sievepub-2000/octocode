@@ -44,6 +44,63 @@ jobs:
       - name: Smoke — completions powershell
         shell: bash
         run: ./target/debug/octocode-cli completions powershell | grep -q 'Register-ArgumentCompleter'
+      - name: Smoke — index build + status + query
+        shell: bash
+        run: |
+          ./target/debug/octocode-cli index build | grep -q '"ok": true'
+          ./target/debug/octocode-cli index status | grep -q '"present": true'
+          ./target/debug/octocode-cli index query octocode --top 3 | grep -q '"hits"'
       - name: Node smoke — helpers.js
         shell: bash
         run: node ui-shell/modules/helpers.test.mjs
+
+  webui-e2e:
+    # P9-C: Real browser smoke via Playwright. Opt-in for PRs (label
+    # `run-webui-e2e`); always runs on pushes to main so regressions
+    # are caught before release. Linux-only for CI speed.
+    if: github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'run-webui-e2e')
+    runs-on: ubuntu-latest
+    needs: smoke
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Build octocode-cli (release)
+        run: cargo build -p octocode-cli --bin octocode-cli --release
+      - name: Install Playwright + Chromium
+        run: |
+          npm install --no-save playwright@latest
+          npx playwright install --with-deps chromium
+      - name: Launch server on port 995
+        run: |
+          nohup ./target/release/octocode-cli serve --port 995 > serve.log 2>&1 &
+          echo $! > serve.pid
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:995/ >/dev/null; then
+              echo "server up"
+              break
+            fi
+            sleep 1
+          done
+      - name: Run Playwright WebUI verification
+        env:
+          OCTOCODE_WEBUI_PORT: '995'
+        run: node scripts/webui-e2e.js
+      - name: Upload screenshot artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webui-e2e-screenshots
+          path: |
+            tmp-webui-github-panel.png
+            serve.log
+          if-no-files-found: ignore
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f serve.pid ]; then
+            kill "$(cat serve.pid)" || true
+          fi
