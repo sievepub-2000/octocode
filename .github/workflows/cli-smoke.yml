@@ -1,0 +1,49 @@
+name: cli-smoke
+
+on:
+  pull_request:
+    paths:
+      - 'crates/octocode-cli/**'
+      - 'crates/octocode-api/**'
+      - 'crates/octocode-skills/**'
+      - 'ui-shell/modules/**'
+      - '.github/workflows/cli-smoke.yml'
+  push:
+    branches: [main]
+
+jobs:
+  smoke:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build octocode-cli
+        run: cargo build -p octocode-cli --bin octocode-cli
+      - name: Run octocode-cli unit tests
+        run: cargo test -p octocode-cli --bin octocode-cli
+      - name: Smoke — help
+        shell: bash
+        run: ./target/debug/octocode-cli help | grep -q 'mcp-serve'
+      - name: Smoke — providers-list JSON shape
+        shell: bash
+        run: ./target/debug/octocode-cli providers-list | head -c 2 | grep -q '\['
+      - name: Smoke — skills-list JSON shape
+        shell: bash
+        run: ./target/debug/octocode-cli skills-list | head -c 2 | grep -q '\['
+      - name: Smoke — mcp-config claude-desktop
+        shell: bash
+        run: ./target/debug/octocode-cli mcp-config claude-desktop | grep -q mcpServers
+      - name: Smoke — completions bash
+        shell: bash
+        run: ./target/debug/octocode-cli completions bash | grep -q 'complete -F _octocode_cli'
+      - name: Smoke — completions powershell
+        shell: bash
+        run: ./target/debug/octocode-cli completions powershell | grep -q 'Register-ArgumentCompleter'
+      - name: Node smoke — helpers.js
+        shell: bash
+        run: node ui-shell/modules/helpers.test.mjs

@@ -2288,10 +2288,10 @@ mod tests {
     }
 
     #[test]
-    fn tool_catalog_has_43_tools() {
+    fn tool_catalog_has_expected_tools() {
         let catalog = RuntimeToolCatalog;
         let descriptors = catalog.descriptors();
-        assert_eq!(descriptors.len(), 51, "expected 51 tool descriptors, got {}", descriptors.len());
+        assert_eq!(descriptors.len(), 58, "expected 58 tool descriptors, got {}", descriptors.len());
     }
 
     #[test]

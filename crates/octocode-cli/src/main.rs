@@ -108,7 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let workspace_root = platform.context().root.clone();
         let config_home = platform.config_paths().config_home.clone();
         let registry = octocode_skills::SkillRegistry::discover(&workspace_root, &config_home)
-            .map_err(|e| Box::<dyn std::error::Error>::from(e))?;
+            .map_err(Box::<dyn std::error::Error>::from)?;
         let json = serde_json::to_string_pretty(registry.skills())?;
         println!("{json}");
         return Ok(());
@@ -125,7 +125,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let workspace_root = platform.context().root.clone();
         let config_home = platform.config_paths().config_home.clone();
         let registry = octocode_skills::SkillRegistry::discover(&workspace_root, &config_home)
-            .map_err(|e| Box::<dyn std::error::Error>::from(e))?;
+            .map_err(Box::<dyn std::error::Error>::from)?;
         let found = registry.skills().iter().find(|s| &s.id == id);
         match found {
             Some(skill) => {
@@ -237,6 +237,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // P7-A: help / --help / -h — print the interceptor subcommand table.
+    if matches!(
+        raw_args.first().map(|s| s.as_str()),
+        Some("help") | Some("--help") | Some("-h")
+    ) {
+        print!("{}", render_help_text());
+        return Ok(());
+    }
+
     let parsed = parse_cli_args(std::env::args().skip(1));
     if let CliCommand::Serve { port, session_id } = parsed.command.clone() {
         ensure_web_port_in_range(port)?;
@@ -261,20 +270,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
-}
-
-/// P2-B: Emit a ready-to-paste MCP client configuration snippet.
-///
-/// Supported hosts:
-/// - `claude-desktop` → `claude_desktop_config.json` `mcpServers` entry
-/// - `cursor`         → Cursor MCP entry
-/// - `vscode`         → VS Code `.vscode/mcp.json` entry (generic format)
-///
-/// The executable path is the currently running binary (resolved via
-/// `std::env::current_exe`), which makes the emitted snippet directly usable
-/// from wherever the user invoked `octocode-cli mcp-config`.
-fn print_mcp_config(host: &str, exe: &str) {
-    println!("{}", render_mcp_config(host, exe));
 }
 
 /// P3-C: Internal helper that returns the rendered snippet so callers can
@@ -435,6 +430,36 @@ const ALL_SUBCOMMANDS: &[&str] = &[
     "chat",
     "prompt",
 ];
+
+/// P7-A: Short human-readable summary of every interceptor subcommand.
+/// This table is printed by `octocode-cli help` and `--help`.
+fn render_help_text() -> String {
+    let rows: &[(&str, &str)] = &[
+        ("mcp-serve", "Run an MCP stdio server over this CLI's tool catalog."),
+        ("mcp-config <host> [--output <path>] [--install]", "Emit an MCP client config snippet (claude-desktop | cursor | vscode)."),
+        ("skills-list", "JSON list of discovered skills (workspace + user)."),
+        ("skills-show <id>", "Print the SKILL.md body for a discovered skill."),
+        ("providers-list", "JSON list of registered LLM providers."),
+        ("providers-health", "Probe provider health and return status JSON."),
+        ("config-show", "Emit the effective runtime config as JSON."),
+        ("sessions-list", "JSON array of persisted session summaries."),
+        ("tools-list", "JSON list of built-in tool descriptors."),
+        ("commands-list", "JSON list of built-in /slash commands."),
+        ("doctor", "Full diagnostic report (config + providers + circuits)."),
+        ("tasks-list [<session>]", "JSON list of task records (optionally filtered)."),
+        ("completions <shell>", "Emit shell completion script (bash | zsh | powershell)."),
+        ("serve --port <N>", "Start the web workbench on the given port."),
+        ("desktop --port <N>", "Launch the native desktop shell."),
+        ("chat / prompt", "Standard chat / single-prompt interactive flows."),
+        ("help | --help | -h", "Show this table."),
+    ];
+    let mut out = String::from("octocode-cli — subcommand reference\n\n");
+    for (name, desc) in rows {
+        out.push_str(&format!("  {:<48} {desc}\n", name));
+    }
+    out.push('\n');
+    out
+}
 
 fn render_completions(shell: &str) -> String {
     let joined = ALL_SUBCOMMANDS.join(" ");
@@ -694,6 +719,29 @@ mod tests {
     #[test]
     fn completions_default_is_bash() {
         assert_eq!(render_completions("unknown-shell"), render_completions("bash"));
+    }
+
+    // P7-A: help text mentions every interceptor subcommand.
+    #[test]
+    fn help_text_mentions_every_interceptor() {
+        let out = render_help_text();
+        for sub in &[
+            "mcp-serve",
+            "mcp-config",
+            "skills-list",
+            "skills-show",
+            "providers-list",
+            "providers-health",
+            "config-show",
+            "sessions-list",
+            "tools-list",
+            "commands-list",
+            "doctor",
+            "tasks-list",
+            "completions",
+        ] {
+            assert!(out.contains(sub), "help missing '{sub}'");
+        }
     }
 }
 
