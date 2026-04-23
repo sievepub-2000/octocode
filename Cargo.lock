@@ -1598,6 +1598,7 @@ name = "octocode-mcp"
 version = "0.1.0"
 dependencies = [
  "octocode-core",
+ "serde_json",
  "ureq",
 ]
 

@@ -8,6 +8,9 @@ use octocode_core::{
     McpServerDescriptor, McpServerState, McpServerStatus, McpTransportKind,
 };
 
+pub mod server;
+pub use server::McpServer;
+
 pub struct McpRegistry {
     servers: Vec<McpServerStatus>,
 }

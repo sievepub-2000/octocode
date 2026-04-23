@@ -41,6 +41,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .compact()
         .init();
 
+    // P0-2: stdio MCP server subcommand (intercept before generic parsing).
+    let raw_args: Vec<String> = std::env::args().skip(1).collect();
+    if raw_args.first().map(|s| s.as_str()) == Some("mcp-serve") {
+        let platform = NativePlatform::detect(String::from("."));
+        let config = ConfigLoader::new(platform.config_paths()).load()?;
+        let workspace_root = platform.context().root.clone();
+        // Build a lightweight catalog+executor pair (no need for full runtime session state).
+        let executor = octocode_runtime::WorkspaceToolExecutor::new(workspace_root);
+        let catalog = octocode_runtime::RuntimeToolCatalog;
+        let server = octocode_mcp::McpServer::new(
+            "octocode",
+            env!("CARGO_PKG_VERSION"),
+            &catalog,
+            &executor,
+        );
+        let _ = config; // config reserved for future permission gating
+        server.serve_stdio()?;
+        return Ok(());
+    }
+
     let parsed = parse_cli_args(std::env::args().skip(1));
     if let CliCommand::Serve { port, session_id } = parsed.command.clone() {
         ensure_web_port_in_range(port)?;

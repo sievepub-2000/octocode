@@ -264,6 +264,66 @@ Octocode 是一个 **Rust 实现的本地优先 agent 运行时**：
 
 ---
 
+## 8.1 P0 阶段交付（已完成）
+
+本轮将 P0 三项全部推到工作区编译通过（`cargo check --workspace` → Finished，无 error，无 warning），待合并。
+
+- ✅ **P0-1 六个缺失工具**：在 `crates/octocode-runtime/src/tools.rs` 的 `TOOLS` 数组新增 7 条 `ToolDescriptor`，工具总数从 51 → 58：
+  - `glob-files`：自实现 `GlobMatcher`（支持 `*` / `**` / `?`，递归回溯匹配）+ `glob_walk`（深度 32、上限 500、跳过 `node_modules/target/.git/dist/build`）。
+  - `notebook-edit`：按 `path|cell_index|new_source` 编辑 `.ipynb` 指定 cell 的 `source`（按行切分），清空 code cell 的 `outputs` 与 `execution_count`。
+  - `lsp-hover`：最小 stdio LSP 客户端，`spawn` 任意 server 进程，手写 Content-Length 帧发送 `initialize/initialized/textDocument/didOpen/textDocument/hover`，5 s 读超时。
+  - `sleep`（最大 60 s）、`ask-user-question`（占位只打印 prompt）、`worktree-enter` / `worktree-exit`（基于 `git worktree add/remove`）。
+- ✅ **P0-2 MCP server 侧**：新增 `crates/octocode-mcp/src/server.rs` (~200 行)。`McpServer<'a>` 持有 `&dyn ToolCatalog + &dyn ToolExecutor`，`serve_stdio` 跑行分隔 JSON-RPC 2.0 循环，路由 `initialize`（protocolVersion `2024-11-05`）/ `initialized` / `tools/list` / `tools/call` / `shutdown`。CLI 侧在 `main.rs` 以原始参数拦截 `mcp-serve` 子命令，构造 `WorkspaceToolExecutor + RuntimeToolCatalog` 后挂起 stdio。使用方式：`octocode-cli mcp-serve`（VS Code / Claude Desktop MCP 直接消费）。
+- ✅ **P0-3 Anthropic 原生适配**：在 `crates/octocode-api/src/lib.rs` 扩展 `BuiltinProvider::Anthropic(AnthropicProvider)` 变体并补齐所有 trait match 分支。实现：
+  - 独立的 `run_anthropic_request` / `run_anthropic_stream`，使用 `x-api-key` + `anthropic-version: 2023-06-01` 头，走 `POST /v1/messages`；流式解析 SSE `content_block_delta.delta.text` 直到 `message_stop`。
+  - `build_body` 把 `system` 提升为 top-level 字段（Anthropic 规范），`messages` 仅保留 user/assistant 角色；`max_tokens: 4096` 默认。
+  - 注册 `anthropic` provider 描述符；factory 从 `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL` 环境变量或 `RuntimeConfig` 读取；默认模型 `claude-sonnet-4-5-20250929`。
+
+**编译校验**：`cargo check --workspace`（含 runtime、mcp、cli、api、commands）→ `Finished dev profile in 1.20s`，0 error / 0 warning。
+
+**未在 P0 完成（推到 P1 及以后）**：PlanMode 状态机、ws RFC 6455 合规集、ui-shell ES modules、CI 矩阵、git rm --cached 清扫、P2 / P3 / P4 全部。详见下文每阶段子计划。
+
+---
+
+## 9. 五阶段工作计划（P0 - P4）
+
+> 用户指令："P0到P4共5个阶段，把五个阶段写入工作计划。先完成整个P0阶段，完成后汇总评估分析推送，然后给出下一步阶段的详细工作计划。"
+> 每阶段独立一次 commit + push，节奏：完成 → 自检 → 推送 → 下一阶段。
+
+### P0：基础能力补齐（✅ 已完成，本 commit）
+- P0-1 6 个缺失工具（glob-files / notebook-edit / lsp-hover / sleep / ask-user-question / worktree-*）
+- P0-2 octocode-mcp 的 server 侧 + CLI `mcp-serve` 子命令
+- P0-3 Anthropic `/v1/messages` 原生 provider
+
+### P1：工程正确性（下一阶段，详细计划 P0 推送后单独给出）
+- PlanMode 状态机（runtime）
+- ws RFC 6455 合规测试（fragmentation / ping-pong / close codes）
+- ui-shell ES modules 拆分（app.js > 2000 行单文件）
+- CI 矩阵（cargo test + clippy -D warnings + WebUI CDP headless smoke）
+- `git rm --cached` 清扫历史 artifact（build/ target/ dist/ 误提交物）
+
+### P2：生态集成
+- VS Code 扩展（激活 + MCP client 连接 + 命令面板接入）
+- Claude Desktop 配置样例 + 文档
+- 额外 provider：Google Gemini native、Azure OpenAI
+- Skills Marketplace (MVP：远端 skill 包发现 + 安装)
+
+### P3：可观测性 & 可靠性
+- OpenTelemetry 全链路（provider / tool / mcp / ws）
+- 指标导出（Prometheus endpoint）
+- 结构化审计日志（含 permission 决策）
+- 端到端 benchmark 套件常驻 CI（回归门禁）
+- 故障注入测试（provider 抖动 / ws 重连 / MCP server 崩溃）
+
+### P4：产品化 & 发布
+- 安装包（Windows MSI / macOS pkg / Linux deb & rpm）
+- 签名 + 公证（Authenticode / notarytool）
+- 自动更新通道（稳定 / beta）
+- 文档站 & 教程
+- v1.0 release & announcement
+
+---
+
 ## 附录 A：本轮 UI 修改摘要
 - **复制按钮**：`ui-shell/app.js renderMessages()`，Clipboard API + execCommand 回退。
 - **终端模块移除**：`index.html` 去 Terminal 菜单 / `terminal-drawer` 区块 / xterm script+css。

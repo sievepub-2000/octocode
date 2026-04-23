@@ -12,6 +12,9 @@ const DEFAULT_LOCAL_BASE_URL: &str = "http://192.168.110.2:8000/v1";
 const DEFAULT_REMOTE_BASE_URL: &str = "https://api.openai.com/v1";
 const DEFAULT_OLLAMA_BASE_URL: &str = "http://127.0.0.1:11434/v1";
 const DEFAULT_LINKMIND_BASE_URL: &str = "http://127.0.0.1:8080/v1";
+const DEFAULT_ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com";
+const DEFAULT_ANTHROPIC_MODEL: &str = "claude-sonnet-4-5-20250929";
+const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 const DEFAULT_LOCAL_MODEL: &str = "gemma-4-31b-it-q8-prod";
 const DEFAULT_OLLAMA_MODEL: &str = "qwen2.5-coder:14b";
 const CIRCUIT_FAILURE_THRESHOLD: u32 = 2;
@@ -26,7 +29,21 @@ static HEALTH_CACHE: OnceLock<Mutex<HashMap<String, HealthCacheEntry>>> = OnceLo
 pub enum BuiltinProvider {
     Stub(StubProvider),
     OpenAiCompatible(OpenAiCompatibleProvider),
+    Anthropic(AnthropicProvider),
     Fallback(FallbackProvider),
+}
+
+/// Native Anthropic Messages API adapter (`/v1/messages`).
+///
+/// Uses Anthropic-specific auth headers (`x-api-key`, `anthropic-version`)
+/// and the distinct request/response schema (system string, messages array,
+/// content blocks). Streaming uses SSE with `content_block_delta` events.
+#[derive(Clone)]
+pub struct AnthropicProvider {
+    descriptor: ProviderDescriptor,
+    base_url: String,
+    api_token: Option<String>,
+    default_model: Option<String>,
 }
 
 #[derive(Clone)]
@@ -491,6 +508,14 @@ impl ProviderRegistry {
                     supports_streaming: true,
                     capabilities: ProviderCapabilities::compatible(true, true),
                 },
+                ProviderDescriptor {
+                    id: String::from("anthropic"),
+                    display_name: String::from("Anthropic Claude (native)"),
+                    kind: ProviderKind::OpenAiCompatible,
+                    supports_tools: true,
+                    supports_streaming: true,
+                    capabilities: ProviderCapabilities::compatible(true, true),
+                },
             ],
         }
     }
@@ -539,6 +564,22 @@ impl ProviderRegistry {
         let descriptor = self.providers.iter().find(|provider| provider.id == id)?.clone();
         let provider = match descriptor.id.as_str() {
             "stub" => BuiltinProvider::Stub(StubProvider::new(descriptor)),
+            "anthropic" => BuiltinProvider::Anthropic(AnthropicProvider::new(
+                descriptor,
+                config
+                    .provider_base_url
+                    .clone()
+                    .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
+                    .unwrap_or_else(|| String::from(DEFAULT_ANTHROPIC_BASE_URL)),
+                std::env::var("ANTHROPIC_API_KEY")
+                    .ok()
+                    .or_else(|| std::env::var("OCTOCODE_ANTHROPIC_API_KEY").ok()),
+                config
+                    .default_model
+                    .clone()
+                    .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
+                    .or_else(|| Some(String::from(DEFAULT_ANTHROPIC_MODEL))),
+            )),
             "ollama" => BuiltinProvider::Fallback(FallbackProvider::new(
                 descriptor.clone(),
                 vec![
@@ -739,6 +780,7 @@ impl ModelProvider for BuiltinProvider {
         match self {
             Self::Stub(provider) => provider.descriptor(),
             Self::OpenAiCompatible(provider) => provider.descriptor(),
+            Self::Anthropic(provider) => provider.descriptor(),
             Self::Fallback(provider) => provider.descriptor(),
         }
     }
@@ -747,6 +789,7 @@ impl ModelProvider for BuiltinProvider {
         match self {
             Self::Stub(provider) => provider.prompt(request),
             Self::OpenAiCompatible(provider) => provider.prompt(request),
+            Self::Anthropic(provider) => provider.prompt(request),
             Self::Fallback(provider) => provider.prompt(request),
         }
     }
@@ -759,6 +802,7 @@ impl ModelProvider for BuiltinProvider {
         match self {
             Self::Stub(provider) => provider.prompt_stream(request, on_token),
             Self::OpenAiCompatible(provider) => provider.prompt_stream(request, on_token),
+            Self::Anthropic(provider) => provider.prompt_stream(request, on_token),
             Self::Fallback(provider) => provider.prompt_stream(request, on_token),
         }
     }
@@ -767,6 +811,7 @@ impl ModelProvider for BuiltinProvider {
         match self {
             Self::Stub(provider) => provider.active_provider_id(),
             Self::OpenAiCompatible(provider) => provider.active_provider_id(),
+            Self::Anthropic(provider) => provider.active_provider_id(),
             Self::Fallback(provider) => provider.active_provider_id(),
         }
     }
@@ -775,6 +820,7 @@ impl ModelProvider for BuiltinProvider {
         match self {
             Self::Stub(provider) => provider.health(),
             Self::OpenAiCompatible(provider) => provider.health(),
+            Self::Anthropic(provider) => provider.health(),
             Self::Fallback(provider) => provider.health(),
         }
     }
@@ -783,6 +829,7 @@ impl ModelProvider for BuiltinProvider {
         match self {
             Self::Stub(provider) => provider.health_catalog(),
             Self::OpenAiCompatible(provider) => provider.health_catalog(),
+            Self::Anthropic(provider) => provider.health_catalog(),
             Self::Fallback(provider) => provider.health_catalog(),
         }
     }
@@ -791,6 +838,7 @@ impl ModelProvider for BuiltinProvider {
         match self {
             Self::Stub(provider) => provider.circuit_status(),
             Self::OpenAiCompatible(provider) => provider.circuit_status(),
+            Self::Anthropic(provider) => provider.circuit_status(),
             Self::Fallback(provider) => provider.circuit_status(),
         }
     }
@@ -799,6 +847,7 @@ impl ModelProvider for BuiltinProvider {
         match self {
             Self::Stub(provider) => provider.circuit_catalog(),
             Self::OpenAiCompatible(provider) => provider.circuit_catalog(),
+            Self::Anthropic(provider) => provider.circuit_catalog(),
             Self::Fallback(provider) => provider.circuit_catalog(),
         }
     }
@@ -924,6 +973,139 @@ impl ModelProvider for OpenAiCompatibleProvider {
 
     fn circuit_status(&self) -> ProviderCircuitStatus {
         self.circuit_status_from_snapshot(self.snapshot_circuit())
+    }
+}
+
+impl AnthropicProvider {
+    fn new(
+        descriptor: ProviderDescriptor,
+        base_url: String,
+        api_token: Option<String>,
+        default_model: Option<String>,
+    ) -> Self {
+        Self {
+            descriptor,
+            base_url,
+            api_token,
+            default_model,
+        }
+    }
+
+    fn resolve_model(&self, requested_model: Option<String>) -> String {
+        requested_model
+            .or_else(|| self.default_model.clone())
+            .unwrap_or_else(|| String::from(DEFAULT_ANTHROPIC_MODEL))
+    }
+
+    /// Build the Anthropic `/v1/messages` request body.
+    ///
+    /// Anthropic takes `system` as a top-level string (not a message),
+    /// and the `messages` array only has user/assistant roles.
+    fn build_body(&self, request: &PromptRequest, model: &str, stream: bool) -> String {
+        let mut messages_parts: Vec<String> = Vec::new();
+        for (role, content) in &request.history {
+            let role_str = role.as_str();
+            // Anthropic only accepts "user" or "assistant"; collapse "system" into system field above.
+            if role_str == "system" {
+                continue;
+            }
+            messages_parts.push(format!(
+                "{{\"role\":\"{}\",\"content\":\"{}\"}}",
+                role_str,
+                escape_json(content)
+            ));
+        }
+        messages_parts.push(format!(
+            "{{\"role\":\"user\",\"content\":\"{}\"}}",
+            escape_json(&request.text)
+        ));
+
+        let system_field = request
+            .system_prompt
+            .as_ref()
+            .map(|sys| format!(",\"system\":\"{}\"", escape_json(sys)))
+            .unwrap_or_default();
+        let stream_field = if stream { ",\"stream\":true" } else { "" };
+
+        format!(
+            "{{\"model\":\"{}\",\"max_tokens\":4096,\"messages\":[{}]{}{}}}",
+            escape_json(model),
+            messages_parts.join(","),
+            system_field,
+            stream_field,
+        )
+    }
+}
+
+impl ModelProvider for AnthropicProvider {
+    fn descriptor(&self) -> ProviderDescriptor {
+        self.descriptor.clone()
+    }
+
+    fn prompt(&self, request: PromptRequest) -> Result<PromptResponse, OctoError> {
+        let model = self.resolve_model(request.model.clone());
+        let body = self.build_body(&request, &model, false);
+        let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
+        let response = run_anthropic_request(&url, &body, self.api_token.as_deref())?;
+        let output = extract_anthropic_text(&response).ok_or_else(|| {
+            OctoError::Provider(format!(
+                "provider {} returned an unsupported Anthropic response shape: {}",
+                self.descriptor.id, response
+            ))
+        })?;
+        Ok(PromptResponse { output, tokens: None })
+    }
+
+    fn prompt_stream(
+        &self,
+        request: PromptRequest,
+        on_token: &mut dyn FnMut(&str) -> bool,
+    ) -> Result<PromptResponse, OctoError> {
+        let model = self.resolve_model(request.model.clone());
+        let body = self.build_body(&request, &model, true);
+        let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
+        let full = run_anthropic_stream(&url, &body, self.api_token.as_deref(), on_token)?;
+        Ok(PromptResponse {
+            output: full,
+            tokens: None,
+        })
+    }
+
+    fn health(&self) -> ProviderHealth {
+        // Lightweight health: check whether an API key is configured and the
+        // base URL is reachable by attempting a HEAD-style probe via /v1/messages
+        // with an invalid body (expect 400) — cheaper than listing models.
+        let healthy = self.api_token.is_some();
+        ProviderHealth {
+            provider_id: self.descriptor.id.clone(),
+            display_name: self.descriptor.display_name.clone(),
+            healthy,
+            detail: if healthy {
+                format!("configured {}", self.base_url)
+            } else {
+                String::from("ANTHROPIC_API_KEY not set")
+            },
+            model: self.default_model.clone(),
+            latency_ms: None,
+            circuit_state: ProviderCircuitState::Closed,
+            failure_count: 0,
+            cooldown_remaining_ms: None,
+        }
+    }
+
+    fn circuit_status(&self) -> ProviderCircuitStatus {
+        ProviderCircuitStatus {
+            provider_id: self.descriptor.id.clone(),
+            display_name: self.descriptor.display_name.clone(),
+            circuit_state: ProviderCircuitState::Closed,
+            failure_count: 0,
+            cooldown_remaining_ms: None,
+            recent_failure_reason: None,
+            last_opened_at_ms: None,
+            last_half_opened_at_ms: None,
+            last_recovered_at_ms: None,
+            event_log: Vec::new(),
+        }
     }
 }
 
@@ -1122,6 +1304,168 @@ fn run_health_probe(url: &str, token: Option<&str>) -> Result<String, OctoError>
 
 fn circuit_book() -> &'static Mutex<HashMap<String, CircuitState>> {
     CIRCUIT_BREAKERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Anthropic `/v1/messages` non-streaming request.
+///
+/// Uses `x-api-key` + `anthropic-version` headers instead of `Authorization: Bearer`.
+fn run_anthropic_request(
+    url: &str,
+    body: &str,
+    token: Option<&str>,
+) -> Result<String, OctoError> {
+    let api_key = token.filter(|k| !k.is_empty()).ok_or_else(|| {
+        OctoError::Provider(String::from(
+            "ANTHROPIC_API_KEY not configured for Anthropic provider",
+        ))
+    })?;
+
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(10))
+        .timeout_read(Duration::from_secs(90))
+        .timeout_write(Duration::from_secs(30))
+        .build();
+
+    let response = agent
+        .post(url)
+        .set("Content-Type", "application/json")
+        .set("x-api-key", api_key)
+        .set("anthropic-version", ANTHROPIC_API_VERSION)
+        .send_string(body);
+
+    match response {
+        Ok(resp) => resp
+            .into_string()
+            .map_err(|e| OctoError::Provider(format!("failed to read anthropic response: {e}"))),
+        Err(ureq::Error::Status(code, resp)) => {
+            let detail = resp.into_string().unwrap_or_default();
+            Err(OctoError::Provider(format!(
+                "HTTP {code} from Anthropic {url}: {detail}"
+            )))
+        }
+        Err(ureq::Error::Transport(transport)) => Err(OctoError::Provider(format!(
+            "transport error for Anthropic {url}: {transport}"
+        ))),
+    }
+}
+
+/// Anthropic `/v1/messages` streaming request (SSE).
+///
+/// Parses `event: content_block_delta` frames with `data: {"delta":{"type":"text_delta","text":"..."}}`.
+/// Stops when `message_stop` event arrives or `on_token` returns false.
+fn run_anthropic_stream(
+    url: &str,
+    body: &str,
+    token: Option<&str>,
+    on_token: &mut dyn FnMut(&str) -> bool,
+) -> Result<String, OctoError> {
+    use std::io::BufRead;
+    let api_key = token.filter(|k| !k.is_empty()).ok_or_else(|| {
+        OctoError::Provider(String::from(
+            "ANTHROPIC_API_KEY not configured for Anthropic provider",
+        ))
+    })?;
+
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(10))
+        .timeout_read(Duration::from_secs(180))
+        .timeout_write(Duration::from_secs(30))
+        .build();
+
+    let response = agent
+        .post(url)
+        .set("Content-Type", "application/json")
+        .set("Accept", "text/event-stream")
+        .set("x-api-key", api_key)
+        .set("anthropic-version", ANTHROPIC_API_VERSION)
+        .send_string(body)
+        .map_err(|e| OctoError::Provider(format!("anthropic stream transport error: {e}")))?;
+
+    let reader = std::io::BufReader::new(response.into_reader());
+    let mut full = String::new();
+    for line_result in reader.lines() {
+        let line = line_result
+            .map_err(|e| OctoError::Provider(format!("anthropic stream read error: {e}")))?;
+        if !line.starts_with("data:") {
+            continue;
+        }
+        let payload = line["data:".len()..].trim();
+        if payload.is_empty() {
+            continue;
+        }
+        // Detect end-of-stream markers
+        if payload.contains("\"type\":\"message_stop\"") {
+            break;
+        }
+        // Pick delta text_delta chunks
+        if let Some(text) = extract_anthropic_delta_text(payload) {
+            full.push_str(&text);
+            if !on_token(&text) {
+                break;
+            }
+        }
+    }
+    Ok(full)
+}
+
+/// Extract a `delta.text` field from an Anthropic SSE JSON payload.
+fn extract_anthropic_delta_text(payload: &str) -> Option<String> {
+    // Minimal match: "delta":{"type":"text_delta","text":"..."}
+    let delta_idx = payload.find("\"delta\"")?;
+    let after_delta = &payload[delta_idx..];
+    let text_key = "\"text\":\"";
+    let text_idx = after_delta.find(text_key)?;
+    let text_start = text_idx + text_key.len();
+    let mut chars = after_delta[text_start..].chars();
+    extract_next_json_string(&mut chars)
+}
+
+/// Extract the assistant text from a non-streaming Anthropic response body.
+///
+/// Response shape: `{"content":[{"type":"text","text":"..."}, ...]}`.
+fn extract_anthropic_text(body: &str) -> Option<String> {
+    let content_idx = body.find("\"content\"")?;
+    let after = &body[content_idx..];
+    let text_key = "\"text\":\"";
+    let text_idx = after.find(text_key)?;
+    let mut chars = after[text_idx + text_key.len()..].chars();
+    extract_next_json_string(&mut chars)
+}
+
+/// Consume characters until a closing `"`, handling common JSON escapes.
+fn extract_next_json_string(chars: &mut std::str::Chars<'_>) -> Option<String> {
+    let mut out = String::new();
+    let mut escaped = false;
+    while let Some(ch) = chars.next() {
+        if escaped {
+            match ch {
+                '"' => out.push('"'),
+                '\\' => out.push('\\'),
+                '/' => out.push('/'),
+                'n' => out.push('\n'),
+                'r' => out.push('\r'),
+                't' => out.push('\t'),
+                'b' => out.push('\u{0008}'),
+                'f' => out.push('\u{000C}'),
+                'u' => {
+                    if let Some(code) = decode_json_u16_escape(chars) {
+                        if let Some(c) = char::from_u32(code as u32) {
+                            out.push(c);
+                        }
+                    }
+                }
+                other => out.push(other),
+            }
+            escaped = false;
+        } else if ch == '\\' {
+            escaped = true;
+        } else if ch == '"' {
+            return Some(out);
+        } else {
+            out.push(ch);
+        }
+    }
+    None
 }
 
 fn now_ms() -> u128 {

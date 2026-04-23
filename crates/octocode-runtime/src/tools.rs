@@ -307,6 +307,42 @@ const TOOLS: &[ToolDescriptor] = &[
         summary: "List all sub-agent tasks and their states",
         minimum_permission: PermissionMode::ReadOnly,
     },
+    // ── P0 additions (2026-04): fill Claude-Code tool-coverage gaps ─────────
+    ToolDescriptor {
+        name: "glob-files",
+        summary: "Find files by glob pattern (supports *, **, ?); input 'pattern' or 'pattern|base_dir'",
+        minimum_permission: PermissionMode::ReadOnly,
+    },
+    ToolDescriptor {
+        name: "sleep",
+        summary: "Sleep for N milliseconds (max 30000). Input: integer ms.",
+        minimum_permission: PermissionMode::ReadOnly,
+    },
+    ToolDescriptor {
+        name: "ask-user-question",
+        summary: "Record a question for the user (visible via events channel). Input: question text.",
+        minimum_permission: PermissionMode::ReadOnly,
+    },
+    ToolDescriptor {
+        name: "worktree-enter",
+        summary: "Create a git worktree at a given path from a branch. Input: 'path|branch'",
+        minimum_permission: PermissionMode::WorkspaceWrite,
+    },
+    ToolDescriptor {
+        name: "worktree-exit",
+        summary: "Remove a git worktree at a given path. Input: 'path' (absolute or workspace-relative)",
+        minimum_permission: PermissionMode::WorkspaceWrite,
+    },
+    ToolDescriptor {
+        name: "notebook-edit",
+        summary: "Edit a Jupyter .ipynb cell by index. Input: 'path|cell_index|new_source'",
+        minimum_permission: PermissionMode::WorkspaceWrite,
+    },
+    ToolDescriptor {
+        name: "lsp-hover",
+        summary: "Spawn an LSP server (stdio) and query hover at path:line:col. Input: 'server_cmd|path|line|col'",
+        minimum_permission: PermissionMode::ReadOnly,
+    },
 ];
 
 pub struct WorkspaceToolExecutor {
@@ -1311,6 +1347,430 @@ fn escape_json_value(value: &str) -> String {
     result
 }
 
+// ─── P0: new tool helpers ─────────────────────────────────────────────────
+impl WorkspaceToolExecutor {
+    /// `glob-files`: `pattern` or `pattern|base_dir`.
+    /// Supports `*` (any chars in segment), `?` (one char), `**` (any depth).
+    fn glob_files(&self, input: &str) -> Result<ToolResult, OctoError> {
+        let trimmed = input.trim();
+        if trimmed.is_empty() {
+            return Err(OctoError::Runtime(String::from(
+                "glob-files: pattern is required",
+            )));
+        }
+        let (pattern, base_rel) = match trimmed.split_once('|') {
+            Some((p, b)) => (p.trim(), b.trim()),
+            None => (trimmed, "."),
+        };
+        let base = self.resolve_workspace_path(base_rel);
+        self.security_check_path(&base)?;
+
+        let matcher = GlobMatcher::parse(pattern);
+        let mut matches = Vec::new();
+        glob_walk(&base, &base, &matcher, 0, 32, &mut matches);
+        matches.sort();
+        if matches.len() > 500 {
+            matches.truncate(500);
+            matches.push(String::from("[… truncated at 500 matches]"));
+        }
+        Ok(ToolResult {
+            output: truncate_output(&matches.join("\n"), MAX_OUTPUT_BYTES),
+        })
+    }
+
+    /// `sleep`: pause for N ms (cap 30_000).
+    fn sleep_ms(&self, input: &str) -> Result<ToolResult, OctoError> {
+        let ms: u64 = input
+            .trim()
+            .parse()
+            .map_err(|_| OctoError::Runtime(String::from("sleep: input must be integer ms")))?;
+        let capped = ms.min(30_000);
+        std::thread::sleep(Duration::from_millis(capped));
+        Ok(ToolResult {
+            output: format!("slept {capped}ms"),
+        })
+    }
+
+    /// `worktree-enter`: `path|branch`. Creates a new git worktree.
+    fn worktree_enter(&self, input: &str) -> Result<ToolResult, OctoError> {
+        let (_, raw) = split_approval_input(input);
+        let (path_text, branch) = raw.split_once('|').ok_or_else(|| {
+            OctoError::Runtime(String::from("worktree-enter expects 'path|branch'"))
+        })?;
+        let path = self.resolve_workspace_path(path_text.trim());
+        self.security_check_path(&path)?;
+        let cmd = format!(
+            "git worktree add {} {}",
+            shell_quote(&path.display().to_string()),
+            shell_quote(branch.trim())
+        );
+        self.run_shell(&cmd)
+    }
+
+    /// `worktree-exit`: `path`. Removes a git worktree.
+    fn worktree_exit(&self, input: &str) -> Result<ToolResult, OctoError> {
+        let (_, raw) = split_approval_input(input);
+        let path = self.resolve_workspace_path(raw.trim());
+        self.security_check_path(&path)?;
+        let cmd = format!(
+            "git worktree remove {} --force",
+            shell_quote(&path.display().to_string())
+        );
+        self.run_shell(&cmd)
+    }
+
+    /// `notebook-edit`: `path|cell_index|new_source` — replaces a cell's source in a .ipynb file.
+    fn notebook_edit(&self, input: &str) -> Result<ToolResult, OctoError> {
+        let (_, raw) = split_approval_input(input);
+        let parts: Vec<&str> = raw.splitn(3, '|').collect();
+        if parts.len() != 3 {
+            return Err(OctoError::Runtime(String::from(
+                "notebook-edit expects 'path|cell_index|new_source'",
+            )));
+        }
+        let path = self.resolve_workspace_path(parts[0].trim());
+        self.security_check_path(&path)?;
+        let idx: usize = parts[1].trim().parse().map_err(|_| {
+            OctoError::Runtime(String::from("notebook-edit: cell_index must be integer"))
+        })?;
+        let new_source = parts[2];
+
+        let raw_bytes = fs::read(&path).map_err(|e| {
+            OctoError::Runtime(format!("notebook-edit: read {}: {e}", path.display()))
+        })?;
+        let mut nb: serde_json::Value = serde_json::from_slice(&raw_bytes).map_err(|e| {
+            OctoError::Runtime(format!("notebook-edit: invalid JSON in {}: {e}", path.display()))
+        })?;
+        let cells = nb
+            .get_mut("cells")
+            .and_then(|v| v.as_array_mut())
+            .ok_or_else(|| OctoError::Runtime(String::from("notebook-edit: no 'cells' array")))?;
+        if idx >= cells.len() {
+            return Err(OctoError::Runtime(format!(
+                "notebook-edit: cell_index {idx} out of range (len={})",
+                cells.len()
+            )));
+        }
+        // Convert source to ipynb-style array of lines (each line ends with \n except last).
+        let lines: Vec<serde_json::Value> = if new_source.is_empty() {
+            Vec::new()
+        } else {
+            let mut v = Vec::new();
+            let mut iter = new_source.split_inclusive('\n').peekable();
+            while let Some(line) = iter.next() {
+                v.push(serde_json::Value::String(line.to_string()));
+                let _ = iter.peek();
+            }
+            v
+        };
+        cells[idx]["source"] = serde_json::Value::Array(lines);
+        // Drop execution outputs for edited code cells to avoid stale state.
+        if cells[idx].get("cell_type").and_then(|v| v.as_str()) == Some("code") {
+            cells[idx]["outputs"] = serde_json::Value::Array(Vec::new());
+            cells[idx]["execution_count"] = serde_json::Value::Null;
+        }
+
+        let serialized = serde_json::to_vec_pretty(&nb).map_err(|e| {
+            OctoError::Runtime(format!("notebook-edit: serialize: {e}"))
+        })?;
+        file_guard::guard_write(&path, &serialized, &self.workspace_root)?;
+        fs::write(&path, &serialized).map_err(|e| {
+            OctoError::Runtime(format!("notebook-edit: write {}: {e}", path.display()))
+        })?;
+        Ok(ToolResult {
+            output: format!("edited cell {idx} in {}", path.display()),
+        })
+    }
+
+    /// `lsp-hover`: minimal LSP stdio client — spawn server, initialize, send textDocument/hover.
+    /// Input: `server_cmd|path|line|col` (line/col are 0-based).
+    fn lsp_hover(&self, input: &str) -> Result<ToolResult, OctoError> {
+        let parts: Vec<&str> = input.splitn(4, '|').collect();
+        if parts.len() != 4 {
+            return Err(OctoError::Runtime(String::from(
+                "lsp-hover expects 'server_cmd|path|line|col'",
+            )));
+        }
+        let server_cmd = parts[0].trim();
+        let path = self.resolve_workspace_path(parts[1].trim());
+        self.security_check_path(&path)?;
+        let line: u32 = parts[2]
+            .trim()
+            .parse()
+            .map_err(|_| OctoError::Runtime(String::from("lsp-hover: line must be integer")))?;
+        let col: u32 = parts[3]
+            .trim()
+            .parse()
+            .map_err(|_| OctoError::Runtime(String::from("lsp-hover: col must be integer")))?;
+
+        let uri = format!("file:///{}", path.display().to_string().replace('\\', "/"));
+        let text = fs::read_to_string(&path).unwrap_or_default();
+        let root_uri = format!(
+            "file:///{}",
+            self.workspace_root.display().to_string().replace('\\', "/")
+        );
+        let language_id = match path.extension().and_then(|e| e.to_str()) {
+            Some("rs") => "rust",
+            Some("py") => "python",
+            Some("ts") => "typescript",
+            Some("js") => "javascript",
+            Some("go") => "go",
+            _ => "plaintext",
+        };
+
+        let init = serde_json::json!({
+            "jsonrpc":"2.0","id":1,"method":"initialize","params":{
+                "processId": std::process::id(),
+                "rootUri": root_uri,
+                "capabilities": {}
+            }
+        });
+        let initialized = serde_json::json!({
+            "jsonrpc":"2.0","method":"initialized","params":{}
+        });
+        let did_open = serde_json::json!({
+            "jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+                "textDocument":{"uri":uri,"languageId":language_id,"version":1,"text":text}
+            }
+        });
+        let hover = serde_json::json!({
+            "jsonrpc":"2.0","id":2,"method":"textDocument/hover","params":{
+                "textDocument":{"uri":uri},
+                "position":{"line":line,"character":col}
+            }
+        });
+
+        let argv: Vec<&str> = server_cmd.split_whitespace().collect();
+        if argv.is_empty() {
+            return Err(OctoError::Runtime(String::from("lsp-hover: empty server_cmd")));
+        }
+        let mut cmd = Command::new(argv[0]);
+        for a in &argv[1..] {
+            cmd.arg(a);
+        }
+        cmd.stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .current_dir(&self.workspace_root);
+        let mut child = cmd.spawn().map_err(|e| {
+            OctoError::Runtime(format!("lsp-hover: spawn '{server_cmd}' failed: {e}"))
+        })?;
+        let stdin = child.stdin.as_mut().ok_or_else(|| {
+            OctoError::Runtime(String::from("lsp-hover: no stdin on LSP child"))
+        })?;
+        use std::io::Write;
+        for msg in [&init, &initialized, &did_open, &hover] {
+            let body = serde_json::to_string(msg).unwrap();
+            let framed = format!("Content-Length: {}\r\n\r\n{}", body.len(), body);
+            stdin
+                .write_all(framed.as_bytes())
+                .map_err(|e| OctoError::Runtime(format!("lsp-hover: write: {e}")))?;
+        }
+        // Read LSP responses with a small timeout via wait_with_output + external timer.
+        // Simpler: close stdin then read stdout for up to ~3s.
+        drop(child.stdin.take());
+        let start = std::time::Instant::now();
+        let mut out_buf = Vec::<u8>::new();
+        let mut stdout = child.stdout.take().ok_or_else(|| {
+            OctoError::Runtime(String::from("lsp-hover: no stdout on LSP child"))
+        })?;
+        use std::io::Read;
+        let mut tmp = [0u8; 4096];
+        while start.elapsed() < Duration::from_secs(5) {
+            match stdout.read(&mut tmp) {
+                Ok(0) => break,
+                Ok(n) => {
+                    out_buf.extend_from_slice(&tmp[..n]);
+                    if out_buf.len() > 256 * 1024 {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        let _ = child.kill();
+        let text_out = String::from_utf8_lossy(&out_buf).to_string();
+        Ok(ToolResult {
+            output: truncate_output(&text_out, MAX_OUTPUT_BYTES),
+        })
+    }
+}
+
+// ─── Simple glob matcher ──────────────────────────────────────────────────
+struct GlobMatcher {
+    segments: Vec<GlobSeg>,
+}
+
+enum GlobSeg {
+    DoubleStar,
+    Pattern(Vec<GlobTok>),
+}
+
+#[derive(Clone)]
+enum GlobTok {
+    Star,
+    Question,
+    Lit(String),
+}
+
+impl GlobMatcher {
+    fn parse(pattern: &str) -> Self {
+        let norm = pattern.replace('\\', "/");
+        let mut segments = Vec::new();
+        for seg in norm.split('/') {
+            if seg.is_empty() {
+                continue;
+            }
+            if seg == "**" {
+                segments.push(GlobSeg::DoubleStar);
+            } else {
+                segments.push(GlobSeg::Pattern(Self::tokenize(seg)));
+            }
+        }
+        GlobMatcher { segments }
+    }
+    fn tokenize(s: &str) -> Vec<GlobTok> {
+        let mut out = Vec::new();
+        let mut lit = String::new();
+        for ch in s.chars() {
+            match ch {
+                '*' => {
+                    if !lit.is_empty() {
+                        out.push(GlobTok::Lit(std::mem::take(&mut lit)));
+                    }
+                    out.push(GlobTok::Star);
+                }
+                '?' => {
+                    if !lit.is_empty() {
+                        out.push(GlobTok::Lit(std::mem::take(&mut lit)));
+                    }
+                    out.push(GlobTok::Question);
+                }
+                c => lit.push(c),
+            }
+        }
+        if !lit.is_empty() {
+            out.push(GlobTok::Lit(lit));
+        }
+        out
+    }
+    fn match_parts(&self, parts: &[&str]) -> bool {
+        Self::match_segs(&self.segments, parts)
+    }
+    fn match_segs(segs: &[GlobSeg], parts: &[&str]) -> bool {
+        if segs.is_empty() {
+            return parts.is_empty();
+        }
+        match &segs[0] {
+            GlobSeg::DoubleStar => {
+                // match zero or more path segments
+                for i in 0..=parts.len() {
+                    if Self::match_segs(&segs[1..], &parts[i..]) {
+                        return true;
+                    }
+                }
+                false
+            }
+            GlobSeg::Pattern(toks) => {
+                if parts.is_empty() {
+                    return false;
+                }
+                if Self::match_seg(toks, parts[0]) {
+                    Self::match_segs(&segs[1..], &parts[1..])
+                } else {
+                    false
+                }
+            }
+        }
+    }
+    fn match_seg(toks: &[GlobTok], name: &str) -> bool {
+        let chars: Vec<char> = name.chars().collect();
+        Self::match_toks(toks, &chars)
+    }
+    fn match_toks(toks: &[GlobTok], s: &[char]) -> bool {
+        if toks.is_empty() {
+            return s.is_empty();
+        }
+        match &toks[0] {
+            GlobTok::Star => {
+                for i in 0..=s.len() {
+                    if Self::match_toks(&toks[1..], &s[i..]) {
+                        return true;
+                    }
+                }
+                false
+            }
+            GlobTok::Question => {
+                if s.is_empty() {
+                    false
+                } else {
+                    Self::match_toks(&toks[1..], &s[1..])
+                }
+            }
+            GlobTok::Lit(lit) => {
+                let lc: Vec<char> = lit.chars().collect();
+                if s.len() < lc.len() {
+                    return false;
+                }
+                for (i, ch) in lc.iter().enumerate() {
+                    if s[i] != *ch {
+                        return false;
+                    }
+                }
+                Self::match_toks(&toks[1..], &s[lc.len()..])
+            }
+        }
+    }
+}
+
+fn glob_walk(
+    root: &Path,
+    current: &Path,
+    matcher: &GlobMatcher,
+    depth: u32,
+    max_depth: u32,
+    out: &mut Vec<String>,
+) {
+    if depth > max_depth || out.len() > 600 {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(current) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        // Skip common noise
+        if matches!(
+            name_str.as_ref(),
+            "node_modules" | "target" | ".git" | "dist" | "build"
+        ) {
+            continue;
+        }
+        let is_dir = path.is_dir();
+        let rel = path.strip_prefix(root).unwrap_or(&path);
+        let rel_str = rel.to_string_lossy().replace('\\', "/");
+        let parts: Vec<&str> = rel_str.split('/').filter(|p| !p.is_empty()).collect();
+        if matcher.match_parts(&parts) {
+            out.push(rel_str.clone());
+        }
+        if is_dir {
+            glob_walk(root, &path, matcher, depth + 1, max_depth, out);
+        }
+    }
+}
+
+fn shell_quote(s: &str) -> String {
+    if s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '\\' | '.' | '-' | '_' | ':'))
+    {
+        s.to_string()
+    } else {
+        format!("\"{}\"", s.replace('"', "\\\""))
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 pub struct RuntimeToolCatalog;
 
@@ -1727,6 +2187,16 @@ impl ToolExecutor for WorkspaceToolExecutor {
                 let manager = crate::subagent::SubAgentManager::default();
                 Ok(ToolResult { output: manager.summary() })
             }
+            // ── P0 additions ────────────────────────────────────────────────
+            "glob-files" => self.glob_files(&call.input),
+            "sleep" => self.sleep_ms(&call.input),
+            "ask-user-question" => Ok(ToolResult {
+                output: format!("[question-recorded] {}", call.input.trim()),
+            }),
+            "worktree-enter" => self.worktree_enter(&call.input),
+            "worktree-exit" => self.worktree_exit(&call.input),
+            "notebook-edit" => self.notebook_edit(&call.input),
+            "lsp-hover" => self.lsp_hover(&call.input),
             _ => Err(OctoError::Runtime(format!("unknown tool: {}", call.name))),
         }
     }
