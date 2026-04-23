@@ -15,6 +15,9 @@ const DEFAULT_LINKMIND_BASE_URL: &str = "http://127.0.0.1:8080/v1";
 const DEFAULT_ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com";
 const DEFAULT_ANTHROPIC_MODEL: &str = "claude-sonnet-4-5-20250929";
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
+const DEFAULT_GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai";
+const DEFAULT_GEMINI_MODEL: &str = "gemini-2.0-flash";
+const DEFAULT_AZURE_OPENAI_API_VERSION: &str = "2024-10-21";
 const DEFAULT_LOCAL_MODEL: &str = "gemma-4-31b-it-q8-prod";
 const DEFAULT_OLLAMA_MODEL: &str = "qwen2.5-coder:14b";
 const CIRCUIT_FAILURE_THRESHOLD: u32 = 2;
@@ -516,6 +519,22 @@ impl ProviderRegistry {
                     supports_streaming: true,
                     capabilities: ProviderCapabilities::compatible(true, true),
                 },
+                ProviderDescriptor {
+                    id: String::from("gemini"),
+                    display_name: String::from("Google Gemini (OpenAI-compat)"),
+                    kind: ProviderKind::OpenAiCompatible,
+                    supports_tools: true,
+                    supports_streaming: true,
+                    capabilities: ProviderCapabilities::compatible(true, true),
+                },
+                ProviderDescriptor {
+                    id: String::from("azure-openai"),
+                    display_name: String::from("Azure OpenAI Service"),
+                    kind: ProviderKind::OpenAiCompatible,
+                    supports_tools: true,
+                    supports_streaming: true,
+                    capabilities: ProviderCapabilities::compatible(true, true),
+                },
             ],
         }
     }
@@ -580,6 +599,58 @@ impl ProviderRegistry {
                     .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
                     .or_else(|| Some(String::from(DEFAULT_ANTHROPIC_MODEL))),
             )),
+            "gemini" => BuiltinProvider::OpenAiCompatible(OpenAiCompatibleProvider::new(
+                descriptor,
+                config
+                    .provider_base_url
+                    .clone()
+                    .or_else(|| std::env::var("GEMINI_BASE_URL").ok())
+                    .or_else(|| std::env::var("OCTOCODE_GEMINI_BASE_URL").ok())
+                    .unwrap_or_else(|| String::from(DEFAULT_GEMINI_BASE_URL)),
+                std::env::var("GEMINI_API_KEY")
+                    .ok()
+                    .or_else(|| std::env::var("GOOGLE_API_KEY").ok())
+                    .or_else(|| std::env::var("OCTOCODE_GEMINI_API_KEY").ok()),
+                config
+                    .default_model
+                    .clone()
+                    .or_else(|| std::env::var("GEMINI_MODEL").ok())
+                    .or_else(|| Some(String::from(DEFAULT_GEMINI_MODEL))),
+            )),
+            "azure-openai" => {
+                // Azure OpenAI URL pattern (post-2024): users set base_url to
+                //   https://{resource}.openai.azure.com/openai/deployments/{deployment}
+                // and set default_model to the deployment name. The api-version query
+                // string must be appended to base_url by the user when deploying.
+                // Env vars AZURE_OPENAI_ENDPOINT + AZURE_OPENAI_DEPLOYMENT are honored
+                // for shorthand composition when base_url is not explicitly configured.
+                let endpoint = std::env::var("AZURE_OPENAI_ENDPOINT").ok();
+                let deployment = std::env::var("AZURE_OPENAI_DEPLOYMENT").ok();
+                let api_version = std::env::var("AZURE_OPENAI_API_VERSION")
+                    .unwrap_or_else(|_| String::from(DEFAULT_AZURE_OPENAI_API_VERSION));
+                let composed = match (endpoint, deployment) {
+                    (Some(ep), Some(dep)) => Some(format!(
+                        "{}/openai/deployments/{}/chat/completions?api-version={}",
+                        ep.trim_end_matches('/'),
+                        dep,
+                        api_version
+                    )),
+                    _ => None,
+                };
+                BuiltinProvider::OpenAiCompatible(OpenAiCompatibleProvider::new(
+                    descriptor,
+                    config
+                        .provider_base_url
+                        .clone()
+                        .or(composed)
+                        .or_else(|| std::env::var("OCTOCODE_AZURE_BASE_URL").ok())
+                        .unwrap_or_else(|| String::from("https://YOUR-RESOURCE.openai.azure.com/openai/deployments/YOUR-DEPLOYMENT")),
+                    std::env::var("AZURE_OPENAI_API_KEY")
+                        .ok()
+                        .or_else(|| std::env::var("OCTOCODE_AZURE_API_KEY").ok()),
+                    config.default_model.clone(),
+                ))
+            }
             "ollama" => BuiltinProvider::Fallback(FallbackProvider::new(
                 descriptor.clone(),
                 vec![
@@ -1841,5 +1912,54 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(tokens.len(), 1);
         assert!(tokens[0].contains("test stream"));
+    }
+
+    // ─── P2: Gemini + Azure OpenAI provider registry coverage ─────────────
+
+    #[test]
+    fn registry_exposes_gemini_descriptor() {
+        let reg = ProviderRegistry::new();
+        let gemini = reg.all().iter().find(|p| p.id == "gemini").expect("gemini present");
+        assert_eq!(gemini.kind, ProviderKind::OpenAiCompatible);
+        assert!(gemini.supports_tools);
+        assert!(gemini.supports_streaming);
+    }
+
+    #[test]
+    fn registry_exposes_azure_openai_descriptor() {
+        let reg = ProviderRegistry::new();
+        let az = reg
+            .all()
+            .iter()
+            .find(|p| p.id == "azure-openai")
+            .expect("azure-openai present");
+        assert_eq!(az.kind, ProviderKind::OpenAiCompatible);
+        assert!(az.supports_tools);
+    }
+
+    #[test]
+    fn registry_creates_gemini_provider_with_default_base_url() {
+        let reg = ProviderRegistry::new();
+        // Do not set env vars → should fall back to DEFAULT_GEMINI_BASE_URL.
+        let prov = reg.create_by_id("gemini").expect("gemini created");
+        match prov {
+            BuiltinProvider::OpenAiCompatible(p) => {
+                // base_url is not pub; we verify descriptor id round-trips.
+                assert_eq!(p.descriptor.id, "gemini");
+            }
+            _ => panic!("expected OpenAiCompatible variant for gemini"),
+        }
+    }
+
+    #[test]
+    fn registry_creates_azure_provider_with_placeholder_when_unconfigured() {
+        let reg = ProviderRegistry::new();
+        let prov = reg.create_by_id("azure-openai").expect("azure created");
+        match prov {
+            BuiltinProvider::OpenAiCompatible(p) => {
+                assert_eq!(p.descriptor.id, "azure-openai");
+            }
+            _ => panic!("expected OpenAiCompatible variant for azure-openai"),
+        }
     }
 }

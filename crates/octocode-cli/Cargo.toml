@@ -10,6 +10,7 @@ octocode-commands = { path = "../octocode-commands" }
 octocode-core = { path = "../octocode-core" }
 octocode-mcp = { path = "../octocode-mcp" }
 octocode-runtime = { path = "../octocode-runtime" }
+octocode-skills = { path = "../octocode-skills" }
 tao = { workspace = true }
 wry = { workspace = true }
 ctrlc = { workspace = true }

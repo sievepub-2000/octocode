@@ -1618,6 +1618,7 @@ dependencies = [
  "octocode-core",
  "octocode-mcp",
  "octocode-runtime",
+ "octocode-skills",
  "portable-pty",
  "rustls",
  "rustls-pemfile",
