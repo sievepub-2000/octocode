@@ -11,7 +11,8 @@
   "main": "./out/extension.js",
   "activationEvents": [
     "onCommand:octocode.open",
-    "onCommand:octocode.startServer"
+    "onCommand:octocode.startServer",
+    "onCommand:octocode.copyMcpConfig"
   ],
   "contributes": {
     "commands": [
@@ -22,6 +23,10 @@
       {
         "command": "octocode.startServer",
         "title": "Octocode: Start Local Server"
+      },
+      {
+        "command": "octocode.copyMcpConfig",
+        "title": "Octocode: Copy MCP Config"
       }
     ],
     "configuration": {

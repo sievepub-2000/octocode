@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess, spawn, execFile } from 'child_process';
 
 let serverProc: ChildProcess | undefined;
 
@@ -7,6 +7,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('octocode.open', () => openWorkbench(context)),
     vscode.commands.registerCommand('octocode.startServer', () => startServer(context)),
+    vscode.commands.registerCommand('octocode.copyMcpConfig', () => copyMcpConfig()),
   );
 
   context.subscriptions.push({
@@ -99,4 +100,31 @@ async function startServer(context: vscode.ExtensionContext): Promise<void> {
   });
 
   vscode.window.showInformationMessage(`Octocode server starting on port ${port}.`);
+}
+
+/**
+ * P5-D: Invoke `octocode-cli mcp-config vscode` and copy the rendered
+ * snippet to the clipboard so users can paste it into `.vscode/mcp.json`.
+ */
+async function copyMcpConfig(): Promise<void> {
+  const { cliPath } = getConfig();
+  const pickHost = await vscode.window.showQuickPick(
+    ['claude-desktop', 'cursor', 'vscode'],
+    { placeHolder: 'Select MCP host config format' },
+  );
+  if (!pickHost) return;
+  const snippet = await new Promise<string>((resolve, reject) => {
+    execFile(cliPath, ['mcp-config', pickHost], (err, stdout) => {
+      if (err) reject(err);
+      else resolve(stdout);
+    });
+  }).catch((err) => {
+    vscode.window.showErrorMessage(`octocode-cli mcp-config failed: ${err.message}`);
+    return undefined;
+  });
+  if (!snippet) return;
+  await vscode.env.clipboard.writeText(snippet);
+  vscode.window.showInformationMessage(
+    `Octocode MCP config (${pickHost}) copied to clipboard.`,
+  );
 }

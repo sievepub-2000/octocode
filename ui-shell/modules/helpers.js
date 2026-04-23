@@ -115,4 +115,37 @@ export function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
+/**
+ * Format a byte count using SI-adjacent units (KB, MB, GB...).
+ * @param {number} bytes
+ * @param {number} [decimals=1]
+ * @returns {string}
+ */
+export function formatBytes(bytes, decimals = 1) {
+  const n = Number(bytes);
+  if (!Number.isFinite(n) || n <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  const i = Math.min(Math.floor(Math.log(n) / Math.log(1024)), units.length - 1);
+  const scaled = n / Math.pow(1024, i);
+  const fixed = i === 0 ? String(Math.round(scaled)) : scaled.toFixed(decimals);
+  return `${fixed} ${units[i]}`;
+}
+
+/**
+ * Format a non-negative integer with thousand separators using the
+ * current locale. Invalid inputs fall back to the string '0'.
+ * @param {number|string} value
+ * @param {string} [locale='en-US']
+ * @returns {string}
+ */
+export function formatNumber(value, locale = 'en-US') {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '0';
+  try {
+    return n.toLocaleString(locale);
+  } catch (_) {
+    return String(Math.trunc(n));
+  }
+}
+
 export const BUILT_IN_LOCALES_LIST = BUILT_IN_LOCALES;

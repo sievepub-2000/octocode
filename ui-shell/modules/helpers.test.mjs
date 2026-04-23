@@ -88,4 +88,20 @@ assert.equal(helpers.clamp(-1, 0, 10), 0);
 assert.equal(helpers.clamp(99, 0, 10), 10);
 assert.equal(helpers.clamp(Number.NaN, 3, 7), 3);
 
+// formatBytes
+assert.equal(helpers.formatBytes(0), '0 B');
+assert.equal(helpers.formatBytes(-1), '0 B');
+assert.equal(helpers.formatBytes(512), '512 B');
+assert.equal(helpers.formatBytes(2048), '2.0 KB');
+assert.equal(helpers.formatBytes(1024 * 1024), '1.0 MB');
+assert.equal(helpers.formatBytes(1024 * 1024 * 1024 * 3), '3.0 GB');
+assert.equal(helpers.formatBytes('not-a-number'), '0 B');
+
+// formatNumber
+assert.equal(helpers.formatNumber(0), '0');
+assert.equal(helpers.formatNumber(1234, 'en-US'), '1,234');
+assert.equal(helpers.formatNumber(1000000, 'en-US'), '1,000,000');
+assert.equal(helpers.formatNumber('not-a-number'), '0');
+assert.equal(helpers.formatNumber(null), '0');
+
 console.log('ui-shell/modules/helpers.js — all smoke tests passed.');

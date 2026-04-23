@@ -68,19 +68,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .ok()
             .and_then(|p| p.to_str().map(String::from))
             .unwrap_or_else(|| String::from("octocode-cli"));
-        // Parse optional --output <path>.
+        // Parse optional --output <path> and --install.
         let mut output_path: Option<String> = None;
+        let mut install = false;
         let mut idx = 2;
         while idx < raw_args.len() {
-            if raw_args[idx] == "--output" || raw_args[idx] == "-o" {
-                output_path = raw_args.get(idx + 1).cloned();
-                idx += 2;
-            } else {
-                idx += 1;
+            match raw_args[idx].as_str() {
+                "--output" | "-o" => {
+                    output_path = raw_args.get(idx + 1).cloned();
+                    idx += 2;
+                }
+                "--install" => {
+                    install = true;
+                    idx += 1;
+                }
+                _ => {
+                    idx += 1;
+                }
             }
         }
         let snippet = render_mcp_config(host, &exe);
-        if let Some(path) = output_path {
+        if install {
+            let target = default_install_path(host)?;
+            write_or_merge_mcp_config(&target, &snippet, host)?;
+            eprintln!("installed MCP config ({host}) → {}", target.display());
+        } else if let Some(path) = output_path {
             std::fs::write(&path, &snippet)
                 .map_err(|e| Box::<dyn std::error::Error>::from(format!("failed to write {path}: {e}")))?;
             eprintln!("wrote MCP config ({host}) to {path}");
@@ -175,6 +187,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // P5-A: tools-list — emit registered tool descriptors as JSON.
+    if raw_args.first().map(|s| s.as_str()) == Some("tools-list") {
+        let platform = NativePlatform::detect(String::from("."));
+        let config = ConfigLoader::new(platform.config_paths()).load()?;
+        let runtime = server::build_runtime(platform.context().root.clone(), config)?;
+        let json = serde_json::to_string_pretty(runtime.tools())?;
+        println!("{json}");
+        return Ok(());
+    }
+
+    // P5-A: commands-list — emit built-in command catalog as JSON.
+    if raw_args.first().map(|s| s.as_str()) == Some("commands-list") {
+        let platform = NativePlatform::detect(String::from("."));
+        let config = ConfigLoader::new(platform.config_paths()).load()?;
+        let runtime = server::build_runtime(platform.context().root.clone(), config)?;
+        let json = serde_json::to_string_pretty(runtime.commands())?;
+        println!("{json}");
+        return Ok(());
+    }
+
     let parsed = parse_cli_args(std::env::args().skip(1));
     if let CliCommand::Serve { port, session_id } = parsed.command.clone() {
         ensure_web_port_in_range(port)?;
@@ -257,6 +289,99 @@ fn render_mcp_config(host: &str, exe: &str) -> String {
             exe = exe_escaped
         ),
     }
+}
+
+/// P5-B: Resolve the canonical config-file path for a given MCP host.
+///
+/// Only `claude-desktop` is supported for auto-install because Cursor and
+/// VS Code use project-local config files that we cannot safely discover.
+fn default_install_path(host: &str) -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+    match host {
+        "claude-desktop" => {
+            #[cfg(target_os = "windows")]
+            {
+                let appdata = std::env::var("APPDATA")
+                    .map_err(|_| "APPDATA env var not set")?;
+                Ok(std::path::PathBuf::from(appdata)
+                    .join("Claude")
+                    .join("claude_desktop_config.json"))
+            }
+            #[cfg(target_os = "macos")]
+            {
+                let home = std::env::var("HOME").map_err(|_| "HOME env var not set")?;
+                Ok(std::path::PathBuf::from(home)
+                    .join("Library")
+                    .join("Application Support")
+                    .join("Claude")
+                    .join("claude_desktop_config.json"))
+            }
+            #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+            {
+                let home = std::env::var("HOME").map_err(|_| "HOME env var not set")?;
+                Ok(std::path::PathBuf::from(home)
+                    .join(".config")
+                    .join("Claude")
+                    .join("claude_desktop_config.json"))
+            }
+        }
+        other => Err(format!(
+            "--install is only supported for 'claude-desktop' (got '{other}'); use --output <path> instead"
+        )
+        .into()),
+    }
+}
+
+/// P5-B: Merge the `octocode` MCP entry into an existing claude_desktop_config.json
+/// or write a fresh file. Preserves other mcpServers entries the user may have.
+fn write_or_merge_mcp_config(
+    target: &std::path::Path,
+    snippet: &str,
+    host: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let snippet_value: serde_json::Value = serde_json::from_str(snippet)?;
+    let top_key = if host == "vscode" { "servers" } else { "mcpServers" };
+
+    // Ensure parent dir exists.
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
+    }
+
+    let mut merged: serde_json::Value = if target.is_file() {
+        let existing = std::fs::read_to_string(target)
+            .map_err(|e| format!("failed to read {}: {e}", target.display()))?;
+        serde_json::from_str(&existing).unwrap_or_else(|_| serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    if !merged.is_object() {
+        merged = serde_json::json!({});
+    }
+
+    // Extract octocode entry from the rendered snippet.
+    let octocode_entry = snippet_value
+        .get(top_key)
+        .and_then(|v| v.get("octocode"))
+        .cloned()
+        .ok_or_else(|| format!("snippet missing {top_key}.octocode"))?;
+
+    let map = merged.as_object_mut().expect("guaranteed object");
+    let servers = map
+        .entry(top_key.to_string())
+        .or_insert_with(|| serde_json::json!({}));
+    if !servers.is_object() {
+        *servers = serde_json::json!({});
+    }
+    servers
+        .as_object_mut()
+        .unwrap()
+        .insert(String::from("octocode"), octocode_entry);
+
+    let serialized = serde_json::to_string_pretty(&merged)?;
+    std::fs::write(target, serialized)
+        .map_err(|e| format!("failed to write {}: {e}", target.display()))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -400,6 +525,53 @@ mod tests {
         assert_eq!(v["historyLimit"].as_u64(), Some(100));
         assert_eq!(v["requestTimeoutSecs"].as_u64(), Some(90));
         assert_eq!(v["permissionMode"].as_str(), Some("workspaceWrite"));
+    }
+
+    // P5-B: merge logic preserves unrelated mcpServers entries and
+    // overwrites only the `octocode` slot.
+    #[test]
+    fn mcp_config_merge_preserves_other_servers() {
+        let tmp = std::env::temp_dir().join(format!(
+            "octocode-p5-merge-{}.json",
+            std::process::id()
+        ));
+        let existing = serde_json::json!({
+            "mcpServers": {
+                "other-server": { "command": "/bin/other", "args": [] }
+            }
+        });
+        std::fs::write(&tmp, serde_json::to_string(&existing).unwrap()).unwrap();
+        let snippet = render_mcp_config("claude-desktop", "/bin/octocode");
+        write_or_merge_mcp_config(&tmp, &snippet, "claude-desktop").unwrap();
+        let merged: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&tmp).unwrap()).unwrap();
+        assert_eq!(
+            merged["mcpServers"]["other-server"]["command"].as_str(),
+            Some("/bin/other")
+        );
+        assert_eq!(
+            merged["mcpServers"]["octocode"]["command"].as_str(),
+            Some("/bin/octocode")
+        );
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn mcp_config_merge_creates_fresh_file() {
+        let tmp = std::env::temp_dir().join(format!(
+            "octocode-p5-fresh-{}.json",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&tmp);
+        let snippet = render_mcp_config("claude-desktop", "/bin/octocode");
+        write_or_merge_mcp_config(&tmp, &snippet, "claude-desktop").unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&tmp).unwrap()).unwrap();
+        assert_eq!(
+            v["mcpServers"]["octocode"]["command"].as_str(),
+            Some("/bin/octocode")
+        );
+        let _ = std::fs::remove_file(&tmp);
     }
 }
 
