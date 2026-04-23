@@ -73,3 +73,4 @@ scripts/cdp-test*.mjs
 .tmp/
 
 test_full_run.log
+test_ws.ps1

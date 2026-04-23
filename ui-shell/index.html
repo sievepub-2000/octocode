@@ -13,11 +13,8 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" media="(prefers-color-scheme: light)" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" media="(prefers-color-scheme: dark)" />
   <link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" />
-  <link rel="stylesheet" href="./vendor/xterm/xterm.min.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-  <script src="./vendor/xterm/xterm.min.js"></script>
-  <script src="./vendor/xterm/xterm-addon-fit.min.js"></script>
 </head>
 <body>
   <div class="app-root">
@@ -86,18 +83,6 @@
               <button class="menu-dropdown-item" type="button" data-manage-panel="hooks" data-i18n="manage.hooks">Hooks</button>
               <button class="menu-dropdown-item" type="button" data-manage-panel="tools" data-i18n="manage.tools">Tools</button>
               <button class="menu-dropdown-item" type="button" data-manage-panel="commands" data-i18n="manage.commands">Commands</button>
-            </div>
-          </div>
-        </div>
-        <div class="menu-dropdown">
-          <button id="terminal-menu-button" class="menu-item menu-trigger" type="button" aria-haspopup="true" aria-expanded="false" data-i18n="menu.terminal">Terminal</button>
-          <div id="terminal-menu-panel" class="menu-dropdown-panel" hidden>
-            <div class="menu-dropdown-group">
-              <span class="menu-dropdown-label" data-i18n="menu.terminal">终端</span>
-              <button class="menu-dropdown-item" type="button" data-terminal-action="new" data-i18n="terminal.newShort">新建</button>
-              <button class="menu-dropdown-item" type="button" data-terminal-action="toggle" data-i18n="terminal.toggle">显示或隐藏</button>
-              <button class="menu-dropdown-item" type="button" data-terminal-action="close-current" data-i18n="terminal.closeCurrent">关闭当前终端</button>
-              <button class="menu-dropdown-item" type="button" data-terminal-action="close-all" data-i18n="terminal.closeAll">关闭全部终端</button>
             </div>
           </div>
         </div>
@@ -215,23 +200,6 @@
           <div class="stream-dots"><span></span><span></span><span></span></div>
           <span class="stream-label" data-i18n="stream.responding">AI is responding...</span>
         </div>
-
-        <section id="terminal-drawer" class="terminal-drawer" hidden>
-          <div class="terminal-toolbar">
-            <div class="terminal-toolbar-left">
-              <span class="terminal-title" data-i18n="terminal.title">终端</span>
-              <span id="terminal-cwd" class="terminal-cwd">-</span>
-            </div>
-            <div class="terminal-toolbar-right">
-              <div id="terminal-tabs" class="terminal-session-tabs"></div>
-              <button id="terminal-new-tab" class="terminal-toolbar-btn" type="button" data-i18n="terminal.newShort">新建</button>
-              <button id="terminal-hide" class="terminal-toolbar-btn terminal-hide-btn" type="button" data-i18n="terminal.closeAll">关闭全部终端</button>
-            </div>
-          </div>
-          <div id="terminal-output" class="terminal-output">
-            <div id="terminal-viewport" class="terminal-viewport"></div>
-          </div>
-        </section>
 
         <!-- Composer -->
         <form id="chat-form" class="composer">

@@ -1149,12 +1149,11 @@ function renderSidebar(state, activeSessionId) {
       ? `<span class="session-tree-toggle" role="button" aria-label="${escapeHtml(item.collapsed ? t('session.expandBranch', '展开分支') : t('session.collapseBranch', '折叠分支'))}" data-expanded="${item.collapsed ? 'false' : 'true'}">${item.collapsed ? '▸' : '▾'}</span>`
       : '<span class="session-tree-spacer"></span>';
     element.innerHTML = `
-      <div class="sidebar-item-lineage-wrap">
+      <div class="sidebar-item-row">
         ${toggleMarkup}
-        <span class="sidebar-item-branch-badge">${escapeHtml(item.branchLabel || t('session.rootNode', 'root'))}</span>
-        <span class="sidebar-item-lineage">${escapeHtml(item.lineage || '')}</span>
+        <span class="sidebar-item-branch-badge" title="${escapeHtml(item.lineage || '')}">${escapeHtml(item.lineage || item.branchLabel || t('session.rootNode', 'root'))}</span>
+        <span class="sidebar-item-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</span>
       </div>
-      <div class="sidebar-item-title">${escapeHtml(item.title)}</div>
       <div class="sidebar-item-desc">${escapeHtml(item.description)}</div>
     `;
     if (typeof item.onSelect === 'function') element.addEventListener('click', item.onSelect);
@@ -1281,32 +1280,53 @@ function renderMessages(messages) {
       : '';
     roleEl.innerHTML = `${escapeHtml(role)}${modelTag}`;
     header.appendChild(roleEl);
-    if (currentSessionId) {
-      const actionButton = document.createElement('button');
-      actionButton.type = 'button';
-      actionButton.className = 'session-menu-btn msg-menu-btn';
-      actionButton.textContent = '⋯';
-      actionButton.setAttribute('aria-label', t('message.actions', '消息操作'));
-      actionButton.addEventListener('click', (event) => {
-        event.stopPropagation();
-        openContextMenu(actionButton, [
-          {
-            label: t('session.forkFromMessage', '从这条消息 fork'),
-            action: async () => forkSessionFromHistory({ messageIndex: index }),
-          },
-        ]);
-      });
-      header.appendChild(actionButton);
-    }
     const contentEl = document.createElement('div');
     contentEl.className = 'msg-content';
     contentEl.innerHTML = contentHtml;
+    const footer = document.createElement('div');
+    footer.className = 'msg-footer';
     const timeEl = document.createElement('div');
     timeEl.className = 'msg-time';
     timeEl.textContent = formatTimestamp(message.timestamp || message.atMs);
+    footer.appendChild(timeEl);
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'msg-copy-btn';
+    copyBtn.setAttribute('aria-label', t('message.copy', '复制消息内容'));
+    copyBtn.title = t('message.copy', '复制消息内容');
+    copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+    copyBtn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      const text = message.content || '';
+      try {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+        }
+        const original = copyBtn.innerHTML;
+        copyBtn.classList.add('is-copied');
+        copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+        setTimeout(() => {
+          copyBtn.classList.remove('is-copied');
+          copyBtn.innerHTML = original;
+        }, 1200);
+      } catch (_) {
+        copyBtn.classList.add('is-failed');
+        setTimeout(() => copyBtn.classList.remove('is-failed'), 1200);
+      }
+    });
+    footer.appendChild(copyBtn);
     bubble.appendChild(header);
     bubble.appendChild(contentEl);
-    bubble.appendChild(timeEl);
+    bubble.appendChild(footer);
     fragment.appendChild(bubble);
   });
   messageList.appendChild(fragment);
@@ -2288,10 +2308,28 @@ function ensureTerminalPane(session) {
   if (!session.pane) {
     const pane = document.createElement('div');
     pane.className = 'terminal-pane';
+    // Show the pane BEFORE calling term.open so xterm.js can measure the
+    // container dimensions — opening into a display:none element produces
+    // a 0x0 render that never recovers until a manual resize.
+    pane.style.display = 'block';
+    pane.tabIndex = 0;
+    // Click anywhere in the pane routes keyboard focus into xterm's
+    // hidden textarea so the user can type immediately without having
+    // to click precisely on the blinking cursor.
+    pane.addEventListener('mousedown', () => {
+      try { session.term.focus(); } catch (_) {}
+    });
     terminalViewport.appendChild(pane);
     session.pane = pane;
     session.term.open(pane);
     applyTerminalTheme(session);
+    // Fit + focus on the next frame so the container has a measured size.
+    requestAnimationFrame(() => {
+      try {
+        if (session.fit && terminalVisible) session.fit.fit();
+        session.term.focus();
+      } catch (_) {}
+    });
   }
   return session.pane;
 }
@@ -2568,6 +2606,34 @@ function renderTerminalUi() {
   });
   requestAnimationFrame(() => {
     fitTerminalSession(session);
+    // Defer a second fit after layout settles — the first fit right after
+    // the drawer un-hides can report stale container sizes on some browsers.
+    window.setTimeout(() => fitTerminalSession(session), 120);
+    try { session.term?.focus(); } catch (_) {}
+  });
+}
+
+// Re-fit whichever terminal is currently active when its container resizes
+// (window resize, drawer show/hide, CSS reflow). Without this the PTY retains
+// the size captured at the first paint and the output wraps incorrectly.
+if (typeof ResizeObserver === 'function' && terminalOutput) {
+  const ro = new ResizeObserver(() => {
+    if (!terminalVisible) return;
+    const s = getActiveTerminal();
+    if (s) fitTerminalSession(s);
+  });
+  ro.observe(terminalOutput);
+}
+
+// Clicking anywhere in the drawer (toolbar, empty areas) focuses the active
+// xterm so the user can start typing without precisely clicking the cursor.
+if (terminalDrawer) {
+  terminalDrawer.addEventListener('click', (event) => {
+    if (event.target.closest('button')) return;
+    const s = getActiveTerminal();
+    if (s?.term) {
+      try { s.term.focus(); } catch (_) {}
+    }
   });
 }
 
@@ -2977,7 +3043,7 @@ function initResize(handle, side) {
     document.body.style.userSelect = 'none';
     const onMove = (moveEvent) => {
       const delta = side === 'left' ? moveEvent.clientX - startX : startX - moveEvent.clientX;
-      const nextWidth = Math.max(180, Math.min(500, startWidth + delta));
+      const nextWidth = Math.max(150, Math.min(500, startWidth + delta));
       workspaceGrid.style.setProperty(side === 'left' ? '--left-width' : '--right-width', `${nextWidth}px`);
     };
     const onUp = () => {
