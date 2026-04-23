@@ -61,14 +61,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    // P2-B: mcp-config <host>  — print MCP client config snippet (Claude Desktop / Cursor / VS Code).
+    // P2-B / P3-C: mcp-config <host> [--output <path>] — emit or write MCP client config.
     if raw_args.first().map(|s| s.as_str()) == Some("mcp-config") {
         let host = raw_args.get(1).map(String::as_str).unwrap_or("claude-desktop");
         let exe = std::env::current_exe()
             .ok()
             .and_then(|p| p.to_str().map(String::from))
             .unwrap_or_else(|| String::from("octocode-cli"));
-        print_mcp_config(host, &exe);
+        // Parse optional --output <path>.
+        let mut output_path: Option<String> = None;
+        let mut idx = 2;
+        while idx < raw_args.len() {
+            if raw_args[idx] == "--output" || raw_args[idx] == "-o" {
+                output_path = raw_args.get(idx + 1).cloned();
+                idx += 2;
+            } else {
+                idx += 1;
+            }
+        }
+        let snippet = render_mcp_config(host, &exe);
+        if let Some(path) = output_path {
+            std::fs::write(&path, &snippet)
+                .map_err(|e| Box::<dyn std::error::Error>::from(format!("failed to write {path}: {e}")))?;
+            eprintln!("wrote MCP config ({host}) to {path}");
+        } else {
+            println!("{snippet}");
+        }
         return Ok(());
     }
 
@@ -80,6 +98,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let registry = octocode_skills::SkillRegistry::discover(&workspace_root, &config_home)
             .map_err(|e| Box::<dyn std::error::Error>::from(e))?;
         let json = serde_json::to_string_pretty(registry.skills())?;
+        println!("{json}");
+        return Ok(());
+    }
+
+    // P3-B: skills-show <id> — print the SKILL.md contents of a discovered skill.
+    if raw_args.first().map(|s| s.as_str()) == Some("skills-show") {
+        let id = raw_args.get(1).ok_or_else(|| {
+            Box::<dyn std::error::Error>::from(
+                "usage: octocode-cli skills-show <skill-id>",
+            )
+        })?;
+        let platform = NativePlatform::detect(String::from("."));
+        let workspace_root = platform.context().root.clone();
+        let config_home = platform.config_paths().config_home.clone();
+        let registry = octocode_skills::SkillRegistry::discover(&workspace_root, &config_home)
+            .map_err(|e| Box::<dyn std::error::Error>::from(e))?;
+        let found = registry.skills().iter().find(|s| &s.id == id);
+        match found {
+            Some(skill) => {
+                let body = std::fs::read_to_string(&skill.path).map_err(|e| {
+                    Box::<dyn std::error::Error>::from(format!(
+                        "failed to read {}: {e}",
+                        skill.path
+                    ))
+                })?;
+                println!("{body}");
+                return Ok(());
+            }
+            None => {
+                let ids: Vec<&str> = registry.skills().iter().map(|s| s.id.as_str()).collect();
+                return Err(Box::<dyn std::error::Error>::from(format!(
+                    "skill '{id}' not found. available: [{}]",
+                    ids.join(", ")
+                )));
+            }
+        }
+    }
+
+    // P3-A: providers-list — emit the registered provider catalog as JSON.
+    if raw_args.first().map(|s| s.as_str()) == Some("providers-list") {
+        let registry = octocode_api::ProviderRegistry::new();
+        let json = serde_json::to_string_pretty(registry.all())?;
         println!("{json}");
         return Ok(());
     }
@@ -121,8 +181,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// `std::env::current_exe`), which makes the emitted snippet directly usable
 /// from wherever the user invoked `octocode-cli mcp-config`.
 fn print_mcp_config(host: &str, exe: &str) {
+    println!("{}", render_mcp_config(host, exe));
+}
+
+/// P3-C: Internal helper that returns the rendered snippet so callers can
+/// either stream it to stdout or write it to a file via `--output`.
+fn render_mcp_config(host: &str, exe: &str) -> String {
     let exe_escaped = exe.replace('\\', "\\\\");
-    let snippet = match host {
+    match host {
         "cursor" => format!(
             r#"{{
   "mcpServers": {{
@@ -159,8 +225,7 @@ fn print_mcp_config(host: &str, exe: &str) {
 }}"#,
             exe = exe_escaped
         ),
-    };
-    println!("{snippet}");
+    }
 }
 
 #[cfg(test)]
@@ -243,6 +308,45 @@ mod tests {
         );
         let v: serde_json::Value = serde_json::from_str(&snippet).expect("valid JSON");
         assert_eq!(v["servers"]["octocode"]["type"].as_str(), Some("stdio"));
+    }
+
+    // P3: render_mcp_config round-trip tests.
+    #[test]
+    fn render_mcp_config_default_matches_claude_desktop() {
+        let a = render_mcp_config("claude-desktop", "/bin/o");
+        let b = render_mcp_config("unknown-host", "/bin/o");
+        assert_eq!(a, b);
+        let v: serde_json::Value = serde_json::from_str(&a).expect("valid JSON");
+        assert!(v["mcpServers"]["octocode"].is_object());
+    }
+
+    #[test]
+    fn render_mcp_config_escapes_windows_backslashes() {
+        let rendered = render_mcp_config("claude-desktop", r"C:\tools\o.exe");
+        // JSON must parse (proving backslashes are escaped properly).
+        let v: serde_json::Value = serde_json::from_str(&rendered).expect("valid JSON");
+        assert_eq!(
+            v["mcpServers"]["octocode"]["command"].as_str(),
+            Some(r"C:\tools\o.exe")
+        );
+    }
+
+    // P3-A: providers-list output shape.
+    #[test]
+    fn providers_list_json_round_trip() {
+        let registry = octocode_api::ProviderRegistry::new();
+        let json = serde_json::to_string(registry.all()).expect("serialize");
+        let v: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+        let arr = v.as_array().expect("array");
+        assert!(!arr.is_empty(), "registry should expose providers");
+        let ids: Vec<String> = arr
+            .iter()
+            .map(|p| p["id"].as_str().unwrap_or("").to_string())
+            .collect();
+        // Sanity: expected built-in providers are present.
+        assert!(ids.iter().any(|i| i == "gemini"));
+        assert!(ids.iter().any(|i| i == "azure-openai"));
+        assert!(ids.iter().any(|i| i == "local-openai"));
     }
 }
 
