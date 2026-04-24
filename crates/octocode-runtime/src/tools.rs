@@ -364,7 +364,7 @@ const TOOLS: &[ToolDescriptor] = &[
     // ── web search ───────────────────────────────────────────────────────────
     ToolDescriptor {
         name: "web-search",
-        summary: "Search the web via DuckDuckGo Lite (query string)",
+        summary: "Search the web (multi-engine fallback: Bing, Baidu, DuckDuckGo, Searx) — auto-skips CAPTCHA / bot-wall and returns structured title/url/snippet",
         minimum_permission: PermissionMode::ReadOnly,
     },
     // ── cost tracking ────────────────────────────────────────────────────────
@@ -1673,28 +1673,392 @@ impl WorkspaceToolExecutor {
     }
 
     // ── web search ───────────────────────────────────────────────────────────
+    //
+    // Multi-engine fallback chain with CAPTCHA / bot-wall detection. Tries
+    // engines in order, skips any response that looks like a challenge, and
+    // returns the first usable structured result set (title | url | snippet).
+    //
+    // Order: Bing HTML → Baidu → DuckDuckGo HTML → DuckDuckGo Lite →
+    // SearxNG (searx.be). Each uses ureq with a realistic UA; no shell.
 
     fn web_search(&self, input: &str) -> Result<ToolResult, OctoError> {
         let query = input.trim();
         if query.is_empty() {
             return Err(OctoError::Runtime(String::from("web-search requires a query")));
         }
-        // Use DuckDuckGo Lite via shell
-        let encoded = query.replace(' ', "+");
-        let url = format!("https://lite.duckduckgo.com/lite/?q={encoded}");
-        let cmd = if cfg!(target_os = "windows") {
-            format!(
-                "(Invoke-WebRequest -Uri '{}' -UseBasicParsing -TimeoutSec 15).Content -replace '<[^>]+>','' | Out-String | ForEach-Object {{ if ($_.Length -gt 4000) {{ $_.Substring(0,4000) + '...[truncated]' }} else {{ $_ }} }}",
-                url.replace('\'', "''")
-            )
-        } else {
-            format!(
-                "curl -s --max-time 15 -L '{}' | sed 's/<[^>]*>//g' | head -c 4000",
-                url.replace('\'', "'\\''")
-            )
-        };
-        self.run_shell(&cmd)
+        let encoded = url_encode_query(query);
+        let engines: &[(&str, String)] = &[
+            ("bing", format!("https://www.bing.com/search?q={encoded}&setlang=zh-CN&ensearch=0")),
+            ("baidu", format!("https://www.baidu.com/s?wd={encoded}&ie=utf-8")),
+            ("ddg-html", format!("https://html.duckduckgo.com/html/?q={encoded}")),
+            ("ddg-lite", format!("https://lite.duckduckgo.com/lite/?q={encoded}")),
+            ("searx", format!("https://searx.be/search?q={encoded}&format=json&language=zh")),
+        ];
+
+        let agent = ureq::AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(8))
+            .timeout_read(Duration::from_secs(12))
+            .redirects(5)
+            .build();
+
+        let mut attempts: Vec<String> = Vec::new();
+        for (name, url) in engines {
+            match fetch_search_engine(&agent, url) {
+                Ok(body) => {
+                    if looks_like_bot_wall(&body) {
+                        attempts.push(format!("[{name}] blocked: CAPTCHA/bot-wall detected"));
+                        continue;
+                    }
+                    let results = match *name {
+                        "bing" => parse_bing_results(&body),
+                        "baidu" => parse_baidu_results(&body),
+                        "ddg-html" | "ddg-lite" => parse_duckduckgo_results(&body),
+                        "searx" => parse_searx_json(&body),
+                        _ => Vec::new(),
+                    };
+                    if results.is_empty() {
+                        attempts.push(format!("[{name}] no usable results parsed"));
+                        continue;
+                    }
+                    let mut out = String::new();
+                    out.push_str(&format!("web-search [{name}] q=\"{query}\"\n"));
+                    out.push_str(&format!("found {} result(s)\n\n", results.len()));
+                    for (i, r) in results.iter().take(10).enumerate() {
+                        out.push_str(&format!(
+                            "{}. {}\n   {}\n   {}\n\n",
+                            i + 1,
+                            r.title,
+                            r.url,
+                            r.snippet
+                        ));
+                    }
+                    if !attempts.is_empty() {
+                        out.push_str("(fallback chain: ");
+                        out.push_str(&attempts.join(", "));
+                        out.push_str(")\n");
+                    }
+                    return Ok(ToolResult {
+                        output: truncate_output(&out, 16 * 1024),
+                    });
+                }
+                Err(e) => {
+                    attempts.push(format!("[{name}] transport: {e}"));
+                    continue;
+                }
+            }
+        }
+        Err(OctoError::Runtime(format!(
+            "web-search failed: all engines blocked or unreachable. attempts: {}",
+            attempts.join(" | ")
+        )))
     }
+}
+
+// ── web-search helpers ─────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub(crate) struct SearchHit {
+    pub title: String,
+    pub url: String,
+    pub snippet: String,
+}
+
+fn url_encode_query(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() * 3);
+    for b in s.as_bytes() {
+        match *b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(*b as char)
+            }
+            b' ' => out.push('+'),
+            other => out.push_str(&format!("%{other:02X}")),
+        }
+    }
+    out
+}
+
+fn fetch_search_engine(agent: &ureq::Agent, url: &str) -> Result<String, String> {
+    let resp = agent
+        .get(url)
+        .set(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36",
+        )
+        .set("Accept", "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8")
+        .set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+        .call()
+        .map_err(|e| e.to_string())?;
+    resp.into_string().map_err(|e| e.to_string())
+}
+
+pub(crate) fn looks_like_bot_wall(body: &str) -> bool {
+    if body.len() < 400 {
+        return true;
+    }
+    let lower = body.to_ascii_lowercase();
+    let markers = [
+        "select all squares",
+        "confirm this search was made by a human",
+        "captcha",
+        "are you a robot",
+        "unusual traffic",
+        "请完成安全验证",
+        "百度安全验证",
+        "网络不给力",
+        "access denied",
+        "bot detection",
+        "cf-challenge",
+        "challenge-platform",
+    ];
+    markers.iter().any(|m| lower.contains(m))
+}
+
+/// Extract anchor blocks from HTML and apply a mapper to (href, inner_text_range).
+fn parse_bing_results(html: &str) -> Vec<SearchHit> {
+    let mut hits = Vec::new();
+    // Bing result cards: <li class="b_algo"><h2><a href="URL">TITLE</a></h2>
+    //                   <div class="b_caption"><p>SNIPPET</p></div></li>
+    let re_item = regex_finditer(html, "<li class=\"b_algo\"", "</li>");
+    for block in re_item {
+        let href = extract_attr(block, "<a", "href=\"").unwrap_or_default();
+        if href.is_empty() || !href.starts_with("http") {
+            continue;
+        }
+        let title = extract_between(block, "<h2>", "</h2>")
+            .map(|s| strip_tags(&s))
+            .unwrap_or_default();
+        let snippet = extract_between(block, "<p", "</p>")
+            .map(|s| {
+                let inner_start = s.find('>').map(|i| i + 1).unwrap_or(0);
+                strip_tags(&s[inner_start..])
+            })
+            .unwrap_or_default();
+        if !title.is_empty() {
+            hits.push(SearchHit { title, url: href, snippet });
+        }
+    }
+    hits
+}
+
+fn parse_baidu_results(html: &str) -> Vec<SearchHit> {
+    let mut hits = Vec::new();
+    // Baidu result cards: <div class="result..."> ... <a href="..." ...>TITLE</a>
+    //                    <span ... class="content-right_...">SNIPPET</span>
+    let blocks = regex_finditer(html, "<div class=\"result", "</div>");
+    for block in blocks {
+        let href = extract_attr(block, "<a", "href=\"").unwrap_or_default();
+        if href.is_empty() || !href.starts_with("http") {
+            continue;
+        }
+        let title = extract_between(block, "<a", "</a>")
+            .map(|s| {
+                let inner_start = s.find('>').map(|i| i + 1).unwrap_or(0);
+                strip_tags(&s[inner_start..])
+            })
+            .unwrap_or_default();
+        let snippet = extract_between(block, "content-right", "</span>")
+            .map(|s| {
+                let inner_start = s.find('>').map(|i| i + 1).unwrap_or(0);
+                strip_tags(&s[inner_start..])
+            })
+            .unwrap_or_default();
+        if !title.is_empty() && title.len() > 3 {
+            hits.push(SearchHit { title, url: href, snippet });
+        }
+    }
+    hits
+}
+
+fn parse_duckduckgo_results(html: &str) -> Vec<SearchHit> {
+    let mut hits = Vec::new();
+    // DDG HTML: <a class="result__a" href="URL">TITLE</a>
+    //           <a class="result__snippet">SNIPPET</a>
+    let mut cursor = 0usize;
+    while let Some(start) = html[cursor..].find("class=\"result__a\"") {
+        let abs = cursor + start;
+        let href = extract_attr(&html[abs.saturating_sub(200)..abs + 100], "<a", "href=\"")
+            .unwrap_or_default();
+        // Find closing </a>
+        if let Some(close) = html[abs..].find("</a>") {
+            let inner_start = html[abs..].find('>').map(|i| abs + i + 1).unwrap_or(abs);
+            let title = strip_tags(&html[inner_start..abs + close]);
+            let after = abs + close + 4;
+            let snippet_start = html[after..]
+                .find("result__snippet")
+                .map(|i| after + i)
+                .unwrap_or(after);
+            let snippet_close = html[snippet_start..]
+                .find("</a>")
+                .or_else(|| html[snippet_start..].find("</div>"))
+                .map(|i| snippet_start + i)
+                .unwrap_or(snippet_start);
+            let snippet_inner = html[snippet_start..]
+                .find('>')
+                .map(|i| snippet_start + i + 1)
+                .unwrap_or(snippet_start);
+            let snippet = if snippet_inner < snippet_close {
+                strip_tags(&html[snippet_inner..snippet_close])
+            } else {
+                String::new()
+            };
+            if !href.is_empty() && !title.is_empty() {
+                // DDG wraps real URL in /l/?uddg=<encoded>
+                let real = if href.contains("uddg=") {
+                    href.split("uddg=")
+                        .nth(1)
+                        .and_then(|s| s.split('&').next())
+                        .map(|s| url_decode(s))
+                        .unwrap_or(href.clone())
+                } else {
+                    href.clone()
+                };
+                hits.push(SearchHit { title, url: real, snippet });
+            }
+            cursor = abs + close + 4;
+        } else {
+            break;
+        }
+    }
+    hits
+}
+
+fn parse_searx_json(body: &str) -> Vec<SearchHit> {
+    let mut hits = Vec::new();
+    // Parse JSON minimally: look for {"url":"...","title":"...","content":"..."}
+    // Avoid adding serde_json dependency — simple scan.
+    let mut cursor = 0usize;
+    while let Some(off) = body[cursor..].find("\"url\"") {
+        let start = cursor + off;
+        let url = extract_json_string(&body[start..], "\"url\"").unwrap_or_default();
+        let title = extract_json_string(&body[start..], "\"title\"").unwrap_or_default();
+        let content = extract_json_string(&body[start..], "\"content\"").unwrap_or_default();
+        if !url.is_empty() && !title.is_empty() {
+            hits.push(SearchHit { title, url, snippet: content });
+        }
+        cursor = start + 5;
+        if hits.len() >= 15 {
+            break;
+        }
+    }
+    hits
+}
+
+fn regex_finditer<'a>(hay: &'a str, start_marker: &str, end_marker: &str) -> Vec<&'a str> {
+    let mut out = Vec::new();
+    let mut cursor = 0usize;
+    while let Some(s) = hay[cursor..].find(start_marker) {
+        let s_abs = cursor + s;
+        if let Some(e) = hay[s_abs..].find(end_marker) {
+            let e_abs = s_abs + e + end_marker.len();
+            out.push(&hay[s_abs..e_abs]);
+            cursor = e_abs;
+        } else {
+            break;
+        }
+        if out.len() >= 20 {
+            break;
+        }
+    }
+    out
+}
+
+fn extract_between(hay: &str, start: &str, end: &str) -> Option<String> {
+    let s = hay.find(start)?;
+    let e_rel = hay[s..].find(end)?;
+    Some(hay[s..s + e_rel].to_string())
+}
+
+fn extract_attr(hay: &str, tag_start: &str, attr_prefix: &str) -> Option<String> {
+    let t = hay.find(tag_start)?;
+    let a = hay[t..].find(attr_prefix)? + t + attr_prefix.len();
+    let end = hay[a..].find('"')?;
+    Some(hay[a..a + end].to_string())
+}
+
+fn extract_json_string(hay: &str, key: &str) -> Option<String> {
+    let k = hay.find(key)?;
+    let after = k + key.len();
+    let colon = hay[after..].find(':')? + after + 1;
+    // skip whitespace and opening quote
+    let bytes = hay.as_bytes();
+    let mut i = colon;
+    while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t' || bytes[i] == b'\n') {
+        i += 1;
+    }
+    if i >= bytes.len() || bytes[i] != b'"' {
+        return None;
+    }
+    i += 1;
+    let mut out = String::new();
+    while i < bytes.len() {
+        match bytes[i] {
+            b'"' => return Some(out),
+            b'\\' if i + 1 < bytes.len() => {
+                match bytes[i + 1] {
+                    b'"' => out.push('"'),
+                    b'\\' => out.push('\\'),
+                    b'n' => out.push('\n'),
+                    b't' => out.push('\t'),
+                    b'/' => out.push('/'),
+                    _ => {}
+                }
+                i += 2;
+            }
+            other => {
+                out.push(other as char);
+                i += 1;
+            }
+        }
+        if out.len() > 2000 {
+            return Some(out);
+        }
+    }
+    None
+}
+
+fn strip_tags(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut in_tag = false;
+    for ch in html.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            c if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    // Decode a few common entities
+    let out = out
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">");
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn url_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hex = &s[i + 1..i + 3];
+            if let Ok(v) = u8::from_str_radix(hex, 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        if bytes[i] == b'+' {
+            out.push(b' ');
+        } else {
+            out.push(bytes[i]);
+        }
+        i += 1;
+    }
+    String::from_utf8(out).unwrap_or_else(|_| s.to_string())
 }
 
 #[derive(Debug, Clone)]

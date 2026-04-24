@@ -1146,7 +1146,16 @@ Rules:\n\
   2. After a tool result is delivered back to you, continue reasoning and optionally call more tools or produce a final answer.\n\
   3. Do NOT fabricate file contents — read them first with read-file.\n\
   4. Never claim you lack capability if a matching tool is listed above.\n\
-  5. Respond in the same language as the user.\n",
+  5. Respond in the same language as the user.\n\
+  6. Resilience — when a tool result contains 'RETRY-HINT', 'CAPTCHA', 'bot-wall', \
+'access denied', '安全验证', or otherwise looks like a dead page, DO NOT stop. \
+Immediately retry with one of: (a) web-search again — it auto-cycles Bing/Baidu/\
+DuckDuckGo/Searx, so just rephrase the query; (b) fetch-readable against a \
+specific known URL (e.g. weather.com, wttr.in, a Wikipedia page); (c) http-get \
+against a public API (e.g. https://wttr.in/CityName?format=j1 for weather). \
+Try at least TWO distinct strategies before declaring inability. Never tell \
+the user 'I can't access the internet' when http-get / fetch-readable / \
+web-search are listed above.\n",
         );
         prompt
     }
@@ -1407,6 +1416,10 @@ Rules:\n\
                         Ok(result) => result.output,
                         Err(error) => format!("error: {error}"),
                     };
+                    // Annotate tool output when it looks like a bot-wall /
+                    // CAPTCHA response so the model can see an explicit retry
+                    // hint rather than silently accepting a dead page.
+                    let result = annotate_tool_result(&tool_call.name, &result);
                     reports.push(format!(
                         "[{}] {}",
                         tool_call.name,
@@ -2318,6 +2331,59 @@ fn truncate_preview(value: &str, max_len: usize) -> String {
     let mut preview = value.chars().take(max_len).collect::<String>();
     preview.push_str(" ...");
     preview
+}
+
+/// Detect dead-page / CAPTCHA-like tool responses and append an explicit
+/// retry hint so the LLM treats the tool call as a semantic failure and
+/// picks a different strategy (different engine, different URL, or a
+/// different tool entirely) instead of silently accepting garbage.
+fn annotate_tool_result(tool_name: &str, output: &str) -> String {
+    if output.starts_with("error:") || output.starts_with("RETRY-HINT") {
+        return output.to_string();
+    }
+    // Network-facing tools where bot walls are likely.
+    let watchable = matches!(
+        tool_name,
+        "web-search"
+            | "web-browse"
+            | "http-get"
+            | "fetch-readable"
+            | "html-to-markdown"
+    );
+    if !watchable {
+        return output.to_string();
+    }
+    let lower = output.to_ascii_lowercase();
+    let markers: &[&str] = &[
+        "select all squares",
+        "confirm this search was made by a human",
+        "captcha",
+        "are you a robot",
+        "unusual traffic",
+        "请完成安全验证",
+        "百度安全验证",
+        "网络不给力",
+        "access denied",
+        "bot detection",
+        "cf-challenge",
+        "challenge-platform",
+        "cloudflare",
+    ];
+    let hit = markers.iter().find(|m| lower.contains(*m));
+    if let Some(m) = hit {
+        let reason = format!("bot-wall marker detected: '{}'", m);
+        return format!(
+            "RETRY-HINT: {tool_name} returned a dead page ({reason}).\n\
+             Next step: try a different approach — switch search engine \
+             (call web-search with a rephrased query; it already auto-\
+             cycles Bing/Baidu/DuckDuckGo/Searx), try fetch-readable on a \
+             specific known URL, or reformulate via http-get against a \
+             public API. Do NOT accept the raw response as the final answer.\n\n\
+             --- raw tool output (truncated) ---\n{}",
+            truncate_preview(output, 1500)
+        );
+    }
+    output.to_string()
 }
 
 #[cfg(test)]
