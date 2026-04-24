@@ -667,6 +667,22 @@ function setCurrentWorkObject(nextObject) {
   renderWorkObject();
 }
 
+function linkifyWorkspacePaths(html) {
+  if (!html) return html;
+  // Recognise the tool output prefixes that embed a workspace path and
+  // wrap the path in a clickable <a> pointing at /api/fs/read. Runs on the
+  // already-rendered HTML so existing markdown links are preserved.
+  // Matches e.g. "created foo.txt", "wrote src/main.rs", "appended to x.md",
+  // "deleted test.text", "saved to notes.md", "moved a -> b".
+  const verbs = '(created|wrote|appended to|saved to|deleted|moved|patched|updated)';
+  const pathish = "([^\\s<>'\"`]+\\.[A-Za-z0-9_.+-]{1,16}|[^\\s<>'\"`]+[/\\\\][^\\s<>'\"`]+)";
+  const re = new RegExp(`\\b${verbs}\\s+(${pathish})`, 'gi');
+  return html.replace(re, (match, verb, full, path) => {
+    const encoded = encodeURIComponent(path);
+    return `${verb} <a href="/api/fs/read?path=${encoded}" data-fs-link data-fs-path="${path}" target="_blank" rel="noopener">${path}</a>`;
+  });
+}
+
 function renderMarkdown(text) {
   if (!text) return '';
   if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
@@ -687,12 +703,14 @@ function renderMarkdown(text) {
       let html = marked.parse(text);
       html = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
       html = html.replace(/\son\w+\s*=/gi, ' data-blocked=');
+      html = linkifyWorkspacePaths(html);
       return html;
     } catch (_) {}
   }
   let html = escapeHtml(text);
   html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  html = linkifyWorkspacePaths(html);
   return html;
 }
 

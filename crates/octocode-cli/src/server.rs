@@ -2281,6 +2281,54 @@ fn route_request(
                 .to_string(),
             )
         }
+        ("GET", "/api/fs/read") => {
+            // Serve a workspace file as text so chat-rendered links ("created
+            // foo.txt", "wrote bar.rs", etc.) can be clicked to view / download.
+            // Text-only (UTF-8 / BOM-stripped). Binary responses require a
+            // separate streaming path; reject them here with 415.
+            let workspace_root_path = PathBuf::from(&platform.context().root);
+            let raw_path = request.query_value("path");
+            let target_path = resolve_fs_path(&workspace_root_path, raw_path.as_deref(), true)?;
+            if !target_path.is_file() {
+                return error_response(400, "path is not a file");
+            }
+            // 10 MB hard cap on in-memory text reads.
+            const FS_READ_MAX: u64 = 10 * 1024 * 1024;
+            match fs::metadata(&target_path) {
+                Ok(meta) if meta.len() > FS_READ_MAX => {
+                    return error_response(413, "file too large (limit 10MB)")
+                }
+                _ => {}
+            }
+            let bytes = fs::read(&target_path).map_err(|error| {
+                OctoError::Runtime(format!("read {}: {error}", target_path.display()))
+            })?;
+            let body = match String::from_utf8(bytes) {
+                Ok(text) => text,
+                Err(_) => return error_response(415, "file is not valid UTF-8 text"),
+            };
+            let filename = target_path
+                .file_name()
+                .and_then(|v| v.to_str())
+                .unwrap_or("download.txt")
+                .to_string();
+            let want_download = matches!(
+                request.query_value("download").as_deref(),
+                Some("1") | Some("true")
+            );
+            let disposition = if want_download {
+                format!("attachment; filename=\"{}\"", escape_json(&filename))
+            } else {
+                format!("inline; filename=\"{}\"", escape_json(&filename))
+            };
+            Ok(format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nContent-Disposition: {}\r\nCache-Control: no-store\r\nX-Workspace-Path: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                disposition,
+                escape_json(&target_path.display().to_string()),
+                body
+            ))
+        }
         ("POST", "/api/fs/create") => {
             let workspace_root_path = PathBuf::from(&platform.context().root);
             let raw_path = request.form_value("path");

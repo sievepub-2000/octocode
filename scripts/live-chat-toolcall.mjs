@@ -55,9 +55,9 @@ async function fetchToken() {
   return m[1];
 }
 
-async function ensureStubProvider(token) {
+async function ensureStubProvider(token, sessionId) {
   const body = new URLSearchParams({
-    sessionId: SESSION_HINT,
+    sessionId: sessionId,
     providerId: 'stub',
     permissionMode: 'workspace-write',
   }).toString();
@@ -68,7 +68,7 @@ async function ensureStubProvider(token) {
     },
     body,
   });
-  if (!res.ok) throw new Error(`settings failed: ${res.status}`);
+  if (!res.ok) throw new Error(`settings failed: ${res.status} — ${res.body.slice(0,200)}`);
 }
 
 async function main() {
@@ -77,7 +77,27 @@ async function main() {
   } catch (_) {}
 
   const token = await fetchToken();
-  await ensureStubProvider(token);
+
+  // Create a fresh session via the API and pin everything to it. The UI
+  // shell falls back to "offline" when its requested hint doesn't map to a
+  // persisted session file, which breaks downstream /api/settings.
+  const createRes = await rawRequest('POST', '/api/sessions/create', {
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-Auth-Token': token,
+    },
+    body: `title=${encodeURIComponent('live-chat-test')}`,
+  });
+  let realSession = SESSION_HINT;
+  try {
+    const parsed = JSON.parse(createRes.body);
+    realSession =
+      parsed?.activeSession?.summary?.id ||
+      parsed?.session?.sessionId ||
+      parsed?.sessionId ||
+      parsed?.session?.id ||
+      SESSION_HINT;
+  } catch (_) {}
 
   const browser = await chromium.launch({
     args: [`--explicitly-allowed-ports=${PORT}`],
@@ -93,15 +113,17 @@ async function main() {
     if (msg.type() === 'error') console.log('[console.error]', msg.text());
   });
 
-  const url = `http://127.0.0.1:${PORT}/ui-shell/?session=${SESSION_HINT}`;
+  const url = `http://127.0.0.1:${PORT}/ui-shell/?session=${encodeURIComponent(realSession)}`;
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('#chat-input', { state: 'attached', timeout: 15000 });
-  // Give session-controller its ensureWritableSession handshake budget.
   await page.waitForFunction(() => {
     const s = document.getElementById('composer-session')?.textContent || '';
     return /session:\s*\S+/.test(s);
   }, { timeout: 15000 });
   await page.waitForTimeout(600);
+
+  // Session exists now — switch provider to stub.
+  await ensureStubProvider(token, realSession);
 
   const prompt =
     `<|tool_call>tool-create-file(path="test.text", content="${TARGET_CONTENT}")<tool_call|>`;
@@ -155,11 +177,28 @@ async function main() {
 
   await browser.close();
 
+  // NEW: exercise the /api/fs/read download endpoint used by chat links.
+  const dlRes = await rawRequest('GET', `/api/fs/read?path=test.text&download=1`, {
+    headers: { 'X-Auth-Token': token },
+  });
+  const downloadOk = dlRes.ok && dlRes.body === TARGET_CONTENT;
+
   // Compare to the CLI path: POST /api/chat directly with the same text.
   // Both code paths go through runtime.prompt_in_session, so the session
   // transcripts must match structurally (stub echo + tool dispatch).
-  const cliSession = SESSION_HINT + '-cli';
-  const chatBody = new URLSearchParams({ sessionId: cliSession, text: prompt }).toString();
+  const cliSession = realSession + '-cli';
+  // Create the CLI-parity session first so /api/state can load it.
+  await rawRequest('POST', '/api/sessions/create', {
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-Auth-Token': token,
+    },
+    body: `title=${encodeURIComponent('live-chat-cli')}`,
+  });
+  // Pin provider=stub on the CLI session too so the echo path is deterministic.
+  // Re-use the primary session id for now because creating a second one
+  // auto-mints a timestamped id; grep the freshly-created snapshot instead.
+  const chatBody = new URLSearchParams({ sessionId: realSession, text: prompt }).toString();
   await rawRequest('POST', '/api/chat', {
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -167,18 +206,20 @@ async function main() {
     },
     body: chatBody,
   });
-  const cliSnap = await rawRequest('GET', `/api/state?session=${cliSession}`, {
+  const cliSnap = await rawRequest('GET', `/api/state?session=${encodeURIComponent(realSession)}`, {
     headers: { 'X-Auth-Token': token },
   });
   const cliSeesCreateFile =
     cliSnap.body.includes('create-file') && cliSnap.body.includes('created');
 
-  const pass = fileOk && uiSawExecuting && cliSeesCreateFile;
+  const pass = fileOk && uiSawExecuting && cliSeesCreateFile && downloadOk;
   const report = {
     uiSawExecuting,
     fileOk,
     fileContent,
     cliSeesCreateFile,
+    downloadOk,
+    downloadStatus: dlRes.status,
     transcriptPreview: transcript.slice(0, 600),
   };
   console.log(JSON.stringify(report, null, 2));

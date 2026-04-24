@@ -38,6 +38,109 @@ fn truncate_output(text: &str, max_bytes: usize) -> String {
     format!("{}\n\n[output truncated — {} bytes total]", &text[..end], text.len())
 }
 
+/// Strip HTML tags, decode the common entities, and collapse whitespace so
+/// the agent receives readable text instead of raw markup. Intentionally
+/// dependency-free; avoids pulling a full HTML parser into the runtime.
+pub(crate) fn html_to_text(html: &str) -> String {
+    // Drop <script>, <style>, and <head> blocks (body content only).
+    let re_block = |tag: &str, src: &str| -> String {
+        let open = format!("<{tag}");
+        let close = format!("</{tag}>");
+        let mut out = String::with_capacity(src.len());
+        let mut cursor = 0;
+        let lower = src.to_ascii_lowercase();
+        while let Some(start) = lower[cursor..].find(&open) {
+            let abs = cursor + start;
+            out.push_str(&src[cursor..abs]);
+            if let Some(end_rel) = lower[abs..].find(&close) {
+                cursor = abs + end_rel + close.len();
+            } else {
+                cursor = src.len();
+                break;
+            }
+        }
+        out.push_str(&src[cursor..]);
+        out
+    };
+    let mut s = html.to_string();
+    for tag in ["script", "style", "head", "noscript", "svg"] {
+        s = re_block(tag, &s);
+    }
+    // Convert paragraph / heading / list tags to newlines for legibility.
+    for tag in [
+        "</p>", "</div>", "</li>", "</tr>", "</h1>", "</h2>", "</h3>", "</h4>", "</h5>", "</h6>",
+        "<br>", "<br/>", "<br />", "</br>",
+    ] {
+        s = s.replace(tag, "\n");
+    }
+    // Strip remaining tags via a tiny state machine.
+    let mut buf = String::with_capacity(s.len());
+    let mut in_tag = false;
+    for ch in s.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' if in_tag => in_tag = false,
+            _ if !in_tag => buf.push(ch),
+            _ => {}
+        }
+    }
+    // Decode a small entity set that covers 99% of plain content.
+    let decoded = buf
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'");
+    // Collapse runs of blank lines / trailing spaces.
+    let mut cleaned = String::with_capacity(decoded.len());
+    let mut prev_blank = false;
+    for line in decoded.lines() {
+        let trimmed = line.trim_end();
+        if trimmed.is_empty() {
+            if !prev_blank {
+                cleaned.push('\n');
+            }
+            prev_blank = true;
+        } else {
+            cleaned.push_str(trimmed);
+            cleaned.push('\n');
+            prev_blank = false;
+        }
+    }
+    cleaned
+}
+
+pub(crate) fn extract_html_title(html: &str) -> Option<String> {
+    let lower = html.to_ascii_lowercase();
+    let start = lower.find("<title")?;
+    let gt = lower[start..].find('>')? + start + 1;
+    let end_rel = lower[gt..].find("</title>")?;
+    Some(html[gt..gt + end_rel].trim().to_string())
+}
+
+/// Best-effort readability: keep the <article>/<main> slice if present,
+/// otherwise fall back to the full body through `html_to_text`.
+pub(crate) fn html_extract_readable(html: &str) -> String {
+    let lower = html.to_ascii_lowercase();
+    for tag in ["article", "main"] {
+        let open = format!("<{tag}");
+        let close = format!("</{tag}>");
+        if let Some(s) = lower.find(&open) {
+            // Skip past the opening-tag attributes to the '>'.
+            if let Some(gt) = lower[s..].find('>') {
+                let body_start = s + gt + 1;
+                if let Some(e_rel) = lower[body_start..].find(&close) {
+                    let slice = &html[body_start..body_start + e_rel];
+                    return html_to_text(slice);
+                }
+            }
+        }
+    }
+    html_to_text(html)
+}
+
 const TOOLS: &[ToolDescriptor] = &[
     // ── original 8 ──────────────────────────────────────────────────────────
     ToolDescriptor {
@@ -347,6 +450,47 @@ const TOOLS: &[ToolDescriptor] = &[
         name: "lsp-hover",
         summary: "Spawn an LSP server (stdio) and query hover at path:line:col. Input: 'server_cmd|path|line|col'",
         minimum_permission: PermissionMode::ReadOnly,
+    },
+    // ── P1 additions (2026-04): Claude-Code / VS Code parity tools ─────────
+    ToolDescriptor {
+        name: "read-file-lines",
+        summary: "Read a line range from a workspace file (1-based inclusive). Input: 'path|start|end'",
+        minimum_permission: PermissionMode::ReadOnly,
+    },
+    ToolDescriptor {
+        name: "multi-edit",
+        summary: "Apply several ordered search-and-replace edits to a single file. Input: 'path|old1<<|>>new1||old2<<|>>new2||...'",
+        minimum_permission: PermissionMode::WorkspaceWrite,
+    },
+    ToolDescriptor {
+        name: "get-errors",
+        summary: "Run the workspace compiler/linter and return structured errors. Input: 'cargo' | 'clippy' | 'tsc' | 'eslint' (default: auto-detect)",
+        minimum_permission: PermissionMode::WorkspaceWrite,
+    },
+    ToolDescriptor {
+        name: "git-commit",
+        summary: "git add -A && git commit -m <message>. Input: commit message text.",
+        minimum_permission: PermissionMode::WorkspaceWrite,
+    },
+    ToolDescriptor {
+        name: "git-branch",
+        summary: "Manage git branches. Input: 'list' | 'current' | 'create <name>' | 'switch <name>' | 'delete <name>'",
+        minimum_permission: PermissionMode::WorkspaceWrite,
+    },
+    ToolDescriptor {
+        name: "fetch-readable",
+        summary: "Fetch a URL and extract readable article text (strips nav/ads/script). Input: url",
+        minimum_permission: PermissionMode::ReadOnly,
+    },
+    ToolDescriptor {
+        name: "html-to-markdown",
+        summary: "Convert an HTML string to plain markdown-ish text (strips tags, decodes entities). Input: raw HTML",
+        minimum_permission: PermissionMode::ReadOnly,
+    },
+    ToolDescriptor {
+        name: "run-task",
+        summary: "Run a common build/test task with streaming output. Input: 'cargo-build' | 'cargo-test' | 'npm-test' | 'npm-build' | 'pytest' | 'pnpm-test' | or 'custom|<shell>'",
+        minimum_permission: PermissionMode::WorkspaceWrite,
     },
 ];
 
@@ -692,19 +836,34 @@ impl WorkspaceToolExecutor {
         if url.is_empty() {
             return Err(OctoError::Runtime(String::from("http-get requires a URL")));
         }
-        // Security: only allow http/https schemes
         if !url.starts_with("http://") && !url.starts_with("https://") {
             return Err(OctoError::Runtime(String::from("http-get only supports http/https")));
         }
-        let cmd = if cfg!(target_os = "windows") {
-            format!(
-                "(Invoke-WebRequest -Uri '{}' -UseBasicParsing -TimeoutSec 15).Content | Select-Object -First 1 | ForEach-Object {{ $_.Substring(0, [Math]::Min(2000, $_.Length)) }}",
-                url.replace('\'', "''")
+        let agent = ureq::AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(10))
+            .timeout_read(Duration::from_secs(20))
+            .build();
+        let resp = agent
+            .get(url)
+            .set(
+                "User-Agent",
+                "OctocodeBot/1.0 (+https://github.com/octocode)",
             )
-        } else {
-            format!("curl -s --max-time 15 -L '{}' | head -c 2000", url.replace('\'', "'\\''"))
-        };
-        self.run_shell(&cmd)
+            .set("Accept", "text/html,text/plain,application/json;q=0.9,*/*;q=0.1")
+            .call()
+            .map_err(|e| OctoError::Runtime(format!("http-get failed: {e}")))?;
+        let status = resp.status();
+        let content_type = resp.header("content-type").unwrap_or("").to_string();
+        let body = resp
+            .into_string()
+            .map_err(|e| OctoError::Runtime(format!("http-get read: {e}")))?;
+        let output = format!(
+            "HTTP {} {}\n{}",
+            status,
+            content_type,
+            truncate_output(&body, 32 * 1024)
+        );
+        Ok(ToolResult { output })
     }
 
     fn read_context(&self, input: &str) -> Result<ToolResult, OctoError> {
@@ -747,18 +906,325 @@ impl WorkspaceToolExecutor {
         if !url.starts_with("http://") && !url.starts_with("https://") {
             return Err(OctoError::Runtime(String::from("web-browse only supports http/https")));
         }
+        let agent = ureq::AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(10))
+            .timeout_read(Duration::from_secs(25))
+            .build();
+        let resp = agent
+            .get(url)
+            .set(
+                "User-Agent",
+                "Mozilla/5.0 (compatible; OctocodeBot/1.0; +https://github.com/octocode)",
+            )
+            .set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .call()
+            .map_err(|e| OctoError::Runtime(format!("web-browse failed: {e}")))?;
+        let status = resp.status();
+        let content_type = resp.header("content-type").unwrap_or("").to_string();
+        let body = resp
+            .into_string()
+            .map_err(|e| OctoError::Runtime(format!("web-browse read: {e}")))?;
+        let text = if content_type.contains("html") || body.contains("<html") || body.contains("<body") {
+            html_to_text(&body)
+        } else {
+            body
+        };
+        let output = format!(
+            "HTTP {} {}\nURL {}\n\n{}",
+            status,
+            content_type,
+            url,
+            truncate_output(&text, 32 * 1024)
+        );
+        Ok(ToolResult { output })
+    }
+
+    fn fetch_readable(&self, input: &str) -> Result<ToolResult, OctoError> {
+        let url = input.trim();
+        if url.is_empty() {
+            return Err(OctoError::Runtime(String::from("fetch-readable requires a URL")));
+        }
+        if !url.starts_with("http://") && !url.starts_with("https://") {
+            return Err(OctoError::Runtime(String::from(
+                "fetch-readable only supports http/https",
+            )));
+        }
+        let agent = ureq::AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(10))
+            .timeout_read(Duration::from_secs(25))
+            .build();
+        let resp = agent
+            .get(url)
+            .set(
+                "User-Agent",
+                "Mozilla/5.0 (compatible; OctocodeBot/1.0; +https://github.com/octocode)",
+            )
+            .set("Accept", "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5")
+            .call()
+            .map_err(|e| OctoError::Runtime(format!("fetch-readable failed: {e}")))?;
+        let body = resp
+            .into_string()
+            .map_err(|e| OctoError::Runtime(format!("fetch-readable read: {e}")))?;
+        let title = extract_html_title(&body).unwrap_or_default();
+        let readable = html_extract_readable(&body);
+        let mut out = String::new();
+        if !title.is_empty() {
+            out.push_str(&format!("# {}\n\n", title));
+        }
+        out.push_str(&format!("Source: {}\n\n", url));
+        out.push_str(&readable);
+        Ok(ToolResult {
+            output: truncate_output(&out, 48 * 1024),
+        })
+    }
+
+    fn html_to_markdown_tool(&self, input: &str) -> Result<ToolResult, OctoError> {
+        let text = input.trim();
+        if text.is_empty() {
+            return Err(OctoError::Runtime(String::from(
+                "html-to-markdown requires HTML input",
+            )));
+        }
+        let md = html_to_text(text);
+        Ok(ToolResult {
+            output: truncate_output(&md, MAX_OUTPUT_BYTES),
+        })
+    }
+
+    fn read_file_lines(&self, input: &str) -> Result<ToolResult, OctoError> {
+        let parts: Vec<&str> = input.splitn(3, '|').collect();
+        if parts.len() < 3 {
+            return Err(OctoError::Runtime(String::from(
+                "read-file-lines expects path|start|end (1-based inclusive)",
+            )));
+        }
+        let path = self.resolve_workspace_path(parts[0].trim());
+        self.security_check_path(&path)?;
+        file_guard::guard_read(&path, &self.workspace_root)?;
+        let start: usize = parts[1]
+            .trim()
+            .parse()
+            .map_err(|_| OctoError::Runtime(String::from("start must be a positive integer")))?;
+        let end: usize = parts[2]
+            .trim()
+            .parse()
+            .map_err(|_| OctoError::Runtime(String::from("end must be a positive integer")))?;
+        if start == 0 || end == 0 || end < start {
+            return Err(OctoError::Runtime(String::from(
+                "line range invalid (use 1-based inclusive start<=end)",
+            )));
+        }
+        let content = fs::read_to_string(&path)
+            .map_err(|e| OctoError::Runtime(format!("read-file-lines: {e}")))?;
+        let selected: Vec<String> = content
+            .lines()
+            .enumerate()
+            .filter_map(|(i, line)| {
+                let n = i + 1;
+                if n >= start && n <= end {
+                    Some(format!("{:>6}  {}", n, line))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if selected.is_empty() {
+            return Ok(ToolResult {
+                output: format!("(no lines in range {}..{} for {})", start, end, path.display()),
+            });
+        }
+        Ok(ToolResult {
+            output: truncate_output(&selected.join("\n"), MAX_OUTPUT_BYTES),
+        })
+    }
+
+    fn multi_edit(&self, input: &str) -> Result<ToolResult, OctoError> {
+        // Format: path|old1<<|>>new1||old2<<|>>new2||...
+        let (path_text, rest) = input
+            .split_once('|')
+            .ok_or_else(|| OctoError::Runtime(String::from("multi-edit expects path|edits")))?;
+        let path = self.resolve_workspace_path(path_text.trim());
+        self.security_check_path(&path)?;
+        if !path.is_file() {
+            return Err(OctoError::Runtime(format!(
+                "multi-edit: not a file: {}",
+                path.display()
+            )));
+        }
+        let original = fs::read_to_string(&path)
+            .map_err(|e| OctoError::Runtime(format!("multi-edit read: {e}")))?;
+        let mut current = original.clone();
+        let mut applied = 0usize;
+        let edits: Vec<&str> = rest.split("||").collect();
+        for (i, edit) in edits.iter().enumerate() {
+            if edit.trim().is_empty() {
+                continue;
+            }
+            let (old, new) = edit.split_once("<<|>>").ok_or_else(|| {
+                OctoError::Runtime(format!(
+                    "multi-edit edit #{} expects old<<|>>new",
+                    i + 1
+                ))
+            })?;
+            if !current.contains(old) {
+                return Err(OctoError::Runtime(format!(
+                    "multi-edit edit #{} old-text not found",
+                    i + 1
+                )));
+            }
+            current = current.replacen(old, new, 1);
+            applied += 1;
+        }
+        if applied == 0 {
+            return Err(OctoError::Runtime(String::from(
+                "multi-edit requires at least one edit",
+            )));
+        }
+        file_guard::guard_write(&path, current.as_bytes(), &self.workspace_root)?;
+        fs::write(&path, &current)
+            .map_err(|e| OctoError::Runtime(format!("multi-edit write: {e}")))?;
+        Ok(ToolResult {
+            output: format!("patched {} ({} edits applied)", path.display(), applied),
+        })
+    }
+
+    fn get_errors(&self, input: &str) -> Result<ToolResult, OctoError> {
+        let sel = input.trim();
+        let cmd = match sel {
+            "" | "auto" => {
+                if self.workspace_root.join("Cargo.toml").exists() {
+                    "cargo check --message-format=short 2>&1"
+                } else if self.workspace_root.join("tsconfig.json").exists() {
+                    "npx --no-install tsc --noEmit --pretty false 2>&1"
+                } else if self.workspace_root.join("package.json").exists() {
+                    "npm run -s lint 2>&1"
+                } else {
+                    return Err(OctoError::Runtime(String::from(
+                        "get-errors: cannot auto-detect (no Cargo.toml/tsconfig.json/package.json)",
+                    )));
+                }
+            }
+            "cargo" => "cargo check --message-format=short 2>&1",
+            "clippy" => "cargo clippy --all-targets --message-format=short -- -D warnings 2>&1",
+            "tsc" => "npx --no-install tsc --noEmit --pretty false 2>&1",
+            "eslint" => "npx --no-install eslint . 2>&1",
+            other => return Err(OctoError::Runtime(format!("get-errors: unknown kind '{other}'"))),
+        };
+        let result = self.run_shell_with_timeout(cmd, Duration::from_secs(120))?;
+        // Heuristic: extract lines containing 'error' / 'warning'.
+        let mut findings: Vec<&str> = result
+            .output
+            .lines()
+            .filter(|l| {
+                let lc = l.to_ascii_lowercase();
+                lc.contains("error") || lc.contains("warning")
+            })
+            .take(200)
+            .collect();
+        if findings.is_empty() {
+            findings.push("(no errors or warnings detected)");
+        }
+        let summary = format!(
+            "[{}]\n{}\n\n---\nfull output:\n{}",
+            sel,
+            findings.join("\n"),
+            truncate_output(&result.output, 32 * 1024)
+        );
+        Ok(ToolResult {
+            output: truncate_output(&summary, MAX_OUTPUT_BYTES),
+        })
+    }
+
+    fn git_commit(&self, input: &str) -> Result<ToolResult, OctoError> {
+        let msg = input.trim();
+        if msg.is_empty() {
+            return Err(OctoError::Runtime(String::from(
+                "git-commit requires a commit message",
+            )));
+        }
+        if msg.contains('\'') {
+            return Err(OctoError::Runtime(String::from(
+                "git-commit message must not contain single quotes (use --amend manually)",
+            )));
+        }
         let cmd = if cfg!(target_os = "windows") {
             format!(
-                "(Invoke-WebRequest -Uri '{}' -UseBasicParsing -TimeoutSec 20).Content | Out-String | ForEach-Object {{ if ($_.Length -gt 8000) {{ $_.Substring(0,8000) + '...[truncated]' }} else {{ $_ }} }}",
-                url.replace('\'', "''")
+                "git add -A; git commit -m '{}' 2>&1 | Out-String",
+                msg.replace('\'', "''")
             )
         } else {
-            format!(
-                "curl -s --max-time 20 -L '{}' | head -c 8000",
-                url.replace('\'', "'\\''")
-            )
+            format!("git add -A && git commit -m '{}' 2>&1", msg)
         };
         self.run_shell(&cmd)
+    }
+
+    fn git_branch(&self, input: &str) -> Result<ToolResult, OctoError> {
+        let trimmed = input.trim();
+        let (action, name) = match trimmed.split_once(' ') {
+            Some((a, n)) => (a.trim(), n.trim()),
+            None => (trimmed, ""),
+        };
+        let safe_name = |n: &str| -> Result<String, OctoError> {
+            if n.is_empty()
+                || !n
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "-_./".contains(c))
+            {
+                return Err(OctoError::Runtime(format!(
+                    "git-branch: invalid branch name '{n}'"
+                )));
+            }
+            Ok(n.to_string())
+        };
+        let cmd = match action {
+            "" | "list" => String::from("git branch -a 2>&1"),
+            "current" => String::from("git rev-parse --abbrev-ref HEAD 2>&1"),
+            "create" => format!("git checkout -b {} 2>&1", safe_name(name)?),
+            "switch" => format!("git checkout {} 2>&1", safe_name(name)?),
+            "delete" => format!("git branch -D {} 2>&1", safe_name(name)?),
+            other => {
+                return Err(OctoError::Runtime(format!(
+                    "git-branch: unknown action '{other}' (list|current|create|switch|delete)"
+                )))
+            }
+        };
+        self.run_shell(&cmd)
+    }
+
+    fn run_task(&self, input: &str) -> Result<ToolResult, OctoError> {
+        let trimmed = input.trim();
+        if trimmed.is_empty() {
+            return Err(OctoError::Runtime(String::from(
+                "run-task requires a preset name or 'custom|<shell>'",
+            )));
+        }
+        let (preset, tail) = trimmed.split_once('|').unwrap_or((trimmed, ""));
+        let cmd = match preset.trim() {
+            "cargo-build" => String::from("cargo build 2>&1"),
+            "cargo-test" => String::from("cargo test --workspace --lib 2>&1"),
+            "cargo-check" => String::from("cargo check --workspace 2>&1"),
+            "cargo-clippy" => String::from("cargo clippy --workspace --all-targets -- -D warnings 2>&1"),
+            "npm-test" => String::from("npm test --silent 2>&1"),
+            "npm-build" => String::from("npm run -s build 2>&1"),
+            "npm-install" => String::from("npm ci --no-audit --prefer-offline 2>&1"),
+            "pnpm-test" => String::from("pnpm -s test 2>&1"),
+            "pnpm-build" => String::from("pnpm -s build 2>&1"),
+            "pytest" => String::from("python -m pytest -q 2>&1"),
+            "custom" => {
+                if tail.trim().is_empty() {
+                    return Err(OctoError::Runtime(String::from(
+                        "run-task custom requires |<shell command>",
+                    )));
+                }
+                tail.trim().to_string()
+            }
+            other => {
+                return Err(OctoError::Runtime(format!(
+                    "run-task: unknown preset '{other}' (cargo-build|cargo-test|cargo-check|cargo-clippy|npm-test|npm-build|npm-install|pnpm-test|pnpm-build|pytest|custom|<cmd>)"
+                )))
+            }
+        };
+        self.run_shell_with_timeout(&cmd, Duration::from_secs(300))
     }
 
     fn cli_pipe(&self, input: &str) -> Result<ToolResult, OctoError> {
@@ -2223,6 +2689,59 @@ impl ToolExecutor for WorkspaceToolExecutor {
             "worktree-exit" => self.worktree_exit(&call.input),
             "notebook-edit" => self.notebook_edit(&call.input),
             "lsp-hover" => self.lsp_hover(&call.input),
+            // ── P1 additions ────────────────────────────────────────────────
+            "read-file-lines" => self.read_file_lines(&call.input),
+            "multi-edit" => {
+                let (_, raw_payload) = split_approval_input(&call.input);
+                let path_text = raw_payload
+                    .split_once('|')
+                    .map(|(p, _)| p.trim())
+                    .unwrap_or("");
+                let path_probe = self.resolve_workspace_path(path_text);
+                let effective_input = if is_high_risk_write_target(&path_probe) {
+                    self.enforce_approval("multi-edit", &call.input, |candidate| {
+                        let p = candidate
+                            .split_once('|')
+                            .map(|(v, _)| v.trim())
+                            .unwrap_or_default();
+                        format!("multi-edit {}", self.resolve_workspace_path(p).display())
+                    })?
+                } else {
+                    String::from(raw_payload)
+                };
+                self.multi_edit(&effective_input)
+            }
+            "get-errors" => {
+                let approved = self.enforce_approval("get-errors", &call.input, |payload| {
+                    format!("diagnostics '{}'", preview_for_audit(payload, 60))
+                })?;
+                self.get_errors(&approved)
+            }
+            "git-commit" => {
+                let approved = self.enforce_approval("git-commit", &call.input, |payload| {
+                    format!("git commit '{}'", preview_for_audit(payload, 120))
+                })?;
+                self.git_commit(&approved)
+            }
+            "git-branch" => {
+                let approved = self.enforce_approval("git-branch", &call.input, |payload| {
+                    format!("git branch '{}'", preview_for_audit(payload, 120))
+                })?;
+                self.git_branch(&approved)
+            }
+            "fetch-readable" => {
+                let approved = self.enforce_approval("fetch-readable", &call.input, |payload| {
+                    format!("network fetch-readable '{}'", preview_for_audit(payload, 160))
+                })?;
+                self.fetch_readable(&approved)
+            }
+            "html-to-markdown" => self.html_to_markdown_tool(&call.input),
+            "run-task" => {
+                let approved = self.enforce_approval("run-task", &call.input, |payload| {
+                    format!("run-task '{}'", preview_for_audit(payload, 120))
+                })?;
+                self.run_task(&approved)
+            }
             _ => Err(OctoError::Runtime(format!("unknown tool: {}", call.name))),
         }
     }
@@ -2363,7 +2882,7 @@ mod tests {
     fn tool_catalog_has_expected_tools() {
         let catalog = RuntimeToolCatalog;
         let descriptors = catalog.descriptors();
-        assert_eq!(descriptors.len(), 59, "expected 59 tool descriptors, got {}", descriptors.len());
+        assert_eq!(descriptors.len(), 67, "expected 67 tool descriptors, got {}", descriptors.len());
     }
 
     #[test]

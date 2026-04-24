@@ -223,6 +223,39 @@ fn argspec_for(canonical: &str) -> Option<&'static ArgSpec> {
             required: 0,
             params: &[&["input", "symbol", "path"]],
         },
+        // ── P1 additions ────────────────────────────────────────────────
+        "read-file-lines" => &ArgSpec {
+            required: 3,
+            params: &[P_PATH, &["start", "from", "begin"], &["end", "to", "stop"]],
+        },
+        "multi-edit" => &ArgSpec {
+            required: 2,
+            params: &[P_PATH, &["edits", "changes", "ops", "input"]],
+        },
+        "get-errors" => &ArgSpec {
+            required: 0,
+            params: &[&["kind", "target", "tool", "input"]],
+        },
+        "git-commit" => &ArgSpec {
+            required: 1,
+            params: &[&["message", "msg", "text", "input"]],
+        },
+        "git-branch" => &ArgSpec {
+            required: 0,
+            params: &[&["action", "subcommand", "input"]],
+        },
+        "fetch-readable" => &ArgSpec {
+            required: 1,
+            params: &[&["url", "link", "href"]],
+        },
+        "html-to-markdown" => &ArgSpec {
+            required: 1,
+            params: &[&["html", "content", "text", "input"]],
+        },
+        "run-task" => &ArgSpec {
+            required: 1,
+            params: &[&["task", "preset", "name", "input"]],
+        },
         _ => return None,
     })
 }
