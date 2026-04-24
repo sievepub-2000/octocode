@@ -3290,8 +3290,13 @@ fn serve_static(request: &HttpRequest) -> Result<String, Box<dyn std::error::Err
         return error_response(404, "not found");
     };
 
-    let mut body = fs::read_to_string(&file_path)
-        .map_err(|e| OctoError::Runtime(format!("failed to read {}: {e}", file_path.display())))?;
+    let mut body = {
+        // Read as bytes and decode lossily so a stray non-UTF-8 byte in a
+        // comment/asset does not blow up the whole WebUI with a 500.
+        let bytes = fs::read(&file_path)
+            .map_err(|e| OctoError::Runtime(format!("failed to read {}: {e}", file_path.display())))?;
+        String::from_utf8_lossy(&bytes).into_owned()
+    };
     // Inject auth token into index.html so the WebUI can authenticate API calls
     if relative == "ui-shell/index.html" {
         let token = get_server_token();
