@@ -55,7 +55,23 @@
 
     /** Ask other tabs whether they already own `sessionId`. Resolves true if another tab responded within 250ms. */
     function askOwnership(sessionId) {
-      if (!broadcastChannel || !sessionId) return Promise.resolve(false);
+      if (!sessionId) return Promise.resolve(false);
+      // BugFix (live P13, layer 1): localStorage is shared across tabs in the
+      // same origin even when BroadcastChannel handshakes race (e.g. the
+      // second tab's init runs before the first tab's onmessage handler is
+      // attached). A heartbeat with TTL lets us detect a live owner even in
+      // that race window.
+      try {
+        const raw = global.localStorage.getItem(claimKey(sessionId));
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const fresh = parsed && typeof parsed.ts === 'number' && (Date.now() - parsed.ts) < CLAIM_TTL_MS;
+          if (fresh && parsed.tabId && parsed.tabId !== tabId) {
+            return Promise.resolve(true);
+          }
+        }
+      } catch (_) {}
+      if (!broadcastChannel) return Promise.resolve(false);
       return new Promise((resolve) => {
         const timer = setTimeout(() => {
           pendingClaimReplies.delete(sessionId);
@@ -64,6 +80,33 @@
         pendingClaimReplies.set(sessionId, { resolve, timer });
         broadcast('CLAIM', { sessionId });
       });
+    }
+
+    const CLAIM_TTL_MS = 30_000;
+    const CLAIM_HEARTBEAT_MS = 10_000;
+    function claimKey(sessionId) { return 'octocode-session-claim:' + sessionId; }
+    function writeClaim(sessionId) {
+      if (!sessionId) return;
+      try {
+        global.localStorage.setItem(claimKey(sessionId), JSON.stringify({ tabId, ts: Date.now() }));
+      } catch (_) {}
+    }
+    function clearClaim(sessionId) {
+      if (!sessionId) return;
+      try {
+        const raw = global.localStorage.getItem(claimKey(sessionId));
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.tabId === tabId) global.localStorage.removeItem(claimKey(sessionId));
+      } catch (_) {}
+    }
+    if (typeof global.setInterval === 'function') {
+      global.setInterval(() => {
+        if (ownedSessionId) writeClaim(ownedSessionId);
+      }, CLAIM_HEARTBEAT_MS);
+    }
+    if (typeof global.addEventListener === 'function') {
+      global.addEventListener('beforeunload', () => { if (ownedSessionId) clearClaim(ownedSessionId); });
     }
 
     function readStoredOwner() {
@@ -113,9 +156,11 @@
       writeStoredSessionId(ownedSessionId || '');
       if (previous && previous !== ownedSessionId) {
         broadcast('RELEASE', { sessionId: previous });
+        clearClaim(previous);
       }
       if (ownedSessionId) {
         broadcast('CLAIM', { sessionId: ownedSessionId });
+        writeClaim(ownedSessionId);
       }
       return ownedSessionId;
     }
@@ -180,14 +225,22 @@
       if (currentViewOwnsSession()) {
         return viewedSessionId;
       }
-      // If the user is viewing an existing (historical or external) session,
-      // adopt it as the writable session for this tab. Do NOT destroy it and
-      // create a new blank session — that was the "session pollution" bug
-      // where a user clicking on a history session and typing a message
-      // would silently start a different conversation.
+      // BugFix (live P13): sessions arriving via URL (?session=xxx) or via
+      // snapshot adoption are treated as *views* — this tab never silently
+      // claims write-ownership over them. That way, two tabs opened on the
+      // same URL always fork into two independent sessions the moment the
+      // user submits a message. The only auto-claim path is "this tab is
+      // the single viewer AND localStorage shows no live heartbeat from
+      // another tab" — which lets a solo user continue editing a history
+      // session normally.
       if (viewedSessionId) {
-        setOwnedSessionId(viewedSessionId);
-        return viewedSessionId;
+        const ownedElsewhere = await askOwnership(viewedSessionId);
+        const requested = String(options.getRequestedSessionId?.() || '').trim();
+        const cameFromUrl = requested && requested === viewedSessionId;
+        if (!ownedElsewhere && !cameFromUrl) {
+          setOwnedSessionId(viewedSessionId);
+          return viewedSessionId;
+        }
       }
       const { sessionId, state } = await createBrowserSession({ applyState: false });
       options.applyState(state, sessionId);

@@ -1002,20 +1002,23 @@ function renderStatusBar(state) {
     statusBranch.textContent = describeSessionLineage(summary) || t('session.rootBranch', 'branch: root');
   }
   if (streamIndicatorLabel) {
-    // P8-C / BugFix-2: label reflects the *reason* the indicator is on.
-    // We prioritize **client-observed** streaming state over the server's
-    // turn phase, because the SSE stream begins before the phase snapshot
-    // rolls forward. That race previously left the label stuck at
-    // "AI is responding..." during the model's think phase.
+    // P8-C / BugFix-2 / live-P13: label reflects the *reason* the indicator
+    // is on. We prioritize **client-observed** streaming state over the
+    // server's turn phase, because the SSE stream begins before the phase
+    // snapshot rolls forward. That race previously left the label stuck at
+    // "AI 正在响应..." during the model's think phase even while the backend
+    // was still awaiting the first token.
     const rt = conversationRuntime;
     const now = Date.now();
-    const sinceLastToken = rt?.lastTokenAt ? (now - rt.lastTokenAt) : Infinity;
+    const sinceLastToken = rt && rt.lastTokenAt > 0 ? (now - rt.lastTokenAt) : Infinity;
     const isStreamingOutput = rt && rt.tokenCount > 0 && sinceLastToken < 1200;
+    // Awaiting-first-token no longer requires lastTokenAt to be falsy — a
+    // freshly-begun runtime with tokenCount===0 is always in "thinking" even
+    // when the client has not yet observed a token timestamp.
     const isAwaitingFirstToken = rt && !rt.stopped && rt.tokenCount === 0;
     if (isStreamingOutput) {
       streamIndicatorLabel.textContent = t('stream.outputting', '输出中...');
     } else if (isAwaitingFirstToken) {
-      // Active SSE opened, no tokens yet → model is thinking.
       streamIndicatorLabel.textContent = t('stream.thinking', 'AI 思考中...');
     } else if (phase === 'running') {
       streamIndicatorLabel.textContent = (turn?.activeSseClients > 0)
@@ -1023,6 +1026,11 @@ function renderStatusBar(state) {
           ? t('stream.toolOrThink', '工具调用 / 思考中...')
           : t('stream.thinking', 'AI 思考中...'))
         : t('stream.recovering', '后端 turn 运行中，等待流恢复...');
+    } else if (isSubmitting) {
+      // Submit in progress but no runtime attached yet (ensureWritableSession
+      // / SSE open pending). Show "thinking" rather than the generic
+      // "responding" fallback so operators see truthful state.
+      streamIndicatorLabel.textContent = t('stream.thinking', 'AI 思考中...');
     } else {
       streamIndicatorLabel.textContent = t('stream.responding', 'AI is responding...');
     }
@@ -2811,9 +2819,16 @@ async function streamChat(text, sessionId) {
   // based on backend phase + streaming state so the indicator is only
   // visible during thinking / tool-call / background gaps.
   streamAbortController = new AbortController();
-  const runtime = beginConversationRuntime(text);
+  // BugFix-2 (live P13): reuse the preflight runtime the submit handler may
+  // already have created before awaiting ensureWritableSession. Creating a
+  // second runtime here would flip `stopped=true` on the preflight one and
+  // flash the indicator into the generic fallback label.
+  const existing = conversationRuntime;
+  const runtime = (existing && !existing.stopped && existing.promptText === text)
+    ? existing
+    : beginConversationRuntime(text);
   runtime.sessionId = sessionId;
-  runtime.watcherPromise = monitorConversationSettlement(runtime);
+  runtime.watcherPromise = runtime.watcherPromise || monitorConversationSettlement(runtime);
   let sawToken = false;
   let streamEstablished = false;
   const isViewing = () => currentSessionId === sessionId;
@@ -2864,6 +2879,12 @@ async function streamChat(text, sessionId) {
             sawToken = true;
             runtime.tokenCount += 1;
             runtime.lastTokenAt = Date.now();
+            // BugFix-2 (live P13): flip the indicator label the moment the
+            // first real token arrives, independent of renderStatusBar's
+            // next tick.
+            if (streamIndicatorLabel && runtime.tokenCount === 1) {
+              streamIndicatorLabel.textContent = t('stream.outputting', '输出中...');
+            }
             assistantMessage.content += parsed.token;
             updated = true;
           }
@@ -2872,6 +2893,9 @@ async function streamChat(text, sessionId) {
           sawToken = true;
           runtime.tokenCount += 1;
           runtime.lastTokenAt = Date.now();
+          if (streamIndicatorLabel && runtime.tokenCount === 1) {
+            streamIndicatorLabel.textContent = t('stream.outputting', '输出中...');
+          }
           updated = true;
         }
       }
@@ -2981,8 +3005,23 @@ chatForm.addEventListener('submit', async (event) => {
       const commandText = command.includes(' | ') ? `pipe ${command}` : command;
       state = await postForm('/api/command', { sessionId: writableSessionId, command: commandText });
     } else {
-      if (streamIndicator) streamIndicator.hidden = false;
+      if (streamIndicator) {
+        streamIndicator.hidden = false;
+        // BugFix-2 (live P13): set the label directly here. renderStatusBar
+        // only runs when a new state snapshot arrives; between submit and
+        // the first applyState, the label would otherwise retain its
+        // previous (often stale "AI 正在响应...") text.
+        if (streamIndicatorLabel) {
+          streamIndicatorLabel.textContent = t('stream.thinking', 'AI 思考中...');
+        }
+      }
+      // BugFix-2 (live P13): establish the conversation runtime BEFORE any
+      // async session work so renderStatusBar sees `tokenCount === 0` and
+      // labels the indicator as "AI 思考中..." instead of falling through
+      // to the generic "AI 正在响应..." while ensureWritableSession awaits.
+      const preflightRuntime = beginConversationRuntime(text);
       const writableSessionId = await sessionController.ensureWritableSession();
+      preflightRuntime.sessionId = writableSessionId;
       activeMutationSessionId = writableSessionId;
       chatInput.value = '';
       charCount.textContent = '0';
