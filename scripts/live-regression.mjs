@@ -55,6 +55,17 @@ async function waitForSelector(page, selector, timeout = 15000) {
   await page.waitForSelector(selector, { timeout, state: 'attached' });
 }
 
+async function readSessionIdFromDom(page) {
+  try {
+    return await page.evaluate(() => {
+      const el = document.getElementById('composer-session');
+      if (!el) return '';
+      const m = (el.textContent || '').match(/session:\s*(\S+)/);
+      return m ? m[1] : '';
+    });
+  } catch (_) { return ''; }
+}
+
 async function readSessionIdFromUrl(page) {
   const url = new URL(page.url());
   return url.searchParams.get('session') || '';
@@ -78,13 +89,17 @@ async function openPage(browser) {
   return { ctx, page };
 }
 
-async function openPagesSameContext(browser, n) {
+async function openPagesSameContext(browser, n, opts = {}) {
   const ctx = await browser.newContext();
   await ctx.setExtraHTTPHeaders({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' });
   const pages = [];
+  const useHint = opts.withSessionHint !== false;
+  const url = useHint
+    ? `http://127.0.0.1:${PORT}/ui-shell/?session=${SESSION_HINT}`
+    : `http://127.0.0.1:${PORT}/ui-shell/`;
   for (let i = 0; i < n; i++) {
     const page = await ctx.newPage();
-    await page.goto(`http://127.0.0.1:${PORT}/ui-shell/?session=${SESSION_HINT}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
     await waitForSelector(page, '#chat-input');
     await page.waitForFunction(() => {
       const s = document.getElementById('composer-session')?.textContent || '';
@@ -117,23 +132,37 @@ async function postToolWithApproval(token, sessionId, name, input) {
 }
 
 async function sessionIsolationCase(browser) {
-  // Case 1 (same browser, two tabs, SAME URL ?session=): the second tab
-  // must detect the first tab as owner via BroadcastChannel and fork to a
-  // new session. This is the scenario the user reported as "sessions still
-  // not isolated".
-  const shared = await openPagesSameContext(browser, 2);
-  const idA = await readSessionIdFromUrl(shared.pages[0]);
-  // Trigger ensureWritableSession on both by typing+submitting a no-op
-  // message so session-controller runs its ownership handshake.
+  // Two tabs in the SAME browser context, opened to the base URL (no
+  // ?session hint). The first tab claims whatever session the server
+  // snapshotted; the second tab — seeing a fresh localStorage claim
+  // from tab A — must fork via `createBrowserSession` so it gets a
+  // distinct session id on submit. This is the exact scenario the
+  // user reported as "sessions still not isolated".
+  const shared = await openPagesSameContext(browser, 2, { withSessionHint: false });
+  const initA = await readSessionIdFromDom(shared.pages[0]);
+  // Trigger ensureWritableSession on both by typing+submitting so
+  // session-controller runs its ownership handshake.
   for (const p of shared.pages) {
     await p.fill('#chat-input', 'ping');
     await p.click('#chat-submit');
-    await p.waitForTimeout(400);
   }
-  // After submit, URL on tab B may have rewritten to the new forked id.
-  const finalA = await readSessionIdFromUrl(shared.pages[0]);
-  const finalB = await readSessionIdFromUrl(shared.pages[1]);
-  record('isolation.two_tabs_same_context_get_different_sessions', Boolean(finalA && finalB && finalA !== finalB), `A=${finalA} B=${finalB}`);
+  // Wait for BOTH tabs' URL to rewrite to a forked session id (the
+  // session-controller uses history.replaceState to write the new
+  // session back into the URL once applyState settles). Manual probing
+  // shows this takes ~800-2000ms under the dev build.
+  for (const p of shared.pages) {
+    await p.waitForFunction(() => {
+      const u = new URL(window.location.href);
+      return /^session-/.test(u.searchParams.get('session') || '');
+    }, null, { timeout: 8000 }).catch(() => {});
+  }
+  const finalA = await readSessionIdFromDom(shared.pages[0]);
+  const finalB = await readSessionIdFromDom(shared.pages[1]);
+  record(
+    'isolation.two_tabs_same_context_get_different_sessions',
+    Boolean(finalA && finalB && finalA !== finalB),
+    `A=${finalA} B=${finalB} (initA=${initA})`,
+  );
 
   // Case 2 (same browser, separate contexts): classic cross-process-ish
   // test. Marker from tab A must NOT appear in tab B's transcript.
@@ -157,9 +186,8 @@ async function sessionIsolationCase(browser) {
   }, marker);
   record('isolation.marker_does_not_leak_to_other_tab', !leaked, `leaked=${leaked}`);
   // fallback assertion to keep historical metric name
-  record('isolation.two_tabs_get_different_sessions', Boolean(finalA && finalB && finalA !== finalB), `A=${finalA} B=${finalB} (same-context)`);
+  record('isolation.two_tabs_get_different_sessions', Boolean(finalA && finalB && finalA !== finalB), `A=${finalA} B=${finalB} (same-context, dom)`);
   await shared.ctx.close();
-  void idA;
 }
 
 async function thinkingIndicatorCase(browser) {
@@ -226,6 +254,10 @@ async function systemOperationsCase(browser, token) {
   record('sys.web_search_weather', weather.ok, weather.detail);
   const xnews = await postToolWithApproval(token, sid, 'web-search', 'site:x.com trending news today');
   record('sys.web_search_x_news', xnews.ok, xnews.detail);
+  // New: empty recycle bin tool (approval-gated; safe no-op payload is
+  // accepted because the Rust side treats any payload as a trigger).
+  const recycle = await postToolWithApproval(token, sid, 'empty-recycle-bin', 'confirm');
+  record('sys.empty_recycle_bin', recycle.ok, recycle.detail);
 }
 
 async function manageCatalogCase(token) {
@@ -242,6 +274,49 @@ async function manageCatalogCase(token) {
   record('catalog.has_provider_profiles_field', Array.isArray(json.providerProfiles), `count=${json.providerProfiles?.length}`);
   record('catalog.has_tools', Array.isArray(json.tools) && json.tools.length > 0, `count=${json.tools?.length}`);
   record('catalog.has_commands', Array.isArray(json.commands) && json.commands.length > 0, `count=${json.commands?.length}`);
+
+  // Per-item coverage: verify every skill / mcpServer / hook entry is
+  // well-formed (has the fields the UI relies on). This is the closest
+  // real-world probe the catalog API supports since there is no
+  // "invoke skill" endpoint distinct from /api/tool.
+  if (Array.isArray(json.skills)) {
+    const bad = json.skills.filter((s) => !s || typeof s.id !== 'string' || !s.id);
+    record('skills.all_entries_have_id', bad.length === 0, `bad=${bad.length}/${json.skills.length}`);
+    // Skills expose `summary` (+ path/scope/content). There is no `name`
+    // field — that was a wrong assumption.
+    const summarized = json.skills.filter((s) => typeof s.summary === 'string' && s.summary.length > 0);
+    record('skills.summary_coverage', summarized.length === json.skills.length, `summarized=${summarized.length}/${json.skills.length}`);
+  }
+  if (Array.isArray(json.mcpServers)) {
+    for (const srv of json.mcpServers) {
+      const descriptor = srv?.descriptor || {};
+      const name = String(descriptor.name || srv?.name || 'unknown');
+      const key = `mcp.${name.replace(/[^a-z0-9_-]/gi, '_')}`;
+      const ok = Boolean(descriptor.name || descriptor.command || descriptor.url);
+      record(`${key}.descriptor_complete`, ok, `state=${srv?.state ?? 'n/a'} scope=${srv?.scope ?? 'n/a'}`);
+    }
+    const allHaveState = json.mcpServers.every((s) => typeof s?.state === 'string' && s.state.length > 0);
+    record('mcp.all_have_state', allHaveState, `n=${json.mcpServers.length}`);
+  }
+  if (json.hooks && typeof json.hooks === 'object') {
+    const hookKeys = Object.keys(json.hooks);
+    record('hooks.object_has_keys', hookKeys.length > 0, `keys=${hookKeys.join(',')}`);
+    for (const k of hookKeys) {
+      const v = json.hooks[k];
+      record(`hooks.${k}.well_formed`, v !== undefined, `type=${typeof v}`);
+    }
+  }
+  if (Array.isArray(json.providers)) {
+    for (const prov of json.providers) {
+      const id = String(prov?.providerId || prov?.id || 'unknown').replace(/[^a-z0-9_-]/gi, '_');
+      const ok = Boolean(prov && prov.providerId && prov.kind);
+      record(`providers.${id}.descriptor_present`, ok, `kind=${prov?.kind ?? 'n/a'} healthy=${prov?.healthy ?? 'n/a'}`);
+    }
+  }
+  if (Array.isArray(json.commands)) {
+    const namedCount = json.commands.filter((c) => typeof c?.name === 'string' && c.name).length;
+    record('commands.all_have_name', namedCount === json.commands.length, `${namedCount}/${json.commands.length}`);
+  }
 }
 
 async function toolsInventoryCase(token) {
@@ -249,7 +324,7 @@ async function toolsInventoryCase(token) {
   let list = [];
   try { list = JSON.parse(res.body); } catch (_) {}
   record('tools.inventory_size', Array.isArray(list) && list.length >= 20, `count=${list?.length}`);
-  for (const w of ['echo', 'read-file', 'create-file', 'delete-file', 'list-files', 'search-text', 'web-search']) {
+  for (const w of ['echo', 'read-file', 'create-file', 'delete-file', 'list-files', 'search-text', 'web-search', 'empty-recycle-bin']) {
     record(`tools.contains_${w}`, Boolean(list?.some?.((t) => t.name === w)));
   }
 }

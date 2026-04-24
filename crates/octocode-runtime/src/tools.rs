@@ -128,6 +128,11 @@ const TOOLS: &[ToolDescriptor] = &[
         minimum_permission: PermissionMode::WorkspaceWrite,
     },
     ToolDescriptor {
+        name: "empty-recycle-bin",
+        summary: "Empty the OS recycle bin / trash (approval-gated, DangerFullAccess)",
+        minimum_permission: PermissionMode::DangerFullAccess,
+    },
+    ToolDescriptor {
         name: "move-file",
         summary: "Move or rename a file inside the workspace (src|dst)",
         minimum_permission: PermissionMode::WorkspaceWrite,
@@ -829,6 +834,21 @@ impl WorkspaceToolExecutor {
             )
         } else {
             String::from("echo '--- Memory ---'; free -h 2>/dev/null || vm_stat; echo '--- Disk ---'; df -h / ; echo '--- CPU ---'; uptime")
+        };
+        self.run_shell(&cmd)
+    }
+
+    fn empty_recycle_bin(&self, _approved: &str) -> Result<ToolResult, OctoError> {
+        // Cross-platform OS recycle bin / trash emptying. Gated by the
+        // approval flow in the caller; reaching here means the operator
+        // explicitly confirmed. We shell out rather than calling SHEmptyRecycleBin
+        // directly to avoid pulling a new winapi dep.
+        let cmd = if cfg!(target_os = "windows") {
+            String::from("Clear-RecycleBin -Force -ErrorAction SilentlyContinue; 'recycle bin emptied'")
+        } else if cfg!(target_os = "macos") {
+            String::from("osascript -e 'tell application \"Finder\" to empty trash' && echo 'trash emptied'")
+        } else {
+            String::from("if command -v gio >/dev/null 2>&1; then gio trash --empty && echo 'trash emptied (gio)'; else rm -rf ~/.local/share/Trash/files/* ~/.local/share/Trash/info/* 2>/dev/null && echo 'trash emptied (fallback)'; fi")
         };
         self.run_shell(&cmd)
     }
@@ -1951,6 +1971,12 @@ impl ToolExecutor for WorkspaceToolExecutor {
                 fs::remove_file(&path).map_err(|e| OctoError::Runtime(format!("delete-file: {e}")))?;
                 Ok(ToolResult { output: format!("deleted {}", path.display()) })
             }
+            "empty-recycle-bin" => {
+                let approved = self.enforce_approval("empty-recycle-bin", &call.input, |_payload| {
+                    String::from("OS recycle bin / trash empty")
+                })?;
+                self.empty_recycle_bin(&approved)
+            }
             "move-file" => {
                 let approved = self.enforce_approval("move-file", &call.input, |payload| {
                     if let Some((src_text, dst_text)) = payload.split_once('|') {
@@ -2337,7 +2363,7 @@ mod tests {
     fn tool_catalog_has_expected_tools() {
         let catalog = RuntimeToolCatalog;
         let descriptors = catalog.descriptors();
-        assert_eq!(descriptors.len(), 58, "expected 58 tool descriptors, got {}", descriptors.len());
+        assert_eq!(descriptors.len(), 59, "expected 59 tool descriptors, got {}", descriptors.len());
     }
 
     #[test]
