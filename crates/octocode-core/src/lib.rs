@@ -42,17 +42,26 @@ pub enum PlatformKind {
     Linux,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ProviderKind {
     Stub,
     Anthropic,
     OpenAiCompatible,
+    /// Legacy OpenAI /v1/completions endpoint (pre-chat-completions, still
+    /// used by some self-hosted gateways that only implement the old shape).
+    OpenAiCompletion,
     XAi,
     DashScope,
     Ollama,
     LlamaCpp,
     LinkMind,
+    OpenRouter,
+    Qwen,
+    Glm,
+    Kimi,
+    Xiaomi,
+    MiniMax,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

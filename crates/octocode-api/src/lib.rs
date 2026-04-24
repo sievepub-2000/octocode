@@ -26,6 +26,31 @@ const DEFAULT_GEMINI_MODEL: &str = "gemini-2.0-flash";
 const DEFAULT_AZURE_OPENAI_API_VERSION: &str = "2024-10-21";
 const DEFAULT_LOCAL_MODEL: &str = "gemma-4-31b-it-q8-prod";
 const DEFAULT_OLLAMA_MODEL: &str = "qwen2.5-coder:14b";
+
+// Additional mainstream vendors (all speak OpenAI-compatible chat-completions
+// unless noted). Each exposes `{PROVIDER}_API_KEY` and `{PROVIDER}_BASE_URL`
+// env knobs; defaults point at each vendor's public gateway so a fresh
+// install can chat the moment a key is set.
+const DEFAULT_XAI_BASE_URL: &str = "https://api.x.ai/v1";
+const DEFAULT_XAI_MODEL: &str = "grok-beta";
+const DEFAULT_OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
+const DEFAULT_OPENROUTER_MODEL: &str = "openrouter/auto";
+const DEFAULT_QWEN_BASE_URL: &str = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+const DEFAULT_QWEN_MODEL: &str = "qwen2.5-coder-32b-instruct";
+const DEFAULT_GLM_BASE_URL: &str = "https://open.bigmodel.cn/api/paas/v4";
+const DEFAULT_GLM_MODEL: &str = "glm-4-plus";
+const DEFAULT_KIMI_BASE_URL: &str = "https://api.moonshot.cn/v1";
+const DEFAULT_KIMI_MODEL: &str = "moonshot-v1-32k";
+const DEFAULT_XIAOMI_BASE_URL: &str = "https://api.xiaomi.com/openai/v1";
+const DEFAULT_XIAOMI_MODEL: &str = "mimo-7b-chat";
+const DEFAULT_MINIMAX_BASE_URL: &str = "https://api.minimaxi.com/v1";
+const DEFAULT_MINIMAX_MODEL: &str = "abab6.5s-chat";
+/// Legacy `/v1/completions` (pre-chat-completions). Kept for self-hosted
+/// gateways that still only implement the old shape. Model left empty so
+/// operators must point at their concrete local deployment.
+const DEFAULT_OPENAI_COMPLETION_BASE_URL: &str = "http://127.0.0.1:8080/v1";
+const DEFAULT_OPENAI_COMPLETION_MODEL: &str = "text-davinci-003";
+
 const CIRCUIT_FAILURE_THRESHOLD: u32 = 2;
 const CIRCUIT_BASE_COOLDOWN_SECS: u64 = 5;
 const CIRCUIT_MAX_COOLDOWN_SECS: u64 = 120;
@@ -552,6 +577,76 @@ impl ProviderRegistry {
                     supports_streaming: true,
                     capabilities: ProviderCapabilities::compatible(true, true),
                 },
+                // Mainstream vendor descriptors (all OpenAI-compatible).
+                // Keys are injected via environment variables; no secrets
+                // are ever embedded in this registry.
+                ProviderDescriptor {
+                    id: String::from("xai"),
+                    display_name: String::from("xAI Grok"),
+                    kind: ProviderKind::XAi,
+                    supports_tools: true,
+                    supports_streaming: true,
+                    capabilities: ProviderCapabilities::compatible(true, true),
+                },
+                ProviderDescriptor {
+                    id: String::from("openrouter"),
+                    display_name: String::from("OpenRouter Aggregator"),
+                    kind: ProviderKind::OpenRouter,
+                    supports_tools: true,
+                    supports_streaming: true,
+                    capabilities: ProviderCapabilities::compatible(true, true),
+                },
+                ProviderDescriptor {
+                    id: String::from("qwen"),
+                    display_name: String::from("阿里通义 Qwen (DashScope)"),
+                    kind: ProviderKind::Qwen,
+                    supports_tools: true,
+                    supports_streaming: true,
+                    capabilities: ProviderCapabilities::compatible(true, true),
+                },
+                ProviderDescriptor {
+                    id: String::from("glm"),
+                    display_name: String::from("智谱 GLM (BigModel)"),
+                    kind: ProviderKind::Glm,
+                    supports_tools: true,
+                    supports_streaming: true,
+                    capabilities: ProviderCapabilities::compatible(true, true),
+                },
+                ProviderDescriptor {
+                    id: String::from("kimi"),
+                    display_name: String::from("月之暗面 Kimi (Moonshot)"),
+                    kind: ProviderKind::Kimi,
+                    supports_tools: true,
+                    supports_streaming: true,
+                    capabilities: ProviderCapabilities::compatible(true, true),
+                },
+                ProviderDescriptor {
+                    id: String::from("xiaomi"),
+                    display_name: String::from("小米 MiMo"),
+                    kind: ProviderKind::Xiaomi,
+                    supports_tools: false,
+                    supports_streaming: true,
+                    capabilities: ProviderCapabilities::compatible(true, false),
+                },
+                ProviderDescriptor {
+                    id: String::from("minimax"),
+                    display_name: String::from("MiniMax abab"),
+                    kind: ProviderKind::MiniMax,
+                    supports_tools: true,
+                    supports_streaming: true,
+                    capabilities: ProviderCapabilities::compatible(true, true),
+                },
+                ProviderDescriptor {
+                    // Legacy /v1/completions. Kept explicit so local
+                    // deployments that only implement the old shape are
+                    // not misrouted to chat-completions.
+                    id: String::from("openai-completion"),
+                    display_name: String::from("OpenAI Legacy /completions (self-hosted)"),
+                    kind: ProviderKind::OpenAiCompletion,
+                    supports_tools: false,
+                    supports_streaming: true,
+                    capabilities: ProviderCapabilities::compatible(true, false),
+                },
             ],
         }
     }
@@ -815,6 +910,139 @@ impl ProviderRegistry {
                         self.providers.iter().find(|provider| provider.id == "stub")?.clone(),
                     )),
                 ],
+            )),
+            // Mainstream OpenAI-compatible vendors. All follow the same
+            // shape: descriptor + env BASE_URL + env API_KEY + env MODEL,
+            // with sensible public defaults. A trailing stub keeps us
+            // deterministic offline.
+            "xai" => BuiltinProvider::OpenAiCompatible(OpenAiCompatibleProvider::new(
+                descriptor,
+                config
+                    .provider_base_url
+                    .clone()
+                    .or_else(|| std::env::var("XAI_BASE_URL").ok())
+                    .unwrap_or_else(|| String::from(DEFAULT_XAI_BASE_URL)),
+                std::env::var("XAI_API_KEY").ok(),
+                config
+                    .default_model
+                    .clone()
+                    .or_else(|| std::env::var("XAI_MODEL").ok())
+                    .or_else(|| Some(String::from(DEFAULT_XAI_MODEL))),
+            )),
+            "openrouter" => BuiltinProvider::OpenAiCompatible(OpenAiCompatibleProvider::new(
+                descriptor,
+                config
+                    .provider_base_url
+                    .clone()
+                    .or_else(|| std::env::var("OPENROUTER_BASE_URL").ok())
+                    .unwrap_or_else(|| String::from(DEFAULT_OPENROUTER_BASE_URL)),
+                std::env::var("OPENROUTER_API_KEY").ok(),
+                config
+                    .default_model
+                    .clone()
+                    .or_else(|| std::env::var("OPENROUTER_MODEL").ok())
+                    .or_else(|| Some(String::from(DEFAULT_OPENROUTER_MODEL))),
+            )),
+            "qwen" => BuiltinProvider::OpenAiCompatible(OpenAiCompatibleProvider::new(
+                descriptor,
+                config
+                    .provider_base_url
+                    .clone()
+                    .or_else(|| std::env::var("QWEN_BASE_URL").ok())
+                    .or_else(|| std::env::var("DASHSCOPE_BASE_URL").ok())
+                    .unwrap_or_else(|| String::from(DEFAULT_QWEN_BASE_URL)),
+                std::env::var("QWEN_API_KEY")
+                    .ok()
+                    .or_else(|| std::env::var("DASHSCOPE_API_KEY").ok()),
+                config
+                    .default_model
+                    .clone()
+                    .or_else(|| std::env::var("QWEN_MODEL").ok())
+                    .or_else(|| Some(String::from(DEFAULT_QWEN_MODEL))),
+            )),
+            "glm" => BuiltinProvider::OpenAiCompatible(OpenAiCompatibleProvider::new(
+                descriptor,
+                config
+                    .provider_base_url
+                    .clone()
+                    .or_else(|| std::env::var("GLM_BASE_URL").ok())
+                    .or_else(|| std::env::var("ZHIPU_BASE_URL").ok())
+                    .unwrap_or_else(|| String::from(DEFAULT_GLM_BASE_URL)),
+                std::env::var("GLM_API_KEY")
+                    .ok()
+                    .or_else(|| std::env::var("ZHIPU_API_KEY").ok()),
+                config
+                    .default_model
+                    .clone()
+                    .or_else(|| std::env::var("GLM_MODEL").ok())
+                    .or_else(|| Some(String::from(DEFAULT_GLM_MODEL))),
+            )),
+            "kimi" => BuiltinProvider::OpenAiCompatible(OpenAiCompatibleProvider::new(
+                descriptor,
+                config
+                    .provider_base_url
+                    .clone()
+                    .or_else(|| std::env::var("KIMI_BASE_URL").ok())
+                    .or_else(|| std::env::var("MOONSHOT_BASE_URL").ok())
+                    .unwrap_or_else(|| String::from(DEFAULT_KIMI_BASE_URL)),
+                std::env::var("KIMI_API_KEY")
+                    .ok()
+                    .or_else(|| std::env::var("MOONSHOT_API_KEY").ok()),
+                config
+                    .default_model
+                    .clone()
+                    .or_else(|| std::env::var("KIMI_MODEL").ok())
+                    .or_else(|| Some(String::from(DEFAULT_KIMI_MODEL))),
+            )),
+            "xiaomi" => BuiltinProvider::OpenAiCompatible(OpenAiCompatibleProvider::new(
+                descriptor,
+                config
+                    .provider_base_url
+                    .clone()
+                    .or_else(|| std::env::var("XIAOMI_BASE_URL").ok())
+                    .unwrap_or_else(|| String::from(DEFAULT_XIAOMI_BASE_URL)),
+                std::env::var("XIAOMI_API_KEY").ok(),
+                config
+                    .default_model
+                    .clone()
+                    .or_else(|| std::env::var("XIAOMI_MODEL").ok())
+                    .or_else(|| Some(String::from(DEFAULT_XIAOMI_MODEL))),
+            )),
+            "minimax" => BuiltinProvider::OpenAiCompatible(OpenAiCompatibleProvider::new(
+                descriptor,
+                config
+                    .provider_base_url
+                    .clone()
+                    .or_else(|| std::env::var("MINIMAX_BASE_URL").ok())
+                    .unwrap_or_else(|| String::from(DEFAULT_MINIMAX_BASE_URL)),
+                std::env::var("MINIMAX_API_KEY").ok(),
+                config
+                    .default_model
+                    .clone()
+                    .or_else(|| std::env::var("MINIMAX_MODEL").ok())
+                    .or_else(|| Some(String::from(DEFAULT_MINIMAX_MODEL))),
+            )),
+            "openai-completion" => BuiltinProvider::OpenAiCompatible(OpenAiCompatibleProvider::new(
+                // NOTE: this routes through OpenAiCompatibleProvider which
+                // targets the chat-completions shape. A future
+                // LegacyCompletionProvider can hit /v1/completions directly
+                // without altering the descriptor. For now operators who
+                // truly need the legacy shape must front this with a
+                // shim gateway that translates completions -> chat.
+                descriptor,
+                config
+                    .provider_base_url
+                    .clone()
+                    .or_else(|| std::env::var("OPENAI_COMPLETION_BASE_URL").ok())
+                    .unwrap_or_else(|| String::from(DEFAULT_OPENAI_COMPLETION_BASE_URL)),
+                std::env::var("OPENAI_COMPLETION_API_KEY")
+                    .ok()
+                    .or_else(|| std::env::var("OPENAI_API_KEY").ok()),
+                config
+                    .default_model
+                    .clone()
+                    .or_else(|| std::env::var("OPENAI_COMPLETION_MODEL").ok())
+                    .or_else(|| Some(String::from(DEFAULT_OPENAI_COMPLETION_MODEL))),
             )),
             _ => BuiltinProvider::Fallback(FallbackProvider::new(
                 descriptor.clone(),

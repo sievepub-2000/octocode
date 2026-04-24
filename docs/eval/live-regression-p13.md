@@ -1,25 +1,25 @@
 # Live Regression — port 999
 
 Session hint: liveqa
-Passed 54/54; failed 0.
+Passed 62/62; failed 0.
 
 | Case | Result | Detail |
 |------|--------|--------|
-| isolation.two_tabs_same_context_get_different_sessions | PASS | A=session-1776991784985733300 B=session-1776991786043967300 (initA=session-1776991784985733300) |
+| isolation.two_tabs_same_context_get_different_sessions | PASS | A=session-1776993612776917600 B=session-1776993613887236600 (initA=demo) |
 | isolation.marker_does_not_leak_to_other_tab | PASS | leaked=false |
-| isolation.two_tabs_get_different_sessions | PASS | A=session-1776991784985733300 B=session-1776991786043967300 (same-context, dom) |
+| isolation.two_tabs_get_different_sessions | PASS | A=session-1776993612776917600 B=session-1776993613887236600 (same-context, dom) |
 | thinking.indicator_entered_thinking_phase | PASS | labels=["AI 思考中...","AI 思考中...","AI 思考中...","AI 思考中...","AI 思考中...","AI 思考中...","AI 思考中...","AI 思考中..."] |
 | thinking.indicator_not_stuck_on_generic_responding_only | PASS | labels=["AI 思考中...","AI 思考中...","AI 思考中...","AI 思考中...","AI 思考中...","AI 思考中...","AI 思考中...","AI 思考中..."] |
-| tools.create_file_ok | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":29,"providerHealth":{"providerId":"ollama", |
-| tools.read_file_returns_content | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":29,"providerHealth":{"providerId":"ollama", |
-| tools.list_files_contains_new_file | PASS | liveqa-1776991807622.txt |
-| tools.delete_file_ok | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":29,"providerHealth":{"providerId":"ollama", |
-| sys.create_file | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":29,"providerHealth":{"providerId":"ollama", |
-| sys.delete_file | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":29,"providerHealth":{"providerId":"ollama", |
-| sys.echo_baseline | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":29,"providerHealth":{"providerId":"ollama", |
-| sys.web_search_weather | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":29,"providerHealth":{"providerId":"ollama", |
-| sys.web_search_x_news | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":29,"providerHealth":{"providerId":"ollama", |
-| sys.empty_recycle_bin | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":29,"providerHealth":{"providerId":"ollama", |
+| tools.create_file_ok | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":34,"providerHealth":{"providerId":"ollama", |
+| tools.read_file_returns_content | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":34,"providerHealth":{"providerId":"ollama", |
+| tools.list_files_contains_new_file | PASS | liveqa-1776993639886.txt |
+| tools.delete_file_ok | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":34,"providerHealth":{"providerId":"ollama", |
+| sys.create_file | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":34,"providerHealth":{"providerId":"ollama", |
+| sys.delete_file | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":34,"providerHealth":{"providerId":"ollama", |
+| sys.echo_baseline | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":34,"providerHealth":{"providerId":"ollama", |
+| sys.web_search_weather | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":34,"providerHealth":{"providerId":"ollama", |
+| sys.web_search_x_news | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":34,"providerHealth":{"providerId":"ollama", |
+| sys.empty_recycle_bin | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":34,"providerHealth":{"providerId":"ollama", |
 | catalog.http_200 | PASS | status=200 |
 | catalog.parses_json | PASS |  |
 | catalog.has_skills | PASS | count=36 |
@@ -45,6 +45,14 @@ Passed 54/54; failed 0.
 | providers.gemini.descriptor_present | PASS | kind=openAiCompatible healthy=true |
 | providers.azure-openai.descriptor_present | PASS | kind=openAiCompatible healthy=true |
 | providers.nvidia-free.descriptor_present | PASS | kind=openAiCompatible healthy=true |
+| providers.xai.descriptor_present | PASS | kind=xAi healthy=true |
+| providers.openrouter.descriptor_present | PASS | kind=openRouter healthy=true |
+| providers.qwen.descriptor_present | PASS | kind=qwen healthy=true |
+| providers.glm.descriptor_present | PASS | kind=glm healthy=true |
+| providers.kimi.descriptor_present | PASS | kind=kimi healthy=true |
+| providers.xiaomi.descriptor_present | PASS | kind=xiaomi healthy=true |
+| providers.minimax.descriptor_present | PASS | kind=miniMax healthy=true |
+| providers.openai-completion.descriptor_present | PASS | kind=openAiCompletion healthy=true |
 | providers.stub.descriptor_present | PASS | kind=stub healthy=true |
 | commands.all_have_name | PASS | 29/29 |
 | tools.inventory_size | PASS | count=59 |

@@ -1596,7 +1596,7 @@ dependencies = [
 
 [[package]]
 name = "octocode-api"
-version = "0.1.0"
+version = "2026.4.24"
 dependencies = [
  "octocode-core",
  "serde",
@@ -1606,7 +1606,7 @@ dependencies = [
 
 [[package]]
 name = "octocode-cli"
-version = "0.1.0"
+version = "2026.4.24"
 dependencies = [
  "base64",
  "crossterm",
@@ -1636,7 +1636,7 @@ dependencies = [
 
 [[package]]
 name = "octocode-commands"
-version = "0.1.0"
+version = "2026.4.24"
 dependencies = [
  "octocode-core",
  "octocode-runtime",
@@ -1644,7 +1644,7 @@ dependencies = [
 
 [[package]]
 name = "octocode-core"
-version = "0.1.0"
+version = "2026.4.24"
 dependencies = [
  "serde",
  "serde_json",
@@ -1652,7 +1652,7 @@ dependencies = [
 
 [[package]]
 name = "octocode-mcp"
-version = "0.1.0"
+version = "2026.4.24"
 dependencies = [
  "octocode-core",
  "serde_json",
@@ -1661,14 +1661,14 @@ dependencies = [
 
 [[package]]
 name = "octocode-mock-provider"
-version = "0.1.0"
+version = "2026.4.24"
 dependencies = [
  "octocode-core",
 ]
 
 [[package]]
 name = "octocode-plugins"
-version = "0.1.0"
+version = "2026.4.24"
 dependencies = [
  "octocode-core",
  "sha2",
@@ -1677,7 +1677,7 @@ dependencies = [
 
 [[package]]
 name = "octocode-runtime"
-version = "0.1.0"
+version = "2026.4.24"
 dependencies = [
  "octocode-core",
  "octocode-mcp",
@@ -1694,7 +1694,7 @@ dependencies = [
 
 [[package]]
 name = "octocode-skills"
-version = "0.1.0"
+version = "2026.4.24"
 dependencies = [
  "octocode-core",
 ]
