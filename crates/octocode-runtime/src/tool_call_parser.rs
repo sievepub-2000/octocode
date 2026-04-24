@@ -13,32 +13,8 @@ pub(crate) struct EmbeddedToolCall {
 
 impl EmbeddedToolCall {
     pub fn to_tool_call(&self) -> Option<ToolCall> {
-        let input = match self.tool_name.as_str() {
-            "write-file" | "create-file" | "append-file" => format!(
-                "{}|{}",
-                self.argument(&["path", "file", "file_path"])?,
-                self.argument(&["content", "contents", "text"])?,
-            ),
-            "read-file" | "delete-file" => self.argument(&["path", "file", "file_path"])?,
-            "list-files" => self
-                .argument(&["path", "dir", "directory"])
-                .unwrap_or_default(),
-            "move-file" => format!(
-                "{}|{}",
-                self.argument(&["src", "source", "from"])?,
-                self.argument(&["dst", "dest", "destination", "to"])?,
-            ),
-            "shell-command" => self.argument(&["command", "cmd", "input"])?,
-            "search-text" => {
-                let pattern = self.argument(&["pattern", "query", "text"])?;
-                match self.argument(&["path", "location"]) {
-                    Some(path) if !path.trim().is_empty() => format!("{}|{}", pattern, path),
-                    _ => pattern,
-                }
-            }
-            _ => return None,
-        };
-
+        let spec = argspec_for(&self.tool_name)?;
+        let input = encode_input(spec, &self.arguments)?;
         Some(ToolCall {
             name: self.tool_name.clone(),
             input,
@@ -46,11 +22,216 @@ impl EmbeddedToolCall {
         })
     }
 
+    #[allow(dead_code)]
     fn argument(&self, names: &[&str]) -> Option<String> {
         names
             .iter()
             .find_map(|name| self.arguments.get(*name).cloned())
     }
+}
+
+/// Per-tool argument schema. Each inner slice is a parameter slot with its
+/// canonical name first and aliases after. The encoder joins the values
+/// with `|` in declared order to produce the legacy pipe-form input that
+/// `WorkspaceToolExecutor` expects.
+struct ArgSpec {
+    /// Required slot count. The first `required` slots must resolve to a
+    /// non-empty argument, otherwise translation fails (the call is
+    /// reported as blocked).
+    required: usize,
+    /// Whether the tool accepts a single free-text argument instead of
+    /// keyed arguments. When true and keyed args are empty, the parser
+    /// falls through the slot aliases to look for a positional value.
+    params: &'static [&'static [&'static str]],
+}
+
+fn encode_input(
+    spec: &ArgSpec,
+    args: &BTreeMap<String, String>,
+) -> Option<String> {
+    if spec.params.is_empty() {
+        return Some(String::new());
+    }
+    let mut resolved: Vec<Option<String>> = Vec::with_capacity(spec.params.len());
+    for (idx, aliases) in spec.params.iter().enumerate() {
+        let found = aliases.iter().find_map(|k| args.get(*k).cloned());
+        if idx < spec.required && found.as_ref().map(|v| v.is_empty()).unwrap_or(true) {
+            return None;
+        }
+        resolved.push(found);
+    }
+    // Strip trailing unset optionals so tools that peek at `call.input` for
+    // "empty" state keep working (e.g. list-files, file-tree).
+    while resolved.len() > spec.required && resolved.last().map(|v| v.is_none()).unwrap_or(false) {
+        resolved.pop();
+    }
+    let parts: Vec<String> = resolved
+        .into_iter()
+        .map(|v| v.unwrap_or_default())
+        .collect();
+    Some(parts.join("|"))
+}
+
+/// Resolve the canonical tool name + argument schema for an already-
+/// canonicalized tool name. Returns `None` for tools the runtime does not
+/// expose — those calls are reported as `blocked`.
+fn argspec_for(canonical: &str) -> Option<&'static ArgSpec> {
+    // Keep argument aliases permissive to absorb the common naming
+    // variations across providers (Gemma/Qwen/DeepSeek/Llama tool JSON).
+    // Canonical param keys match what `WorkspaceToolExecutor` expects when
+    // splitting `call.input` on `|`.
+    const P_PATH: &[&str] = &["path", "file", "file_path", "filepath", "target"];
+    const P_CONTENT: &[&str] = &["content", "contents", "text", "body", "data"];
+    const P_COMMAND: &[&str] = &["command", "cmd", "input", "script"];
+    const P_QUERY: &[&str] = &["query", "q", "pattern", "text", "keyword"];
+    const P_URL: &[&str] = &["url", "href", "link", "target"];
+    const P_ID: &[&str] = &["id", "task_id", "todo_id", "team_id"];
+    const P_SCOPE: &[&str] = &["scope"];
+    const P_MEMID: &[&str] = &["id", "key", "name"];
+    const P_MEMCONTENT: &[&str] = &["content", "text", "body", "note"];
+    Some(match canonical {
+        "echo" => &ArgSpec { required: 0, params: &[&["text", "input", "message"]] },
+        "read-file" => &ArgSpec { required: 1, params: &[P_PATH] },
+        "list-files" => &ArgSpec { required: 0, params: &[&["path", "dir", "directory"]] },
+        "write-file" | "create-file" | "append-file" => &ArgSpec {
+            required: 2,
+            params: &[P_PATH, P_CONTENT],
+        },
+        "shell-command" => &ArgSpec { required: 1, params: &[P_COMMAND] },
+        "search-text" => &ArgSpec {
+            required: 1,
+            params: &[&["pattern", "query", "text"], &["path", "location"]],
+        },
+        "workflow-plan" | "agent-action" => &ArgSpec {
+            required: 0,
+            params: &[&["input", "text", "task", "goal"]],
+        },
+        "git-status" | "git-diff" => &ArgSpec { required: 0, params: &[P_PATH] },
+        "git-log" => &ArgSpec { required: 0, params: &[&["limit", "count", "n"]] },
+        "file-tree" => &ArgSpec {
+            required: 0,
+            params: &[P_PATH, &["depth", "max_depth", "levels"]],
+        },
+        "http-get" => &ArgSpec { required: 1, params: &[P_URL] },
+        "read-context" => &ArgSpec { required: 0, params: &[&["name", "kind", "target"]] },
+        "delete-file" => &ArgSpec { required: 1, params: &[P_PATH] },
+        "empty-recycle-bin" => &ArgSpec { required: 0, params: &[] },
+        "move-file" => &ArgSpec {
+            required: 2,
+            params: &[
+                &["src", "source", "from", "path"],
+                &["dst", "dest", "destination", "to"],
+            ],
+        },
+        "task-submit" => &ArgSpec {
+            required: 1,
+            params: &[&["label", "title", "text", "input"]],
+        },
+        "task-list" => &ArgSpec { required: 0, params: &[] },
+        "web-browse" => &ArgSpec { required: 1, params: &[P_URL] },
+        "cli-pipe" => &ArgSpec {
+            required: 1,
+            params: &[&["pipeline", "command", "cmd", "input"]],
+        },
+        "cargo-eval" => &ArgSpec {
+            required: 1,
+            params: &[&["command", "cmd", "input", "args"]],
+        },
+        "patch-file" => &ArgSpec {
+            required: 3,
+            params: &[&["old", "before", "search"], &["new", "after", "replace"], P_PATH],
+        },
+        "diagnostics" => &ArgSpec { required: 0, params: &[] },
+        "http-post" => &ArgSpec {
+            required: 2,
+            params: &[P_URL, &["body", "content", "data"], &["content_type", "content-type", "mime"]],
+        },
+        "json-query" => &ArgSpec {
+            required: 2,
+            params: &[&["path", "pointer", "query"], &["json", "data", "content"]],
+        },
+        "process-list" => &ArgSpec {
+            required: 0,
+            params: &[&["filter", "pattern", "name"]],
+        },
+        "env-var" => &ArgSpec { required: 0, params: &[&["name", "key", "var"]] },
+        "base64" => &ArgSpec {
+            required: 2,
+            params: &[&["mode", "action"], &["text", "input", "data"]],
+        },
+        "vector-search" => &ArgSpec {
+            required: 1,
+            params: &[P_QUERY, &["category", "scope"], &["top_n", "topN", "limit"]],
+        },
+        "vector-upsert" => &ArgSpec {
+            required: 3,
+            params: &[&["category", "scope"], &["content", "text", "body"], &["filename", "name", "id"]],
+        },
+        "team-create" => &ArgSpec {
+            required: 2,
+            params: &[&["goal", "name", "task"], &["roles", "agents", "members"]],
+        },
+        "team-list" => &ArgSpec { required: 0, params: &[] },
+        "team-delete" | "team-status" => &ArgSpec { required: 1, params: &[P_ID] },
+        "agent-message" => &ArgSpec {
+            required: 3,
+            params: &[&["from"], &["to"], &["content", "message", "text"]],
+        },
+        "todo-add" => &ArgSpec {
+            required: 1,
+            params: &[&["item", "text", "label", "content", "title"]],
+        },
+        "todo-list" => &ArgSpec { required: 0, params: &[] },
+        "todo-done" => &ArgSpec { required: 1, params: &[P_ID] },
+        "task-get" => &ArgSpec { required: 1, params: &[P_ID] },
+        "web-search" => &ArgSpec { required: 1, params: &[P_QUERY] },
+        "cost-summary" => &ArgSpec { required: 0, params: &[] },
+        "memory-save" => &ArgSpec {
+            required: 3,
+            params: &[P_SCOPE, P_MEMID, P_MEMCONTENT],
+        },
+        "memory-read" | "memory-delete" => &ArgSpec {
+            required: 2,
+            params: &[P_SCOPE, P_MEMID],
+        },
+        "memory-list" => &ArgSpec { required: 0, params: &[P_SCOPE] },
+        "memory-search" => &ArgSpec { required: 1, params: &[P_QUERY] },
+        "subagent-spawn" => &ArgSpec {
+            required: 1,
+            params: &[&["goal", "task", "text", "input"]],
+        },
+        "subagent-status" => &ArgSpec { required: 1, params: &[P_ID] },
+        "subagent-list" => &ArgSpec { required: 0, params: &[] },
+        "glob-files" => &ArgSpec {
+            required: 1,
+            params: &[&["pattern", "glob", "path", "query"]],
+        },
+        "sleep" => &ArgSpec {
+            required: 1,
+            params: &[&["ms", "milliseconds", "duration"]],
+        },
+        "ask-user-question" => &ArgSpec {
+            required: 1,
+            params: &[&["question", "text", "prompt", "input"]],
+        },
+        "worktree-enter" | "worktree-exit" => &ArgSpec { required: 1, params: &[P_PATH] },
+        "notebook-edit" => &ArgSpec {
+            required: 0,
+            params: &[&["input", "text", "path"]],
+        },
+        "lsp-hover" => &ArgSpec {
+            required: 0,
+            params: &[&["input", "symbol", "path"]],
+        },
+        _ => return None,
+    })
+}
+
+/// Returns true if the given canonical tool name is in the runtime's
+/// tool registry (i.e. has an argument schema). Exposed for tests and
+/// for sanity checks by the embedded parser.
+pub(crate) fn is_registered_tool(canonical: &str) -> bool {
+    argspec_for(canonical).is_some()
 }
 
 pub(crate) fn parse_embedded_tool_calls(output: &str) -> Vec<EmbeddedToolCall> {
@@ -195,21 +376,40 @@ fn canonicalize_embedded_tool_name(raw_name: &str) -> Option<String> {
         .map(|s| s.to_string())
         .unwrap_or(base);
 
-    match base.as_str() {
-        "write-file" | "writefile" => Some(String::from("write-file")),
-        "create-file" | "createfile" | "new-file" => Some(String::from("create-file")),
-        "append-file" | "appendfile" => Some(String::from("append-file")),
-        "read-file" | "readfile" | "cat-file" => Some(String::from("read-file")),
-        "list-files" | "listdir" | "list-directory" | "ls" => Some(String::from("list-files")),
-        "move-file" | "movefile" | "rename-file" | "mv" => Some(String::from("move-file")),
-        "delete-file" | "deletefile" | "remove-file" | "rm" => Some(String::from("delete-file")),
-        "search-text" | "searchtext" | "search" | "grep" => Some(String::from("search-text")),
-        "shell-command" | "shell" | "run-shell" | "run-command" | "exec" | "bash" => {
-            Some(String::from("shell-command"))
+    // Legacy aliases that diverge from the canonical descriptor name.
+    let alias = match base.as_str() {
+        "write-file" | "writefile" => Some("write-file"),
+        "create-file" | "createfile" | "new-file" => Some("create-file"),
+        "append-file" | "appendfile" => Some("append-file"),
+        "read-file" | "readfile" | "cat-file" => Some("read-file"),
+        "list-files" | "listdir" | "list-directory" | "ls" | "dir" => Some("list-files"),
+        "move-file" | "movefile" | "rename-file" | "mv" => Some("move-file"),
+        "delete-file" | "deletefile" | "remove-file" | "rm" => Some("delete-file"),
+        "search-text" | "searchtext" | "search" | "grep" => Some("search-text"),
+        "shell-command" | "shell" | "run-shell" | "run-command" | "exec" | "bash" | "sh" => {
+            Some("shell-command")
         }
-        "web-search" | "websearch" => Some(String::from("web-search")),
+        "web-search" | "websearch" | "search-web" => Some("web-search"),
+        "web-browse" | "browse" | "open-url" | "fetch" => Some("web-browse"),
+        "http-get" | "get" => Some("http-get"),
+        "http-post" | "post" => Some("http-post"),
+        "glob-files" | "glob" => Some("glob-files"),
+        "patch-file" | "patch" | "edit-file" => Some("patch-file"),
+        "file-tree" | "tree" => Some("file-tree"),
+        "read-context" | "context" => Some("read-context"),
         _ => None,
+    };
+    if let Some(name) = alias {
+        return Some(name.to_string());
     }
+
+    // P14: any tool registered in the runtime catalog is addressable by
+    // its canonical name. This replaces the prior hand-maintained alias
+    // table and lets the text parser dispatch the full 59-tool registry.
+    if is_registered_tool(&base) {
+        return Some(base);
+    }
+    None
 }
 
 fn parse_embedded_tool_arguments(input: &str) -> Option<BTreeMap<String, String>> {
@@ -548,6 +748,60 @@ That's all."#;
             canonicalize_embedded_tool_name("function-delete-file"),
             Some("delete-file".into())
         );
+    }
+
+    #[test]
+    fn test_registry_driven_dispatch_covers_extended_tools() {
+        // P14: any tool in the runtime catalog must now resolve through
+        // the text parser. These are not in the legacy alias table but
+        // should canonicalize + encode via `argspec_for`.
+        for name in [
+            "git-status",
+            "git-diff",
+            "git-log",
+            "file-tree",
+            "diagnostics",
+            "todo-list",
+            "team-list",
+            "subagent-list",
+            "cost-summary",
+        ] {
+            assert_eq!(
+                canonicalize_embedded_tool_name(name),
+                Some(name.to_string()),
+                "canonicalize should accept registered tool `{name}`"
+            );
+            let call = EmbeddedToolCall {
+                tool_name: name.into(),
+                arguments: BTreeMap::new(),
+            }
+            .to_tool_call();
+            assert!(call.is_some(), "zero-arg tool `{name}` must encode");
+            assert_eq!(call.unwrap().input, "");
+        }
+    }
+
+    #[test]
+    fn test_registry_dispatch_encodes_multi_arg_tools() {
+        // patch-file expects `old|new|path` (3 required slots).
+        let mut args = BTreeMap::new();
+        args.insert("old".into(), "hello".into());
+        args.insert("new".into(), "world".into());
+        args.insert("path".into(), "README.md".into());
+        let call = EmbeddedToolCall { tool_name: "patch-file".into(), arguments: args }
+            .to_tool_call()
+            .expect("patch-file should encode");
+        assert_eq!(call.input, "hello|world|README.md");
+
+        // memory-save expects `scope|id|content`.
+        let mut args = BTreeMap::new();
+        args.insert("scope".into(), "project".into());
+        args.insert("id".into(), "note-1".into());
+        args.insert("content".into(), "remember this".into());
+        let call = EmbeddedToolCall { tool_name: "memory-save".into(), arguments: args }
+            .to_tool_call()
+            .expect("memory-save should encode");
+        assert_eq!(call.input, "project|note-1|remember this");
     }
 
     #[test]
