@@ -93,24 +93,59 @@ pub fn render_metrics_body() -> String {
 /// 2026.4.24-B1: operational counters for permanent memory + agent supervision.
 static METRICS_MEMORY_NOTES_TOTAL: AtomicU64 = AtomicU64::new(0);
 
-/// Append-only persistent memory store. Each line in `{data_home}/memory.jsonl`
-/// is a JSON object `{id, createdAt, scope, text}`. The file is intentionally
-/// simple (JSONL) so operators can cat/tail/grep it without a DB dependency.
-/// Failures never panic — memory is advisory and loss-of-notes must not
-/// crash the running agent.
+/// Persistent structured memory store inspired by mem0 (multi-level scope,
+/// tags, importance, keyword search) and simplemem (tag-indexed minimal
+/// notes). Stored as JSONL at `{data_home}/memory.jsonl` so operators can
+/// cat/grep/tail without a DB dependency.
+///
+/// Record schema (v2, forward-compatible with v1):
+///   {
+///     "id": 17,
+///     "createdAt": 1745500000000,
+///     "updatedAt": 1745500000000,
+///     "scope": "default" | "user" | "session" | "agent" | ...,
+///     "userId": "alice" | null,
+///     "sessionId": "s-123" | null,
+///     "agentId": "coder" | null,
+///     "tags": ["pref", "style"],
+///     "importance": 5,        // 1..=10, default 5
+///     "text": "prefers dark mode",
+///     "deleted": false        // tombstone marker
+///   }
+///
+/// Deletes are tombstones (we never rewrite the append log for a single
+/// delete) — `compact()` rewrites the file dropping tombstones.
 mod memory_store {
+    use std::collections::HashMap;
     use std::fs::{self, OpenOptions};
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Mutex;
+    use std::sync::OnceLock;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    /// Monotonic id generator. Not persisted; restart is OK because entries
-    /// are disambiguated by their createdAt timestamp too.
-    static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+    /// Monotonic id generator. Seeded lazily from the on-disk max id so
+    /// restarts don't collide with earlier rows.
+    static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+    static SEED_DONE: OnceLock<()> = OnceLock::new();
+
+    /// Serialises writes so concurrent /api/memory/* calls don't interleave
+    /// lines inside a JSONL record. Reads are lock-free.
+    fn write_lock() -> &'static Mutex<()> {
+        static L: OnceLock<Mutex<()>> = OnceLock::new();
+        L.get_or_init(|| Mutex::new(()))
+    }
 
     fn file_path(data_home: &str) -> PathBuf {
         PathBuf::from(data_home).join("memory.jsonl")
+    }
+
+    fn now_ms() -> u128 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
     }
 
     fn escape(value: &str) -> String {
@@ -129,47 +164,440 @@ mod memory_store {
         out
     }
 
-    /// Appends one note. Returns the new entry id.
-    pub fn add(data_home: &str, scope: &str, text: &str) -> std::io::Result<u64> {
-        let path = file_path(data_home);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+    #[derive(Clone, Default)]
+    pub struct Record {
+        pub id: u64,
+        pub created_at: u128,
+        pub updated_at: u128,
+        pub scope: String,
+        pub user_id: Option<String>,
+        pub session_id: Option<String>,
+        pub agent_id: Option<String>,
+        pub tags: Vec<String>,
+        pub importance: u8,
+        pub text: String,
+        pub deleted: bool,
+    }
+
+    #[derive(Clone, Default)]
+    pub struct Filter {
+        pub scope: Option<String>,
+        pub user_id: Option<String>,
+        pub session_id: Option<String>,
+        pub agent_id: Option<String>,
+        pub tag: Option<String>,
+        pub limit: Option<usize>,
+    }
+
+    /// Ultra-small hand-rolled JSON reader for our own schema. We only need
+    /// a handful of known keys; a full parser would add deps without value.
+    fn parse_record(line: &str) -> Option<Record> {
+        let trimmed = line.trim();
+        if !trimmed.starts_with('{') || !trimmed.ends_with('}') {
+            return None;
         }
-        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-        let ts = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0);
-        let line = format!(
-            "{{\"id\":{id},\"createdAt\":{ts},\"scope\":\"{scope}\",\"text\":\"{text}\"}}\n",
-            scope = escape(scope),
-            text = escape(text)
-        );
+        let mut rec = Record { importance: 5, ..Record::default() };
+
+        // very small state machine — walk key:value pairs
+        let bytes = trimmed.as_bytes();
+        let mut i = 1usize; // skip opening '{'
+        while i < bytes.len() {
+            // skip whitespace/commas
+            while i < bytes.len() && matches!(bytes[i], b' ' | b',' | b'\n' | b'\t') {
+                i += 1;
+            }
+            if i >= bytes.len() || bytes[i] == b'}' {
+                break;
+            }
+            if bytes[i] != b'"' {
+                return None;
+            }
+            i += 1;
+            let key_start = i;
+            while i < bytes.len() && bytes[i] != b'"' {
+                if bytes[i] == b'\\' { i += 2; continue; }
+                i += 1;
+            }
+            if i >= bytes.len() { return None; }
+            let key = &trimmed[key_start..i];
+            i += 1;
+            while i < bytes.len() && matches!(bytes[i], b' ' | b':' | b'\t') {
+                i += 1;
+            }
+            if i >= bytes.len() { return None; }
+
+            // parse value
+            match bytes[i] {
+                b'"' => {
+                    i += 1;
+                    let val_start = i;
+                    let mut unescaped = String::new();
+                    while i < bytes.len() && bytes[i] != b'"' {
+                        if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                            let c = bytes[i + 1];
+                            unescaped.push_str(&trimmed[val_start..i]);
+                            match c {
+                                b'n' => unescaped.push('\n'),
+                                b't' => unescaped.push('\t'),
+                                b'r' => unescaped.push('\r'),
+                                b'"' => unescaped.push('"'),
+                                b'\\' => unescaped.push('\\'),
+                                _ => unescaped.push(c as char),
+                            }
+                            i += 2;
+                            // resume: we already consumed through i+2, track new segment
+                            let seg_start = i;
+                            while i < bytes.len() && bytes[i] != b'"' && bytes[i] != b'\\' {
+                                i += 1;
+                            }
+                            unescaped.push_str(&trimmed[seg_start..i]);
+                            continue;
+                        }
+                        i += 1;
+                    }
+                    if i >= bytes.len() { return None; }
+                    let value = if unescaped.is_empty() {
+                        trimmed[val_start..i].to_string()
+                    } else {
+                        unescaped
+                    };
+                    i += 1;
+                    match key {
+                        "scope" => rec.scope = value,
+                        "text" => rec.text = value,
+                        "userId" => rec.user_id = Some(value),
+                        "sessionId" => rec.session_id = Some(value),
+                        "agentId" => rec.agent_id = Some(value),
+                        _ => {}
+                    }
+                }
+                b'[' => {
+                    i += 1;
+                    let mut vals: Vec<String> = Vec::new();
+                    loop {
+                        while i < bytes.len() && matches!(bytes[i], b' ' | b',' | b'\t') { i += 1; }
+                        if i >= bytes.len() || bytes[i] == b']' { i = i.saturating_add(1); break; }
+                        if bytes[i] == b'"' {
+                            i += 1;
+                            let vs = i;
+                            while i < bytes.len() && bytes[i] != b'"' {
+                                if bytes[i] == b'\\' { i += 2; continue; }
+                                i += 1;
+                            }
+                            if i >= bytes.len() { return None; }
+                            vals.push(trimmed[vs..i].to_string());
+                            i += 1;
+                        } else {
+                            // skip non-string array members
+                            while i < bytes.len() && bytes[i] != b',' && bytes[i] != b']' { i += 1; }
+                        }
+                    }
+                    if key == "tags" { rec.tags = vals; }
+                }
+                b't' | b'f' => {
+                    let is_true = bytes.get(i..i + 4).map(|s| s == b"true").unwrap_or(false);
+                    // advance past the literal
+                    while i < bytes.len() && bytes[i].is_ascii_alphabetic() { i += 1; }
+                    if key == "deleted" { rec.deleted = is_true; }
+                }
+                b'n' => {
+                    while i < bytes.len() && bytes[i].is_ascii_alphabetic() { i += 1; }
+                }
+                _ => {
+                    // number
+                    let ns = i;
+                    while i < bytes.len()
+                        && (bytes[i].is_ascii_digit() || bytes[i] == b'-' || bytes[i] == b'.')
+                    {
+                        i += 1;
+                    }
+                    let num = &trimmed[ns..i];
+                    match key {
+                        "id" => rec.id = num.parse().unwrap_or(0),
+                        "createdAt" => rec.created_at = num.parse().unwrap_or(0),
+                        "updatedAt" => rec.updated_at = num.parse().unwrap_or(0),
+                        "importance" => rec.importance = num.parse().unwrap_or(5),
+                        _ => {}
+                    }
+                }
+            }
+        }
+        if rec.updated_at == 0 { rec.updated_at = rec.created_at; }
+        if rec.scope.is_empty() { rec.scope = String::from("default"); }
+        Some(rec)
+    }
+
+    fn serialise(rec: &Record) -> String {
+        let tags_json = rec
+            .tags
+            .iter()
+            .map(|t| format!("\"{}\"", escape(t)))
+            .collect::<Vec<_>>()
+            .join(",");
+        let opt_field = |field: &str, v: &Option<String>| -> String {
+            match v {
+                Some(s) => format!(",\"{field}\":\"{}\"", escape(s)),
+                None => String::new(),
+            }
+        };
+        format!(
+            "{{\"id\":{id},\"createdAt\":{created},\"updatedAt\":{updated},\"scope\":\"{scope}\"{u}{s}{a},\"tags\":[{tags}],\"importance\":{imp},\"text\":\"{text}\",\"deleted\":{del}}}\n",
+            id = rec.id,
+            created = rec.created_at,
+            updated = rec.updated_at,
+            scope = escape(&rec.scope),
+            u = opt_field("userId", &rec.user_id),
+            s = opt_field("sessionId", &rec.session_id),
+            a = opt_field("agentId", &rec.agent_id),
+            tags = tags_json,
+            imp = rec.importance,
+            text = escape(&rec.text),
+            del = rec.deleted,
+        )
+    }
+
+    fn read_all_records(data_home: &str) -> Vec<Record> {
+        let path = file_path(data_home);
+        let raw = fs::read_to_string(&path).unwrap_or_default();
+        raw.lines().filter_map(parse_record).collect()
+    }
+
+    fn latest_by_id(data_home: &str) -> HashMap<u64, Record> {
+        let mut map: HashMap<u64, Record> = HashMap::new();
+        for rec in read_all_records(data_home) {
+            let entry = map.entry(rec.id).or_default();
+            if rec.updated_at >= entry.updated_at || entry.id == 0 {
+                *entry = rec;
+            }
+        }
+        map
+    }
+
+    fn seed_next_id(data_home: &str) {
+        SEED_DONE.get_or_init(|| {
+            let mut max = 0u64;
+            for rec in read_all_records(data_home) {
+                if rec.id > max { max = rec.id; }
+            }
+            NEXT_ID.store(max, Ordering::Relaxed);
+        });
+    }
+
+    /// Appends a new record. Returns the new id. Only `scope` + `text` are
+    /// required; tags/importance/scopes are optional.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add(
+        data_home: &str,
+        scope: &str,
+        text: &str,
+        tags: Vec<String>,
+        importance: u8,
+        user_id: Option<String>,
+        session_id: Option<String>,
+        agent_id: Option<String>,
+    ) -> std::io::Result<u64> {
+        seed_next_id(data_home);
+        let path = file_path(data_home);
+        if let Some(parent) = path.parent() { fs::create_dir_all(parent)?; }
+        let _g = write_lock().lock().unwrap();
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed) + 1;
+        let now = now_ms();
+        let rec = Record {
+            id,
+            created_at: now,
+            updated_at: now,
+            scope: if scope.is_empty() { String::from("default") } else { scope.to_string() },
+            user_id,
+            session_id,
+            agent_id,
+            tags,
+            importance: importance.clamp(1, 10),
+            text: text.to_string(),
+            deleted: false,
+        };
         let mut f = OpenOptions::new().create(true).append(true).open(&path)?;
-        f.write_all(line.as_bytes())?;
+        f.write_all(serialise(&rec).as_bytes())?;
         Ok(id)
     }
 
-    /// Reads all entries. Returns the raw JSONL lines joined into a JSON
-    /// array (malformed lines are skipped).
-    pub fn list_json(data_home: &str) -> String {
+    /// Appends a tombstone record that marks `id` as deleted. Older versions
+    /// remain in the log but `latest_by_id` surfaces the tombstone.
+    pub fn delete(data_home: &str, id: u64) -> std::io::Result<bool> {
+        let latest = latest_by_id(data_home);
+        let Some(mut rec) = latest.get(&id).cloned() else { return Ok(false); };
+        if rec.deleted { return Ok(false); }
+        rec.updated_at = now_ms();
+        rec.deleted = true;
         let path = file_path(data_home);
-        let raw = fs::read_to_string(&path).unwrap_or_default();
-        let mut items: Vec<String> = Vec::new();
-        for line in raw.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with('{') && trimmed.ends_with('}') {
-                items.push(trimmed.to_string());
-            }
+        let _g = write_lock().lock().unwrap();
+        let mut f = OpenOptions::new().create(true).append(true).open(&path)?;
+        f.write_all(serialise(&rec).as_bytes())?;
+        Ok(true)
+    }
+
+    /// Appends an update record. None-valued fields preserve previous value.
+    pub fn update(
+        data_home: &str,
+        id: u64,
+        text: Option<String>,
+        tags: Option<Vec<String>>,
+        importance: Option<u8>,
+    ) -> std::io::Result<bool> {
+        let latest = latest_by_id(data_home);
+        let Some(mut rec) = latest.get(&id).cloned() else { return Ok(false); };
+        if rec.deleted { return Ok(false); }
+        if let Some(t) = text { rec.text = t; }
+        if let Some(ts) = tags { rec.tags = ts; }
+        if let Some(imp) = importance { rec.importance = imp.clamp(1, 10); }
+        rec.updated_at = now_ms();
+        let path = file_path(data_home);
+        let _g = write_lock().lock().unwrap();
+        let mut f = OpenOptions::new().create(true).append(true).open(&path)?;
+        f.write_all(serialise(&rec).as_bytes())?;
+        Ok(true)
+    }
+
+    fn matches_filter(rec: &Record, f: &Filter) -> bool {
+        if rec.deleted { return false; }
+        if let Some(s) = &f.scope { if &rec.scope != s { return false; } }
+        if let Some(u) = &f.user_id { if rec.user_id.as_deref() != Some(u.as_str()) { return false; } }
+        if let Some(s) = &f.session_id { if rec.session_id.as_deref() != Some(s.as_str()) { return false; } }
+        if let Some(a) = &f.agent_id { if rec.agent_id.as_deref() != Some(a.as_str()) { return false; } }
+        if let Some(t) = &f.tag { if !rec.tags.iter().any(|x| x == t) { return false; } }
+        true
+    }
+
+    fn render_array(items: &[Record]) -> String {
+        let body = items
+            .iter()
+            .map(|r| serialise(r).trim_end_matches('\n').to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("[{body}]")
+    }
+
+    /// Returns non-deleted records matching filter, newest first, capped
+    /// at `limit` (default 200).
+    pub fn list_json(data_home: &str, filter: &Filter) -> String {
+        let map = latest_by_id(data_home);
+        let mut items: Vec<Record> = map
+            .into_values()
+            .filter(|r| matches_filter(r, filter))
+            .collect();
+        items.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        let limit = filter.limit.unwrap_or(200).min(1000);
+        items.truncate(limit);
+        render_array(&items)
+    }
+
+    /// Keyword BM25-lite scoring. We avoid pulling a dependency by using
+    /// a TF-weighted term overlap with importance boosting:
+    ///   score = Σ(tf_in_record * idf) + importance/10
+    /// where idf = log(1 + N / (1 + df)).
+    pub fn search_json(
+        data_home: &str,
+        query: &str,
+        filter: &Filter,
+        top_k: usize,
+    ) -> String {
+        fn tokenise(text: &str) -> Vec<String> {
+            text.to_lowercase()
+                .split(|c: char| !c.is_alphanumeric())
+                .filter(|t| !t.is_empty() && t.len() > 1)
+                .map(|t| t.to_string())
+                .collect()
         }
-        format!("[{}]", items.join(","))
+        let map = latest_by_id(data_home);
+        let candidates: Vec<Record> = map
+            .into_values()
+            .filter(|r| matches_filter(r, filter))
+            .collect();
+        if candidates.is_empty() {
+            return String::from("[]");
+        }
+        let q_terms = tokenise(query);
+        if q_terms.is_empty() {
+            return list_json(data_home, filter);
+        }
+        let n = candidates.len() as f64;
+        // document frequencies
+        let mut df: HashMap<String, f64> = HashMap::new();
+        let doc_tokens: Vec<(u64, Vec<String>)> = candidates
+            .iter()
+            .map(|r| {
+                let mut toks = tokenise(&r.text);
+                toks.extend(r.tags.iter().flat_map(|t| tokenise(t)));
+                let mut seen: HashMap<&str, ()> = HashMap::new();
+                for t in &toks {
+                    if seen.insert(t.as_str(), ()).is_none() {
+                        *df.entry(t.clone()).or_insert(0.0) += 1.0;
+                    }
+                }
+                (r.id, toks)
+            })
+            .collect();
+        let scored: Vec<(f64, Record)> = candidates
+            .into_iter()
+            .map(|r| {
+                let toks = &doc_tokens.iter().find(|(id, _)| *id == r.id).map(|(_, t)| t.clone()).unwrap_or_default();
+                let mut score = 0.0_f64;
+                for q in &q_terms {
+                    let tf = toks.iter().filter(|t| *t == q).count() as f64;
+                    if tf == 0.0 { continue; }
+                    let d = *df.get(q).unwrap_or(&0.0);
+                    let idf = (1.0 + n / (1.0 + d)).ln();
+                    score += tf * idf;
+                }
+                if score > 0.0 {
+                    score += r.importance as f64 / 20.0; // gentle boost
+                }
+                (score, r)
+            })
+            .filter(|(s, _)| *s > 0.0)
+            .collect();
+        let mut scored = scored;
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        let k = top_k.clamp(1, 100).min(scored.len());
+        let body = scored
+            .into_iter()
+            .take(k)
+            .map(|(score, r)| {
+                let line = serialise(&r);
+                let stripped = line.trim_end_matches('\n').trim_end_matches('}');
+                format!("{stripped},\"score\":{score:.4}}}")
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("[{body}]")
+    }
+
+    /// Rewrites the file dropping tombstones and earlier versions of
+    /// updated records. Returns (kept, dropped).
+    pub fn compact(data_home: &str) -> std::io::Result<(usize, usize)> {
+        let _g = write_lock().lock().unwrap();
+        let map = latest_by_id(data_home);
+        let alive: Vec<Record> = map.into_values().filter(|r| !r.deleted).collect();
+        let dropped = {
+            let path = file_path(data_home);
+            let total = fs::read_to_string(&path)
+                .map(|s| s.lines().count())
+                .unwrap_or(0);
+            total.saturating_sub(alive.len())
+        };
+        let path = file_path(data_home);
+        let mut buf = String::new();
+        for r in &alive { buf.push_str(&serialise(r)); }
+        fs::write(&path, buf)?;
+        Ok((alive.len(), dropped))
     }
 
     pub fn clear(data_home: &str) -> std::io::Result<()> {
+        let _g = write_lock().lock().unwrap();
         let path = file_path(data_home);
-        if path.exists() {
-            fs::remove_file(&path)?;
-        }
+        if path.exists() { fs::remove_file(&path)?; }
+        // reset id seed so a fresh run starts at 1
+        SEED_DONE.get_or_init(|| ());
+        NEXT_ID.store(0, Ordering::Relaxed);
         Ok(())
     }
 }
@@ -2252,9 +2680,10 @@ fn route_request(
             let session_id = request.form_value("sessionId");
             handle_command(command, session_id, workspace_root, loader, config)
         }
-        // 2026.4.24-B1: permanent memory (cross-session notes). JSONL-backed
-        // under {data_home}/memory.jsonl. Intentionally free-form; higher
-        // layers (UI / agent) decide semantics via `scope`.
+        // 2026.4.24-B1 + mem0/simplemem: persistent structured memory
+        // (multi-scope, tagged, searchable). JSONL-backed under
+        // {data_home}/memory.jsonl. Deletes are tombstones; `/compact`
+        // rewrites the file keeping only live records.
         ("POST", "/api/memory/add") => {
             let scope = request
                 .form_value("scope")
@@ -2266,19 +2695,102 @@ fn route_request(
                     "memory text must not be empty",
                 ))));
             }
+            let tags: Vec<String> = request
+                .form_value("tags")
+                .unwrap_or_default()
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            let importance: u8 = request
+                .form_value("importance")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(5);
+            let user_id = request.form_value("userId").filter(|v| !v.trim().is_empty());
+            let session_id = request.form_value("sessionId").filter(|v| !v.trim().is_empty());
+            let agent_id = request.form_value("agentId").filter(|v| !v.trim().is_empty());
             let data_home = platform.config_paths().data_home.clone();
-            let id = memory_store::add(&data_home, &scope, &text)
-                .map_err(|e| OctoError::Runtime(format!("memory add failed: {e}")))?;
+            let id = memory_store::add(
+                &data_home, &scope, &text, tags, importance, user_id, session_id, agent_id,
+            )
+            .map_err(|e| OctoError::Runtime(format!("memory add failed: {e}")))?;
             METRICS_MEMORY_NOTES_TOTAL.fetch_add(1, Ordering::Relaxed);
             json_response(format!(
                 "{{\"ok\":true,\"id\":{id},\"scope\":{scope_json}}}",
                 scope_json = serde_json::to_string(&scope).unwrap_or_else(|_| String::from("\"default\"")),
             ))
         }
+        ("POST", "/api/memory/update") => {
+            let id: u64 = request
+                .form_value("id")
+                .and_then(|v| v.parse().ok())
+                .ok_or_else(|| OctoError::Runtime(String::from("missing memory id")))?;
+            let text = request.form_value("text").filter(|v| !v.trim().is_empty());
+            let tags = request.form_value("tags").map(|s| {
+                s.split(',')
+                    .map(|t| t.trim().to_string())
+                    .filter(|t| !t.is_empty())
+                    .collect::<Vec<_>>()
+            });
+            let importance: Option<u8> = request
+                .form_value("importance")
+                .and_then(|v| v.parse().ok());
+            let data_home = platform.config_paths().data_home.clone();
+            let ok = memory_store::update(&data_home, id, text, tags, importance)
+                .map_err(|e| OctoError::Runtime(format!("memory update failed: {e}")))?;
+            json_response(format!("{{\"ok\":{ok}}}"))
+        }
+        ("POST", "/api/memory/delete") => {
+            let id: u64 = request
+                .form_value("id")
+                .and_then(|v| v.parse().ok())
+                .ok_or_else(|| OctoError::Runtime(String::from("missing memory id")))?;
+            let data_home = platform.config_paths().data_home.clone();
+            let ok = memory_store::delete(&data_home, id)
+                .map_err(|e| OctoError::Runtime(format!("memory delete failed: {e}")))?;
+            json_response(format!("{{\"ok\":{ok}}}"))
+        }
         ("GET", "/api/memory/list") => {
             let data_home = platform.config_paths().data_home.clone();
-            let items = memory_store::list_json(&data_home);
+            let filter = memory_store::Filter {
+                scope: request.query_value("scope"),
+                user_id: request.query_value("userId"),
+                session_id: request.query_value("sessionId"),
+                agent_id: request.query_value("agentId"),
+                tag: request.query_value("tag"),
+                limit: request.query_value("limit").and_then(|v| v.parse().ok()),
+            };
+            let items = memory_store::list_json(&data_home, &filter);
             json_response(format!("{{\"items\":{items}}}"))
+        }
+        ("GET", "/api/memory/search") => {
+            let query = request.query_value("q").unwrap_or_default();
+            if query.trim().is_empty() {
+                return Err(Box::new(OctoError::Runtime(String::from(
+                    "memory search requires q=",
+                ))));
+            }
+            let top_k = request
+                .query_value("topK")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(5usize);
+            let filter = memory_store::Filter {
+                scope: request.query_value("scope"),
+                user_id: request.query_value("userId"),
+                session_id: request.query_value("sessionId"),
+                agent_id: request.query_value("agentId"),
+                tag: request.query_value("tag"),
+                limit: None,
+            };
+            let data_home = platform.config_paths().data_home.clone();
+            let items = memory_store::search_json(&data_home, &query, &filter, top_k);
+            json_response(format!("{{\"items\":{items}}}"))
+        }
+        ("POST", "/api/memory/compact") => {
+            let data_home = platform.config_paths().data_home.clone();
+            let (kept, dropped) = memory_store::compact(&data_home)
+                .map_err(|e| OctoError::Runtime(format!("memory compact failed: {e}")))?;
+            json_response(format!("{{\"ok\":true,\"kept\":{kept},\"dropped\":{dropped}}}"))
         }
         ("POST", "/api/memory/clear") => {
             let data_home = platform.config_paths().data_home.clone();

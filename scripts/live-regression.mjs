@@ -345,23 +345,68 @@ async function metricsCase() {
 async function memoryCase(token) {
   // Start clean so counts are deterministic within this run.
   await rawRequest('POST', '/api/memory/clear', { headers: { 'X-Auth-Token': token } });
-  const text = `live-regression note ${Date.now()}`;
-  const addRes = await rawRequest('POST', '/api/memory/add', {
-    headers: { 'X-Auth-Token': token, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `scope=regression&text=${encodeURIComponent(text)}`,
+
+  // 1. Add three scoped records with tags + importance
+  const hdr = { 'X-Auth-Token': token, 'Content-Type': 'application/x-www-form-urlencoded' };
+  const addA = await rawRequest('POST', '/api/memory/add', {
+    headers: hdr,
+    body: `scope=user&userId=alice&tags=pref,style&importance=8&text=${encodeURIComponent('Alice prefers dark mode and vim keybindings')}`,
   });
-  let addBody = {};
-  try { addBody = JSON.parse(addRes.body); } catch (_) {}
-  record('memory.add_ok', addBody?.ok === true && typeof addBody?.id === 'number');
-  const listRes = await rawRequest('GET', '/api/memory/list', { headers: { 'X-Auth-Token': token } });
-  let listBody = {};
-  try { listBody = JSON.parse(listRes.body); } catch (_) {}
-  const items = Array.isArray(listBody?.items) ? listBody.items : [];
-  record('memory.list_contains_added', items.some((i) => typeof i?.text === 'string' && i.text.includes('live-regression note')));
+  const addB = await rawRequest('POST', '/api/memory/add', {
+    headers: hdr,
+    body: `scope=user&userId=alice&tags=project&importance=6&text=${encodeURIComponent('Project octocode uses Rust workspace layout')}`,
+  });
+  const addC = await rawRequest('POST', '/api/memory/add', {
+    headers: hdr,
+    body: `scope=session&sessionId=s1&tags=note&importance=3&text=${encodeURIComponent('Live regression transient note')}`,
+  });
+  const aId = JSON.parse(addA.body).id;
+  const bId = JSON.parse(addB.body).id;
+  const cId = JSON.parse(addC.body).id;
+  record('memory.add_three_ok', typeof aId === 'number' && typeof bId === 'number' && typeof cId === 'number');
+
+  // 2. List filtered by userId=alice (should return 2, newest first)
+  const listAlice = await rawRequest('GET', '/api/memory/list?userId=alice&scope=user', { headers: { 'X-Auth-Token': token } });
+  const aliceItems = JSON.parse(listAlice.body).items || [];
+  record('memory.list_filter_by_user', aliceItems.length === 2 && aliceItems.every(i => i.userId === 'alice'));
+
+  // 3. Filter by tag=style (should return exactly A)
+  const listStyle = await rawRequest('GET', '/api/memory/list?tag=style', { headers: { 'X-Auth-Token': token } });
+  const styleItems = JSON.parse(listStyle.body).items || [];
+  record('memory.list_filter_by_tag', styleItems.length === 1 && styleItems[0].id === aId);
+
+  // 4. Search for 'rust' (should rank B first with score)
+  const searchRust = await rawRequest('GET', '/api/memory/search?q=rust&topK=3', { headers: { 'X-Auth-Token': token } });
+  const rustItems = JSON.parse(searchRust.body).items || [];
+  record('memory.search_ranks_project', rustItems.length >= 1 && rustItems[0].id === bId && typeof rustItems[0].score === 'number');
+
+  // 5. Update A's text
+  await rawRequest('POST', '/api/memory/update', {
+    headers: hdr,
+    body: `id=${aId}&text=${encodeURIComponent('Alice prefers solarized dark + tmux')}&importance=9`,
+  });
+  const listA = await rawRequest('GET', '/api/memory/list?userId=alice&scope=user', { headers: { 'X-Auth-Token': token } });
+  const aItemsPost = JSON.parse(listA.body).items || [];
+  const aAfter = aItemsPost.find(i => i.id === aId);
+  record('memory.update_applied', aAfter && /tmux/.test(aAfter.text) && aAfter.importance === 9);
+
+  // 6. Delete C via tombstone
+  await rawRequest('POST', '/api/memory/delete', {
+    headers: hdr,
+    body: `id=${cId}`,
+  });
+  const listAll = await rawRequest('GET', '/api/memory/list?limit=50', { headers: { 'X-Auth-Token': token } });
+  const allItems = JSON.parse(listAll.body).items || [];
+  record('memory.delete_removes_entry', !allItems.some(i => i.id === cId));
+
+  // 7. Compact — file should contain exactly 2 live records
+  const compactRes = await rawRequest('POST', '/api/memory/compact', { headers: { 'X-Auth-Token': token } });
+  const compactBody = JSON.parse(compactRes.body);
+  record('memory.compact_ok', compactBody.ok === true && compactBody.kept === 2 && typeof compactBody.dropped === 'number');
+
+  // 8. Clear
   const clearRes = await rawRequest('POST', '/api/memory/clear', { headers: { 'X-Auth-Token': token } });
-  let clearBody = {};
-  try { clearBody = JSON.parse(clearRes.body); } catch (_) {}
-  record('memory.clear_ok', clearBody?.ok === true);
+  record('memory.clear_ok', JSON.parse(clearRes.body).ok === true);
 }
 
 async function agentSupervisionCase(token) {
