@@ -814,7 +814,7 @@ where
                         Ok(result) => result.output,
                         Err(e) => format!("error: {e}"),
                     };
-                    reports.push(format!("[{}] {}", tool_call.name, truncate_preview(&result, 2000)));
+                    reports.push(format!("[{}] {}", tool_call.name, truncate_preview(&result, tool_result_preview_cap(&tool_call.name))));
                     self.append_session_message(
                         session_id,
                         ConversationRole::Tool,
@@ -1178,6 +1178,16 @@ Shell: {:?}\n\n",
         prompt.push_str("\n# Web research\n");
         prompt.push_str("- When you use `web-search` or `fetch-readable` to answer a user question, ALWAYS include a `Sources:` section at the end of your final answer listing the URLs as markdown links: `- [Title](URL)`.\n");
         prompt.push_str("- Never fabricate URLs. Only use URLs returned by your tools or provided by the user.\n");
+        prompt.push_str("- Search snippets rarely contain the full answer. After `web-search`, pick the most relevant URL and call `fetch-readable` on it, OR call `http-get` on a public JSON API. Do NOT stop at snippets for factual queries (weather, prices, times, scores).\n");
+
+        // ── Concrete playbooks — copy-paste fallbacks for common questions ─
+        prompt.push_str("\n# Playbooks (copy-paste fallbacks)\n");
+        prompt.push_str("- **天气 / weather:** `http-get(url=\"https://wttr.in/<City>?format=j1&lang=zh\")` → parse `weather[0..2]` for the 3-day forecast. For compact text: `https://wttr.in/<City>?lang=zh&T`.\n");
+        prompt.push_str("- **时间 / current time:** `http-get(url=\"https://worldtimeapi.org/api/timezone/Asia/Shanghai\")`.\n");
+        prompt.push_str("- **汇率 / FX rate:** `http-get(url=\"https://open.er-api.com/v6/latest/CNY\")`.\n");
+        prompt.push_str("- **股票价格 / stock:** `http-get(url=\"https://query1.finance.yahoo.com/v8/finance/chart/<TICKER>?interval=1d&range=5d\")`.\n");
+        prompt.push_str("- **维基百科摘要:** `fetch-readable(url=\"https://zh.wikipedia.org/wiki/<Title>\")`.\n");
+        prompt.push_str("- When a user asks a factual question, prefer a direct API (above) OVER `web-search`. Only fall back to `web-search` if no direct API fits.\n");
 
         // ── Actions with care (Claude Code §Executing actions with care) ───
         prompt.push_str("\n# Executing actions with care\n");
@@ -1459,7 +1469,7 @@ Shell: {:?}\n\n",
                     reports.push(format!(
                         "[{}] {}",
                         tool_call.name,
-                        truncate_preview(&result, 2000)
+                        truncate_preview(&result, tool_result_preview_cap(&tool_call.name))
                     ));
                     self.append_session_message(
                         session_id,
@@ -2367,6 +2377,18 @@ fn truncate_preview(value: &str, max_len: usize) -> String {
     let mut preview = value.chars().take(max_len).collect::<String>();
     preview.push_str(" ...");
     preview
+}
+
+/// Tool-specific truncation cap for the preview that is echoed back into the
+/// next model prompt. Data-heavy tools (HTTP fetch, markdown extraction,
+/// search results) need enough room for 3-day forecasts, article bodies, etc.
+fn tool_result_preview_cap(tool_name: &str) -> usize {
+    match tool_name {
+        "http-get" | "http-post" | "fetch-readable" | "html-to-markdown" => 12_000,
+        "web-search" | "web-browse" => 8_000,
+        "read-file" | "read-file-lines" | "get-errors" => 8_000,
+        _ => 2_000,
+    }
 }
 
 /// Return today's date as an ISO-8601 `YYYY-MM-DD` string from the system

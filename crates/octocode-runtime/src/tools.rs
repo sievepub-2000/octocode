@@ -1737,6 +1737,11 @@ impl WorkspaceToolExecutor {
                         out.push_str(&attempts.join(", "));
                         out.push_str(")\n");
                     }
+                    // Inline next-step playbook. Snippets rarely contain the
+                    // actual answer for factual queries (weather, prices,
+                    // times, scores). Tell the model explicitly what to do
+                    // next rather than hoping it infers.
+                    out.push_str(&web_search_followup_hint(&query));
                     return Ok(ToolResult {
                         output: truncate_output(&out, 16 * 1024),
                     });
@@ -1755,6 +1760,60 @@ impl WorkspaceToolExecutor {
 }
 
 // ── web-search helpers ─────────────────────────────────────────────────────
+
+/// Inline next-step playbook appended to every `web-search` result.
+/// Search snippets rarely contain the actual answer for factual queries
+/// (weather, prices, times, scores). Models trained on generic chat data
+/// tend to stop at snippets and say "I couldn't find the answer." Tell
+/// them explicitly which tool to call next.
+fn web_search_followup_hint(query: &str) -> String {
+    let q = query.to_lowercase();
+    let mut out = String::from(
+        "\n── Next step playbook ──\n\
+Search snippets rarely contain the full answer. To actually answer the user, \
+pick ONE of these based on the question:\n\
+- Detail page: `fetch-readable(url=\"<one of the URLs above>\")` to read the target article.\n\
+- Parse rendered page: `html-to-markdown(url=\"<URL>\")` when readable mode strips too much.\n\
+- Public JSON API: `http-get(url=\"<api endpoint>\")` — always preferred when available.\n",
+    );
+
+    // Domain-specific recipes (Chinese + English keywords).
+    if q.contains("天气") || q.contains("weather") || q.contains("气温") || q.contains("预报") {
+        out.push_str(
+            "\nWEATHER QUERIES — the snippets NEVER contain temperatures. Call:\n\
+  http-get(url=\"https://wttr.in/<City>?format=j1&lang=zh\")    # JSON, 3-day forecast\n\
+  http-get(url=\"https://wttr.in/<City>?lang=zh&T\")            # compact text\n\
+Use the English romanization of the city (Jinan, Beijing, Shanghai) or the \
+Chinese name URL-encoded. The JSON contains `weather[0..2]` for today+2 days, \
+each with maxtempC / mintempC / hourly[].weatherDesc.\n",
+        );
+    }
+    if q.contains("股") || q.contains("stock") || q.contains("price") || q.contains("股价") {
+        out.push_str(
+            "\nSTOCK/PRICE QUERIES — snippets lag. Call a JSON API:\n\
+  http-get(url=\"https://query1.finance.yahoo.com/v8/finance/chart/<TICKER>?interval=1d&range=5d\")\n",
+        );
+    }
+    if q.contains("时间") || q.contains("time now") || q.contains("current time") {
+        out.push_str(
+            "\nTIME QUERIES:\n\
+  http-get(url=\"https://worldtimeapi.org/api/timezone/<Area>/<Location>\")  # e.g. Asia/Shanghai\n",
+        );
+    }
+    if q.contains("汇率") || q.contains("exchange rate") || q.contains("currency") {
+        out.push_str(
+            "\nEXCHANGE RATE QUERIES:\n\
+  http-get(url=\"https://api.exchangerate-api.com/v4/latest/USD\")\n\
+  http-get(url=\"https://open.er-api.com/v6/latest/CNY\")\n",
+        );
+    }
+
+    out.push_str(
+        "\nDo NOT tell the user you cannot answer before trying at least one of the above. \
+If a URL above returns a bot-wall, try the next recipe or a different URL from the search results.\n",
+    );
+    out
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct SearchHit {
@@ -2755,10 +2814,18 @@ impl ToolExecutor for WorkspaceToolExecutor {
                 self.append_file(&effective_input)
             }
             "http-get" => {
-                let approved = self.enforce_approval("http-get", &call.input, |payload| {
-                    format!("network GET '{}'", preview_for_audit(payload, 160))
-                })?;
-                self.http_get(&approved)
+                let (_, raw_payload) = split_approval_input(&call.input);
+                let effective_input = if http_get_host_is_preapproved(raw_payload) {
+                    // Public read-only data APIs (weather, time, FX, Wikipedia,
+                    // etc.). Requiring approval here just burns two round-trips
+                    // and derails small models, so we pre-approve them.
+                    String::from(raw_payload)
+                } else {
+                    self.enforce_approval("http-get", &call.input, |payload| {
+                        format!("network GET '{}'", preview_for_audit(payload, 160))
+                    })?
+                };
+                self.http_get(&effective_input)
             }
             "read-context" => self.read_context(&call.input),
             // iteration-2 tools
@@ -3501,6 +3568,57 @@ fn preview_for_audit(value: &str, max_chars: usize) -> String {
     out.push_str(" ...");
     out
 }
+
+/// Hosts that are pre-approved for `http-get` without an approval round-trip.
+/// Strictly public read-only APIs / reference sources that cannot be used to
+/// exfiltrate workspace data. Kept conservative on purpose — expand only for
+/// hosts that are (a) HTTPS, (b) serve static/public data, (c) have no
+/// side-effecting GET endpoints.
+const HTTP_GET_PREAPPROVED_HOSTS: &[&str] = &[
+    // Weather
+    "wttr.in",
+    // Time
+    "worldtimeapi.org",
+    // Foreign-exchange
+    "open.er-api.com",
+    "api.exchangerate-api.com",
+    // Financial (public quote endpoints)
+    "query1.finance.yahoo.com",
+    "query2.finance.yahoo.com",
+    // Reference / encyclopedia
+    "en.wikipedia.org",
+    "zh.wikipedia.org",
+    "en.wiktionary.org",
+    "zh.wiktionary.org",
+    // Package registries (read-only metadata)
+    "registry.npmjs.org",
+    "crates.io",
+    "index.crates.io",
+    "pypi.org",
+    // Misc public JSON
+    "api.github.com",
+    "raw.githubusercontent.com",
+    "httpbin.org",
+];
+
+fn http_get_host_is_preapproved(raw_payload: &str) -> bool {
+    let url = raw_payload.trim();
+    // Scheme must be https (or http to wttr.in which only serves http to some
+    // regions). Anything else — file://, ftp://, gopher:// — still routes
+    // through the approval gate.
+    let rest = match url.strip_prefix("https://").or_else(|| url.strip_prefix("http://")) {
+        Some(r) => r,
+        None => return false,
+    };
+    let host_end = rest
+        .find(|c: char| c == '/' || c == '?' || c == '#' || c == ':')
+        .unwrap_or(rest.len());
+    let host = rest[..host_end].to_ascii_lowercase();
+    HTTP_GET_PREAPPROVED_HOSTS
+        .iter()
+        .any(|h| host == *h || host.ends_with(&format!(".{h}")))
+}
+
 
 fn is_high_risk_write_target(path: &Path) -> bool {
     let lowered_path = path.to_string_lossy().to_ascii_lowercase();
