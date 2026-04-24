@@ -34,6 +34,11 @@ const RATE_LIMIT_PER_SEC: usize = 30;
 /// server is live and see basic request volume. No high-cardinality labels.
 static METRICS_REQUESTS_TOTAL: AtomicU64 = AtomicU64::new(0);
 static METRICS_ERRORS_TOTAL: AtomicU64 = AtomicU64::new(0);
+/// 2026.4.24-B1: operational counters for agent workload observability.
+/// Still label-free to keep Prometheus cardinality at O(1) per series.
+static METRICS_CHAT_REQUESTS_TOTAL: AtomicU64 = AtomicU64::new(0);
+static METRICS_TOOL_INVOCATIONS_TOTAL: AtomicU64 = AtomicU64::new(0);
+static METRICS_SESSIONS_CREATED_TOTAL: AtomicU64 = AtomicU64::new(0);
 
 /// P13-B: Render the Prometheus text body for the `/metrics` endpoint.
 /// Exposed as a pub fn so integration tests can assert the format
@@ -41,6 +46,9 @@ static METRICS_ERRORS_TOTAL: AtomicU64 = AtomicU64::new(0);
 pub fn render_metrics_body() -> String {
     let requests = METRICS_REQUESTS_TOTAL.load(Ordering::Relaxed);
     let errors = METRICS_ERRORS_TOTAL.load(Ordering::Relaxed);
+    let chat_requests = METRICS_CHAT_REQUESTS_TOTAL.load(Ordering::Relaxed);
+    let tool_invocations = METRICS_TOOL_INVOCATIONS_TOTAL.load(Ordering::Relaxed);
+    let sessions_created = METRICS_SESSIONS_CREATED_TOTAL.load(Ordering::Relaxed);
     let version = env!("CARGO_PKG_VERSION");
     format!(
         concat!(
@@ -50,12 +58,24 @@ pub fn render_metrics_body() -> String {
             "# HELP octocode_errors_total Total HTTP requests that failed with a 5xx response.\n",
             "# TYPE octocode_errors_total counter\n",
             "octocode_errors_total {errors}\n",
+            "# HELP octocode_chat_requests_total Total /api/chat prompt attempts (successful + failed).\n",
+            "# TYPE octocode_chat_requests_total counter\n",
+            "octocode_chat_requests_total {chat_requests}\n",
+            "# HELP octocode_tool_invocations_total Total /api/tool direct-invocation attempts.\n",
+            "# TYPE octocode_tool_invocations_total counter\n",
+            "octocode_tool_invocations_total {tool_invocations}\n",
+            "# HELP octocode_sessions_created_total Total sessions created via /api/sessions/create.\n",
+            "# TYPE octocode_sessions_created_total counter\n",
+            "octocode_sessions_created_total {sessions_created}\n",
             "# HELP octocode_build_info Build information (labeled gauge, always 1).\n",
             "# TYPE octocode_build_info gauge\n",
             "octocode_build_info{{version=\"{version}\"}} 1\n",
         ),
         requests = requests,
         errors = errors,
+        chat_requests = chat_requests,
+        tool_invocations = tool_invocations,
+        sessions_created = sessions_created,
         version = version,
     )
 }
@@ -1740,6 +1760,7 @@ fn route_request(
             let title = request.form_value("title");
             let store = FileSessionStore::new(&platform.config_paths())?;
             let session_id = create_session(&store, title)?;
+            METRICS_SESSIONS_CREATED_TOTAL.fetch_add(1, Ordering::Relaxed);
             let runtime = build_runtime(workspace_root, config)?;
             json_response(runtime.snapshot_json(Some(&session_id))?)
         }
@@ -1937,6 +1958,7 @@ fn route_request(
                 .filter(|value| !value.is_empty())
                 .unwrap_or_else(|| String::from("demo"));
             let text = request.form_value("text").unwrap_or_default();
+            METRICS_CHAT_REQUESTS_TOTAL.fetch_add(1, Ordering::Relaxed);
             let runtime = build_runtime(workspace_root, config)?;
             let result = runtime.prompt_in_session(&session_id, &text);
             match result {
@@ -1951,6 +1973,7 @@ fn route_request(
                 .unwrap_or_else(|| String::from("demo"));
             let name = request.form_value("name").unwrap_or_else(|| String::from("echo"));
             let input = request.form_value("input").unwrap_or_default();
+            METRICS_TOOL_INVOCATIONS_TOTAL.fetch_add(1, Ordering::Relaxed);
             let runtime = build_runtime(workspace_root, config)?;
             if execute_custom_tool_if_configured(
                 &runtime,

@@ -1,25 +1,25 @@
 # Live Regression — port 999
 
 Session hint: liveqa
-Passed 62/62; failed 0.
+Passed 65/65; failed 0.
 
 | Case | Result | Detail |
 |------|--------|--------|
-| isolation.two_tabs_same_context_get_different_sessions | PASS | A=session-1776993612776917600 B=session-1776993613887236600 (initA=demo) |
+| isolation.two_tabs_same_context_get_different_sessions | PASS | A=session-1776995529359837600 B=session-1776995530417564300 (initA=demo) |
 | isolation.marker_does_not_leak_to_other_tab | PASS | leaked=false |
-| isolation.two_tabs_get_different_sessions | PASS | A=session-1776993612776917600 B=session-1776993613887236600 (same-context, dom) |
+| isolation.two_tabs_get_different_sessions | PASS | A=session-1776995529359837600 B=session-1776995530417564300 (same-context, dom) |
 | thinking.indicator_entered_thinking_phase | PASS | labels=["AI 思考中...","AI 思考中...","AI 思考中...","AI 思考中...","AI 思考中...","AI 思考中...","AI 思考中...","AI 思考中..."] |
 | thinking.indicator_not_stuck_on_generic_responding_only | PASS | labels=["AI 思考中...","AI 思考中...","AI 思考中...","AI 思考中...","AI 思考中...","AI 思考中...","AI 思考中...","AI 思考中..."] |
-| tools.create_file_ok | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":34,"providerHealth":{"providerId":"ollama", |
-| tools.read_file_returns_content | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":34,"providerHealth":{"providerId":"ollama", |
-| tools.list_files_contains_new_file | PASS | liveqa-1776993639886.txt |
-| tools.delete_file_ok | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":34,"providerHealth":{"providerId":"ollama", |
-| sys.create_file | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":34,"providerHealth":{"providerId":"ollama", |
-| sys.delete_file | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":34,"providerHealth":{"providerId":"ollama", |
-| sys.echo_baseline | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":34,"providerHealth":{"providerId":"ollama", |
-| sys.web_search_weather | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":34,"providerHealth":{"providerId":"ollama", |
-| sys.web_search_x_news | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":34,"providerHealth":{"providerId":"ollama", |
-| sys.empty_recycle_bin | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":34,"providerHealth":{"providerId":"ollama", |
+| tools.create_file_ok | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":39,"providerHealth":{"providerId":"ollama", |
+| tools.read_file_returns_content | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":39,"providerHealth":{"providerId":"ollama", |
+| tools.list_files_contains_new_file | PASS | liveqa-1776995570769.txt |
+| tools.delete_file_ok | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":39,"providerHealth":{"providerId":"ollama", |
+| sys.create_file | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":39,"providerHealth":{"providerId":"ollama", |
+| sys.delete_file | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":39,"providerHealth":{"providerId":"ollama", |
+| sys.echo_baseline | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":39,"providerHealth":{"providerId":"ollama", |
+| sys.web_search_weather | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":39,"providerHealth":{"providerId":"ollama", |
+| sys.web_search_x_news | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":39,"providerHealth":{"providerId":"ollama", |
+| sys.empty_recycle_bin | PASS | {"status":{"providerId":"ollama","activeProviderId":"ollama","providerKind":"ollama","platform":"windows","permissionMode":"dangerFullAccess","sessionCount":39,"providerHealth":{"providerId":"ollama", |
 | catalog.http_200 | PASS | status=200 |
 | catalog.parses_json | PASS |  |
 | catalog.has_skills | PASS | count=36 |
@@ -67,3 +67,6 @@ Passed 62/62; failed 0.
 | metrics.contains_requests_total | PASS |  |
 | metrics.contains_errors_total | PASS |  |
 | metrics.contains_build_info | PASS |  |
+| metrics.contains_chat_requests_total | PASS |  |
+| metrics.contains_tool_invocations_total | PASS |  |
+| metrics.contains_sessions_created_total | PASS |  |

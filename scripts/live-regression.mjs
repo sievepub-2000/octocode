@@ -335,6 +335,9 @@ async function metricsCase() {
   record('metrics.contains_requests_total', body.includes('octocode_requests_total'));
   record('metrics.contains_errors_total', body.includes('octocode_errors_total'));
   record('metrics.contains_build_info', body.includes('octocode_build_info'));
+  record('metrics.contains_chat_requests_total', body.includes('octocode_chat_requests_total'));
+  record('metrics.contains_tool_invocations_total', body.includes('octocode_tool_invocations_total'));
+  record('metrics.contains_sessions_created_total', body.includes('octocode_sessions_created_total'));
 }
 
 async function main() {
