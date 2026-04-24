@@ -338,6 +338,63 @@ async function metricsCase() {
   record('metrics.contains_chat_requests_total', body.includes('octocode_chat_requests_total'));
   record('metrics.contains_tool_invocations_total', body.includes('octocode_tool_invocations_total'));
   record('metrics.contains_sessions_created_total', body.includes('octocode_sessions_created_total'));
+  record('metrics.contains_memory_notes_total', body.includes('octocode_memory_notes_total'));
+  record('metrics.contains_agent_tasks_active', body.includes('octocode_agent_tasks_active'));
+}
+
+async function memoryCase(token) {
+  // Start clean so counts are deterministic within this run.
+  await rawRequest('POST', '/api/memory/clear', { headers: { 'X-Auth-Token': token } });
+  const text = `live-regression note ${Date.now()}`;
+  const addRes = await rawRequest('POST', '/api/memory/add', {
+    headers: { 'X-Auth-Token': token, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `scope=regression&text=${encodeURIComponent(text)}`,
+  });
+  let addBody = {};
+  try { addBody = JSON.parse(addRes.body); } catch (_) {}
+  record('memory.add_ok', addBody?.ok === true && typeof addBody?.id === 'number');
+  const listRes = await rawRequest('GET', '/api/memory/list', { headers: { 'X-Auth-Token': token } });
+  let listBody = {};
+  try { listBody = JSON.parse(listRes.body); } catch (_) {}
+  const items = Array.isArray(listBody?.items) ? listBody.items : [];
+  record('memory.list_contains_added', items.some((i) => typeof i?.text === 'string' && i.text.includes('live-regression note')));
+  const clearRes = await rawRequest('POST', '/api/memory/clear', { headers: { 'X-Auth-Token': token } });
+  let clearBody = {};
+  try { clearBody = JSON.parse(clearRes.body); } catch (_) {}
+  record('memory.clear_ok', clearBody?.ok === true);
+}
+
+async function agentSupervisionCase(token) {
+  const taskId = `live-${Date.now()}`;
+  const startRes = await rawRequest('POST', '/api/agent/tasks/start', {
+    headers: { 'X-Auth-Token': token, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `id=${taskId}&title=${encodeURIComponent('Live regression supervision')}`,
+  });
+  let startBody = {};
+  try { startBody = JSON.parse(startRes.body); } catch (_) {}
+  record('agent.tasks_start_ok', startBody?.ok === true && startBody?.isNew === true);
+
+  const hbRes = await rawRequest('POST', '/api/agent/tasks/heartbeat', {
+    headers: { 'X-Auth-Token': token, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `id=${taskId}`,
+  });
+  let hbBody = {};
+  try { hbBody = JSON.parse(hbRes.body); } catch (_) {}
+  record('agent.tasks_heartbeat_ok', hbBody?.ok === true);
+
+  const listRes = await rawRequest('GET', '/api/agent/tasks/list', { headers: { 'X-Auth-Token': token } });
+  let listBody = {};
+  try { listBody = JSON.parse(listRes.body); } catch (_) {}
+  const items = Array.isArray(listBody?.items) ? listBody.items : [];
+  record('agent.tasks_list_contains_running', items.some((i) => i?.id === taskId && i?.status === 'running'));
+
+  const finRes = await rawRequest('POST', '/api/agent/tasks/finish', {
+    headers: { 'X-Auth-Token': token, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `id=${taskId}&status=completed`,
+  });
+  let finBody = {};
+  try { finBody = JSON.parse(finRes.body); } catch (_) {}
+  record('agent.tasks_finish_ok', finBody?.ok === true);
 }
 
 async function main() {
@@ -354,6 +411,8 @@ async function main() {
     await manageCatalogCase(token);
     await toolsInventoryCase(token);
     await metricsCase();
+    await memoryCase(token);
+    await agentSupervisionCase(token);
   } finally {
     await browser.close();
   }

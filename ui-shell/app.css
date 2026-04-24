@@ -2002,3 +2002,54 @@ button.is-loading {
   background: var(--border);
   margin: 4px 0;
 }
+/* ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+   2026.4.24-C1  ¡¤  Accessibility & polish refinements
+   - Unified focus ring (visible only on :focus-visible, not :focus)
+   - Accessible scrollbar across WebKit + Firefox
+   - Honours prefers-reduced-motion
+   ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T */
+
+/* Accessible focus ring ¡ª only on keyboard nav, not mouse click. */
+:where(button, a, input, select, textarea, [role='button'], [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+:where(button, a, input, select, textarea, [role='button'], [tabindex]):focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Scrollbars ¡ª WebKit (Chromium, Safari). */
+:where(.scroll, [data-scroll], .right-top, .center, .left, main, body) *::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+:where(.scroll, [data-scroll], .right-top, .center, .left, main, body) *::-webkit-scrollbar-track {
+  background: transparent;
+}
+:where(.scroll, [data-scroll], .right-top, .center, .left, main, body) *::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+:where(.scroll, [data-scroll], .right-top, .center, .left, main, body) *::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: content-box;
+}
+
+/* Scrollbars ¡ª Firefox. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+/* Respect reduced-motion preference ¡ª disables cosmetic transitions. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}

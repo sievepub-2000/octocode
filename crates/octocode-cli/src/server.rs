@@ -49,6 +49,8 @@ pub fn render_metrics_body() -> String {
     let chat_requests = METRICS_CHAT_REQUESTS_TOTAL.load(Ordering::Relaxed);
     let tool_invocations = METRICS_TOOL_INVOCATIONS_TOTAL.load(Ordering::Relaxed);
     let sessions_created = METRICS_SESSIONS_CREATED_TOTAL.load(Ordering::Relaxed);
+    let memory_notes = METRICS_MEMORY_NOTES_TOTAL.load(Ordering::Relaxed);
+    let agent_tasks_active = agent_tasks::active_count();
     let version = env!("CARGO_PKG_VERSION");
     format!(
         concat!(
@@ -67,6 +69,12 @@ pub fn render_metrics_body() -> String {
             "# HELP octocode_sessions_created_total Total sessions created via /api/sessions/create.\n",
             "# TYPE octocode_sessions_created_total counter\n",
             "octocode_sessions_created_total {sessions_created}\n",
+            "# HELP octocode_memory_notes_total Total permanent-memory notes appended since startup.\n",
+            "# TYPE octocode_memory_notes_total counter\n",
+            "octocode_memory_notes_total {memory_notes}\n",
+            "# HELP octocode_agent_tasks_active Current number of supervised agent tasks in 'running' status.\n",
+            "# TYPE octocode_agent_tasks_active gauge\n",
+            "octocode_agent_tasks_active {agent_tasks_active}\n",
             "# HELP octocode_build_info Build information (labeled gauge, always 1).\n",
             "# TYPE octocode_build_info gauge\n",
             "octocode_build_info{{version=\"{version}\"}} 1\n",
@@ -76,8 +84,201 @@ pub fn render_metrics_body() -> String {
         chat_requests = chat_requests,
         tool_invocations = tool_invocations,
         sessions_created = sessions_created,
+        memory_notes = memory_notes,
+        agent_tasks_active = agent_tasks_active,
         version = version,
     )
+}
+
+/// 2026.4.24-B1: operational counters for permanent memory + agent supervision.
+static METRICS_MEMORY_NOTES_TOTAL: AtomicU64 = AtomicU64::new(0);
+
+/// Append-only persistent memory store. Each line in `{data_home}/memory.jsonl`
+/// is a JSON object `{id, createdAt, scope, text}`. The file is intentionally
+/// simple (JSONL) so operators can cat/tail/grep it without a DB dependency.
+/// Failures never panic — memory is advisory and loss-of-notes must not
+/// crash the running agent.
+mod memory_store {
+    use std::fs::{self, OpenOptions};
+    use std::io::Write;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    /// Monotonic id generator. Not persisted; restart is OK because entries
+    /// are disambiguated by their createdAt timestamp too.
+    static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+
+    fn file_path(data_home: &str) -> PathBuf {
+        PathBuf::from(data_home).join("memory.jsonl")
+    }
+
+    fn escape(value: &str) -> String {
+        let mut out = String::with_capacity(value.len() + 2);
+        for ch in value.chars() {
+            match ch {
+                '\\' => out.push_str("\\\\"),
+                '"' => out.push_str("\\\""),
+                '\n' => out.push_str("\\n"),
+                '\r' => out.push_str("\\r"),
+                '\t' => out.push_str("\\t"),
+                c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+                c => out.push(c),
+            }
+        }
+        out
+    }
+
+    /// Appends one note. Returns the new entry id.
+    pub fn add(data_home: &str, scope: &str, text: &str) -> std::io::Result<u64> {
+        let path = file_path(data_home);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let line = format!(
+            "{{\"id\":{id},\"createdAt\":{ts},\"scope\":\"{scope}\",\"text\":\"{text}\"}}\n",
+            scope = escape(scope),
+            text = escape(text)
+        );
+        let mut f = OpenOptions::new().create(true).append(true).open(&path)?;
+        f.write_all(line.as_bytes())?;
+        Ok(id)
+    }
+
+    /// Reads all entries. Returns the raw JSONL lines joined into a JSON
+    /// array (malformed lines are skipped).
+    pub fn list_json(data_home: &str) -> String {
+        let path = file_path(data_home);
+        let raw = fs::read_to_string(&path).unwrap_or_default();
+        let mut items: Vec<String> = Vec::new();
+        for line in raw.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('{') && trimmed.ends_with('}') {
+                items.push(trimmed.to_string());
+            }
+        }
+        format!("[{}]", items.join(","))
+    }
+
+    pub fn clear(data_home: &str) -> std::io::Result<()> {
+        let path = file_path(data_home);
+        if path.exists() {
+            fs::remove_file(&path)?;
+        }
+        Ok(())
+    }
+}
+
+/// In-memory agent task registry for long-running supervision. Entries are
+/// keyed by caller-supplied task_id. This is intentionally process-local
+/// (not persisted) — operators use metrics for cross-restart durability.
+mod agent_tasks {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[derive(Clone)]
+    pub struct TaskRecord {
+        pub id: String,
+        pub title: String,
+        pub started_at: u128,
+        pub last_heartbeat: u128,
+        pub status: String,
+    }
+
+    static REGISTRY: OnceLock<Mutex<HashMap<String, TaskRecord>>> = OnceLock::new();
+
+    fn registry() -> &'static Mutex<HashMap<String, TaskRecord>> {
+        REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+    }
+
+    fn now_ms() -> u128 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    }
+
+    fn escape(value: &str) -> String {
+        let mut out = String::with_capacity(value.len());
+        for ch in value.chars() {
+            match ch {
+                '\\' => out.push_str("\\\\"),
+                '"' => out.push_str("\\\""),
+                '\n' => out.push_str("\\n"),
+                '\r' => out.push_str("\\r"),
+                '\t' => out.push_str("\\t"),
+                c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+                c => out.push(c),
+            }
+        }
+        out
+    }
+
+    /// Starts or replaces a task. Returns true if a new task was created.
+    pub fn start(id: &str, title: &str) -> bool {
+        let mut g = registry().lock().unwrap();
+        let now = now_ms();
+        let is_new = !g.contains_key(id);
+        g.insert(
+            id.to_string(),
+            TaskRecord {
+                id: id.to_string(),
+                title: title.to_string(),
+                started_at: now,
+                last_heartbeat: now,
+                status: String::from("running"),
+            },
+        );
+        is_new
+    }
+
+    pub fn heartbeat(id: &str) -> bool {
+        let mut g = registry().lock().unwrap();
+        if let Some(rec) = g.get_mut(id) {
+            rec.last_heartbeat = now_ms();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn finish(id: &str, status: &str) -> bool {
+        let mut g = registry().lock().unwrap();
+        if let Some(rec) = g.get_mut(id) {
+            rec.status = status.to_string();
+            rec.last_heartbeat = now_ms();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn list_json() -> String {
+        let g = registry().lock().unwrap();
+        let mut items: Vec<String> = Vec::new();
+        for rec in g.values() {
+            items.push(format!(
+                "{{\"id\":\"{id}\",\"title\":\"{title}\",\"startedAt\":{started},\"lastHeartbeat\":{hb},\"status\":\"{status}\"}}",
+                id = escape(&rec.id),
+                title = escape(&rec.title),
+                started = rec.started_at,
+                hb = rec.last_heartbeat,
+                status = escape(&rec.status)
+            ));
+        }
+        format!("[{}]", items.join(","))
+    }
+
+    pub fn active_count() -> u64 {
+        let g = registry().lock().unwrap();
+        g.values().filter(|r| r.status == "running").count() as u64
+    }
 }
 
 /// Simple sliding-window rate limiter keyed by client address string.
@@ -2050,6 +2251,75 @@ fn route_request(
             let command = request.form_value("command").unwrap_or_default().trim().to_string();
             let session_id = request.form_value("sessionId");
             handle_command(command, session_id, workspace_root, loader, config)
+        }
+        // 2026.4.24-B1: permanent memory (cross-session notes). JSONL-backed
+        // under {data_home}/memory.jsonl. Intentionally free-form; higher
+        // layers (UI / agent) decide semantics via `scope`.
+        ("POST", "/api/memory/add") => {
+            let scope = request
+                .form_value("scope")
+                .filter(|v| !v.trim().is_empty())
+                .unwrap_or_else(|| String::from("default"));
+            let text = request.form_value("text").unwrap_or_default();
+            if text.trim().is_empty() {
+                return Err(Box::new(OctoError::Runtime(String::from(
+                    "memory text must not be empty",
+                ))));
+            }
+            let data_home = platform.config_paths().data_home.clone();
+            let id = memory_store::add(&data_home, &scope, &text)
+                .map_err(|e| OctoError::Runtime(format!("memory add failed: {e}")))?;
+            METRICS_MEMORY_NOTES_TOTAL.fetch_add(1, Ordering::Relaxed);
+            json_response(format!(
+                "{{\"ok\":true,\"id\":{id},\"scope\":{scope_json}}}",
+                scope_json = serde_json::to_string(&scope).unwrap_or_else(|_| String::from("\"default\"")),
+            ))
+        }
+        ("GET", "/api/memory/list") => {
+            let data_home = platform.config_paths().data_home.clone();
+            let items = memory_store::list_json(&data_home);
+            json_response(format!("{{\"items\":{items}}}"))
+        }
+        ("POST", "/api/memory/clear") => {
+            let data_home = platform.config_paths().data_home.clone();
+            memory_store::clear(&data_home)
+                .map_err(|e| OctoError::Runtime(format!("memory clear failed: {e}")))?;
+            json_response(String::from("{\"ok\":true}"))
+        }
+        // 2026.4.24-B2: agent long-task supervision. Process-local registry;
+        // heartbeats enable external watchdogs to detect stalled agents.
+        ("POST", "/api/agent/tasks/start") => {
+            let id = request
+                .form_value("id")
+                .filter(|v| !v.trim().is_empty())
+                .ok_or_else(|| OctoError::Runtime(String::from("missing task id")))?;
+            let title = request.form_value("title").unwrap_or_else(|| id.clone());
+            let is_new = agent_tasks::start(&id, &title);
+            json_response(format!(
+                "{{\"ok\":true,\"id\":{id_json},\"isNew\":{is_new}}}",
+                id_json = serde_json::to_string(&id).unwrap_or_else(|_| String::from("\"\"")),
+            ))
+        }
+        ("POST", "/api/agent/tasks/heartbeat") => {
+            let id = request
+                .form_value("id")
+                .filter(|v| !v.trim().is_empty())
+                .ok_or_else(|| OctoError::Runtime(String::from("missing task id")))?;
+            let ok = agent_tasks::heartbeat(&id);
+            json_response(format!("{{\"ok\":{ok}}}"))
+        }
+        ("POST", "/api/agent/tasks/finish") => {
+            let id = request
+                .form_value("id")
+                .filter(|v| !v.trim().is_empty())
+                .ok_or_else(|| OctoError::Runtime(String::from("missing task id")))?;
+            let status = request.form_value("status").unwrap_or_else(|| String::from("completed"));
+            let ok = agent_tasks::finish(&id, &status);
+            json_response(format!("{{\"ok\":{ok}}}"))
+        }
+        ("GET", "/api/agent/tasks/list") => {
+            let items = agent_tasks::list_json();
+            json_response(format!("{{\"items\":{items}}}"))
         }
         ("GET", "/metrics") => {
             let body = render_metrics_body();
