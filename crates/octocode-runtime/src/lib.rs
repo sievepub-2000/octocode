@@ -173,6 +173,20 @@ fn stream_cancelled_error() -> OctoError {
     OctoError::Runtime(String::from(STREAM_CANCELLED_MESSAGE))
 }
 
+/// Normalise an externally-supplied tool name so descriptor lookup tolerates
+/// common provider quirks. Some models emit `tool-create-file`,
+/// `function_read_file`, or `Call-Shell-Command`; we lower-case, swap `_`→`-`
+/// and strip one leading `tool-`/`call-`/`function-` marker.
+pub(crate) fn normalize_external_tool_name(raw: &str) -> String {
+    let lower = raw.trim().to_ascii_lowercase().replace('_', "-");
+    for prefix in ["tool-", "call-", "function-"] {
+        if let Some(rest) = lower.strip_prefix(prefix) {
+            return rest.to_string();
+        }
+    }
+    lower
+}
+
 fn is_stream_cancelled(error: &OctoError) -> bool {
     matches!(error, OctoError::Runtime(message) if message == STREAM_CANCELLED_MESSAGE)
 }
@@ -952,6 +966,12 @@ where
         mut call: ToolCall,
     ) -> Result<ToolResult, OctoError> {
         self.ensure_session_exists(session_id)?;
+        // Normalise model-emitted names: lowercase, `_` → `-`, and strip a
+        // single leading `tool-`/`call-`/`function-` marker so that names
+        // such as `tool-create-file` or `function_read_file` resolve to the
+        // real descriptor without requiring the 59-entry alias table in the
+        // text-parser to stay in perfect sync.
+        call.name = normalize_external_tool_name(&call.name);
         if call.name == "agent-action" {
             let response = self.agent_action_in_session(session_id, &call.input)?;
             return Ok(ToolResult {

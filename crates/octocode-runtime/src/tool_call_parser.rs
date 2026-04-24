@@ -185,18 +185,29 @@ fn canonicalize_embedded_tool_name(raw_name: &str) -> Option<String> {
         .to_ascii_lowercase()
         .replace('_', "-");
 
+    // Some models (Gemma/Qwen variants) wrap the actual tool name with a
+    // `tool-` / `call-` / `function-` prefix, e.g. `tool-create-file`.
+    // Strip a single leading marker so the canonical match below succeeds.
+    let base = base
+        .strip_prefix("tool-")
+        .or_else(|| base.strip_prefix("call-"))
+        .or_else(|| base.strip_prefix("function-"))
+        .map(|s| s.to_string())
+        .unwrap_or(base);
+
     match base.as_str() {
         "write-file" | "writefile" => Some(String::from("write-file")),
-        "create-file" | "createfile" => Some(String::from("create-file")),
+        "create-file" | "createfile" | "new-file" => Some(String::from("create-file")),
         "append-file" | "appendfile" => Some(String::from("append-file")),
-        "read-file" | "readfile" => Some(String::from("read-file")),
-        "list-files" | "listdir" | "list-directory" => Some(String::from("list-files")),
-        "move-file" | "movefile" | "rename-file" => Some(String::from("move-file")),
-        "delete-file" | "deletefile" => Some(String::from("delete-file")),
-        "search-text" | "searchtext" | "search" => Some(String::from("search-text")),
-        "shell-command" | "shell" | "run-shell" | "run-command" | "exec" => {
+        "read-file" | "readfile" | "cat-file" => Some(String::from("read-file")),
+        "list-files" | "listdir" | "list-directory" | "ls" => Some(String::from("list-files")),
+        "move-file" | "movefile" | "rename-file" | "mv" => Some(String::from("move-file")),
+        "delete-file" | "deletefile" | "remove-file" | "rm" => Some(String::from("delete-file")),
+        "search-text" | "searchtext" | "search" | "grep" => Some(String::from("search-text")),
+        "shell-command" | "shell" | "run-shell" | "run-command" | "exec" | "bash" => {
             Some(String::from("shell-command"))
         }
+        "web-search" | "websearch" => Some(String::from("web-search")),
         _ => None,
     }
 }
@@ -515,6 +526,28 @@ That's all."#;
         assert_eq!(canonicalize_embedded_tool_name("exec"), Some("shell-command".into()));
         assert_eq!(canonicalize_embedded_tool_name("listdir"), Some("list-files".into()));
         assert_eq!(canonicalize_embedded_tool_name("unknown_tool"), None);
+    }
+
+    #[test]
+    fn test_canonicalize_strips_tool_prefix_variants() {
+        // Some models emit `tool-create-file(...)` or `call-read-file(...)`;
+        // we strip a single leading marker so the canonical match succeeds.
+        assert_eq!(
+            canonicalize_embedded_tool_name("tool-create-file"),
+            Some("create-file".into())
+        );
+        assert_eq!(
+            canonicalize_embedded_tool_name("tool_read_file"),
+            Some("read-file".into())
+        );
+        assert_eq!(
+            canonicalize_embedded_tool_name("call-shell-command"),
+            Some("shell-command".into())
+        );
+        assert_eq!(
+            canonicalize_embedded_tool_name("function-delete-file"),
+            Some("delete-file".into())
+        );
     }
 
     #[test]
