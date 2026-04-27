@@ -49,6 +49,11 @@ const TOOLS: &[ToolDescriptor] = &[
         minimum_permission: PermissionMode::ReadOnly,
     },
     ToolDescriptor {
+        name: "agent-step",
+        summary: "Plan the next bounded agent loop step without executing it",
+        minimum_permission: PermissionMode::ReadOnly,
+    },
+    ToolDescriptor {
         name: "git-status",
         summary: "Show git working tree status in the workspace",
         minimum_permission: PermissionMode::ReadOnly,
@@ -272,6 +277,28 @@ impl WorkspaceToolExecutor {
             String::from("mode: delegated"),
             String::from("next: inspect the local slice before making edits"),
             String::from("validation: run the cheapest behavior-scoped check after the first edit"),
+        ]
+        .join("\n");
+        ToolResult { output }
+    }
+
+    fn agent_step(&self, input: &str) -> ToolResult {
+        let goal = input.trim();
+        let goal = if goal.is_empty() { "continue current task" } else { goal };
+        let workspace = self
+            .canonical_workspace_root()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|_| self.workspace_root.display().to_string());
+        let output = [
+            String::from("agent-step.version=1"),
+            format!("goal={goal}"),
+            format!("workspace={workspace}"),
+            String::from("loop.maxSteps=4"),
+            String::from("step.1=observe: read-context or file-tree"),
+            String::from("step.2=plan: choose the smallest tool call"),
+            String::from("step.3=act: execute one tool call only"),
+            String::from("step.4=validate: run focused read/search/git-diff check"),
+            String::from("stop.when=goal satisfied, validation failed, or next action requires danger-full-access"),
         ]
         .join("\n");
         ToolResult { output }
@@ -526,6 +553,7 @@ impl ToolExecutor for WorkspaceToolExecutor {
             "search-text" => self.search_text(&call.input),
             "workflow-plan" => Ok(self.workflow_plan(&call.input)),
             "agent-action" => Ok(self.agent_action(&call.input)),
+            "agent-step" => Ok(self.agent_step(&call.input)),
             "git-status" => self.git_status(),
             "git-diff" => self.git_diff(&call.input),
             "git-log" => self.git_log(&call.input),
@@ -563,5 +591,17 @@ mod tests {
             permission: PermissionMode::DangerFullAccess,
         });
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn agent_step_returns_bounded_loop_contract() {
+        let executor = WorkspaceToolExecutor::new(".");
+        let result = executor.execute(ToolCall {
+            name: String::from("agent-step"),
+            input: String::from("ship audit ui"),
+            permission: PermissionMode::ReadOnly,
+        }).expect("agent-step succeeds");
+        assert!(result.output.contains("loop.maxSteps=4"));
+        assert!(result.output.contains("stop.when="));
     }
 }
