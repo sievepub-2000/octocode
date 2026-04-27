@@ -3,7 +3,7 @@ use octocode_core::{PermissionMode, ToolCall};
 use crate::sub_loop::WriteQueueItem;
 use crate::write_scheduler::{CommitDecision, CommitPlan};
 
-const MAX_RETRIES: usize = 1;
+const MAX_HEAL_ATTEMPTS: usize = 1;
 
 #[derive(Debug, Clone)]
 pub struct CommitExecutionResult {
@@ -15,6 +15,7 @@ pub struct CommitExecutionResult {
     pub ok: bool,
     pub output: String,
     pub retries: usize,
+    pub heal_strategy: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -41,15 +42,23 @@ impl CommitExecutionReport {
             .count()
     }
 
+    pub fn healed_count(&self) -> usize {
+        self.results
+            .iter()
+            .filter(|result| result.heal_strategy.is_some() && result.ok)
+            .count()
+    }
+
     pub fn render(&self) -> String {
         self.results
             .iter()
             .map(|result| {
                 format!(
-                    "[commit-exec {:?} ok={} retries={} subLoop={} tool={} input={} output={}]",
+                    "[commit-exec {:?} ok={} retries={} heal={} subLoop={} tool={} input={} output={}]",
                     result.decision,
                     result.ok,
                     result.retries,
+                    result.heal_strategy.as_deref().unwrap_or("none"),
                     result.sub_loop_id,
                     result.tool,
                     clip(&result.input, 220),
@@ -75,53 +84,20 @@ pub fn execute_commit_plan<R: CommitRuntime>(
     for item in plan.items {
         match item.decision {
             CommitDecision::Execute => {
-                let permission = permission_for_tool(&item.item.tool);
-                let mut attempt = 0;
-                let mut last_error = None;
-                let mut success_output = None;
-
-                while attempt <= MAX_RETRIES {
-                    let result = runtime.run_commit_tool(
-                        parent_session_id,
-                        ToolCall {
-                            name: item.item.tool.clone(),
-                            input: adapt_input_for_retry(&item.item.input, attempt),
-                            permission,
-                        },
-                    );
-
-                    match result {
-                        Ok(output) => {
-                            success_output = Some(output);
-                            break;
-                        }
-                        Err(error) => {
-                            last_error = Some(error.clone());
-                            if !is_retryable(&error) {
-                                break;
-                            }
-                        }
-                    }
-                    attempt += 1;
-                }
-
-                if let Some(output) = success_output {
-                    report.results.push(result_from_item(
-                        item.item,
-                        CommitDecision::Execute,
-                        true,
-                        output,
-                        attempt,
-                    ));
-                } else {
-                    report.results.push(result_from_item(
-                        item.item,
-                        CommitDecision::Execute,
-                        false,
-                        last_error.unwrap_or_else(|| String::from("unknown error")),
-                        attempt,
-                    ));
-                }
+                let initial = CommitAttempt {
+                    tool: item.item.tool.clone(),
+                    input: item.item.input.clone(),
+                    strategy: None,
+                };
+                let execution = execute_with_self_heal(runtime, parent_session_id, initial);
+                report.results.push(result_from_item(
+                    item.item,
+                    CommitDecision::Execute,
+                    execution.ok,
+                    execution.output,
+                    execution.retries,
+                    execution.strategy,
+                ));
             }
             CommitDecision::SkipDuplicate => report.results.push(result_from_item(
                 item.item,
@@ -129,6 +105,7 @@ pub fn execute_commit_plan<R: CommitRuntime>(
                 true,
                 String::from("skipped duplicate scheduled write"),
                 0,
+                None,
             )),
             CommitDecision::Conflict => report.results.push(result_from_item(
                 item.item,
@@ -136,6 +113,7 @@ pub fn execute_commit_plan<R: CommitRuntime>(
                 false,
                 item.reason,
                 0,
+                None,
             )),
         }
     }
@@ -143,17 +121,121 @@ pub fn execute_commit_plan<R: CommitRuntime>(
     report
 }
 
-fn is_retryable(error: &str) -> bool {
-    let lower = error.to_ascii_lowercase();
-    lower.contains("timeout") || lower.contains("temporarily") || lower.contains("busy")
+#[derive(Debug, Clone)]
+struct CommitAttempt {
+    tool: String,
+    input: String,
+    strategy: Option<String>,
 }
 
-fn adapt_input_for_retry(input: &str, attempt: usize) -> String {
-    if attempt == 0 {
-        input.to_string()
-    } else {
-        format!("{} #retry{}", input, attempt)
+#[derive(Debug, Clone)]
+struct CommitAttemptResult {
+    ok: bool,
+    output: String,
+    retries: usize,
+    strategy: Option<String>,
+}
+
+fn execute_with_self_heal<R: CommitRuntime>(
+    runtime: &mut R,
+    parent_session_id: &str,
+    initial: CommitAttempt,
+) -> CommitAttemptResult {
+    let mut last_error = None;
+    let mut attempt = initial.clone();
+
+    for retry in 0..=MAX_HEAL_ATTEMPTS {
+        let result = runtime.run_commit_tool(
+            parent_session_id,
+            ToolCall {
+                name: attempt.tool.clone(),
+                input: attempt.input.clone(),
+                permission: permission_for_tool(&attempt.tool),
+            },
+        );
+
+        match result {
+            Ok(output) => {
+                return CommitAttemptResult {
+                    ok: true,
+                    output,
+                    retries: retry,
+                    strategy: attempt.strategy,
+                };
+            }
+            Err(error) => {
+                last_error = Some(error.clone());
+                if retry >= MAX_HEAL_ATTEMPTS {
+                    break;
+                }
+                let Some(next) = build_heal_attempt(&initial, &error) else {
+                    break;
+                };
+                if next.tool == attempt.tool && next.input == attempt.input {
+                    break;
+                }
+                attempt = next;
+            }
+        }
     }
+
+    CommitAttemptResult {
+        ok: false,
+        output: last_error.unwrap_or_else(|| String::from("unknown error")),
+        retries: MAX_HEAL_ATTEMPTS,
+        strategy: attempt.strategy,
+    }
+}
+
+fn build_heal_attempt(original: &CommitAttempt, error: &str) -> Option<CommitAttempt> {
+    let lower = error.to_ascii_lowercase();
+    match original.tool.as_str() {
+        "write-file" if lower.contains("parent") || lower.contains("directory") || lower.contains("no such file") => {
+            Some(CommitAttempt {
+                tool: String::from("shell-command"),
+                input: mkdir_parent_command(&original.input)?,
+                strategy: Some(String::from("create-parent-directory-before-write")),
+            })
+        }
+        "write-file" if lower.contains("permission") || lower.contains("readonly") => {
+            Some(CommitAttempt {
+                tool: String::from("append-file"),
+                input: original.input.clone(),
+                strategy: Some(String::from("downgrade-write-to-append")),
+            })
+        }
+        "append-file" if lower.contains("no such file") || lower.contains("not found") => {
+            Some(CommitAttempt {
+                tool: String::from("write-file"),
+                input: original.input.clone(),
+                strategy: Some(String::from("create-file-via-write")),
+            })
+        }
+        "shell-command" if lower.contains("timeout") || lower.contains("busy") || lower.contains("temporarily") => {
+            Some(CommitAttempt {
+                tool: original.tool.clone(),
+                input: format!("{} # self-heal-retry", original.input),
+                strategy: Some(String::from("retry-transient-shell")),
+            })
+        }
+        _ => None,
+    }
+}
+
+fn mkdir_parent_command(write_input: &str) -> Option<String> {
+    let path = write_input.split_once('|').map(|(path, _)| path.trim()).unwrap_or(write_input.trim());
+    if path.is_empty() || path.contains("..") {
+        return None;
+    }
+    let parent = path.rsplit_once(['/', '\\']).map(|(parent, _)| parent.trim())?;
+    if parent.is_empty() {
+        return None;
+    }
+    Some(format!("mkdir -p {}", shell_quote(parent)))
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 fn result_from_item(
@@ -162,6 +244,7 @@ fn result_from_item(
     ok: bool,
     output: String,
     retries: usize,
+    heal_strategy: Option<String>,
 ) -> CommitExecutionResult {
     CommitExecutionResult {
         sub_loop_id: item.sub_loop_id,
@@ -172,6 +255,7 @@ fn result_from_item(
         ok,
         output,
         retries,
+        heal_strategy,
     }
 }
 
@@ -199,15 +283,15 @@ mod tests {
     use crate::write_scheduler::schedule_write_queue;
     use octocode_core::ToolCall;
 
-    struct FlakyRuntime {
+    struct ParentDirHealingRuntime {
         attempts: usize,
     }
 
-    impl CommitRuntime for FlakyRuntime {
+    impl CommitRuntime for ParentDirHealingRuntime {
         fn run_commit_tool(&mut self, _session_id: &str, call: ToolCall) -> Result<String, String> {
             self.attempts += 1;
             if self.attempts == 1 {
-                Err(String::from("timeout"))
+                Err(String::from("parent directory missing"))
             } else {
                 Ok(format!("{}:{}", call.name, call.input))
             }
@@ -225,10 +309,12 @@ mod tests {
     }
 
     #[test]
-    fn retries_once_on_timeout() {
-        let plan = schedule_write_queue(vec![item("a", "write-file", "README.md|x")]);
-        let mut runtime = FlakyRuntime { attempts: 0 };
+    fn heals_missing_parent_by_creating_directory() {
+        let plan = schedule_write_queue(vec![item("a", "write-file", "docs/new/file.md|x")]);
+        let mut runtime = ParentDirHealingRuntime { attempts: 0 };
         let report = execute_commit_plan(&mut runtime, "demo", plan);
         assert_eq!(report.ok_count(), 1);
+        assert_eq!(report.healed_count(), 1);
+        assert!(report.render().contains("create-parent-directory-before-write"));
     }
 }
