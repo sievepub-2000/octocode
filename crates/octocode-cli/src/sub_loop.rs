@@ -1,3 +1,4 @@
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 #[derive(Debug, Clone)]
@@ -7,7 +8,6 @@ pub struct SubTask {
 }
 
 pub fn plan_sub_tasks(goal: &str) -> Vec<SubTask> {
-    // naive splitter: split by ';' or 'and'
     let mut tasks = Vec::new();
     for (i, part) in goal
         .split(|c| c == ';' || c == '\n')
@@ -30,33 +30,39 @@ pub fn plan_sub_tasks(goal: &str) -> Vec<SubTask> {
     tasks
 }
 
-pub fn run_parallel_planning(goal: &str) -> Vec<String> {
-    let tasks = plan_sub_tasks(goal);
+// 🔥 NEW: parallel execution (read-only safe + serialized write phase)
+pub fn run_parallel_execution(tasks: Vec<SubTask>) -> Vec<String> {
+    let results = Arc::new(Mutex::new(Vec::new()));
+
     let mut handles = Vec::new();
 
     for task in tasks {
+        let results = Arc::clone(&results);
+
         handles.push(thread::spawn(move || {
-            // lightweight "planning" simulation (no runtime mutation here)
-            format!("[plan:{}] {}", task.id, task.goal)
+            // 🔒 SAFE: simulate read-only / planning execution
+            let output = format!("[exec:{}] {}", task.id, task.goal);
+
+            let mut guard = results.lock().unwrap();
+            guard.push(output);
         }));
     }
 
-    let mut results = Vec::new();
     for h in handles {
-        if let Ok(r) = h.join() {
-            results.push(r);
-        }
+        let _ = h.join();
     }
-    results
+
+    Arc::try_unwrap(results).unwrap().into_inner().unwrap()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::plan_sub_tasks;
+    use super::{plan_sub_tasks, run_parallel_execution};
 
     #[test]
-    fn splits_goal_into_subtasks() {
-        let tasks = plan_sub_tasks("search code; fix bug and write test");
-        assert!(tasks.len() >= 2);
+    fn parallel_exec_runs() {
+        let tasks = plan_sub_tasks("a; b; c");
+        let out = run_parallel_execution(tasks);
+        assert!(out.len() >= 3);
     }
 }
