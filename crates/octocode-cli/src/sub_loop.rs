@@ -2,6 +2,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use octocode_core::{PermissionMode, ToolCall};
+
 pub const MAX_SUB_LOOPS: usize = 4;
 pub const MAX_SUB_LOOP_STEPS: usize = 6;
 pub const MAX_SUB_LOOP_OUTPUT_CHARS: usize = 1400;
@@ -29,6 +31,23 @@ pub struct SubLoopReport {
     pub status: String,
     pub elapsed_ms: u128,
     pub merge_recommendation: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct WriteQueueItem {
+    pub sub_loop_id: String,
+    pub session_id: String,
+    pub tool: String,
+    pub input: String,
+    pub reason: String,
+}
+
+pub trait SubLoopRuntime: Send + Sync + 'static {
+    fn run_readonly_tool(
+        &self,
+        session_id: &str,
+        call: ToolCall,
+    ) -> Result<String, String>;
 }
 
 pub fn plan_sub_tasks(goal: &str) -> Vec<SubTask> {
@@ -62,13 +81,49 @@ pub fn run_parallel_execution(tasks: Vec<SubTask>) -> Vec<String> {
         .collect()
 }
 
-/// Devin-like sub-loop execution model.
-///
-/// Each sub-task receives an independent sub-session id and a bounded local loop.
-/// The loop is intentionally read/planning oriented. It can recommend writes or
-/// shell commands, but actual workspace mutation must be merged by the parent
-/// loop's serialized execution path. This gives parallel autonomous reasoning
-/// without concurrent destructive writes.
+pub fn run_parallel_runtime_execution<R: SubLoopRuntime>(
+    runtime: Arc<R>,
+    parent_session_id: &str,
+    tasks: Vec<SubTask>,
+) -> (Vec<SubLoopReport>, Vec<WriteQueueItem>) {
+    let reports = Arc::new(Mutex::new(Vec::new()));
+    let write_queue = Arc::new(Mutex::new(Vec::new()));
+    let mut handles = Vec::new();
+
+    for task in tasks.into_iter().take(MAX_SUB_LOOPS) {
+        let reports = Arc::clone(&reports);
+        let write_queue = Arc::clone(&write_queue);
+        let runtime = Arc::clone(&runtime);
+        let parent_session_id = parent_session_id.to_string();
+        handles.push(thread::spawn(move || {
+            let (report, queued) = run_one_runtime_sub_loop(runtime.as_ref(), &parent_session_id, task);
+            if let Ok(mut guard) = reports.lock() {
+                guard.push(report);
+            }
+            if let Ok(mut guard) = write_queue.lock() {
+                guard.extend(queued);
+            }
+        }));
+    }
+
+    for handle in handles {
+        let _ = handle.join();
+    }
+
+    let mut reports = Arc::try_unwrap(reports)
+        .unwrap_or_else(|arc| (*arc).clone())
+        .into_inner()
+        .unwrap_or_default();
+    reports.sort_by(|a, b| a.id.cmp(&b.id));
+    let mut queued = Arc::try_unwrap(write_queue)
+        .unwrap_or_else(|arc| (*arc).clone())
+        .into_inner()
+        .unwrap_or_default();
+    queued.sort_by(|a, b| a.sub_loop_id.cmp(&b.sub_loop_id));
+    (reports, queued)
+}
+
+/// Backward-compatible virtual sub-loop execution.
 pub fn run_independent_sub_loops(parent_session_id: &str, tasks: Vec<SubTask>) -> Vec<SubLoopReport> {
     let reports = Arc::new(Mutex::new(Vec::new()));
     let mut handles = Vec::new();
@@ -94,6 +149,84 @@ pub fn run_independent_sub_loops(parent_session_id: &str, tasks: Vec<SubTask>) -
         .unwrap_or_default();
     reports.sort_by(|a, b| a.id.cmp(&b.id));
     reports
+}
+
+fn run_one_runtime_sub_loop<R: SubLoopRuntime>(
+    runtime: &R,
+    parent_session_id: &str,
+    task: SubTask,
+) -> (SubLoopReport, Vec<WriteQueueItem>) {
+    let started = Instant::now();
+    let session_id = format!("{}-{}", sanitize_id(parent_session_id), sanitize_id(&task.id));
+    let mut steps = Vec::new();
+    let mut queued = Vec::new();
+
+    for index in 1..=MAX_SUB_LOOP_STEPS {
+        let phase = choose_phase(index, &task.goal, &steps);
+        let action = choose_action(&phase, &task.goal, &steps);
+        if let Some((tool, input)) = parse_runtime_action(&action) {
+            if is_mutating_tool(tool) {
+                queued.push(WriteQueueItem {
+                    sub_loop_id: task.id.clone(),
+                    session_id: session_id.clone(),
+                    tool: tool.to_string(),
+                    input: input.to_string(),
+                    reason: format!("{} requires serialized parent merge", phase),
+                });
+                steps.push(SubLoopStep {
+                    index,
+                    phase,
+                    action,
+                    output: String::from("QUEUED_FOR_PARENT_WRITE_COMMIT"),
+                });
+            } else {
+                let output = runtime
+                    .run_readonly_tool(
+                        &session_id,
+                        ToolCall {
+                            name: tool.to_string(),
+                            input: input.to_string(),
+                            permission: PermissionMode::ReadOnly,
+                        },
+                    )
+                    .unwrap_or_else(|error| format!("sub-loop runtime error: {error}"));
+                steps.push(SubLoopStep {
+                    index,
+                    phase,
+                    action,
+                    output: clip(&output, MAX_SUB_LOOP_OUTPUT_CHARS),
+                });
+            }
+        } else {
+            let output = execute_virtual_sub_action(&phase, &action, &task.goal, &steps);
+            steps.push(SubLoopStep {
+                index,
+                phase: phase.clone(),
+                action,
+                output: clip(&output, MAX_SUB_LOOP_OUTPUT_CHARS),
+            });
+        }
+
+        if phase == "done" || steps.last().map(|s| s.output.contains("SUB_LOOP_DONE")).unwrap_or(false) {
+            break;
+        }
+        thread::sleep(Duration::from_millis(1));
+    }
+
+    let mut merge_recommendation = build_merge_recommendation(&task, &steps);
+    if !queued.is_empty() {
+        merge_recommendation.push_str(&format!(" | queuedWrites={}", queued.len()));
+    }
+    let report = SubLoopReport {
+        id: task.id,
+        session_id,
+        goal: task.goal,
+        steps,
+        status: String::from("completed"),
+        elapsed_ms: started.elapsed().as_millis(),
+        merge_recommendation,
+    };
+    (report, queued)
 }
 
 fn run_one_sub_loop(parent_session_id: &str, task: SubTask) -> SubLoopReport {
@@ -146,16 +279,34 @@ fn choose_phase(index: usize, goal: &str, steps: &[SubLoopStep]) -> String {
 
 fn choose_action(phase: &str, goal: &str, _steps: &[SubLoopStep]) -> String {
     match phase {
-        "observe" => String::from("read file-memory and continuation summary"),
+        "observe" => String::from("read-context"),
         "inspect" if goal.to_ascii_lowercase().contains("search ") => format!("search-text {}", directive_after(goal, "search ").unwrap_or_else(|| goal.to_string())),
         "inspect" if goal.to_ascii_lowercase().contains("read ") => format!("read-file {}", directive_after(goal, "read ").unwrap_or_else(|| String::from("README.md"))),
         "inspect" => String::from("file-tree . 2"),
-        "plan-mutation" => String::from("prepare serialized write/shell recommendation for parent merge queue"),
+        "plan-mutation" if goal.to_ascii_lowercase().contains("write ") => format!("write-file {}", directive_after(goal, "write ").unwrap_or_else(|| goal.to_string())),
+        "plan-mutation" if goal.to_ascii_lowercase().contains("append ") => format!("append-file {}", directive_after(goal, "append ").unwrap_or_else(|| goal.to_string())),
+        "plan-mutation" if goal.to_ascii_lowercase().contains("shell ") => format!("shell-command {}", directive_after(goal, "shell ").unwrap_or_else(|| goal.to_string())),
+        "plan-mutation" => String::from("workflow-plan"),
         "plan" => String::from("workflow-plan"),
-        "validate" => String::from("git-status or git-diff after parent merge"),
+        "validate" => String::from("git-status"),
         "done" => String::from("done"),
         _ => String::from("noop"),
     }
+}
+
+fn parse_runtime_action(action: &str) -> Option<(&str, &str)> {
+    let mut parts = action.splitn(2, ' ');
+    let tool = parts.next()?.trim();
+    let input = parts.next().unwrap_or("").trim();
+    if tool == "done" || tool == "noop" {
+        None
+    } else {
+        Some((tool, input))
+    }
+}
+
+fn is_mutating_tool(tool: &str) -> bool {
+    matches!(tool, "write-file" | "append-file" | "shell-command")
 }
 
 fn execute_virtual_sub_action(
@@ -219,6 +370,23 @@ pub fn render_sub_loop_report(report: &SubLoopReport) -> String {
         steps,
         report.merge_recommendation
     )
+}
+
+pub fn render_write_queue(queue: &[WriteQueueItem]) -> String {
+    queue
+        .iter()
+        .map(|item| {
+            format!(
+                "[queued-write subLoop={} session={} tool={} input={} reason={}]",
+                item.sub_loop_id,
+                item.session_id,
+                item.tool,
+                clip(&item.input, 260),
+                item.reason
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn directive_after(goal: &str, marker: &str) -> Option<String> {
