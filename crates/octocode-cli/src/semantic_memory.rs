@@ -13,6 +13,14 @@ pub struct MemoryHit {
     pub record: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct RankedMemoryHit {
+    pub term: String,
+    pub record: String,
+    pub score: i32,
+    pub reasons: Vec<String>,
+}
+
 pub fn rebuild_semantic_memory_index(data_home: &str) -> std::io::Result<()> {
     let agent_dir = PathBuf::from(data_home).join("agent");
     fs::create_dir_all(&agent_dir)?;
@@ -40,6 +48,13 @@ pub fn rebuild_semantic_memory_index(data_home: &str) -> std::io::Result<()> {
 }
 
 pub fn query_semantic_memory(data_home: &str, query: &str) -> std::io::Result<Vec<MemoryHit>> {
+    Ok(query_ranked_semantic_memory(data_home, query)?
+        .into_iter()
+        .map(|hit| MemoryHit { term: hit.term, record: hit.record })
+        .collect())
+}
+
+pub fn query_ranked_semantic_memory(data_home: &str, query: &str) -> std::io::Result<Vec<RankedMemoryHit>> {
     let agent_dir = PathBuf::from(data_home).join("agent");
     let index_path = agent_dir.join(MEMORY_INDEX_FILE);
     if !index_path.is_file() {
@@ -48,21 +63,67 @@ pub fn query_semantic_memory(data_home: &str, query: &str) -> std::io::Result<Ve
     let query_terms = extract_terms(query);
     let raw = fs::read_to_string(index_path).unwrap_or_default();
     let mut hits = Vec::new();
-    for line in raw.lines() {
+    for (line_index, line) in raw.lines().enumerate() {
         let Some((term, records)) = line.split_once('\t') else { continue; };
-        if query_terms.contains(term) || query_terms.iter().any(|q| term.contains(q) || q.contains(term)) {
-            for record in records.split(" || ").take(3) {
-                hits.push(MemoryHit {
-                    term: term.to_string(),
-                    record: record.to_string(),
-                });
-                if hits.len() >= MAX_QUERY_RESULTS {
-                    return Ok(hits);
-                }
+        let term_match = query_terms.contains(term);
+        let fuzzy_match = query_terms.iter().any(|q| term.contains(q) || q.contains(term));
+        if term_match || fuzzy_match {
+            for (record_index, record) in records.split(" || ").take(4).enumerate() {
+                hits.push(score_hit(term, record, &query_terms, term_match, fuzzy_match, line_index, record_index));
             }
         }
     }
+    hits.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.term.cmp(&b.term)));
+    hits.dedup_by(|a, b| a.term == b.term && a.record == b.record);
+    hits.truncate(MAX_QUERY_RESULTS);
     Ok(hits)
+}
+
+fn score_hit(
+    term: &str,
+    record: &str,
+    query_terms: &BTreeSet<String>,
+    term_match: bool,
+    fuzzy_match: bool,
+    line_index: usize,
+    record_index: usize,
+) -> RankedMemoryHit {
+    let mut score = 0;
+    let mut reasons = Vec::new();
+    if term_match {
+        score += 100;
+        reasons.push(String::from("exact-term"));
+    }
+    if fuzzy_match {
+        score += 55;
+        reasons.push(String::from("fuzzy-term"));
+    }
+    let record_lower = record.to_ascii_lowercase();
+    for query_term in query_terms {
+        if record_lower.contains(query_term) {
+            score += 15;
+        }
+    }
+    if record_lower.contains("\"ok\":true") || record_lower.contains("success") || record_lower.contains("done") {
+        score += 12;
+        reasons.push(String::from("successful-memory"));
+    }
+    if record_lower.contains("failed") || record_lower.contains("error") {
+        score += 8;
+        reasons.push(String::from("failure-learning"));
+    }
+    if record_lower.contains("file=") || record_lower.contains("file-memory") {
+        score += 10;
+        reasons.push(String::from("file-memory"));
+    }
+    score -= (line_index.min(30) as i32) / 3;
+    score -= record_index as i32;
+    RankedMemoryHit {
+        term: term.to_string(),
+        record: record.to_string(),
+        score,
+        reasons,
+    }
 }
 
 fn extract_terms(text: &str) -> BTreeSet<String> {
@@ -108,7 +169,8 @@ fn atomic_replace(path: &Path, body: &str) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::extract_terms;
+    use super::{extract_terms, score_hit};
+    use std::collections::BTreeSet;
 
     #[test]
     fn extracts_stable_terms() {
@@ -116,5 +178,12 @@ mod tests {
         assert!(terms.contains("runtimeproviderrouter"));
         assert!(terms.contains("search-text"));
         assert!(!terms.contains("agent"));
+    }
+
+    #[test]
+    fn exact_successful_file_memory_scores_high() {
+        let terms = BTreeSet::from([String::from("router")]);
+        let hit = score_hit("router", "file=README router done", &terms, true, true, 0, 0);
+        assert!(hit.score >= 120);
     }
 }
