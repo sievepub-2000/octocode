@@ -2,6 +2,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use octocode_api::{BuiltinProvider, ProviderRegistry};
 use octocode_commands::{execute_command, CliCommand};
@@ -12,6 +13,9 @@ use octocode_runtime::{
 };
 
 pub type AppRuntime = OctocodeRuntime<RuntimeProviderRouter<BuiltinProvider>, FileSessionStore, WorkspaceToolExecutor>;
+
+const TOKEN_HEADER: &str = "x-octocode-token";
+const AUDIT_FILE_NAME: &str = "high-permission.log";
 
 pub fn build_runtime(
     workspace_root: String,
@@ -38,6 +42,9 @@ pub fn run_server(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(("127.0.0.1", port))?;
     println!("Octocode WebUI ready on port {port}");
+    if std::env::var("OCTOCODE_TOKEN").ok().filter(|value| !value.is_empty()).is_some() {
+        println!("Octocode local API token enforcement is enabled via OCTOCODE_TOKEN");
+    }
 
     for stream in listener.incoming() {
         match stream {
@@ -70,8 +77,13 @@ fn route_request(
 ) -> Result<String, Box<dyn std::error::Error>> {
     let workspace_root = String::from(".");
     let platform = NativePlatform::detect(workspace_root.clone());
-    let loader = ConfigLoader::new(platform.config_paths());
+    let paths = platform.config_paths();
+    let loader = ConfigLoader::new(paths.clone());
     let config = loader.load()?;
+
+    if request.path.starts_with("/api/") {
+        verify_local_api_request(request)?;
+    }
 
     match (request.method.as_str(), request.path.as_str()) {
         ("GET", "/") => Ok(http_redirect("/ui-shell/")),
@@ -94,10 +106,7 @@ fn route_request(
                 .query_value("session")
                 .or(initial_session_id.clone());
             let runtime = build_runtime(workspace_root, config)?;
-            let raw = runtime.event_feed_json(session_id.as_deref())?;
-            // Add relativeMs to each event: inject into the items array
-            // We return the raw event feed; client computes relative timing from atMs
-            json_response(raw)
+            json_response(runtime.event_feed_json(session_id.as_deref())?)
         }
         ("GET", "/api/health") => {
             let runtime = build_runtime(workspace_root, config)?;
@@ -131,6 +140,10 @@ fn route_request(
                 .join(",");
             json_response(format!("{{\"items\":[{}]}}", body))
         }
+        ("GET", "/api/audit") => {
+            let body = read_audit_json(&paths.data_home)?;
+            json_response(body)
+        }
         ("POST", "/api/chat") => {
             let session_id = request
                 .form_value("sessionId")
@@ -151,6 +164,7 @@ fn route_request(
                 .unwrap_or_else(|| String::from("demo"));
             let name = request.form_value("name").unwrap_or_else(|| String::from("echo"));
             let input = request.form_value("input").unwrap_or_default();
+            audit_tool_if_high_permission(&paths.data_home, &session_id, &name, &input)?;
             let runtime = build_runtime(workspace_root, config)?;
             let result = runtime.run_tool_in_session(
                 &session_id,
@@ -185,7 +199,14 @@ fn route_request(
             if let Some(permission_mode) = request.form_value("permissionMode") {
                 next.permission_mode = match permission_mode.trim() {
                     "read-only" => PermissionMode::ReadOnly,
-                    "danger-full-access" => PermissionMode::DangerFullAccess,
+                    "danger-full-access" => {
+                        append_high_permission_audit(
+                            &paths.data_home,
+                            "settings.permission",
+                            "session=<settings> permission=danger-full-access",
+                        )?;
+                        PermissionMode::DangerFullAccess
+                    }
                     _ => PermissionMode::WorkspaceWrite,
                 };
             }
@@ -200,10 +221,37 @@ fn route_request(
         ("POST", "/api/command") => {
             let command = request.form_value("command").unwrap_or_default().trim().to_string();
             let session_id = request.form_value("sessionId");
-            handle_command(command, session_id, workspace_root, loader, config)
+            audit_command_if_high_permission(&paths.data_home, session_id.as_deref(), &command)?;
+            handle_command(command, session_id, workspace_root, loader, config, paths.data_home)
         }
         _ => serve_static(request),
     }
+}
+
+fn verify_local_api_request(request: &HttpRequest) -> Result<(), Box<dyn std::error::Error>> {
+    if !request.is_local_host_request() {
+        return error_response(403, "forbidden: API Host must be localhost or 127.0.0.1").map(|_| ())
+            .map_err(|_| OctoError::Runtime(String::from("forbidden: API Host must be localhost or 127.0.0.1")).into());
+    }
+    if !request.has_trusted_origin() {
+        return Err(OctoError::Runtime(String::from(
+            "forbidden: cross-origin Octocode API request rejected",
+        ))
+        .into());
+    }
+    if let Some(expected) = std::env::var("OCTOCODE_TOKEN").ok().filter(|value| !value.is_empty()) {
+        let supplied = request
+            .header(TOKEN_HEADER)
+            .or_else(|| request.query_value("token"))
+            .or_else(|| request.form_value("token"));
+        if supplied.as_deref() != Some(expected.as_str()) {
+            return Err(OctoError::Runtime(String::from(
+                "forbidden: missing or invalid Octocode API token",
+            ))
+            .into());
+        }
+    }
+    Ok(())
 }
 
 fn handle_command(
@@ -212,6 +260,7 @@ fn handle_command(
     workspace_root: String,
     loader: ConfigLoader,
     mut config: RuntimeConfig,
+    data_home: String,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let mut parts = command.split_whitespace();
     let action = parts.next().unwrap_or_default();
@@ -241,6 +290,13 @@ fn handle_command(
                     "search" => "search-text",
                     _ => "echo",
                 };
+                if tool_name_str == "write-file" {
+                    append_high_permission_audit(
+                        &data_home,
+                        "command.pipe.write",
+                        &format!("session={} step={}", eff_session, step_trim),
+                    )?;
+                }
                 let start = std::time::Instant::now();
                 let _ = runtime.run_tool_in_session(
                     &eff_session,
@@ -286,21 +342,22 @@ fn handle_command(
                 loader.save(&config)?;
             }
         }
-        "permission" => {
+        "permission" | "approve" => {
             if let Some(value) = parts.next() {
                 config.permission_mode = match value {
                     "read-only" => PermissionMode::ReadOnly,
-                    "danger-full-access" => PermissionMode::DangerFullAccess,
-                    _ => PermissionMode::WorkspaceWrite,
-                };
-                loader.save(&config)?;
-            }
-        }
-        "approve" => {
-            if let Some(value) = parts.next() {
-                config.permission_mode = match value {
-                    "read-only" => PermissionMode::ReadOnly,
-                    "danger-full-access" => PermissionMode::DangerFullAccess,
+                    "danger-full-access" => {
+                        append_high_permission_audit(
+                            &data_home,
+                            "command.permission",
+                            &format!(
+                                "session={} command={} value=danger-full-access",
+                                session_id.as_deref().unwrap_or("<none>"),
+                                action
+                            ),
+                        )?;
+                        PermissionMode::DangerFullAccess
+                    }
                     _ => PermissionMode::WorkspaceWrite,
                 };
                 loader.save(&config)?;
@@ -359,7 +416,6 @@ fn handle_command(
             )?;
             return json_response(runtime.snapshot_json(Some(&session_id))?);
         }
-        // Read-only observability commands — fall through to snapshot at end
         "snapshot" | "sessions" | "status" | "health" | "circuit-log" | "doctor" => {}
         "history" => {
             if let Some(value) = parts.next() {
@@ -403,6 +459,11 @@ fn handle_command(
             }
             let file_path = remaining[0].to_string();
             let content = remaining[1..].join(" ");
+            append_high_permission_audit(
+                &data_home,
+                "command.write",
+                &format!("session={} path={}", eff_session, file_path),
+            )?;
             let runtime = build_runtime(workspace_root, config)?;
             let _ = runtime.run_tool_in_session(
                 &eff_session,
@@ -418,6 +479,7 @@ fn handle_command(
             let eff_session = session_id.clone().unwrap_or_else(|| String::from("demo"));
             let tool_name = parts.next().unwrap_or("echo").to_string();
             let input = parts.collect::<Vec<_>>().join(" ");
+            audit_tool_if_high_permission(&data_home, &eff_session, &tool_name, &input)?;
             let runtime = build_runtime(workspace_root, config)?;
             let _ = runtime.run_tool_in_session(
                 &eff_session,
@@ -461,7 +523,6 @@ fn handle_command(
             )?;
             return json_response(runtime.snapshot_json(Some(&session_id))?);
         }
-        // ── iteration-1: git + context + tokens + tree slash-commands ──────
         "git" => {
             let subcommand = parts.next().unwrap_or("status");
             let eff_session = session_id.clone().unwrap_or_else(|| String::from("demo"));
@@ -511,12 +572,9 @@ fn handle_command(
             return json_response(runtime.snapshot_json(Some(&eff_session))?);
         }
         "tokens" => {
-            // Return token count summary for the active session
             let eff_session = session_id.clone().unwrap_or_else(|| String::from("demo"));
             let runtime = build_runtime(workspace_root, config)?;
             let snapshot = runtime.snapshot_json(Some(&eff_session))?;
-            // Rough char-based token estimate from messages in snapshot JSON
-            // Count chars between "content":"..." fields
             let total_chars: usize = {
                 let mut count = 0usize;
                 let mut search = snapshot.as_str();
@@ -573,6 +631,11 @@ fn handle_command(
             }
             let file_path = remaining[0].to_string();
             let content = remaining[1..].join(" ");
+            append_high_permission_audit(
+                &data_home,
+                "command.append",
+                &format!("session={} path={}", eff_session, file_path),
+            )?;
             let runtime = build_runtime(workspace_root, config)?;
             let _ = runtime.run_tool_in_session(
                 &eff_session,
@@ -592,6 +655,121 @@ fn handle_command(
 
     let runtime = build_runtime(workspace_root, config)?;
     json_response(runtime.snapshot_json(session_id.as_deref())?)
+}
+
+fn audit_tool_if_high_permission(
+    data_home: &str,
+    session_id: &str,
+    tool_name: &str,
+    input: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let kind = match tool_name {
+        "shell-command" => Some("tool.shell-command"),
+        "write-file" => Some("tool.write-file"),
+        "append-file" => Some("tool.append-file"),
+        _ => None,
+    };
+    if let Some(kind) = kind {
+        append_high_permission_audit(
+            data_home,
+            kind,
+            &format!(
+                "session={} tool={} input={}",
+                session_id,
+                tool_name,
+                redact_for_audit(input)
+            ),
+        )?;
+    }
+    Ok(())
+}
+
+fn audit_command_if_high_permission(
+    data_home: &str,
+    session_id: Option<&str>,
+    command: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let trimmed = command.trim();
+    let high_risk = trimmed.starts_with("permission danger-full-access")
+        || trimmed.starts_with("approve danger-full-access")
+        || trimmed.starts_with("tool shell-command")
+        || trimmed.starts_with("write ")
+        || trimmed.starts_with("append ")
+        || trimmed.contains(" | write ");
+    if high_risk {
+        append_high_permission_audit(
+            data_home,
+            "api.command",
+            &format!(
+                "session={} command={}",
+                session_id.unwrap_or("<none>"),
+                redact_for_audit(trimmed)
+            ),
+        )?;
+    }
+    Ok(())
+}
+
+fn append_high_permission_audit(
+    data_home: &str,
+    kind: &str,
+    detail: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let dir = PathBuf::from(data_home).join("audit");
+    fs::create_dir_all(&dir)?;
+    let path = dir.join(AUDIT_FILE_NAME);
+    let line = format!(
+        "{}\t{}\t{}\n",
+        now_ms(),
+        kind,
+        detail.replace('\n', "\\n").replace('\t', " ")
+    );
+    let mut file = fs::OpenOptions::new().create(true).append(true).open(path)?;
+    file.write_all(line.as_bytes())?;
+    Ok(())
+}
+
+fn read_audit_json(data_home: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let path = PathBuf::from(data_home).join("audit").join(AUDIT_FILE_NAME);
+    let raw = fs::read_to_string(path).unwrap_or_default();
+    let items = raw
+        .lines()
+        .rev()
+        .take(100)
+        .filter_map(|line| {
+            let mut parts = line.splitn(3, '\t');
+            let at_ms = parts.next()?;
+            let kind = parts.next()?;
+            let detail = parts.next().unwrap_or_default();
+            Some(format!(
+                "{{\"atMs\":{},\"kind\":\"{}\",\"detail\":\"{}\"}}",
+                at_ms.parse::<u128>().unwrap_or(0),
+                escape_json(kind),
+                escape_json(detail)
+            ))
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    Ok(format!("{{\"items\":[{}]}}", items))
+}
+
+fn redact_for_audit(value: &str) -> String {
+    let mut text = value.to_string();
+    for marker in ["OCTOCODE_TOKEN=", "OPENAI_API_KEY=", "OCTOCODE_API_TOKEN="] {
+        if let Some(index) = text.find(marker) {
+            let start = index + marker.len();
+            let end = text[start..]
+                .find(|ch: char| ch.is_whitespace() || ch == '&')
+                .map(|offset| start + offset)
+                .unwrap_or_else(|| text.len());
+            text.replace_range(start..end, "<redacted>");
+        }
+    }
+    if text.len() > 500 {
+        text.truncate(500);
+        text.push_str("...[truncated]");
+    }
+    text
 }
 
 fn serve_static(request: &HttpRequest) -> Result<String, Box<dyn std::error::Error>> {
@@ -652,13 +830,15 @@ fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest, Box<dyn std:
     let (path, query) = split_target(target);
 
     let mut content_length = 0usize;
+    let mut headers = Vec::new();
     for line in lines {
         if let Some((name, value)) = line.split_once(':') {
-            let name = name.trim().to_string();
+            let name = name.trim().to_ascii_lowercase();
             let value = value.trim().to_string();
-            if name.eq_ignore_ascii_case("Content-Length") {
+            if name.eq_ignore_ascii_case("content-length") {
                 content_length = value.parse::<usize>().unwrap_or(0);
             }
+            headers.push((name, value));
         }
     }
 
@@ -675,6 +855,7 @@ fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest, Box<dyn std:
         method,
         path: path.to_string(),
         query: query.to_string(),
+        headers,
         body: String::from_utf8_lossy(&body).to_string(),
     })
 }
@@ -731,15 +912,31 @@ fn escape_json(value: &str) -> String {
         .replace('\t', "\\t")
 }
 
+fn now_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+}
+
 #[derive(Debug, Clone)]
 struct HttpRequest {
     method: String,
     path: String,
     query: String,
+    headers: Vec<(String, String)>,
     body: String,
 }
 
 impl HttpRequest {
+    fn header(&self, key: &str) -> Option<String> {
+        let key = key.to_ascii_lowercase();
+        self.headers
+            .iter()
+            .find(|(name, _)| name == &key)
+            .map(|(_, value)| value.clone())
+    }
+
     fn query_value(&self, key: &str) -> Option<String> {
         parse_pairs(&self.query)
             .into_iter()
@@ -753,6 +950,36 @@ impl HttpRequest {
             .find(|(name, _)| name == key)
             .map(|(_, value)| value)
     }
+
+    fn is_local_host_request(&self) -> bool {
+        let Some(host) = self.header("host") else {
+            return true;
+        };
+        is_local_origin_host(&host)
+    }
+
+    fn has_trusted_origin(&self) -> bool {
+        let Some(origin) = self.header("origin") else {
+            return true;
+        };
+        is_trusted_local_origin(&origin)
+    }
+}
+
+fn is_local_origin_host(host: &str) -> bool {
+    let host = host.trim().to_ascii_lowercase();
+    let host = host.split(':').next().unwrap_or(host.as_str());
+    matches!(host, "127.0.0.1" | "localhost" | "[::1]" | "::1")
+}
+
+fn is_trusted_local_origin(origin: &str) -> bool {
+    let origin = origin.trim().to_ascii_lowercase();
+    for prefix in ["http://", "https://"] {
+        if let Some(rest) = origin.strip_prefix(prefix) {
+            return is_local_origin_host(rest);
+        }
+    }
+    false
 }
 
 fn parse_pairs(input: &str) -> Vec<(String, String)> {
@@ -767,25 +994,53 @@ fn parse_pairs(input: &str) -> Vec<(String, String)> {
 }
 
 fn url_decode(input: &str) -> String {
-    let mut output = String::new();
+    let mut bytes_out = Vec::new();
     let bytes = input.as_bytes();
     let mut index = 0usize;
     while index < bytes.len() {
-        let byte = bytes[index];
-        match byte {
-            b'+' => output.push(' '),
-            b'%' => {
-                if index + 2 < bytes.len() {
-                    let hex = &input[(index + 1)..(index + 3)];
-                    if let Ok(value) = u8::from_str_radix(hex, 16) {
-                        output.push(value as char);
-                        index += 2;
-                    }
+        match bytes[index] {
+            b'+' => bytes_out.push(b' '),
+            b'%' if index + 2 < bytes.len() => {
+                let hex = &input[(index + 1)..(index + 3)];
+                if let Ok(value) = u8::from_str_radix(hex, 16) {
+                    bytes_out.push(value);
+                    index += 2;
+                } else {
+                    bytes_out.push(bytes[index]);
                 }
             }
-            other => output.push(other as char),
+            other => bytes_out.push(other),
         }
         index += 1;
     }
-    output
+    String::from_utf8_lossy(&bytes_out).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_trusted_local_origin, url_decode, HttpRequest};
+
+    #[test]
+    fn trusts_local_origins_only() {
+        assert!(is_trusted_local_origin("http://127.0.0.1:999"));
+        assert!(is_trusted_local_origin("http://localhost:999"));
+        assert!(!is_trusted_local_origin("https://example.com"));
+    }
+
+    #[test]
+    fn decodes_utf8_form_values() {
+        assert_eq!(url_decode("hello+%E4%B8%96%E7%95%8C"), "hello 世界");
+    }
+
+    #[test]
+    fn request_reads_lowercase_headers() {
+        let request = HttpRequest {
+            method: String::from("GET"),
+            path: String::from("/api/state"),
+            query: String::new(),
+            headers: vec![(String::from("host"), String::from("127.0.0.1:999"))],
+            body: String::new(),
+        };
+        assert!(request.is_local_host_request());
+    }
 }
