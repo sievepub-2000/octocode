@@ -5,7 +5,9 @@ use std::time::{Duration, Instant};
 use octocode_core::{PermissionMode, ToolCall};
 
 pub const MAX_SUB_LOOPS: usize = 4;
-pub const MAX_SUB_LOOP_STEPS: usize = 6;
+pub const MIN_SUB_LOOP_STEPS: usize = 4;
+pub const DEFAULT_SUB_LOOP_STEPS: usize = 6;
+pub const HARD_MAX_SUB_LOOP_STEPS: usize = 14;
 pub const MAX_SUB_LOOP_OUTPUT_CHARS: usize = 1400;
 
 #[derive(Debug, Clone)]
@@ -123,7 +125,6 @@ pub fn run_parallel_runtime_execution<R: SubLoopRuntime>(
     (reports, queued)
 }
 
-/// Backward-compatible virtual sub-loop execution.
 pub fn run_independent_sub_loops(parent_session_id: &str, tasks: Vec<SubTask>) -> Vec<SubLoopReport> {
     let reports = Arc::new(Mutex::new(Vec::new()));
     let mut handles = Vec::new();
@@ -160,9 +161,10 @@ fn run_one_runtime_sub_loop<R: SubLoopRuntime>(
     let session_id = format!("{}-{}", sanitize_id(parent_session_id), sanitize_id(&task.id));
     let mut steps = Vec::new();
     let mut queued = Vec::new();
+    let step_budget = budget_for_goal(&task.goal);
 
-    for index in 1..=MAX_SUB_LOOP_STEPS {
-        let phase = choose_phase(index, &task.goal, &steps);
+    for index in 1..=step_budget {
+        let phase = choose_phase(index, &task.goal, &steps, step_budget);
         let action = choose_action(&phase, &task.goal, &steps);
         if let Some((tool, input)) = parse_runtime_action(&action) {
             if is_mutating_tool(tool) {
@@ -213,7 +215,7 @@ fn run_one_runtime_sub_loop<R: SubLoopRuntime>(
         thread::sleep(Duration::from_millis(1));
     }
 
-    let mut merge_recommendation = build_merge_recommendation(&task, &steps);
+    let mut merge_recommendation = build_merge_recommendation(&task, &steps, step_budget);
     if !queued.is_empty() {
         merge_recommendation.push_str(&format!(" | queuedWrites={}", queued.len()));
     }
@@ -233,9 +235,10 @@ fn run_one_sub_loop(parent_session_id: &str, task: SubTask) -> SubLoopReport {
     let started = Instant::now();
     let session_id = format!("{}-{}", sanitize_id(parent_session_id), sanitize_id(&task.id));
     let mut steps = Vec::new();
+    let step_budget = budget_for_goal(&task.goal);
 
-    for index in 1..=MAX_SUB_LOOP_STEPS {
-        let phase = choose_phase(index, &task.goal, &steps);
+    for index in 1..=step_budget {
+        let phase = choose_phase(index, &task.goal, &steps, step_budget);
         let action = choose_action(&phase, &task.goal, &steps);
         let output = execute_virtual_sub_action(&phase, &action, &task.goal, &steps);
         let done = phase == "done" || output.contains("SUB_LOOP_DONE");
@@ -251,7 +254,7 @@ fn run_one_sub_loop(parent_session_id: &str, task: SubTask) -> SubLoopReport {
         thread::sleep(Duration::from_millis(1));
     }
 
-    let merge_recommendation = build_merge_recommendation(&task, &steps);
+    let merge_recommendation = build_merge_recommendation(&task, &steps, step_budget);
     SubLoopReport {
         id: task.id,
         session_id,
@@ -263,16 +266,41 @@ fn run_one_sub_loop(parent_session_id: &str, task: SubTask) -> SubLoopReport {
     }
 }
 
-fn choose_phase(index: usize, goal: &str, steps: &[SubLoopStep]) -> String {
-    if steps.last().map(|step| step.phase.as_str()) == Some("validate") {
+pub fn budget_for_goal(goal: &str) -> usize {
+    let lower = goal.to_ascii_lowercase();
+    let mut budget = DEFAULT_SUB_LOOP_STEPS;
+    if lower.contains("write ") || lower.contains("append ") || lower.contains("shell ") {
+        budget += 3;
+    }
+    if lower.contains("test") || lower.contains("validate") || lower.contains("diff") {
+        budget += 2;
+    }
+    if lower.contains("refactor") || lower.contains("implement") || lower.contains("bug") || lower.contains("fix") {
+        budget += 2;
+    }
+    if goal.len() > 240 {
+        budget += 2;
+    }
+    budget.clamp(MIN_SUB_LOOP_STEPS, HARD_MAX_SUB_LOOP_STEPS)
+}
+
+fn choose_phase(index: usize, goal: &str, steps: &[SubLoopStep], step_budget: usize) -> String {
+    if steps.last().map(|step| step.phase.as_str()) == Some("validate") && index >= 5 {
         return String::from("done");
     }
+    let lower = goal.to_ascii_lowercase();
+    let mutation = lower.contains("write ") || lower.contains("append ") || lower.contains("shell ");
     match index {
         1 => String::from("observe"),
         2 => String::from("inspect"),
-        3 if goal.to_ascii_lowercase().contains("write ") || goal.to_ascii_lowercase().contains("append ") || goal.to_ascii_lowercase().contains("shell ") => String::from("plan-mutation"),
+        3 if mutation => String::from("plan-mutation"),
         3 => String::from("plan"),
-        4 => String::from("validate"),
+        4 if step_budget > 7 => String::from("inspect-deeper"),
+        5 if mutation => String::from("validate-mutation-plan"),
+        5 => String::from("validate"),
+        i if i + 1 < step_budget && i % 2 == 0 => String::from("inspect-deeper"),
+        i if i + 1 < step_budget => String::from("plan"),
+        i if i < step_budget => String::from("validate"),
         _ => String::from("done"),
     }
 }
@@ -280,15 +308,16 @@ fn choose_phase(index: usize, goal: &str, steps: &[SubLoopStep]) -> String {
 fn choose_action(phase: &str, goal: &str, _steps: &[SubLoopStep]) -> String {
     match phase {
         "observe" => String::from("read-context"),
-        "inspect" if goal.to_ascii_lowercase().contains("search ") => format!("search-text {}", directive_after(goal, "search ").unwrap_or_else(|| goal.to_string())),
-        "inspect" if goal.to_ascii_lowercase().contains("read ") => format!("read-file {}", directive_after(goal, "read ").unwrap_or_else(|| String::from("README.md"))),
+        "inspect" | "inspect-deeper" if goal.to_ascii_lowercase().contains("search ") => format!("search-text {}", directive_after(goal, "search ").unwrap_or_else(|| goal.to_string())),
+        "inspect" | "inspect-deeper" if goal.to_ascii_lowercase().contains("read ") => format!("read-file {}", directive_after(goal, "read ").unwrap_or_else(|| String::from("README.md"))),
         "inspect" => String::from("file-tree . 2"),
+        "inspect-deeper" => String::from("file-tree . 3"),
         "plan-mutation" if goal.to_ascii_lowercase().contains("write ") => format!("write-file {}", directive_after(goal, "write ").unwrap_or_else(|| goal.to_string())),
         "plan-mutation" if goal.to_ascii_lowercase().contains("append ") => format!("append-file {}", directive_after(goal, "append ").unwrap_or_else(|| goal.to_string())),
         "plan-mutation" if goal.to_ascii_lowercase().contains("shell ") => format!("shell-command {}", directive_after(goal, "shell ").unwrap_or_else(|| goal.to_string())),
         "plan-mutation" => String::from("workflow-plan"),
         "plan" => String::from("workflow-plan"),
-        "validate" => String::from("git-status"),
+        "validate" | "validate-mutation-plan" => String::from("git-status"),
         "done" => String::from("done"),
         _ => String::from("noop"),
     }
@@ -317,8 +346,9 @@ fn execute_virtual_sub_action(
 ) -> String {
     match phase {
         "observe" => format!("observed goal context: {}", clip(goal, 360)),
-        "inspect" => format!("inspection action selected: {action}"),
+        "inspect" | "inspect-deeper" => format!("inspection action selected: {action}"),
         "plan-mutation" => format!("mutation is deferred to parent serialized merge queue: {}", clip(goal, 360)),
+        "validate-mutation-plan" => format!("validator checked serialized mutation plan after {} prior steps", steps.len()),
         "plan" => format!("sub-plan: execute smallest safe slice for '{}'; validate after merge", clip(goal, 240)),
         "validate" => format!("validator reviewed {} prior steps; parent should run git-status/git-diff", steps.len()),
         "done" => String::from("SUB_LOOP_DONE"),
@@ -326,29 +356,28 @@ fn execute_virtual_sub_action(
     }
 }
 
-fn build_merge_recommendation(task: &SubTask, steps: &[SubLoopStep]) -> String {
+fn build_merge_recommendation(task: &SubTask, steps: &[SubLoopStep], step_budget: usize) -> String {
     let mutation = task.goal.to_ascii_lowercase().contains("write ")
         || task.goal.to_ascii_lowercase().contains("append ")
         || task.goal.to_ascii_lowercase().contains("shell ");
+    let evidence = steps
+        .iter()
+        .map(|step| format!("{}:{}", step.index, step.phase))
+        .collect::<Vec<_>>()
+        .join(",");
     if mutation {
         format!(
-            "queue-for-parent-merge: {} | reason=mutation must be serialized | evidence={}",
+            "queue-for-parent-merge: {} | reason=mutation must be serialized | budget={} | evidence={}",
             clip(&task.goal, 360),
-            steps
-                .iter()
-                .map(|step| format!("{}:{}", step.index, step.phase))
-                .collect::<Vec<_>>()
-                .join(",")
+            step_budget,
+            evidence
         )
     } else {
         format!(
-            "safe-readonly-result: {} | evidence={}",
+            "safe-readonly-result: {} | budget={} | evidence={}",
             clip(&task.goal, 360),
-            steps
-                .iter()
-                .map(|step| format!("{}:{}", step.index, step.phase))
-                .collect::<Vec<_>>()
-                .join(",")
+            step_budget,
+            evidence
         )
     }
 }
@@ -424,7 +453,7 @@ fn clip(value: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{plan_sub_tasks, run_independent_sub_loops, run_parallel_execution, MAX_SUB_LOOPS};
+    use super::{budget_for_goal, plan_sub_tasks, run_independent_sub_loops, run_parallel_execution, HARD_MAX_SUB_LOOP_STEPS, MAX_SUB_LOOPS};
 
     #[test]
     fn parallel_exec_runs() {
@@ -446,5 +475,13 @@ mod tests {
         let tasks = plan_sub_tasks("write README.md|hello");
         let reports = run_independent_sub_loops("demo", tasks);
         assert!(reports[0].merge_recommendation.contains("queue-for-parent-merge"));
+    }
+
+    #[test]
+    fn complex_goals_get_more_steps_but_remain_bounded() {
+        let simple = budget_for_goal("read README.md");
+        let complex = budget_for_goal("implement bug fix write src/lib.rs|patch and validate diff with tests");
+        assert!(complex > simple);
+        assert!(complex <= HARD_MAX_SUB_LOOP_STEPS);
     }
 }
