@@ -54,6 +54,11 @@ const TOOLS: &[ToolDescriptor] = &[
         minimum_permission: PermissionMode::ReadOnly,
     },
     ToolDescriptor {
+        name: "agent-loop",
+        summary: "Create a bounded observe-plan-act-validate loop contract for the current task",
+        minimum_permission: PermissionMode::ReadOnly,
+    },
+    ToolDescriptor {
         name: "git-status",
         summary: "Show git working tree status in the workspace",
         minimum_permission: PermissionMode::ReadOnly,
@@ -299,6 +304,35 @@ impl WorkspaceToolExecutor {
             String::from("step.3=act: execute one tool call only"),
             String::from("step.4=validate: run focused read/search/git-diff check"),
             String::from("stop.when=goal satisfied, validation failed, or next action requires danger-full-access"),
+        ]
+        .join("\n");
+        ToolResult { output }
+    }
+
+    fn agent_loop(&self, input: &str) -> ToolResult {
+        let goal = input.trim();
+        let goal = if goal.is_empty() { "continue current task" } else { goal };
+        let workspace = self
+            .canonical_workspace_root()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|_| self.workspace_root.display().to_string());
+        let output = [
+            String::from("agent-loop.version=1"),
+            format!("goal={goal}"),
+            format!("workspace={workspace}"),
+            String::from("maxSteps=4"),
+            String::from("policy=bounded-observe-plan-act-validate"),
+            String::from("permissions=inherit-runtime-mode; danger-full-access is allowed only when explicitly configured and audited"),
+            String::from("step.1.observe.tool=read-context"),
+            String::from("step.1.observe.input="),
+            String::from("step.2.inspect.tool=file-tree"),
+            String::from("step.2.inspect.input=. 2"),
+            format!("step.3.plan.tool=workflow-plan"),
+            format!("step.3.plan.input={goal}"),
+            String::from("step.4.validate.tool=git-status"),
+            String::from("step.4.validate.input="),
+            String::from("stop.on=tool-error|validation-failed|goal-satisfied|danger-required-without-permission"),
+            String::from("result.contract=append each step as a Tool message, then summarize next action as Assistant"),
         ]
         .join("\n");
         ToolResult { output }
@@ -554,6 +588,7 @@ impl ToolExecutor for WorkspaceToolExecutor {
             "workflow-plan" => Ok(self.workflow_plan(&call.input)),
             "agent-action" => Ok(self.agent_action(&call.input)),
             "agent-step" => Ok(self.agent_step(&call.input)),
+            "agent-loop" => Ok(self.agent_loop(&call.input)),
             "git-status" => self.git_status(),
             "git-diff" => self.git_diff(&call.input),
             "git-log" => self.git_log(&call.input),
@@ -603,5 +638,17 @@ mod tests {
         }).expect("agent-step succeeds");
         assert!(result.output.contains("loop.maxSteps=4"));
         assert!(result.output.contains("stop.when="));
+    }
+
+    #[test]
+    fn agent_loop_returns_observe_plan_act_validate_contract() {
+        let executor = WorkspaceToolExecutor::new(".");
+        let result = executor.execute(ToolCall {
+            name: String::from("agent-loop"),
+            input: String::from("implement agent loop"),
+            permission: PermissionMode::ReadOnly,
+        }).expect("agent-loop succeeds");
+        assert!(result.output.contains("policy=bounded-observe-plan-act-validate"));
+        assert!(result.output.contains("step.4.validate.tool=git-status"));
     }
 }
