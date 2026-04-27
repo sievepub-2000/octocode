@@ -9,6 +9,8 @@ use crate::server::AppRuntime;
 
 const DEFAULT_MAX_STEPS: usize = 8;
 const HARD_MAX_STEPS: usize = 25;
+const MEMORY_FILE_NAME: &str = "agent-memory.jsonl";
+const TASK_TREE_FILE_NAME: &str = "agent-task-trees.jsonl";
 
 #[derive(Debug, Clone)]
 struct LoopStep {
@@ -53,6 +55,13 @@ struct StepObservation {
     reflection: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+struct TaskNode {
+    id: String,
+    title: String,
+    status: String,
+}
+
 pub fn run_agent_loop_cli(
     runtime: &mut AppRuntime,
     session_id: &str,
@@ -60,15 +69,29 @@ pub fn run_agent_loop_cli(
 ) -> Result<String, Box<dyn std::error::Error>> {
     let (goal, max_steps) = parse_goal_and_max_steps(goal);
     let data_home = runtime.config_paths().data_home;
+    let memory = load_recent_memory(&data_home, 8).unwrap_or_default();
+    let mut task_tree = build_task_tree(&goal);
+    persist_task_tree(&data_home, session_id, &goal, &task_tree)?;
 
     runtime.append_session_message(
         session_id,
         ConversationRole::System,
         format!(
-            "agent-loop auto start: goal={} maxSteps={} mode=multi-agent-reflective-model-decide",
-            goal, max_steps
+            "agent-loop auto start: goal={} maxSteps={} mode=multi-agent-reflective-model-decide memoryItems={} tasks={}",
+            goal,
+            max_steps,
+            memory.len(),
+            task_tree.len()
         ),
     )?;
+
+    if !memory.is_empty() {
+        runtime.append_session_message(
+            session_id,
+            ConversationRole::System,
+            format!("agent-memory loaded:\n{}", memory.join("\n")),
+        )?;
+    }
 
     println!("agent-loop start session={} maxSteps={} goal={}", session_id, max_steps, goal);
 
@@ -77,12 +100,14 @@ pub fn run_agent_loop_cli(
         format!("agent-loop auto executed for: {goal}"),
         format!("maxSteps={max_steps}"),
         String::from("agents=planner,executor,validator"),
+        format!("memory.items={}", memory.len()),
+        format!("taskTree.nodes={}", task_tree.len()),
     ];
     let mut stopped_reason = String::from("max steps reached");
 
     for step_index in 1..=max_steps {
         let agent = select_agent_role(step_index, &observations);
-        let decision = decide_next_step(runtime, session_id, &goal, step_index, &observations, agent.clone());
+        let decision = decide_next_step(runtime, session_id, &goal, step_index, &observations, &memory, &task_tree, agent.clone());
         if decision.tool == "done" {
             stopped_reason = if decision.input.trim().is_empty() {
                 format!("{} decided done", decision.agent.as_str())
@@ -95,8 +120,12 @@ pub fn run_agent_loop_cli(
                 ConversationRole::Assistant,
                 format!("agent-loop done: {stopped_reason}"),
             )?;
+            mark_task_completed(&mut task_tree, "validate");
             break;
         }
+
+        update_task_tree_for_phase(&mut task_tree, &decision.phase, "running");
+        persist_task_tree(&data_home, session_id, &goal, &task_tree)?;
 
         println!(
             "agent-loop step={} agent={} phase={} tool={} source={:?}",
@@ -136,6 +165,8 @@ pub fn run_agent_loop_cli(
                     decision.agent.as_str(),
                     result.output.chars().count()
                 );
+                update_task_tree_for_phase(&mut task_tree, &decision.phase, "done");
+                persist_task_tree(&data_home, session_id, &goal, &task_tree)?;
                 runtime.append_session_message(
                     session_id,
                     ConversationRole::Tool,
@@ -150,7 +181,7 @@ pub fn run_agent_loop_cli(
                     output,
                     reflection: None,
                 };
-                let reflection = reflect_on_step(runtime, session_id, &goal, &observation, &observations);
+                let reflection = reflect_on_step(runtime, session_id, &goal, &observation, &observations, &task_tree, &memory);
                 if !reflection.trim().is_empty() {
                     println!("agent-loop step={} reflection={}", step_index, clip_output(&reflection, 180));
                     runtime.append_session_message(
@@ -160,6 +191,7 @@ pub fn run_agent_loop_cli(
                     )?;
                     observation.reflection = Some(reflection);
                 }
+                append_memory(&data_home, session_id, &goal, &observation)?;
                 observations.push(observation);
                 lines.push(format!(
                     "step.{} agent={} {} {} ok source={:?}",
@@ -173,6 +205,8 @@ pub fn run_agent_loop_cli(
             Err(error) => {
                 stopped_reason = format!("step {step_index} failed on {}: {error}", decision.tool);
                 println!("agent-loop step={} agent={} failed error={}", step_index, decision.agent.as_str(), error);
+                update_task_tree_for_phase(&mut task_tree, &decision.phase, "failed");
+                persist_task_tree(&data_home, session_id, &goal, &task_tree)?;
                 runtime.append_session_message(
                     session_id,
                     ConversationRole::System,
@@ -208,6 +242,7 @@ pub fn run_agent_loop_cli(
     }
 
     lines.push(format!("stopped={stopped_reason}"));
+    lines.push(format!("taskTree.final={}", render_task_tree(&task_tree)));
     let summary = lines.join("\n");
     runtime.append_session_message(
         session_id,
@@ -223,9 +258,11 @@ fn decide_next_step(
     goal: &str,
     step_index: usize,
     observations: &[StepObservation],
+    memory: &[String],
+    task_tree: &[TaskNode],
     agent: AgentRole,
 ) -> LoopStep {
-    let prompt = build_decision_prompt(session_id, goal, step_index, observations, &agent);
+    let prompt = build_decision_prompt(session_id, goal, step_index, observations, memory, task_tree, &agent);
     match runtime.prompt(PromptRequest {
         text: prompt,
         model: runtime.config().default_model.clone(),
@@ -241,6 +278,8 @@ fn build_decision_prompt(
     goal: &str,
     step_index: usize,
     observations: &[StepObservation],
+    memory: &[String],
+    task_tree: &[TaskNode],
     agent: &AgentRole,
 ) -> String {
     let history = observations
@@ -264,6 +303,8 @@ fn build_decision_prompt(
         })
         .collect::<Vec<_>>()
         .join("\n");
+    let memory_block = if memory.is_empty() { String::from("<none>") } else { memory.join("\n") };
+    let task_tree_block = render_task_tree(task_tree);
 
     format!(
         concat!(
@@ -285,12 +326,16 @@ fn build_decision_prompt(
             "session={}\n",
             "goal={}\n",
             "stepIndex={}\n",
+            "taskTree={}\n",
+            "longTermMemory:\n{}\n",
             "recentObservationsAndReflections:\n{}\n"
         ),
         agent.as_str(),
         session_id,
         goal,
         step_index,
+        task_tree_block,
+        memory_block,
         if history.is_empty() { "<none>" } else { &history }
     )
 }
@@ -301,6 +346,8 @@ fn reflect_on_step(
     goal: &str,
     observation: &StepObservation,
     previous: &[StepObservation],
+    task_tree: &[TaskNode],
+    memory: &[String],
 ) -> String {
     let prompt = format!(
         concat!(
@@ -309,11 +356,15 @@ fn reflect_on_step(
             "Do not request unsupported tools.\n\n",
             "session={}\n",
             "goal={}\n",
+            "taskTree={}\n",
+            "memory={}\n",
             "latestStep={} agent={} tool={} ok={} input={} output={}\n",
             "previousSteps={}\n"
         ),
         session_id,
         goal,
+        render_task_tree(task_tree),
+        if memory.is_empty() { String::from("<none>") } else { memory.join(" | ") },
         observation.step_index,
         observation.agent.as_str(),
         observation.tool,
@@ -505,6 +556,94 @@ fn infer_phase(tool: &str) -> &'static str {
     }
 }
 
+fn build_task_tree(goal: &str) -> Vec<TaskNode> {
+    let mut nodes = vec![
+        TaskNode { id: String::from("observe"), title: String::from("Load project context and memory"), status: String::from("pending") },
+        TaskNode { id: String::from("inspect"), title: String::from("Inspect relevant files or tree"), status: String::from("pending") },
+        TaskNode { id: String::from("plan"), title: String::from("Produce implementation plan"), status: String::from("pending") },
+        TaskNode { id: String::from("validate"), title: String::from("Validate with git status or diff"), status: String::from("pending") },
+    ];
+    let lower = goal.to_ascii_lowercase();
+    if lower.contains("write ") || lower.contains("append ") || lower.contains("shell ") {
+        nodes.insert(3, TaskNode { id: String::from("act"), title: String::from("Execute requested mutation or command"), status: String::from("pending") });
+    }
+    nodes
+}
+
+fn update_task_tree_for_phase(nodes: &mut [TaskNode], phase: &str, status: &str) {
+    let id = match phase {
+        "observe" => "observe",
+        "inspect" => "inspect",
+        "plan" => "plan",
+        "act" => "act",
+        "validate" => "validate",
+        _ => phase,
+    };
+    if let Some(node) = nodes.iter_mut().find(|node| node.id == id) {
+        node.status = status.to_string();
+    }
+}
+
+fn mark_task_completed(nodes: &mut [TaskNode], id: &str) {
+    if let Some(node) = nodes.iter_mut().find(|node| node.id == id) {
+        node.status = String::from("done");
+    }
+}
+
+fn render_task_tree(nodes: &[TaskNode]) -> String {
+    nodes
+        .iter()
+        .map(|node| format!("{}:{}:{}", node.id, node.status, node.title))
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+fn persist_task_tree(data_home: &str, session_id: &str, goal: &str, nodes: &[TaskNode]) -> Result<(), Box<dyn std::error::Error>> {
+    let dir = PathBuf::from(data_home).join("agent");
+    fs::create_dir_all(&dir)?;
+    let path = dir.join(TASK_TREE_FILE_NAME);
+    let body = format!(
+        "{{\"atMs\":{},\"session\":\"{}\",\"goal\":\"{}\",\"tree\":\"{}\"}}\n",
+        now_ms(),
+        escape_json(session_id),
+        escape_json(goal),
+        escape_json(&render_task_tree(nodes))
+    );
+    let mut file = fs::OpenOptions::new().create(true).append(true).open(path)?;
+    file.write_all(body.as_bytes())?;
+    Ok(())
+}
+
+fn load_recent_memory(data_home: &str, max_items: usize) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let path = PathBuf::from(data_home).join("agent").join(MEMORY_FILE_NAME);
+    let raw = fs::read_to_string(path).unwrap_or_default();
+    Ok(raw
+        .lines()
+        .rev()
+        .take(max_items)
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>())
+}
+
+fn append_memory(data_home: &str, session_id: &str, goal: &str, observation: &StepObservation) -> Result<(), Box<dyn std::error::Error>> {
+    let dir = PathBuf::from(data_home).join("agent");
+    fs::create_dir_all(&dir)?;
+    let path = dir.join(MEMORY_FILE_NAME);
+    let line = format!(
+        "{{\"atMs\":{},\"session\":\"{}\",\"goal\":\"{}\",\"agent\":\"{}\",\"tool\":\"{}\",\"ok\":{},\"reflection\":\"{}\"}}\n",
+        now_ms(),
+        escape_json(session_id),
+        escape_json(goal),
+        observation.agent.as_str(),
+        escape_json(&observation.tool),
+        observation.ok,
+        escape_json(observation.reflection.as_deref().unwrap_or(""))
+    );
+    let mut file = fs::OpenOptions::new().create(true).append(true).open(path)?;
+    file.write_all(line.as_bytes())?;
+    Ok(())
+}
+
 fn audit_if_high_permission(
     data_home: &str,
     session_id: &str,
@@ -613,9 +752,18 @@ fn clip_output(value: &str, max_chars: usize) -> String {
     clipped
 }
 
+fn escape_json(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\r', "\\r")
+        .replace('\n', "\\n")
+        .replace('\t', "\\t")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{fallback_decision, parse_goal_and_max_steps, parse_model_decision, select_agent_role, AgentRole, DecisionSource};
+    use super::{build_task_tree, fallback_decision, parse_goal_and_max_steps, parse_model_decision, render_task_tree, select_agent_role, AgentRole, DecisionSource};
 
     #[test]
     fn parses_model_decision_lines() {
@@ -650,5 +798,11 @@ mod tests {
         assert_eq!(select_agent_role(1, &[]), AgentRole::Planner);
         assert_eq!(select_agent_role(2, &[]), AgentRole::Executor);
         assert_eq!(select_agent_role(3, &[]), AgentRole::Validator);
+    }
+
+    #[test]
+    fn task_tree_adds_act_for_mutation_goals() {
+        let tree = build_task_tree("write README.md|hello");
+        assert!(render_task_tree(&tree).contains("act:pending"));
     }
 }
