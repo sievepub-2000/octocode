@@ -902,6 +902,45 @@ function render(state) {
   renderStatusBar(state);
   renderTerminalUi();
   updateClock();
+  updateSetDefaultModelButtonState();
+}
+
+// Reflect provider health into the [设为默认模型] CTA inside the
+// provider-profile editor. When the active provider's circuit breaker
+// is "Open" the model is unusable; we grey out the button and label
+// the editor with a 不可用 hint so the operator can't bind a known-bad
+// model as the global default. Also greys the button when the editor
+// model field is empty.
+function updateSetDefaultModelButtonState() {
+  if (!manageEditorSetDefaultModel) return;
+  if (!manageEditorState || manageEditorState.kind !== 'providerProfile') {
+    manageEditorSetDefaultModel.disabled = false;
+    manageEditorSetDefaultModel.classList.remove('is-disabled');
+    return;
+  }
+  const circuit = currentState?.status?.providerCircuit?.circuitState || '';
+  const providerUnhealthy = circuit === 'open' || circuit === 'Open';
+  const modelInput = manageEditorForm?.querySelector('input[name="defaultModel"]');
+  const hasModel = String(modelInput?.value || '').trim().length > 0;
+  const disabled = providerUnhealthy || !hasModel;
+  manageEditorSetDefaultModel.disabled = disabled;
+  manageEditorSetDefaultModel.classList.toggle('is-disabled', disabled);
+  if (providerUnhealthy) {
+    manageEditorSetDefaultModel.title = t(
+      'action.setDefaultModelUnhealthy',
+      '当前 Provider 不可用（熔断 Open），无法设为默认模型',
+    );
+  } else if (!hasModel) {
+    manageEditorSetDefaultModel.title = t(
+      'action.setDefaultModelEmpty',
+      '请先填写 Default Model 后再设为默认模型',
+    );
+  } else {
+    manageEditorSetDefaultModel.title = t(
+      'action.setDefaultModelHint',
+      '将当前编辑的模型设为默认对话模型',
+    );
+  }
 }
 
 function renderHeader(state, activeSession) {
@@ -934,7 +973,19 @@ function renderInfoCards(state) {
   if (sessionCount) sessionCount.textContent = String(state.sessions?.length || 0);
   if (sessionCountInline) sessionCountInline.textContent = String(state.sessions?.length || 0);
   if (activeProviderEl) activeProviderEl.textContent = state.status?.activeProviderId || '-';
-  if (circuitStateEl) circuitStateEl.textContent = state.status?.providerCircuit?.circuitState || '-';
+  if (circuitStateEl) {
+    const circuit = state.status?.providerCircuit?.circuitState || '-';
+    // Map raw enum debug values into operator-friendly labels and
+    // colour the badge so an unhealthy provider is visually obvious.
+    let label = circuit;
+    let cls = '';
+    if (circuit === 'closed' || circuit === 'Closed') { label = t('circuit.closed', '正常'); cls = 'circuit-ok'; }
+    else if (circuit === 'open' || circuit === 'Open') { label = t('circuit.open', '不可用'); cls = 'circuit-bad'; }
+    else if (circuit === 'halfOpen' || circuit === 'HalfOpen') { label = t('circuit.halfOpen', '探测中'); cls = 'circuit-warn'; }
+    circuitStateEl.textContent = label;
+    circuitStateEl.classList.remove('circuit-ok', 'circuit-bad', 'circuit-warn');
+    if (cls) circuitStateEl.classList.add(cls);
+  }
 }
 
 function renderSettings(state) {
@@ -1668,9 +1719,16 @@ function openManageEditor(kind, item = null) {
         datalist.innerHTML = knownModelOptionsMarkup(providerSelect.value);
       });
     }
+    // Live-update the [设为默认模型] disabled state as the operator
+    // types into the Default Model input.
+    const modelInput = manageEditorFields.querySelector('input[name="defaultModel"]');
+    if (modelInput) {
+      modelInput.addEventListener('input', () => updateSetDefaultModelButtonState());
+    }
   }
 
   manageEditorDialog.hidden = false;
+  updateSetDefaultModelButtonState();
 }
 
 function manageEditorPayload() {
@@ -3212,6 +3270,15 @@ settingsForm.addEventListener('submit', async (event) => {
 async function setEditorDefaultModelAsActive() {
   if (!manageEditorState || manageEditorState.kind !== 'providerProfile') return;
   if (!manageEditorForm) return;
+  if (manageEditorSetDefaultModel?.disabled) return;
+  const circuit = currentState?.status?.providerCircuit?.circuitState || '';
+  if (circuit === 'open' || circuit === 'Open') {
+    showToast(
+      t('action.setDefaultModelUnhealthy', '当前 Provider 不可用（熔断 Open），无法设为默认模型'),
+      'error',
+    );
+    return;
+  }
   const formData = new FormData(manageEditorForm);
   const candidate = String(formData.get('defaultModel') || '').trim();
   if (!candidate) {

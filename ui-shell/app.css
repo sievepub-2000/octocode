@@ -979,6 +979,23 @@ button { cursor: pointer; }
 .set-default-model-btn:hover { background: #b91c1c; }
 .set-default-model-btn:active { transform: translateY(1px); }
 .set-default-model-btn:focus-visible { outline: 2px solid #fca5a5; outline-offset: 1px; }
+.set-default-model-btn:disabled,
+.set-default-model-btn.is-disabled {
+  background: #6b7280;
+  border-color: #4b5563;
+  color: #d1d5db;
+  cursor: not-allowed;
+  opacity: 0.6;
+  transform: none;
+}
+.set-default-model-btn:disabled:hover,
+.set-default-model-btn.is-disabled:hover {
+  background: #6b7280;
+}
+/* Circuit-state badge colours — provider health at a glance. */
+.info-value.circuit-ok { color: #16a34a; }
+.info-value.circuit-bad { color: #dc2626; font-weight: 600; }
+.info-value.circuit-warn { color: #d97706; }
 /* Model tag on assistant messages */
 .msg-model {
   display: inline-block;
