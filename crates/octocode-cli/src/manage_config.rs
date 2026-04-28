@@ -19,6 +19,12 @@ pub struct ProviderProfile {
     pub provider_id: String,
     pub provider_base_url: Option<String>,
     pub default_model: Option<String>,
+    /// Explicit "free" marker. When `Some(true)` the WebUI manage panel
+    /// pins a `free` badge on the card. When `None` the legacy heuristic
+    /// (id starts with `fcc-`, name contains "free", etc.) still applies
+    /// for backward compatibility with existing user profiles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_free: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]

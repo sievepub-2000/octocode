@@ -1587,6 +1587,9 @@ fn handle_manage_upsert(
                     provider_id: request.form_value("providerId").unwrap_or_default(),
                     provider_base_url: request.form_value("providerBaseUrl"),
                     default_model: request.form_value("defaultModel"),
+                    is_free: request
+                        .form_value("isFree")
+                        .map(|raw| matches!(raw.as_str(), "1" | "true" | "on" | "yes")),
                 },
             )?;
         }

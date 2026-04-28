@@ -1524,39 +1524,23 @@ function manageCreateCard(label, description, action) {
 }
 
 // Decide whether a provider profile should be flagged as "free" in the
-// manage panel. Rules (any match → free):
-//   1. Base URL points at a local / private host (localhost, 127.0.0.1,
-//      ::1, RFC1918 ranges 10.0.0.0/8, 172.16-31.0.0/12, 192.168.0.0/16)
-//      — the user explicitly asked that local models count as free.
-//   2. Profile id starts with `fcc-` — the curated free-claude-code list.
-//   3. Profile id contains `openrelay` — all OpenRelay routes proxy
-//      through the local relay and surface free upstream sessions.
-//   4. Display name or default model literally contains "free".
+// manage panel. Resolution order:
+//   1. Explicit `isFree` field on the profile (set by the operator or by
+//      the curated default seed). True/false here is authoritative.
+//   2. Profile id starts with `fcc-` — the curated free-claude-code list
+//      that ships pointing at NVIDIA NIM's free public tier.
+//   3. Display name or default model literally contains "free".
+// The LAN/private-IP catch-all was removed: too many users front their
+// paid relays via 127.0.0.1 / 192.168.* and would get a misleading badge.
 function isFreeProviderProfile(profile) {
   if (!profile) return false;
+  if (profile.isFree === true) return true;
+  if (profile.isFree === false) return false;
   const id = String(profile.id || '').toLowerCase();
   const name = String(profile.displayName || '').toLowerCase();
   const model = String(profile.defaultModel || '').toLowerCase();
-  if (id.startsWith('fcc-') || id.includes('openrelay')) return true;
+  if (id.startsWith('fcc-')) return true;
   if (name.includes('free') || model.includes('free')) return true;
-  const baseUrl = String(profile.providerBaseUrl || '');
-  if (!baseUrl) return false;
-  let host = '';
-  try {
-    host = new URL(baseUrl).hostname.toLowerCase();
-  } catch (_) {
-    host = baseUrl.toLowerCase();
-  }
-  if (!host) return false;
-  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return true;
-  if (host.startsWith('10.')) return true;
-  if (host.startsWith('192.168.')) return true;
-  // 172.16.0.0/12
-  const m = host.match(/^172\.(\d+)\./);
-  if (m) {
-    const second = Number(m[1]);
-    if (second >= 16 && second <= 31) return true;
-  }
   return false;
 }
 
