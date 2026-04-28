@@ -1007,6 +1007,13 @@ function syncProviderProfileSelection() {
   if (!profile) return;
   if (settingBaseUrl) settingBaseUrl.value = profile.providerBaseUrl || '';
   if (settingModel) settingModel.value = profile.defaultModel || '';
+  refreshSettingModelDatalist(profile.providerId || currentState?.config?.providerId || '');
+}
+
+function refreshSettingModelDatalist(providerId) {
+  const list = document.getElementById('setting-model-options');
+  if (!list) return;
+  list.innerHTML = knownModelOptionsMarkup(providerId);
 }
 
 function renderStatusBar(state) {
@@ -1554,6 +1561,17 @@ function providerOptionsMarkup(selectedValue = '') {
     .join('');
 }
 
+function knownModelOptionsMarkup(providerId = '') {
+  // Curated suggestions surfaced by /api/manage/catalog under
+  // `knownModelsByProvider`. The list is advisory — the input still
+  // accepts free-text, so power users can override at will.
+  const catalog = manageCatalog?.knownModelsByProvider || {};
+  const models = Array.isArray(catalog[providerId]) ? catalog[providerId] : [];
+  return models
+    .map((model) => `<option value="${escapeHtml(String(model))}"></option>`)
+    .join('');
+}
+
 function scopeOptionsMarkup(selectedValue = 'user') {
   return ['user', 'workspace']
     .map((scope) => `<option value="${scope}"${scope === selectedValue ? ' selected' : ''}>${scope}</option>`)
@@ -1587,7 +1605,7 @@ function openManageEditor(kind, item = null) {
       <label><span>Display Name</span><input name="displayName" type="text" value="${escapeHtml(item?.displayName || '')}" /></label>
       <label><span>Provider</span><select name="providerId">${providerOptionsMarkup(item?.providerId || currentState?.config?.providerId || '')}</select></label>
       <label><span>Base URL</span><input name="providerBaseUrl" type="text" value="${escapeHtml(item?.providerBaseUrl || '')}" /></label>
-      <label><span>Default Model</span><input name="defaultModel" type="text" value="${escapeHtml(item?.defaultModel || '')}" /></label>
+      <label><span>Default Model</span><input name="defaultModel" type="text" list="manage-editor-model-options" autocomplete="off" value="${escapeHtml(item?.defaultModel || '')}" /><datalist id="manage-editor-model-options">${knownModelOptionsMarkup(item?.providerId || currentState?.config?.providerId || '')}</datalist></label>
     `;
   } else if (kind === 'mcp') {
     manageEditorFields.innerHTML = `
@@ -1630,6 +1648,19 @@ function openManageEditor(kind, item = null) {
       <label><span>Summary</span><input name="summary" type="text" value="${escapeHtml(item?.summary || '')}" /></label>
       <label><span>Template</span><textarea name="template">${escapeHtml(item?.template || '')}</textarea></label>
     `;
+  }
+
+  // For provider profile editor, keep the default-model datalist in
+  // sync with the currently chosen provider so the dropdown surfaces
+  // relevant suggestions when the operator switches providers mid-edit.
+  if (kind === 'providerProfile') {
+    const providerSelect = manageEditorFields.querySelector('select[name="providerId"]');
+    const datalist = manageEditorFields.querySelector('#manage-editor-model-options');
+    if (providerSelect && datalist) {
+      providerSelect.addEventListener('change', () => {
+        datalist.innerHTML = knownModelOptionsMarkup(providerSelect.value);
+      });
+    }
   }
 
   manageEditorDialog.hidden = false;

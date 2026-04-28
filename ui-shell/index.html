@@ -267,7 +267,7 @@
                 <form id="settings-form" class="stack-form manage-settings-form">
                   <label><span data-i18n="settings.provider">Provider</span><select id="setting-provider" name="providerId"></select></label>
                   <label><span data-i18n="settings.baseUrl">Base URL</span><input id="setting-base-url" name="providerBaseUrl" type="text" /></label>
-                  <label><span data-i18n="settings.model">Model</span><input id="setting-model" name="defaultModel" type="text" /></label>
+                  <label><span data-i18n="settings.model">Model</span><input id="setting-model" name="defaultModel" type="text" list="setting-model-options" autocomplete="off" /><datalist id="setting-model-options"></datalist></label>
                   <label><span data-i18n="settings.permission">Permission</span>
                     <select id="setting-permission" name="permissionMode">
                       <option value="read-only">read-only</option>

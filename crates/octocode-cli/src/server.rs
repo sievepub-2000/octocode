@@ -1459,6 +1459,7 @@ fn manage_catalog_json(runtime: &AppRuntime) -> Result<String, Box<dyn std::erro
         "settingsPath": runtime.config_file_path(),
         "providers": runtime.provider_routes(),
         "providerProfiles": provider_profiles,
+        "knownModelsByProvider": known_models_by_provider_json(),
         "tools": tools,
         "commands": commands,
         "skills": skills,
@@ -1478,6 +1479,39 @@ fn infer_manage_scope(path: &Path, workspace_root: &Path, config_home: &Path) ->
         return "workspace";
     }
     "workspace"
+}
+
+/// Curated suggestions of well-known models per provider id. The WebUI
+/// renders these as a `<datalist>` next to the Default Model input so
+/// operators can either type freely or pick from the list. The list is
+/// **advisory only** — the runtime never validates the chosen model
+/// against this set; provider routing remains the source of truth.
+fn known_models_by_provider_json() -> serde_json::Value {
+    serde_json::json!({
+        "local-openai": ["gemma-4-31b-it-q8", "qwen3-coder-30b", "llama-3.2-90b-instruct"],
+        "remote-openai": ["gpt-5.5-pro", "gpt-5.5-mini", "gpt-4o-realtime"],
+        "openai-completion": ["gpt-5.5-pro", "gpt-5.5-mini"],
+        "ollama": ["qwen3:30b-coder", "llama3.2:90b", "deepseek-r2:32b"],
+        "anthropic": ["claude-opus-4.7", "claude-sonnet-4.7", "claude-haiku-4.5"],
+        "gemini": ["gemini-3.0-pro", "gemini-3.0-flash", "gemini-2.5-flash-lite"],
+        "azure": ["gpt-5.5-pro", "gpt-5.5-mini", "o3-mini"],
+        "nvidia-free": ["nvidia/llama-3.3-nemotron-70b-instruct", "nvidia/mimo-vl-7b"],
+        "xai": ["grok-4-mini", "grok-4"],
+        "openrouter": [
+            "openai/gpt-5.5-pro",
+            "anthropic/claude-opus-4.7",
+            "google/gemini-3.0-pro",
+            "qwen/qwen3-coder",
+            "deepseek/deepseek-r2"
+        ],
+        "qwen": ["qwen3-coder", "qwen3-max", "qwen3-vl-plus"],
+        "glm": ["glm-4.7", "glm-4.7-air", "glm-4.6-vision"],
+        "kimi": ["kimi-k2-pro", "kimi-k2-mini"],
+        "xiaomi": ["mimo-vl-7b-rl", "mimo-7b-coder"],
+        "minimax": ["abab7-chat", "abab7-vision"],
+        "linkmind": ["link-mind-1.5", "link-mind-coder"],
+        "stub": ["stub-tiny"]
+    })
 }
 
 fn form_flag(request: &HttpRequest, name: &str) -> bool {
