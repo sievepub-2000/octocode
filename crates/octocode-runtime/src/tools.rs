@@ -497,6 +497,11 @@ const TOOLS: &[ToolDescriptor] = &[
         summary: "Execute a shell command on a remote host via ssh. Input: 'user@host|<remote command>' (e.g. 'ops@build-1|uname -a'). Subject to the same approval gate as shell-command.",
         minimum_permission: PermissionMode::WorkspaceWrite,
     },
+    ToolDescriptor {
+        name: "skill-record",
+        summary: "Capture a learned procedure into skills/auto/<name>/SKILL.md so future sessions can reuse it. Input: 'name|description|step 1\\nstep 2\\n...' (literal '\\n' separates steps).",
+        minimum_permission: PermissionMode::WorkspaceWrite,
+    },
 ];
 
 /// Pluggable shell backend used by `shell-command` / `ssh-command`. The
@@ -570,6 +575,96 @@ impl WorkspaceToolExecutor {
 
     pub(crate) fn execute_shell_command(&self, command_line: &str) -> Result<ToolResult, OctoError> {
         self.run_shell(command_line)
+    }
+
+    /// Persist a learned procedure into `skills/auto/<name>/SKILL.md` so
+    /// future sessions can re-load it as a local skill. Input shape:
+    /// `name|description|step 1\nstep 2\n...`. The literal two-character
+    /// sequence `\n` (backslash + n) separates steps because tool inputs
+    /// are single-line strings on the wire. The `name` is sanitized to a
+    /// safe filename slug (a-z, 0-9, '-').
+    pub(crate) fn execute_skill_record(&self, raw_input: &str) -> Result<ToolResult, OctoError> {
+        let mut parts = raw_input.splitn(3, '|');
+        let name = parts.next().unwrap_or("").trim();
+        let description = parts.next().unwrap_or("").trim();
+        let steps_raw = parts.next().unwrap_or("").trim();
+        if name.is_empty() || description.is_empty() || steps_raw.is_empty() {
+            return Err(OctoError::Runtime(String::from(
+                "skill-record expects input 'name|description|step1\\nstep2\\n...'",
+            )));
+        }
+
+        let slug: String = name
+            .chars()
+            .map(|c| match c {
+                'a'..='z' | '0'..='9' | '-' => c,
+                'A'..='Z' => c.to_ascii_lowercase(),
+                _ => '-',
+            })
+            .collect::<String>()
+            .trim_matches('-')
+            .chars()
+            .collect();
+        let slug = slug
+            .split('-')
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("-");
+        if slug.is_empty() {
+            return Err(OctoError::Runtime(String::from(
+                "skill-record name must contain alphanumeric characters",
+            )));
+        }
+
+        let dir = self.workspace_root.join("skills").join("auto").join(&slug);
+        // Path-traversal guard via security_check_path with the file path.
+        let file = dir.join("SKILL.md");
+        self.security_check_path(&file)?;
+
+        // Steps come in with literal '\n' separators (two ASCII chars,
+        // not the newline byte) because tool inputs are single-line.
+        let steps: Vec<String> = steps_raw
+            .split("\\n")
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if steps.is_empty() {
+            return Err(OctoError::Runtime(String::from(
+                "skill-record requires at least one non-empty step",
+            )));
+        }
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let mut body = String::new();
+        body.push_str("---\n");
+        body.push_str(&format!("name: {slug}\n"));
+        body.push_str(&format!("recorded_at_unix: {now}\n"));
+        body.push_str("auto_recorded: true\n");
+        body.push_str("---\n\n");
+        body.push_str(&format!("# {name}\n\n"));
+        body.push_str(&format!("{description}\n\n"));
+        body.push_str("## Steps\n\n");
+        for (idx, step) in steps.iter().enumerate() {
+            body.push_str(&format!("{}. {}\n", idx + 1, step));
+        }
+
+        std::fs::create_dir_all(&dir).map_err(|e| {
+            OctoError::Runtime(format!("failed to create skill dir {}: {e}", dir.display()))
+        })?;
+        file_guard::guard_write(&file, body.as_bytes(), &self.workspace_root)?;
+        std::fs::write(&file, &body).map_err(|e| {
+            OctoError::Runtime(format!("failed to write skill {}: {e}", file.display()))
+        })?;
+        Ok(ToolResult {
+            output: format!(
+                "recorded skill '{slug}' ({} steps) -> {}",
+                steps.len(),
+                file.display()
+            ),
+        })
     }
 
     /// Execute a remote command via the ssh backend. `raw_input` follows
@@ -3027,6 +3122,7 @@ impl ToolExecutor for WorkspaceToolExecutor {
                 self.run_shell(&approved)
             }
             "ssh-command" => self.execute_ssh_command(&call.input, &call.permission),
+            "skill-record" => self.execute_skill_record(&call.input),
             "search-text" => self.search_text(&call.input),
             "workflow-plan" => Ok(self.workflow_plan(&call.input)),
             "agent-action" => Ok(self.agent_action(&call.input)),
@@ -3673,6 +3769,49 @@ mod tests {
             })
             .expect("shell command with approval token should run");
         assert!(approved.output.to_ascii_lowercase().contains("approval-check"));
+    }
+
+    #[test]
+    fn skill_record_writes_skill_md_with_steps() {
+        let root = std::env::temp_dir().join(format!("octocode-skill-rec-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create temp root");
+
+        let exec = test_executor_for(&root);
+        let result = exec
+            .execute(ToolCall {
+                name: String::from("skill-record"),
+                input: String::from(
+                    "Win Smoke|Validate Octocode on Windows|run cargo check\\nstart WebUI\\nrun shell-command",
+                ),
+                permission: PermissionMode::WorkspaceWrite,
+            })
+            .expect("skill-record should succeed");
+        assert!(result.output.contains("recorded skill 'win-smoke'"), "output={}", result.output);
+
+        let file = root.join("skills").join("auto").join("win-smoke").join("SKILL.md");
+        assert!(file.exists(), "expected {}", file.display());
+        let body = fs::read_to_string(&file).expect("read skill");
+        assert!(body.contains("name: win-smoke"));
+        assert!(body.contains("auto_recorded: true"));
+        assert!(body.contains("1. run cargo check"));
+        assert!(body.contains("2. start WebUI"));
+        assert!(body.contains("3. run shell-command"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn skill_record_rejects_empty_payload() {
+        let exec = test_executor();
+        let err = exec
+            .execute(ToolCall {
+                name: String::from("skill-record"),
+                input: String::from("only-name|"),
+                permission: PermissionMode::WorkspaceWrite,
+            })
+            .expect_err("must reject empty description/steps");
+        assert!(err.to_string().contains("skill-record expects"));
     }
 
     #[test]
