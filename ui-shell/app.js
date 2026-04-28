@@ -1101,7 +1101,11 @@ function describeSessionLineage(summary) {
 
 function buildSessionDescription(session) {
   const summary = session?.summary || session;
-  const parts = [summary?.model || t('session.noModel', '未绑定模型')];
+  const parts = [
+    summary?.model
+      || currentState?.config?.defaultModel
+      || t('session.noModel', '未绑定模型'),
+  ];
   const lineage = describeSessionLineage(summary);
   if (lineage) parts.push(lineage);
   parts.push(summary?.id || session?.sessionId || '-');
@@ -3193,6 +3197,45 @@ settingsForm.addEventListener('submit', async (event) => {
     showToast(`${t('error.settingsFailed', '保存设置失败')}: ${error.message}`, 'error');
   }
 });
+
+// Red [Set as default model] CTA in the conversation header. Lets the
+// operator explicitly bind a model to the global config without
+// navigating into Manage → Settings. The chosen model is persisted via
+// the existing `/api/settings` endpoint (defaultModel field) and then
+// inherited by every freshly created session.
+const setDefaultModelBtn = document.getElementById('set-default-model-btn');
+if (setDefaultModelBtn) {
+  setDefaultModelBtn.addEventListener('click', async () => {
+    const current = currentState?.config?.defaultModel
+      || activeSessionSummary()?.model
+      || '';
+    const promptLabel = t(
+      'action.setDefaultModelPrompt',
+      '请输入要设为默认对话模型的 model id（留空则清除）：',
+    );
+    const next = window.prompt(promptLabel, current);
+    if (next === null) return; // user cancelled
+    try {
+      const sessionId = await sessionController.ensureWritableSession();
+      const state = await postForm('/api/settings', {
+        sessionId,
+        defaultModel: next.trim(),
+      });
+      lastSettingsSaveAt = new Date();
+      applyState(state, sessionId);
+      await refreshEventFeed(sessionId);
+      const trimmed = next.trim();
+      showToast(
+        trimmed
+          ? `${t('action.setDefaultModelOk', '默认模型已设为')} ${trimmed}`
+          : t('action.setDefaultModelCleared', '默认模型已清除'),
+        'success',
+      );
+    } catch (error) {
+      showToast(`${t('error.settingsFailed', '保存设置失败')}: ${error.message}`, 'error');
+    }
+  });
+}
 
 if (settingProvider) {
   settingProvider.addEventListener('change', () => {

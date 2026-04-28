@@ -926,6 +926,23 @@ button { cursor: pointer; }
   font-family: var(--mono);
   color: var(--ink-faint, var(--ink-dim));
 }
+/* Red "Set as default model" CTA inside the model-info bar */
+.set-default-model-btn {
+  margin-right: 8px;
+  padding: 3px 10px;
+  border: 1px solid #b91c1c;
+  border-radius: 4px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.05s ease;
+}
+.set-default-model-btn:hover { background: #b91c1c; }
+.set-default-model-btn:active { transform: translateY(1px); }
+.set-default-model-btn:focus-visible { outline: 2px solid #fca5a5; outline-offset: 1px; }
 /* Model tag on assistant messages */
 .msg-model {
   display: inline-block;

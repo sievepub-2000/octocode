@@ -1117,7 +1117,11 @@ fn default_session_id() -> String {
     format!("session-{stamp}")
 }
 
-fn create_session(store: &FileSessionStore, title: Option<String>) -> Result<String, OctoError> {
+fn create_session(
+    store: &FileSessionStore,
+    title: Option<String>,
+    default_model: Option<String>,
+) -> Result<String, OctoError> {
     let session_id = default_session_id();
     let session_title = title
         .as_deref()
@@ -1125,10 +1129,14 @@ fn create_session(store: &FileSessionStore, title: Option<String>) -> Result<Str
         .filter(|value| !value.is_empty())
         .unwrap_or("New Session");
 
+    let bound_model = default_model
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
     store.save_session(SessionSummary {
         id: session_id.clone(),
         title: String::from(session_title),
-        model: None,
+        model: bound_model,
         parent_id: None,
         branch_name: None,
         total_input_tokens: 0,
@@ -1137,12 +1145,15 @@ fn create_session(store: &FileSessionStore, title: Option<String>) -> Result<Str
     Ok(session_id)
 }
 
-fn ensure_session_exists(store: &FileSessionStore) -> Result<String, OctoError> {
+fn ensure_session_exists(
+    store: &FileSessionStore,
+    default_model: Option<String>,
+) -> Result<String, OctoError> {
     if let Some(existing) = store.list_sessions()?.into_iter().next() {
         return Ok(existing.id);
     }
 
-    create_session(store, None)
+    create_session(store, None, default_model)
 }
 
 fn resolve_fs_path(workspace_root: &Path, raw: Option<&str>, must_exist: bool) -> Result<PathBuf, OctoError> {
@@ -1498,11 +1509,58 @@ fn known_models_by_provider_json() -> serde_json::Value {
         "nvidia-free": ["nvidia/llama-3.3-nemotron-70b-instruct", "nvidia/mimo-vl-7b"],
         "xai": ["grok-4-mini", "grok-4"],
         "openrouter": [
+            "openrouter/auto",
             "openai/gpt-5.5-pro",
+            "openai/gpt-5.5-mini",
+            "openai/gpt-4o",
+            "openai/gpt-4o-mini",
+            "openai/o1",
+            "openai/o1-mini",
+            "openai/o3-mini",
+            "openai/o3",
             "anthropic/claude-opus-4.7",
+            "anthropic/claude-sonnet-4.7",
+            "anthropic/claude-haiku-4.5",
+            "anthropic/claude-3.7-sonnet",
+            "anthropic/claude-3.5-sonnet",
+            "anthropic/claude-3.5-haiku",
+            "anthropic/claude-3-opus",
             "google/gemini-3.0-pro",
+            "google/gemini-3.0-flash",
+            "google/gemini-2.5-pro",
+            "google/gemini-2.5-flash",
+            "google/gemini-2.0-flash",
+            "google/gemini-1.5-pro",
+            "meta-llama/llama-3.3-70b-instruct",
+            "meta-llama/llama-3.1-405b-instruct",
+            "meta-llama/llama-3.1-70b-instruct",
+            "meta-llama/llama-3.2-90b-vision-instruct",
             "qwen/qwen3-coder",
-            "deepseek/deepseek-r2"
+            "qwen/qwen3-max",
+            "qwen/qwen-2.5-coder-32b-instruct",
+            "qwen/qwen-2.5-72b-instruct",
+            "deepseek/deepseek-r2",
+            "deepseek/deepseek-r1",
+            "deepseek/deepseek-chat",
+            "deepseek/deepseek-coder",
+            "mistralai/mistral-large",
+            "mistralai/mistral-medium",
+            "mistralai/codestral-mamba",
+            "mistralai/mixtral-8x22b-instruct",
+            "x-ai/grok-4",
+            "x-ai/grok-4-mini",
+            "x-ai/grok-2",
+            "nvidia/llama-3.3-nemotron-70b-instruct",
+            "nvidia/llama-3.1-nemotron-70b-instruct",
+            "nous-research/hermes-3-llama-3.1-405b",
+            "cohere/command-r-plus",
+            "cohere/command-r",
+            "microsoft/wizardlm-2-8x22b",
+            "perplexity/llama-3.1-sonar-large-128k-online",
+            "perplexity/llama-3.1-sonar-large-128k-chat",
+            "liquid/lfm-40b",
+            "01-ai/yi-large",
+            "databricks/dbrx-instruct"
         ],
         "qwen": ["qwen3-coder", "qwen3-max", "qwen3-vl-plus"],
         "glm": ["glm-4.7", "glm-4.7-air", "glm-4.6-vision"],
@@ -2562,14 +2620,14 @@ fn route_request(
                 .ok_or_else(|| OctoError::Runtime(String::from("missing session id")))?;
             let store = FileSessionStore::new(&platform.config_paths())?;
             let _ = store.delete_session(&session_id)?;
-            let next_session_id = ensure_session_exists(&store)?;
+            let next_session_id = ensure_session_exists(&store, config.default_model.clone())?;
             let runtime = build_runtime(workspace_root, config)?;
             json_response(runtime.snapshot_json(Some(&next_session_id))?)
         }
         ("POST", "/api/sessions/create") => {
             let title = request.form_value("title");
             let store = FileSessionStore::new(&platform.config_paths())?;
-            let session_id = create_session(&store, title)?;
+            let session_id = create_session(&store, title, config.default_model.clone())?;
             METRICS_SESSIONS_CREATED_TOTAL.fetch_add(1, Ordering::Relaxed);
             let runtime = build_runtime(workspace_root, config)?;
             json_response(runtime.snapshot_json(Some(&session_id))?)
@@ -2636,7 +2694,7 @@ fn route_request(
         ("POST", "/api/sessions/delete-all") => {
             let store = FileSessionStore::new(&platform.config_paths())?;
             let _ = store.delete_all_sessions()?;
-            let next_session_id = ensure_session_exists(&store)?;
+            let next_session_id = ensure_session_exists(&store, config.default_model.clone())?;
             let runtime = build_runtime(workspace_root, config)?;
             json_response(runtime.snapshot_json(Some(&next_session_id))?)
         }
@@ -3962,7 +4020,7 @@ mod tests {
         };
         let store = FileSessionStore::new(&paths).expect("create store");
 
-        let session_id = create_session(&store, Some(String::from("Browser Session")))
+        let session_id = create_session(&store, Some(String::from("Browser Session")), None)
             .expect("create session");
 
         let created = store
