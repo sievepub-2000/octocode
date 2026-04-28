@@ -1289,13 +1289,29 @@ function buildSidebarItems(state, activeSessionId) {
       lineage,
       hasChildren,
       collapsed,
+      pinned: depth === 0 && isFreshSessionTitle(node.title),
       onSelect: () => { void sessionController.switchSession(node.id); },
     });
     if (collapsed) return;
     children.forEach((child) => visit(child, depth + 1, [...ancestry, branchLabel]));
   }
-  roots.sort((left, right) => left.index - right.index).forEach((root) => visit(root, 0, []));
+  // Pinned (fresh "New Session") roots first, then the rest, each group
+  // ordered by their original index so newest creations stay near the top.
+  const sortedRoots = roots.slice().sort((left, right) => left.index - right.index);
+  const pinnedRoots = sortedRoots.filter((r) => isFreshSessionTitle(r.title));
+  const otherRoots = sortedRoots.filter((r) => !isFreshSessionTitle(r.title));
+  pinnedRoots.forEach((root) => visit(root, 0, []));
+  otherRoots.forEach((root) => visit(root, 0, []));
   return items;
+}
+
+// A session counts as a fresh "New Session" when it still carries the
+// default title produced by the runtime. Such rows are pinned to the top
+// of the sidebar and visually separated from the history below.
+function isFreshSessionTitle(title) {
+  if (!title) return false;
+  const normalized = String(title).trim().toLowerCase();
+  return normalized === 'new session' || normalized === '新会话' || normalized === '新对话';
 }
 
 function renderSidebar(state, activeSessionId) {
@@ -1307,7 +1323,7 @@ function renderSidebar(state, activeSessionId) {
   // tear down and rebuild every sidebar row (visible flicker).
   const sig = JSON.stringify({
     a: activeSessionId,
-    items: items.map((it) => [it.id, it.active ? 1 : 0, it.collapsed ? 1 : 0, it.depth || 0, it.title, it.description, it.lineage || '', it.branchLabel || '']),
+    items: items.map((it) => [it.id, it.active ? 1 : 0, it.collapsed ? 1 : 0, it.depth || 0, it.title, it.description, it.lineage || '', it.branchLabel || '', it.pinned ? 1 : 0]),
   });
   if (sig === lastRenderedSidebarSignature) return;
   lastRenderedSidebarSignature = sig;
@@ -1319,9 +1335,18 @@ function renderSidebar(state, activeSessionId) {
     sidebarList.appendChild(empty);
     return;
   }
-  items.forEach((item) => {
+  items.forEach((item, idx) => {
+    // Insert a hairline divider once, on the boundary between the pinned
+    // "New Session" rows at the top and the historical sessions below.
+    const previous = idx > 0 ? items[idx - 1] : null;
+    if (previous && previous.pinned && !item.pinned) {
+      const divider = document.createElement('div');
+      divider.className = 'sidebar-pinned-divider';
+      divider.setAttribute('aria-hidden', 'true');
+      sidebarList.appendChild(divider);
+    }
     const row = document.createElement('div');
-    row.className = `sidebar-row${item.active ? ' active' : ''}`;
+    row.className = `sidebar-row${item.active ? ' active' : ''}${item.pinned ? ' pinned' : ''}`;
     row.dataset.depth = String(item.depth || 0);
     row.style.setProperty('--tree-depth', String(item.depth || 0));
     row.style.setProperty('--tree-indent', `${(item.depth || 0) * 18}px`);

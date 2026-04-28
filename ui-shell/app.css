@@ -375,14 +375,13 @@ button { cursor: pointer; }
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-/* Hairline divider that separates the pinned [新对话] CTA from the
-   historical session list below. 1px tall, low-contrast, flush against
-   the button above (zero top margin) and a small breath before the list. */
+/* Hairline divider that separates the pinned "New Session" rows from
+   the historical session list below. 1px tall, low-contrast. */
 .sidebar-pinned-divider {
   height: 1px;
-  margin: 0 0 6px 0;
+  margin: 4px 4px 6px 4px;
   background: var(--border);
-  opacity: 0.6;
+  opacity: 0.55;
 }
 .sidebar-row {
   --tree-depth: 0;
