@@ -1,0 +1,6 @@
+# Ignore any cloned upstream trees — they are fetched on demand by
+# scripts/fetch-integrations.ps1 and must not be committed into OctoCode.
+*/src/
+*/node_modules/
+*/.git/
+*/target/

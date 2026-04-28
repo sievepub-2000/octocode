@@ -1,0 +1,50 @@
+name: octocode-feature
+description: |
+  Use when: Implementing a new feature in OctoCode.
+  Input: Feature description in natural language.
+  Output: Implemented feature with all tests passing, 0 clippy warnings.
+
+  Workflow:
+  1. Analyze the feature and create an implementation plan
+  2. Implement the feature
+  3. Run the full build verification pipeline
+  4. Review the changes
+
+nodes:
+  - id: plan
+    prompt: |
+      Analyze the codebase structure of this Rust workspace (9 crates).
+      Create a detailed implementation plan for the requested feature.
+      Consider which crates need changes and the dependency order.
+      Write the plan to $ARTIFACTS_DIR/plan.md.
+    context: fresh
+
+  - id: implement
+    depends_on: [plan]
+    loop:
+      prompt: |
+        Read the plan from $ARTIFACTS_DIR/plan.md.
+        Implement the next incomplete task.
+        After each change, run: cargo clippy --workspace --all-targets -- -D warnings
+        Fix any warnings before proceeding.
+        Mark completed tasks in the plan.
+      until: ALL_TASKS_COMPLETE
+      fresh_context: true
+    model: claude-opus-4-6[1m]
+
+  - id: verify
+    depends_on: [implement]
+    bash: |
+      cd $PROJECT_DIR
+      export CARGO_HOME="$PROJECT_DIR/../../.cargo"
+      export RUSTUP_HOME="$PROJECT_DIR/../../.rustup"
+      "$CARGO_HOME/bin/cargo.exe" clippy --workspace --all-targets -- -D warnings
+      "$CARGO_HOME/bin/cargo.exe" test --workspace
+
+  - id: review
+    depends_on: [verify]
+    prompt: |
+      Review all changes made during implementation.
+      Check for: correctness, idiomatic Rust, security issues, missing tests.
+      Fix any issues found.
+    context: fresh

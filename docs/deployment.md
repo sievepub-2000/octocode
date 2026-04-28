@@ -55,6 +55,8 @@ Windows WebUI 启动：
 ./scripts/start-webui.ps1 -Port 999 -SessionId demo
 ```
 
+端口范围限制：`990-999`。
+
 ## macOS / Linux 启动
 
 ```bash
@@ -75,6 +77,8 @@ macOS / Linux WebUI 启动：
 ```bash
 ./scripts/start-webui.sh 999 demo
 ```
+
+端口范围限制：`990-999`。
 
 ## 初次初始化建议
 

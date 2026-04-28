@@ -59,6 +59,8 @@
 37. WebUI / HTTP 回归脚本 `scripts/test-regression.ps1` 已覆盖 chat / tool / settings / slash-command / 静态资源 / 路径防护
 38. Canvas settings / tool / terminal tabs 已进一步收口到统一 snapshot + event feed，并补齐 workflow 时间线视图
 39. REPL / slash-command 新增 `pipe` 多步命令组合，HTTP 响应会返回结构化 `steps` 结果与每步耗时
+40. 新增 `octocode-mcp` crate，补齐 MCP manifest 发现、生命周期状态机骨架与 `mcp list` CLI 面
+41. 新增 `octocode-skills` crate，补齐本地 `skills/*/SKILL.md` 与 `config_home/skills/*/SKILL.md` 发现能力，并暴露 `skills` CLI 面
 
 ### 当前验证通过项
 
@@ -97,28 +99,33 @@
 33. `Octocode-0.1.0-windows-x64-setup.exe /Q:A` 已完成静默安装到 `%LOCALAPPDATA%\Programs\Octocode\0.1.0`
 34. 已安装版本 `app\octocode-cli.exe status`
 35. 已安装版本 `app\octocode-cli.exe --json snapshot demo`
-36. 已安装版本 `app\octocode-cli.exe serve 10001 demo`
-37. `http://127.0.0.1:10001/api/state?session=demo` 已确认输出 `status` / `providerRoutes` / `commands` / `tools` / `eventFeed`
-38. `http://127.0.0.1:10001/api/events?session=demo` 已确认输出 `items`
-39. `http://127.0.0.1:10001/api/health` 已确认输出 `items`
+36. 已安装版本 `app\octocode-cli.exe serve 991 demo`
+37. `http://127.0.0.1:991/api/state?session=demo` 已确认输出 `status` / `providerRoutes` / `commands` / `tools` / `eventFeed`
+38. `http://127.0.0.1:991/api/events?session=demo` 已确认输出 `items`
+39. `http://127.0.0.1:991/api/health` 已确认输出 `items`
 40. 安装版 `/api/chat`、`/api/tool`、`/api/settings`、`/api/command` 均已完成真实 POST 验证
-41. `http://127.0.0.1:10001/ui-shell/?session=demo` 已确认输出 `sidebar-canvas` / `message-canvas` / `composer-canvas`
-42. `powershell -ExecutionPolicy Bypass -File .\scripts\test-regression.ps1 -Port 10001 -Session demo` 已完成 54/54 通过
+41. `http://127.0.0.1:991/ui-shell/?session=demo` 已确认输出 `sidebar-canvas` / `message-canvas` / `composer-canvas`
+42. `powershell -ExecutionPolicy Bypass -File .\scripts\test-regression.ps1 -Port 991 -Session demo` 已完成 54/54 通过
 43. slash-command `/snapshot` `/sessions` `/status` `/events` `/health` `/doctor` `/history` `/read` `/list` `/tool` `/plan` `/search` `/reload` 已完成真实 HTTP 回归
 44. `octocode-cli --json snapshot demo` 在 provider health cache 生效后耗时已从约 24s 降到约 1.6s
-45. `http://127.0.0.1:10001/api/timeline?session=demo` 已确认输出 `items`
+45. `http://127.0.0.1:991/api/timeline?session=demo` 已确认输出 `items`
 46. slash-command `pipe read README.md | list .` 已确认返回结构化 `steps` 数组
+47. `cargo run -p octocode-cli -- mcp list` 已可枚举 `.octocode/mcp`、`mcp` 与 `config_home/mcp` 下的 MCP manifest
+48. `cargo test -p octocode-mcp` 已覆盖 manifest 发现与生命周期状态迁移
+49. `cargo run -p octocode-cli -- skills` 已可枚举 workspace 与 user scope 下的本地 skills
+50. `cargo test --workspace` 已完成 20/20 通过，覆盖 `octocode_api`、`octocode_commands`、`octocode_mcp`、`octocode_plugins`、`octocode_runtime`、`octocode_skills`
+51. `powershell -ExecutionPolicy Bypass -File .\scripts\test-regression.ps1 -Port 10023 -Session demo` 已完成 80/80 通过，确认 release WebUI + HTTP 回归在本轮改造后保持绿色
 
 ## 未完成
 
-1. MCP lifecycle
+1. MCP process spawning / transport bridge / tool wiring
 2. plugin / skills / hooks
 3. full slash-command parity
 4. Canvas UI 全量统一 runtime event bus
 5. REPL 深化与多步命令组合仍可继续扩展到更丰富的条件、分支与 agent/workflow 协调
 6. 组件级输入命中测试仍未覆盖到设置表单等 DOM 区域
 7. VS Code / Cline / Cursor integration layer
-8. skills / plugins / hooks / MCP lifecycle
+8. skills / plugins / hooks / MCP transport execution
 9. 本地模型与闭源模型完整接入与 provider failover
 10. macOS 原生安装验收
 11. Linux 原生安装验收与桌面入口验收
@@ -140,6 +147,8 @@
 4. REPL 与 conversation runtime 深化
 5. 在原生 macOS / Linux 主机上完成安装器验收与 smoke test
 6. MCP / tools / plugin parity
+7. 基于四个参考仓库的重构切片已启动，当前第一批优先落地 MCP / 多 agent / 工具扩展骨架
+8. 第二个增量切片已落地到 skills discovery，后续进入 task / coordinator 骨架
 7. 从当前 Wry 桌面壳推进到发行版打包与自更新链路
 
 ## 当前风险说明
@@ -147,3 +156,82 @@
 1. 用户指定模型端点 `http://192.168.110.2:8000/v1` 已经完成过 `/v1/models` 与一次 `/v1/chat/completions` 成功探测。
 2. 本轮后续联调阶段，该端点出现了持续超时，因此当前交互式 chat API 会把 provider 错误写入 transcript，而不是返回模型内容。
 3. 这说明 Octocode 的交互链路、错误恢复链路和 UI 展示链路已经工作；当前已具备熔断与自动恢复语义，但目标模型服务仍不稳定，后续仍需继续做 provider failover 观测增强或外部服务排障。
+
+---
+
+## Iteration 2026-04-17-B: Task Registry 切片（已完成）
+
+### 验收结果
+
+- cargo test --workspace: **23/23 passed** (+3 新 task 单元测试)
+- WebUI regression: **88/88 passed** (80 → 88，新增 Section 20 task 端点测试)
+- GET /api/tasks → {"items":[]}
+- POST /api/tasks → {"id":"t-1","sessionId":"...","label":"...","state":"pending"}
+- WebUI workflow tab 已增加 [tasks] 段落，异步刷新来自 /api/tasks
+
+### 本轮新增文件
+
+- crates/octocode-core/src/lib.rs: TaskKind, TaskState, TaskRecord 类型
+- crates/octocode-runtime/src/tasks.rs: TaskStore (进程内 Mutex, 原子 id 计数器)
+- docs/modules/task-registry-spec.md: 模块规范文档
+- scripts/test-regression.ps1: Section 20 task 断言 (8 项)
+
+### 本轮修改文件
+
+- crates/octocode-runtime/src/lib.rs: TaskStore 字段, task_submit/list/get/finish 方法
+- crates/octocode-cli/src/server.rs: GET /api/tasks, POST /api/tasks 路由
+- ui-shell/app.js: renderWorkflowTab 增加 [tasks] 段，异步从 /api/tasks 刷新
+
+---
+
+## Iteration 2026-04-17-C: Tool Expansion（已完成）
+
+### 验收结果
+
+- cargo test --workspace: **23/23 passed**（无回归）
+- WebUI regression: **93/93 passed**（88 → 93，+5 新工具目录断言）
+- GET /api/state → tools.Count = 20 ✓
+- 5 个新工具名全部在 catalog 中可见 ✓
+
+### 本轮新增文件
+
+- docs/modules/tool-expansion-spec.md: 模块规范文档
+
+### 本轮修改文件
+
+- crates/octocode-runtime/src/tools.rs:
+  - TOOLS const 新增 5 个 ToolDescriptor（create-file, delete-file, move-file, task-submit, task-list）
+  - security_check_path 方法（canonicalize + starts_with workspace root 防止路径越界）
+  - execute() 新增 5 个 match arm（create-file/delete-file/move-file 执行真实 fs 操作，带越界防护；task-submit/task-list 为占位输出，指向 /api/tasks）
+- scripts/test-regression.ps1: tools.Count 断言升为 >= 20，新增 5 个工具名检查
+
+---
+
+## Iteration 2026-04-17-D: Permission Refinement（已完成）
+
+### 验收结果
+
+- cargo test --workspace: **29/29 passed**（+6：2 个 deny-list 单测 + 4 个 api 单测纳入 workspace 运行）
+- WebUI regression: **99/99 passed**（93 → 99，+6 permission deny-list 断言）
+- GET /api/state → deniedTools: [] ✓（字段类型 Object[]）
+- denyTool=echo → deniedTools 包含 echo → tool call 返回 HTTP 500 ✓
+- allowTool=echo → deniedTools 清空 → tool call 恢复正常 ✓
+
+### 本轮新增文件
+
+- docs/modules/permission-refinement-spec.md: 模块规范文档
+
+### 本轮修改文件
+
+- crates/octocode-core/src/lib.rs: RuntimeConfig 新增 `denied_tools: Vec<String>` 字段
+- crates/octocode-runtime/src/lib.rs:
+  - default_config()：denied_tools: Vec::new()
+  - load()：解析 denied_tools=tool1,tool2（逗号分割）
+  - save()：写入 denied_tools={joined} 行
+  - ensure_permission()：在 rank 检查之前优先检查 denied_tools
+  - snapshot JSON：新增 deniedTools 数组字段
+  - 新增 2 个单测：denied_tools_blocks_specific_tool, denied_tools_allow_removes_entry
+- crates/octocode-api/src/lib.rs: create_by_id() 和测试代码的 RuntimeConfig 初始化补齐 denied_tools 字段
+- crates/octocode-runtime/src/router.rs: RuntimeConfig 初始化补齐 denied_tools 字段
+- crates/octocode-cli/src/server.rs: POST /api/settings 新增 denyTool / allowTool 参数处理
+- scripts/test-regression.ps1: 新增 Section 21（6 个断言）

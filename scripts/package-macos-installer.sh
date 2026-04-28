@@ -3,7 +3,12 @@ set -euo pipefail
 
 PROFILE="${1:-release}"
 SESSION_ID="${2:-demo}"
-PORT="${3:-10001}"
+PORT="${3:-999}"
+
+if ! [[ "${PORT}" =~ ^[0-9]+$ ]] || (( PORT < 990 || PORT > 999 )); then
+  echo "Port must be between 990 and 999. Received: ${PORT}" >&2
+  exit 2
+fi
 
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_ROOT/.." && pwd)"
@@ -78,4 +83,4 @@ echo ""
 echo "macOS installer artifacts ready in $BUNDLE_ROOT"
 echo "  Install: open $BUNDLE_ROOT/Octocode-$VERSION-macos.dmg"
 echo "           drag Octocode.app to Applications"
-echo "  CLI:     Octocode.app/Contents/Resources/octocode-cli serve 10001 demo"
+echo "  CLI:     Octocode.app/Contents/Resources/octocode-cli serve 991 demo"

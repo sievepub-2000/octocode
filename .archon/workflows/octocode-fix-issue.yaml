@@ -1,0 +1,33 @@
+name: octocode-fix-issue
+description: |
+  Use when: Fixing a bug or issue in OctoCode.
+  Input: Issue description.
+  Output: Fixed code with tests passing.
+
+nodes:
+  - id: investigate
+    prompt: |
+      Investigate the reported issue in this Rust workspace.
+      Read relevant source files, trace the execution path, identify root cause.
+      Write findings to $ARTIFACTS_DIR/investigation.md.
+    context: fresh
+
+  - id: fix
+    depends_on: [investigate]
+    loop:
+      prompt: |
+        Read the investigation from $ARTIFACTS_DIR/investigation.md.
+        Implement the fix. Run clippy and tests after each change.
+        Cargo commands require these env vars:
+          CARGO_HOME=$PROJECT_DIR/../../.cargo
+          RUSTUP_HOME=$PROJECT_DIR/../../.rustup
+      until: ALL_TASKS_COMPLETE
+      fresh_context: true
+
+  - id: verify
+    depends_on: [fix]
+    bash: |
+      cd $PROJECT_DIR
+      export CARGO_HOME="$PROJECT_DIR/../../.cargo"
+      export RUSTUP_HOME="$PROJECT_DIR/../../.rustup"
+      "$CARGO_HOME/bin/cargo.exe" test --workspace

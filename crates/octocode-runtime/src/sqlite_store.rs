@@ -1,0 +1,288 @@
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+
+use rusqlite::{params, Connection};
+
+use octocode_core::{OctoError, TaskKind, TaskRecord, TaskState, TokenInfo};
+
+/// SQLite-backed persistent store for tasks and cost tracking.
+#[derive(Clone)]
+pub struct SqliteStore {
+    conn: Arc<Mutex<Connection>>,
+}
+
+impl SqliteStore {
+    /// Open (or create) the SQLite database at `workspace_root/.octocode/store.db`.
+    pub fn open(workspace_root: &Path) -> Result<Self, OctoError> {
+        let dir = workspace_root.join(".octocode");
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| OctoError::Runtime(format!("sqlite mkdir: {e}")))?;
+        let db_path = dir.join("store.db");
+        let conn = Connection::open(&db_path)
+            .map_err(|e| OctoError::Runtime(format!("sqlite open: {e}")))?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")
+            .map_err(|e| OctoError::Runtime(format!("sqlite pragma: {e}")))?;
+        let store = Self { conn: Arc::new(Mutex::new(conn)) };
+        store.migrate()?;
+        Ok(store)
+    }
+
+    fn migrate(&self) -> Result<(), OctoError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS tasks (
+                id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                label TEXT NOT NULL,
+                state TEXT NOT NULL DEFAULT 'pending',
+                created_at_ms INTEGER NOT NULL,
+                finished_at_ms INTEGER,
+                result_summary TEXT
+            );
+            CREATE TABLE IF NOT EXISTS cost_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                provider_id TEXT NOT NULL,
+                model TEXT NOT NULL,
+                input_tokens INTEGER NOT NULL,
+                output_tokens INTEGER NOT NULL,
+                at_ms INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
+            CREATE INDEX IF NOT EXISTS idx_cost_session ON cost_records(session_id);",
+        )
+        .map_err(|e| OctoError::Runtime(format!("sqlite migrate: {e}")))?;
+        Ok(())
+    }
+
+    // ── Task operations ──────────────────────────────────────────────
+
+    pub fn insert_task(&self, rec: &TaskRecord) -> Result<(), OctoError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO tasks (id, kind, session_id, label, state, created_at_ms, finished_at_ms, result_summary)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                rec.id,
+                task_kind_str(&rec.kind),
+                rec.session_id,
+                rec.label,
+                task_state_str(&rec.state),
+                rec.created_at_ms as i64,
+                rec.finished_at_ms.map(|v| v as i64),
+                rec.result_summary,
+            ],
+        )
+        .map_err(|e| OctoError::Runtime(format!("sqlite insert task: {e}")))?;
+        Ok(())
+    }
+
+    pub fn update_task_state(
+        &self,
+        id: &str,
+        state: &TaskState,
+        finished_at_ms: Option<u128>,
+        summary: Option<&str>,
+    ) -> Result<bool, OctoError> {
+        let conn = self.conn.lock().unwrap();
+        let changed = conn
+            .execute(
+                "UPDATE tasks SET state=?1, finished_at_ms=?2, result_summary=?3 WHERE id=?4",
+                params![
+                    task_state_str(state),
+                    finished_at_ms.map(|v| v as i64),
+                    summary,
+                    id,
+                ],
+            )
+            .map_err(|e| OctoError::Runtime(format!("sqlite update task: {e}")))?;
+        Ok(changed > 0)
+    }
+
+    pub fn list_tasks(&self, session_filter: Option<&str>) -> Result<Vec<TaskRecord>, OctoError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = match session_filter {
+            Some(sid) => {
+                let mut s = conn
+                    .prepare("SELECT id, kind, session_id, label, state, created_at_ms, finished_at_ms, result_summary FROM tasks WHERE session_id=?1 ORDER BY created_at_ms DESC")
+                    .map_err(|e| OctoError::Runtime(format!("sqlite prepare: {e}")))?;
+                let rows = s
+                    .query_map(params![sid], row_to_task)
+                    .map_err(|e| OctoError::Runtime(format!("sqlite query: {e}")))?;
+                return rows
+                    .filter_map(|r| r.ok())
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .map(Ok)
+                    .collect();
+            }
+            None => conn
+                .prepare("SELECT id, kind, session_id, label, state, created_at_ms, finished_at_ms, result_summary FROM tasks ORDER BY created_at_ms DESC")
+                .map_err(|e| OctoError::Runtime(format!("sqlite prepare: {e}")))?,
+        };
+        let rows = stmt
+            .query_map([], row_to_task)
+            .map_err(|e| OctoError::Runtime(format!("sqlite query: {e}")))?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    // ── Cost operations ──────────────────────────────────────────────
+
+    pub fn record_cost(
+        &self,
+        session_id: &str,
+        provider_id: &str,
+        model: &str,
+        tokens: &TokenInfo,
+    ) -> Result<(), OctoError> {
+        let at_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO cost_records (session_id, provider_id, model, input_tokens, output_tokens, at_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![session_id, provider_id, model, tokens.input_tokens, tokens.output_tokens, at_ms],
+        )
+        .map_err(|e| OctoError::Runtime(format!("sqlite insert cost: {e}")))?;
+        Ok(())
+    }
+
+    pub fn session_tokens(&self, session_id: &str) -> Result<TokenInfo, OctoError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare("SELECT COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0) FROM cost_records WHERE session_id=?1")
+            .map_err(|e| OctoError::Runtime(format!("sqlite prepare: {e}")))?;
+        let result = stmt
+            .query_row(params![session_id], |row| {
+                Ok(TokenInfo::new(
+                    row.get::<_, u32>(0)?,
+                    row.get::<_, u32>(1)?,
+                ))
+            })
+            .map_err(|e| OctoError::Runtime(format!("sqlite query: {e}")))?;
+        Ok(result)
+    }
+
+    pub fn total_tokens(&self) -> Result<TokenInfo, OctoError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare("SELECT COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0) FROM cost_records")
+            .map_err(|e| OctoError::Runtime(format!("sqlite prepare: {e}")))?;
+        let result = stmt
+            .query_row([], |row| {
+                Ok(TokenInfo::new(
+                    row.get::<_, u32>(0)?,
+                    row.get::<_, u32>(1)?,
+                ))
+            })
+            .map_err(|e| OctoError::Runtime(format!("sqlite query: {e}")))?;
+        Ok(result)
+    }
+}
+
+fn row_to_task(row: &rusqlite::Row) -> rusqlite::Result<TaskRecord> {
+    Ok(TaskRecord {
+        id: row.get(0)?,
+        kind: parse_task_kind(&row.get::<_, String>(1)?),
+        session_id: row.get(2)?,
+        label: row.get(3)?,
+        state: parse_task_state(&row.get::<_, String>(4)?),
+        created_at_ms: row.get::<_, i64>(5)? as u128,
+        finished_at_ms: row.get::<_, Option<i64>>(6)?.map(|v| v as u128),
+        result_summary: row.get(7)?,
+    })
+}
+
+fn task_kind_str(kind: &TaskKind) -> &'static str {
+    match kind {
+        TaskKind::Agent => "agent",
+        TaskKind::Workflow => "workflow",
+        TaskKind::Tool => "tool",
+    }
+}
+
+fn parse_task_kind(s: &str) -> TaskKind {
+    match s {
+        "workflow" => TaskKind::Workflow,
+        "tool" => TaskKind::Tool,
+        _ => TaskKind::Agent,
+    }
+}
+
+fn task_state_str(state: &TaskState) -> &'static str {
+    match state {
+        TaskState::Pending => "pending",
+        TaskState::Running => "running",
+        TaskState::Done => "done",
+        TaskState::Failed => "failed",
+    }
+}
+
+fn parse_task_state(s: &str) -> TaskState {
+    match s {
+        "running" => TaskState::Running,
+        "done" => TaskState::Done,
+        "failed" => TaskState::Failed,
+        _ => TaskState::Pending,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_store(name: &str) -> SqliteStore {
+        let dir = std::env::temp_dir().join(format!(
+            "octocode_sqlite_test_{}_{}",
+            std::process::id(),
+            name
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+        SqliteStore::open(&dir).unwrap()
+    }
+
+    #[test]
+    fn task_roundtrip() {
+        let store = temp_store("task_roundtrip");
+        let rec = TaskRecord {
+            id: String::from("t-1"),
+            kind: TaskKind::Agent,
+            session_id: String::from("s1"),
+            label: String::from("test task"),
+            state: TaskState::Pending,
+            created_at_ms: 1000,
+            finished_at_ms: None,
+            result_summary: None,
+        };
+        store.insert_task(&rec).unwrap();
+        let tasks = store.list_tasks(Some("s1")).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].label, "test task");
+
+        store
+            .update_task_state("t-1", &TaskState::Done, Some(2000), Some("ok"))
+            .unwrap();
+        let tasks = store.list_tasks(None).unwrap();
+        assert_eq!(tasks[0].state, TaskState::Done);
+        assert_eq!(tasks[0].result_summary.as_deref(), Some("ok"));
+    }
+
+    #[test]
+    fn cost_roundtrip() {
+        let store = temp_store("cost_roundtrip");
+        let tokens = TokenInfo::new(100, 50);
+        store.record_cost("s1", "local", "gemma", &tokens).unwrap();
+        store.record_cost("s1", "local", "gemma", &tokens).unwrap();
+
+        let session_total = store.session_tokens("s1").unwrap();
+        assert_eq!(session_total.input_tokens, 200);
+        assert_eq!(session_total.output_tokens, 100);
+
+        let total = store.total_tokens().unwrap();
+        assert_eq!(total.input_tokens, 200);
+    }
+}

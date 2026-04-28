@@ -215,3 +215,20 @@ Canvas UI 约束：
 4. 为后续从 clawcode 迁移代码做准备
 
 本轮不声称已经完整实现 clawcode 与 claudecode 的全部功能，也不声称已经完成 UI 与全部在线模型接入。后续工作必须基于可验证的分阶段交付推进。
+
+## 11. 2026-04-17 参考仓库增量结论
+
+本轮额外综合了以下四个参考仓库：
+
+1. `github/claude-code-1`：官方公开仓库，重点价值在插件组织方式与公开产品面说明。
+2. `github/claude-code-2`：基于 `@anthropic-ai/claude-code@2.1.88` source map 还原的完整源码研究仓库，重点价值在工具、命令、MCP、多 agent 协调与权限分层。
+3. `github/claude-code-3`：另一份 2.1.88 级别源码恢复仓库，重点价值在 `src/` 与 `vendor/` 的更直接项目组织方式。
+4. `github/claude-code-learn`：基于公开资料的架构研究文档仓库，重点价值在对 MCP、遥测、远程控制、多 agent harness 的系统化总结。
+
+基于这四个仓库，本项目继续坚持以下策略：
+
+1. 主体语言仍选 Rust，而不是整体切换到 Go 或 Zig。
+2. UI / SDK / 扩展宿主可以保留 TypeScript 层，但 runtime、permissions、tools、MCP、provider router 继续收口到 Rust。
+3. 第一优先级不再是继续堆前端壳层，而是补齐 `MCP -> 多 agent -> 工具系统 -> 权限系统` 的 runtime 深水区。
+4. 迁移原则是提炼模块边界与行为模式，不直接复制第三方源码。
+

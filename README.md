@@ -1,24 +1,187 @@
 # Octocode
 
-Octocode is a ground-up refactor target inspired by the current Claw Code runtime shape.
+> AI-powered coding assistant runtime — local-first, multi-provider, extensible.
 
-This repository is being structured around four principles:
+Octocode is a ground-up Rust workspace providing a local AI coding assistant with multi-provider support, session management, tool execution, MCP integration, and both CLI/Desktop/WebUI surfaces.
+
+## Quick Start
+
+```bash
+# 1. Build the workspace
+cargo build --release -p octocode-cli
+
+# 2. Run your first chat
+cargo run -p octocode-cli -- chat demo "explain what this project does"
+
+# 3. Launch the WebUI server
+cargo run -p octocode-cli -- serve 999 demo
+# → open http://127.0.0.1:999/ui-shell/
+
+# 4. Or launch the desktop app
+cargo run -p octocode-cli -- desktop 999 demo
+```
+
+> **Windows**: Use `scripts/start-webui.ps1 -Port 999 -SessionId demo`
+> **Unix**: Use `scripts/start-webui.sh 999 demo`
+
+WebUI/desktop port is restricted to `990-999`.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                     octocode-cli                        │
+│            (CLI · Server · Desktop shell)                │
+├──────────┬──────────────┬──────────────┬────────────────┤
+│ commands │   runtime    │     api      │    plugins     │
+│ (parse)  │ (session,    │ (providers,  │ (plugin trait, │
+│          │  tools,      │  circuit     │  registry)     │
+│          │  workflow,   │  breaker,    │                │
+│          │  permissions)│  streaming)  │                │
+├──────────┴──────┬───────┴──────────────┴────────────────┤
+│      core       │        mcp       │      skills       │
+│  (domain types, │  (MCP discovery, │  (skill trait,    │
+│   contracts)    │   transport)     │   framework)      │
+└─────────────────┴──────────────────┴───────────────────┘
+```
+
+**8 crates** — `core` → `api` / `mcp` / `skills` → `runtime` → `commands` → `cli`
+
+## Provider Configuration
+
+Octocode auto-creates `config/octocode.conf` on first run:
+
+```ini
+# Octocode config
+provider_id=local-openai
+provider_base_url=http://localhost:8080/v1
+default_model=gpt-4
+permission_mode=WorkspaceWrite
+history_limit=24
+denied_tools=
+```
+
+### Supported Providers
+
+| Provider ID     | Kind              | Example Base URL                       |
+|----------------|-------------------|----------------------------------------|
+| `local-openai` | LlamaCpp / OpenAI-compatible | `http://localhost:8080/v1`           |
+| `remote-openai`| OpenAI-compatible | `https://api.openai.com/v1`                       |
+| `ollama`       | Ollama            | `http://localhost:11434`                          |
+| `linkmind`     | LinkMind          | `http://localhost:8765`                           |
+| `gemini`       | OpenAI-compatible | `https://generativelanguage.googleapis.com/v1`    |
+| `azure-openai` | OpenAI-compatible | `https://<resource>.openai.azure.com`             |
+| `nvidia-free`  | OpenAI-compatible | `https://integrate.api.nvidia.com/v1`             |
+| `anthropic`    | Anthropic         | `https://api.anthropic.com`                       |
+| `xai`          | xAI               | `https://api.x.ai/v1`                             |
+| `openrouter`   | OpenRouter        | `https://openrouter.ai/api/v1`                    |
+| `qwen`         | Qwen / DashScope  | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| `glm`          | Zhipu GLM         | `https://open.bigmodel.cn/api/paas/v4`            |
+| `kimi`         | Moonshot Kimi     | `https://api.moonshot.cn/v1`                      |
+| `xiaomi`       | Xiaomi (stream)   | per-deployment                                    |
+| `minimax`      | MiniMax           | `https://api.minimax.chat/v1`                     |
+| `openai-completion` | Legacy `/v1/completions` | self-hosted gateway                       |
+| `stub`         | Stub (fallback)   | —                                                 |
+
+All **17 providers** are described in detail under [`docs/architecture.md`](docs/architecture.md#3-provider-layer).
+
+### Environment Variables
+
+| Variable              | Description                          | Default                    |
+|-----------------------|--------------------------------------|----------------------------|
+| `OPENAI_API_KEY`      | API key for OpenAI-compatible        | *(none)*                   |
+| `OCTOCODE_PROVIDER`   | Override default provider ID         | `local-openai`             |
+| `OCTOCODE_BASE_URL`   | Override provider base URL           | *(from config)*            |
+| `OCTOCODE_MODEL`      | Override default model name          | *(from config)*            |
+
+### Provider Fallback Chain
+
+Octocode performs health checks and automatically falls back:
+
+```
+local-openai → remote-openai → stub
+```
+
+Each provider has a circuit breaker that tracks failures, with automatic recovery.
+
+## CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `status` | Runtime status overview |
+| `doctor` | System diagnostics |
+| `providers` | List available providers |
+| `routes` | Provider routing configuration |
+| `circuit-log` | Provider circuit breaker state |
+| `health` | Provider health checks |
+| `chat <sid> <text>` | Send a message in a session |
+| `prompt <text>` | One-shot prompt |
+| `sessions` | List all sessions |
+| `session-show <id>` | Show session transcript |
+| `session-add <id> <title>` | Create a new session |
+| `session-export <path>` | Export sessions to file |
+| `tools` | List available tools (67) |
+| `tool <name> <input>` | Execute a specific tool |
+| `agent <sid> <action>` | Run agent orchestration |
+| `workflow <sid> <goal>` | Execute workflow step |
+| `repl <sid>` | Interactive REPL mode |
+| `serve <port> <sid>` | Start HTTP server |
+| `desktop <port> <sid>` | Launch desktop app |
+| `--json <cmd>` | JSON output mode |
+
+## Tools (67 built-in)
+
+File operations, code search, shell execution, agent actions, multi-agent coordination (`team-create / team-list / team-delete / team-status / agent-message / subagent-spawn / subagent-list / subagent-status`), persistent todos (`todo-add / todo-list / todo-done`), task lifecycle (`task-submit / task-list / task-get`), memory v2 (`memory-save / memory-read / memory-list / memory-search / memory-delete`), worktree controls (`worktree-enter / worktree-exit`), web (`web-search / web-browse / fetch-readable / html-to-markdown / http-get / http-post / json-query`), notebook (`notebook-edit`), LSP hover (`lsp-hover`), git (`git-status / git-diff / git-log / git-commit / git-branch`), and more. All file tools enforce workspace-root path security via `runtime/file_guard.rs`.
+
+```bash
+# Read a file
+cargo run -p octocode-cli -- tool read-file src/main.rs
+
+# Search codebase
+cargo run -p octocode-cli -- tool search "TODO"
+
+# List files
+cargo run -p octocode-cli -- tool list-files src/
+```
+
+## Development
+
+```bash
+# Run all tests (336+ unit, 0 failed at last release gate)
+cargo test --workspace --no-fail-fast
+
+# Run clippy (0 warnings policy)
+cargo clippy --workspace -- -D warnings
+
+# Run E2E tests (requires running server)
+cargo test --workspace -- --ignored
+```
+
+## Project Structure
+
+```
+octocode/
+├── crates/
+│   ├── octocode-core/       # Domain types, contracts, error types
+│   ├── octocode-api/        # Provider registry, HTTP client, streaming
+│   ├── octocode-mcp/        # MCP discovery and transport
+│   ├── octocode-skills/     # Skill trait and framework
+│   ├── octocode-plugins/    # Plugin system
+│   ├── octocode-runtime/    # Session, tools, permissions, workflows
+│   ├── octocode-commands/   # CLI command parsing (27 commands)
+│   └── octocode-cli/        # Entry point: CLI, server, desktop
+├── ui-shell/                # Canvas-rendered WebUI workbench
+├── config/                  # Auto-created runtime config
+├── scripts/                 # Build, deploy, test scripts
+└── docs/                    # Planning and documentation
+```
+
+## Principles
 
 1. Keep feature parity work explicit and testable.
 2. Separate stable runtime contracts from UI shells and integrations.
 3. Treat Windows and macOS as first-class platforms.
 4. Prefer mature implementations and constrained refactoring over speculative rewrites.
-
-The initial workspace layout is intentionally small:
-
-- `crates/octocode-core` - shared contracts and domain types
-- `crates/octocode-api` - provider-facing model integration layer
-- `crates/octocode-commands` - CLI command parsing and command intent surface
-- `crates/octocode-runtime` - session, tools, permissions, workflows
-- `crates/octocode-cli` - the local CLI shell over the runtime
-- `ui-shell` - canvas-rendered interactive workbench over local backend APIs, wrapped by an embedded desktop shell
-
-Detailed planning lives under `docs/`.
 
 ## Current executable surface
 
@@ -103,7 +266,7 @@ To preview the current shell:
 9. To prepare the Linux installer tarball path on a Linux host, run `./scripts/package-linux-installer.sh`
 10. The generated Windows installer supports silent installation with `Octocode-<version>-windows-x64-setup.exe /Q:A`
 11. The default Windows install target is `%LOCALAPPDATA%\Programs\Octocode\<version>`
-12. To run the full HTTP/WebUI regression suite against a live server, run `powershell -ExecutionPolicy Bypass -File .\scripts\test-regression.ps1 -Port 10001 -Session demo`
+12. To run the full HTTP/WebUI regression suite against a live server, run `powershell -ExecutionPolicy Bypass -File .\scripts\test-regression.ps1 -Port 991 -Session demo`
 13. The regression suite now also checks `/api/timeline`, structured `pipe` responses, and workflow timeline rendering hooks in `ui-shell/app.js`
 
 ## Provider note

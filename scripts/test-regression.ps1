@@ -1,10 +1,11 @@
 # test-regression.ps1 — Full WebUI interaction regression test suite
 # Usage: powershell -ExecutionPolicy Bypass -File scripts\test-regression.ps1
-#        or: .\scripts\test-regression.ps1 -Port 10001 -Session demo
+#        or: .\scripts\test-regression.ps1 -Port 999 -Session demo
 param(
-    [int]$Port = 10001,
+    [int]$Port = 999,
     [string]$Session = "demo",
     [string]$BinaryPath = "",
+    [string]$AuthToken = "",
     [switch]$StartServer = $false,
     [switch]$StopServerAfter = $false
 )
@@ -16,6 +17,7 @@ $base = "http://127.0.0.1:$Port"
 $pass = 0
 $fail = 0
 $serverProcess = $null
+$script:authToken = $AuthToken
 
 function Write-Pass([string]$label) {
     Write-Host "  [PASS] $label" -ForegroundColor Green
@@ -31,11 +33,75 @@ function Assert([bool]$cond, [string]$label, [string]$detail = "") {
     if ($cond) { Write-Pass $label } else { Write-Fail $label $detail }
 }
 
+function Get-AuthToken([switch]$Refresh = $false) {
+    if (-not $Refresh -and -not [string]::IsNullOrWhiteSpace($script:authToken)) {
+        return $script:authToken
+    }
+    $html = (Invoke-WebRequest -Uri "$base/ui-shell/?session=$Session" -UseBasicParsing -ErrorAction Stop).Content
+    $patterns = @(
+        'window\.__OCTOCODE_AUTH_TOKEN__\s*=\s*"([^"]+)"',
+        "window\.__OCTOCODE_AUTH_TOKEN__\s*=\s*'([^']+)'"
+    )
+    foreach ($pattern in $patterns) {
+        if ($html -match $pattern) {
+            $script:authToken = $Matches[1]
+            return $script:authToken
+        }
+    }
+    throw "Unable to resolve X-Auth-Token from /ui-shell/"
+}
+
+function Get-AuthHeaders() {
+    $token = Get-AuthToken
+    if ([string]::IsNullOrWhiteSpace($token)) {
+        return @{}
+    }
+    return @{ 'X-Auth-Token' = $token }
+}
+
+function GetJson([string]$url) {
+    $headers = Get-AuthHeaders
+    if ($headers.Count -gt 0) {
+        Invoke-RestMethod -Method Get -Uri $url -Headers $headers
+    } else {
+        Invoke-RestMethod -Method Get -Uri $url
+    }
+}
+
+function GetWeb([string]$url, [int]$TimeoutSec = 0) {
+    $params = @{
+        Uri = $url
+        UseBasicParsing = $true
+        ErrorAction = 'Stop'
+    }
+    $headers = Get-AuthHeaders
+    if ($headers.Count -gt 0) {
+        $params.Headers = $headers
+    }
+    if ($TimeoutSec -gt 0) {
+        $params.TimeoutSec = $TimeoutSec
+    }
+    Invoke-WebRequest @params
+}
+
+function PostFormBody([string]$url, [string]$body) {
+    $params = @{
+        Method = 'Post'
+        Uri = $url
+        ContentType = 'application/x-www-form-urlencoded'
+        Body = $body
+        ErrorAction = 'Stop'
+    }
+    $headers = Get-AuthHeaders
+    if ($headers.Count -gt 0) {
+        $params.Headers = $headers
+    }
+    Invoke-RestMethod @params
+}
+
 function PostForm([string]$url, [hashtable]$fields) {
     $body = ($fields.GetEnumerator() | ForEach-Object { "$($_.Key)=$([uri]::EscapeDataString($_.Value))" }) -join "&"
-    Invoke-RestMethod -Method Post -Uri $url `
-        -ContentType "application/x-www-form-urlencoded" `
-        -Body $body
+    PostFormBody $url $body
 }
 
 function WaitForServer([int]$timeoutSec = 10) {
@@ -89,12 +155,20 @@ try {
     Write-Fail "GET /api/health" $_.Exception.Message
 }
 
+Write-Host "-- 1b. Resolve WebUI auth token" -ForegroundColor Yellow
+try {
+    $resolvedToken = Get-AuthToken -Refresh
+    Assert (-not [string]::IsNullOrWhiteSpace($resolvedToken)) "auth token resolved from ui-shell"
+} catch {
+    Write-Fail "Resolve WebUI auth token" $_.Exception.Message
+}
+
 # ──────────────────────────────────────────
 # 2. State / snapshot
 # ──────────────────────────────────────────
 Write-Host "-- 2. GET /api/state" -ForegroundColor Yellow
 try {
-    $state = Invoke-RestMethod -Uri "$base/api/state?session=$Session"
+    $state = GetJson "$base/api/state?session=$Session"
     Assert ($null -ne $state.status) "state.status present"
     Assert ($null -ne $state.providerRoutes) "state.providerRoutes present"
     Assert ($null -ne $state.providers) "state.providers present"
@@ -103,7 +177,11 @@ try {
     Assert ($null -ne $state.eventFeed) "state.eventFeed present"
     Assert ($null -ne $state.sessions) "state.sessions present"
     Assert ($state.commands.Count -gt 0) "commands.Count > 0" "count=$($state.commands.Count)"
-    Assert ($state.tools.Count -gt 0) "tools.Count > 0" "count=$($state.tools.Count)"
+    Assert ($state.tools.Count -ge 20) "tools.Count >= 20 (iter-2 expansion)" "count=$($state.tools.Count)"
+    $newTools = @('create-file','delete-file','move-file','task-submit','task-list')
+    foreach ($tn in $newTools) {
+        Assert ((@($state.tools | Where-Object { $_.name -eq $tn })).Count -ge 1) "tool '$tn' present in catalog"
+    }
     $providers = @($state.providers)
     Assert ($providers.Count -gt 0) "providers.Count > 0" "count=$($providers.Count)"
     Assert ((@($providers | Where-Object { $_.id -eq 'ollama' })).Count -ge 1) "providers include ollama"
@@ -116,7 +194,7 @@ try {
 # ──────────────────────────────────────────
 Write-Host "-- 3. GET /api/events" -ForegroundColor Yellow
 try {
-    $events = Invoke-RestMethod -Uri "$base/api/events?session=$Session"
+    $events = GetJson "$base/api/events?session=$Session"
     Assert ($null -ne $events.items) "events.items present"
 } catch {
     Write-Fail "GET /api/events" $_.Exception.Message
@@ -127,7 +205,7 @@ try {
 # ──────────────────────────────────────────
 Write-Host "-- 3b. GET /api/timeline" -ForegroundColor Yellow
 try {
-    $timeline = Invoke-RestMethod -Uri "$base/api/timeline?session=$Session"
+    $timeline = GetJson "$base/api/timeline?session=$Session"
     Assert ($null -ne $timeline.items) "timeline.items present"
 } catch {
     Write-Fail "GET /api/timeline" $_.Exception.Message
@@ -294,7 +372,7 @@ try {
 
 # Verify history persisted
 try {
-    $s2 = Invoke-RestMethod -Uri "$base/api/state?session=$Session"
+    $s2 = GetJson "$base/api/state?session=$Session"
     Assert ($s2.config.historyLimit -eq 20) "history 20 persisted" "got $($s2.config.historyLimit)"
 } catch {
     Write-Fail "history 20 verify" $_.Exception.Message
@@ -306,12 +384,12 @@ try {
 Write-Host "-- 11. GET /ui-shell/?session=$Session" -ForegroundColor Yellow
 try {
     $html = (Invoke-WebRequest -Uri "$base/ui-shell/?session=$Session" -UseBasicParsing).Content
-    Assert ($html -match 'sidebar-canvas') "sidebar-canvas present"
-    Assert ($html -match 'message-canvas') "message-canvas present"
-    Assert ($html -match 'composer-canvas') "composer-canvas present"
-    Assert ($html -match 'tool-canvas') "tool-canvas present"
-    Assert ($html -match 'settings-canvas') "settings-canvas present"
-    Assert ($html -match 'command-preview-canvas') "command-preview-canvas present"
+    Assert ($html -match 'sidebar-list') "sidebar-list present (DOM v6)"
+    Assert ($html -match 'message-list') "message-list present (DOM v6)"
+    Assert ($html -match 'chat-form') "chat-form present (DOM v6)"
+    Assert ($html -match 'model-info-bar') "model-info-bar present (DOM v6)"
+    Assert ($html -match 'stream-indicator') "stream-indicator present (DOM v6)"
+    Assert ($html -match 'shortcuts-overlay') "shortcuts-overlay present (DOM v6)"
     Assert ($html -match 'app\.js') "app.js referenced"
 } catch {
     Write-Fail "GET /ui-shell/" $_.Exception.Message
@@ -329,10 +407,12 @@ try {
     Assert ($js -match "'git'") "app.js includes git slash command"
     Assert ($js -match "'context'") "app.js includes context slash command"
     Assert ($js -match "'tokens'") "app.js includes tokens slash command"
-    Assert ($js -match 'drawComposerCanvas') "drawComposerCanvas function present"
-    Assert ($js -match 'findLatestEvent') "findLatestEvent function present"
-    Assert ($js -match 'renderWorkflowTab') "workflow timeline renderer present"
-    Assert ($js -match 'activeTerminalTab') "terminal tab state present"
+    Assert ($js -match 'renderMessages') "renderMessages function present (DOM v6)"
+    Assert ($js -match 'renderSidebar') "renderSidebar function present (DOM v6)"
+    Assert ($js -match 'refreshEventFeed') "event feed refresher present"
+    Assert ($js -match 'renderTerminalTabs') "terminal tabs renderer present"
+    Assert ($js -match 'streamChat') "SSE streamChat function present"
+    Assert ($js -match 'escapeHtml') "escapeHtml XSS protection present"
 } catch {
     Write-Fail "GET /ui-shell/app.js" $_.Exception.Message
 }
@@ -373,6 +453,205 @@ try {
     Assert ($statusCode -in @(403, 404)) "path traversal blocked" "got $statusCode"
 } catch {
     Write-Pass "path traversal blocked (exception thrown as expected)"
+}
+
+# ──────────────────────────────────────────
+# 20. Task Registry endpoints
+# ──────────────────────────────────────────
+Write-Host "-- 20. Task Registry /api/tasks" -ForegroundColor Yellow
+
+try {
+    $taskList = GetJson "$base/api/tasks"
+    Assert ($null -ne $taskList) "GET /api/tasks returns data"
+    Assert ($null -ne $taskList.items) "GET /api/tasks has items array"
+    Write-Pass "GET /api/tasks structure OK"
+} catch {
+    Write-Fail "GET /api/tasks" $_.Exception.Message
+}
+
+try {
+    $body = "sessionId=test-reg&label=autoresearch-test&kind=agent"
+    $submitted = PostFormBody "$base/api/tasks" $body
+    Assert ($null -ne $submitted) "POST /api/tasks returns data"
+    Assert ($submitted.id -like "t-*") "task id has t- prefix"
+    Assert ($submitted.sessionId -eq "test-reg") "task sessionId round-trips"
+    Assert ($submitted.label -eq "autoresearch-test") "task label round-trips"
+    Write-Pass "POST /api/tasks submit OK"
+} catch {
+    Write-Fail "POST /api/tasks" $_.Exception.Message
+}
+
+# ──────────────────────────────────────────
+# 21. Permission Refinement - per-tool deny list
+# ──────────────────────────────────────────
+Write-Host "-- 21. Permission Refinement - deny-list" -ForegroundColor Yellow
+# Ensure clean state first (allow echo in case a prior run left it denied)
+try {
+    $body = "allowTool=echo&sessionId=$session"
+    $null = PostFormBody "$base/api/settings" $body
+} catch { }
+
+try {
+    # 1. Deny echo tool
+    $body = "denyTool=echo&sessionId=$session"
+    $denied = PostFormBody "$base/api/settings" $body
+    Assert ($null -ne $denied.config) "deny: settings returns config"
+    Assert ($denied.config.deniedTools -contains "echo") "deny: echo appears in deniedTools"
+} catch {
+    Write-Fail "POST /api/settings denyTool=echo" $_.Exception.Message
+}
+
+# 2. Running denied tool should fail (HTTP 500)
+try {
+    $body = "name=echo&input=hi&sessionId=$session"
+    $null = PostFormBody "$base/api/tool" $body
+    Write-Fail "tool echo after deny" "expected HTTP 500 but got success"
+} catch {
+    $msg = $_.Exception.Message
+    Write-Pass "tool echo after deny returns error (as expected): $msg"
+}
+
+try {
+    # 3. Restore echo
+    $body = "allowTool=echo&sessionId=$session"
+    $restored = PostFormBody "$base/api/settings" $body
+    Assert ($null -ne $restored.config) "allow: settings returns config"
+    Assert (-not ($restored.config.deniedTools -contains "echo")) "allow: echo removed from deniedTools"
+} catch {
+    Write-Fail "POST /api/settings allowTool=echo" $_.Exception.Message
+}
+
+# 4. Echo should work again after restore
+try {
+    $body = "name=echo&input=hi&sessionId=$session"
+    $ok = PostFormBody "$base/api/tool" $body
+    Assert ($null -ne $ok.activeSession) "tool echo works again after allow"
+} catch {
+    Write-Fail "tool echo after allow" $_.Exception.Message
+}
+
+# ──────────────────────────────────────────
+# 22. MCP Transport - manifest discovery + spawn lifecycle
+# ──────────────────────────────────────────
+Write-Host "-- 22. MCP Transport lifecycle" -ForegroundColor Yellow
+
+try {
+    $mcp = PostForm "$base/api/command" @{ command = "mcp list"; sessionId = $Session }
+    Assert ($null -ne $mcp) "mcp list returns data"
+    Write-Pass "mcp list command executes"
+} catch {
+    Write-Fail "mcp list command" $_.Exception.Message
+}
+
+try {
+    $mcpStatus = PostForm "$base/api/command" @{ command = "mcp status"; sessionId = $Session }
+    Assert ($null -ne $mcpStatus) "mcp status returns data"
+    Write-Pass "mcp status command executes"
+} catch {
+    Write-Fail "mcp status command" $_.Exception.Message
+}
+
+# ──────────────────────────────────────────
+# 23. SSE Streaming endpoint
+# ──────────────────────────────────────────
+Write-Host "-- 23. SSE Streaming /api/stream" -ForegroundColor Yellow
+
+try {
+    $streamUrl = "$base/api/stream?session=$Session&text=hello"
+    $response = GetWeb $streamUrl 30
+    Assert ($response.StatusCode -eq 200) "GET /api/stream returns 200"
+    Assert ($response.Headers.'Content-Type' -match "text/event-stream") "GET /api/stream Content-Type is text/event-stream"
+    $content = $response.Content
+    Assert ($content -match "data:") "GET /api/stream contains SSE data lines"
+    Write-Pass "SSE stream endpoint structure OK"
+} catch {
+    Write-Fail "GET /api/stream" $_.Exception.Message
+}
+
+# ──────────────────────────────────────────
+# 24. Iteration-4 utility tools (http-post, json-query, process-list, env-var, base64)
+# ──────────────────────────────────────────
+Write-Host "-- 24. Iteration-4 utility tools" -ForegroundColor Yellow
+
+# Helper: extract tool output from last session message ("tool => output")
+function LastToolOutput($snapshot) {
+    $msgs = @($snapshot.activeSession.messages)
+    $last = $msgs[$msgs.Count - 1].content
+    if ($last -match '^[^ ]+ => (.*)$') { return $Matches[1] }
+    return $last
+}
+
+# 24.1  base64 encode
+try {
+    $b64enc = PostForm "$base/api/tool" @{ name = "base64"; input = "encode|Hello OctoCode"; sessionId = $Session }
+    Assert ($null -ne $b64enc.activeSession) "base64 encode returns result"
+    $encOut = LastToolOutput $b64enc
+    Assert ($encOut -eq "SGVsbG8gT2N0b0NvZGU=") "base64 encode correct output"
+    Write-Pass "base64 encode tool"
+} catch {
+    Write-Fail "base64 encode" $_.Exception.Message
+}
+
+# 24.2  base64 decode
+try {
+    $b64dec = PostForm "$base/api/tool" @{ name = "base64"; input = "decode|SGVsbG8gT2N0b0NvZGU="; sessionId = $Session }
+    Assert ($null -ne $b64dec.activeSession) "base64 decode returns result"
+    $decOut = LastToolOutput $b64dec
+    Assert ($decOut -eq "Hello OctoCode") "base64 decode correct output"
+    Write-Pass "base64 decode tool"
+} catch {
+    Write-Fail "base64 decode" $_.Exception.Message
+}
+
+# 24.3  env-var reads a known variable
+try {
+    $envResult = PostForm "$base/api/tool" @{ name = "env-var"; input = "PATH"; sessionId = $Session }
+    Assert ($null -ne $envResult.activeSession) "env-var returns result"
+    $envOut = LastToolOutput $envResult
+    Assert ($envOut.Length -gt 0) "env-var PATH has content"
+    Write-Pass "env-var tool reads PATH"
+} catch {
+    Write-Fail "env-var tool" $_.Exception.Message
+}
+
+# 24.4  process-list
+try {
+    $plist = PostForm "$base/api/tool" @{ name = "process-list"; input = ""; sessionId = $Session }
+    Assert ($null -ne $plist.activeSession) "process-list returns result"
+    $plOut = LastToolOutput $plist
+    Assert ($plOut.Length -gt 10) "process-list has content"
+    Write-Pass "process-list tool"
+} catch {
+    Write-Fail "process-list tool" $_.Exception.Message
+}
+
+# 24.5  json-query
+try {
+    $jq = PostForm "$base/api/tool" @{ name = "json-query"; input = 'name|{"name":"octo","ver":1}'; sessionId = $Session }
+    Assert ($null -ne $jq.activeSession) "json-query returns result"
+    Write-Pass "json-query tool"
+} catch {
+    Write-Fail "json-query tool" $_.Exception.Message
+}
+
+# 24.6  diagnostics
+try {
+    $diag = PostForm "$base/api/tool" @{ name = "diagnostics"; input = ""; sessionId = $Session }
+    Assert ($null -ne $diag.activeSession) "diagnostics returns result"
+    $diagOut = LastToolOutput $diag
+    Assert ($diagOut -match "Memory|CPU|Disk|mem") "diagnostics has system info"
+    Write-Pass "diagnostics tool"
+} catch {
+    Write-Fail "diagnostics tool" $_.Exception.Message
+}
+
+# 24.7  tool catalog count (30 tools)
+try {
+    $catalog = GetJson "$base/api/tools"
+    Assert ($catalog.Count -ge 30) "tool catalog has >= 30 tools"
+    Write-Pass "tool catalog count >= 30"
+} catch {
+    Write-Fail "tool catalog count" $_.Exception.Message
 }
 
 # ──────────────────────────────────────────

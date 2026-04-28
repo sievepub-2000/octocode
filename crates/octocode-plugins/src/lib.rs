@@ -5,8 +5,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use octocode_core::{PromptRequest, PromptResponse, ToolCall, ToolResult};
 
 pub mod discovery;
+pub mod marketplace;
 
 pub use discovery::{PluginConfig, PluginDiscovery};
+pub use marketplace::{PluginMarketplace, PluginVersion, RegistryEntry, MarketplaceListing, InstallStatus};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginDescriptor {
@@ -24,6 +26,7 @@ pub struct PluginAuditEvent {
 
 pub enum PluginHook<'a> {
     SessionStart { session_id: &'a str },
+    SessionEnd { session_id: &'a str },
     BeforePrompt { session_id: &'a str, request: &'a PromptRequest },
     AfterPrompt {
         session_id: &'a str,
@@ -35,16 +38,23 @@ pub enum PluginHook<'a> {
         call: &'a ToolCall,
         result: Result<&'a ToolResult, &'a str>,
     },
+    BeforeCompaction { session_id: &'a str, message_count: usize },
+    AfterCompaction { session_id: &'a str, removed_count: usize },
+    ErrorRecovery { session_id: &'a str, error: &'a str, action: &'a str },
 }
 
 impl<'a> PluginHook<'a> {
     fn label(&self) -> &'static str {
         match self {
             Self::SessionStart { .. } => "session-start",
+            Self::SessionEnd { .. } => "session-end",
             Self::BeforePrompt { .. } => "before-prompt",
             Self::AfterPrompt { .. } => "after-prompt",
             Self::BeforeTool { .. } => "before-tool",
             Self::AfterTool { .. } => "after-tool",
+            Self::BeforeCompaction { .. } => "before-compaction",
+            Self::AfterCompaction { .. } => "after-compaction",
+            Self::ErrorRecovery { .. } => "error-recovery",
         }
     }
 }
@@ -108,14 +118,32 @@ impl PluginHost {
     pub fn dispatch(&self, hook: PluginHook<'_>) {
         let mut new_events = Vec::new();
         for plugin in &self.plugins {
-            if let Some(detail) = plugin.on_hook(&hook) {
-                let descriptor = plugin.descriptor();
-                new_events.push(PluginAuditEvent {
-                    at_ms: now_ms(),
-                    plugin_id: String::from(descriptor.id),
-                    hook: String::from(hook.label()),
-                    detail,
-                });
+            let descriptor = plugin.descriptor();
+            if !self.is_plugin_enabled(&descriptor.id) {
+                continue;
+            }
+            // Catch panics so a misbehaving plugin doesn't crash the runtime.
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                plugin.on_hook(&hook)
+            }));
+            match result {
+                Ok(Some(detail)) => {
+                    new_events.push(PluginAuditEvent {
+                        at_ms: now_ms(),
+                        plugin_id: descriptor.id.clone(),
+                        hook: String::from(hook.label()),
+                        detail,
+                    });
+                }
+                Ok(None) => {}
+                Err(_) => {
+                    new_events.push(PluginAuditEvent {
+                        at_ms: now_ms(),
+                        plugin_id: descriptor.id.clone(),
+                        hook: String::from(hook.label()),
+                        detail: String::from("plugin panicked — hook skipped"),
+                    });
+                }
             }
         }
 
@@ -152,6 +180,7 @@ impl RuntimePlugin for LifecycleAuditPlugin {
     fn on_hook(&self, hook: &PluginHook<'_>) -> Option<String> {
         let detail = match hook {
             PluginHook::SessionStart { session_id } => format!("session={}", session_id),
+            PluginHook::SessionEnd { session_id } => format!("session={} ended", session_id),
             PluginHook::BeforePrompt { session_id, request } => format!(
                 "session={} chars={} model={}",
                 session_id,
@@ -185,6 +214,15 @@ impl RuntimePlugin for LifecycleAuditPlugin {
                 ),
                 Err(error) => format!("session={} tool={} error={}", session_id, call.name, error),
             },
+            PluginHook::BeforeCompaction { session_id, message_count } => {
+                format!("session={} messages={}", session_id, message_count)
+            }
+            PluginHook::AfterCompaction { session_id, removed_count } => {
+                format!("session={} removed={}", session_id, removed_count)
+            }
+            PluginHook::ErrorRecovery { session_id, error, action } => {
+                format!("session={} error={} action={}", session_id, error, action)
+            }
         };
         Some(detail)
     }
@@ -211,6 +249,8 @@ mod tests {
             request: &PromptRequest {
                 text: String::from("hello"),
                 model: None,
+                system_prompt: None,
+                history: vec![],
             },
         });
         host.dispatch(PluginHook::BeforeTool {
@@ -227,5 +267,15 @@ mod tests {
         assert!(events.iter().any(|event| event.hook == "session-start"));
         assert!(events.iter().any(|event| event.hook == "before-prompt"));
         assert!(events.iter().any(|event| event.hook == "before-tool"));
+    }
+
+    #[test]
+    fn plugin_host_dispatch_skips_disabled_plugins() {
+        let host = PluginHost::default();
+        // Disable the built-in lifecycle-audit plugin by id
+        host.disable_plugin("lifecycle-audit");
+        host.dispatch(PluginHook::SessionStart { session_id: "skip" });
+        let events = host.audit_events();
+        assert!(events.is_empty(), "disabled plugin should not produce events");
     }
 }

@@ -4,7 +4,7 @@ use std::time::SystemTime;
 
 use octocode_core::{
     ConfigPaths, ConversationMessage, ConversationRole, ConversationSession, ConversationStore,
-    OctoError, SessionStore, SessionSummary,
+    OctoError, SessionStore, SessionSummary, TurnLifecycle, TurnLifecyclePhase, TurnStateStore,
 };
 
 #[derive(Default)]
@@ -51,6 +51,7 @@ impl ConversationStore for MemorySessionStore {
         Ok(ConversationSession {
             summary,
             messages: Vec::new(),
+            turn: TurnLifecycle::default(),
         })
     }
 
@@ -75,6 +76,18 @@ impl ConversationStore for MemorySessionStore {
     }
 }
 
+impl TurnStateStore for MemorySessionStore {
+    fn load_turn_state(&self, _session_id: &str) -> Result<TurnLifecycle, OctoError> {
+        Ok(TurnLifecycle::default())
+    }
+
+    fn save_turn_state(&self, _session_id: &str, _turn: &TurnLifecycle) -> Result<(), OctoError> {
+        Err(OctoError::Session(String::from(
+            "memory session store does not persist turn state",
+        )))
+    }
+}
+
 pub struct FileSessionStore {
     sessions_dir: PathBuf,
     transcripts_dir: PathBuf,
@@ -95,21 +108,6 @@ impl FileSessionStore {
         })
     }
 
-    fn validate_session_id(id: &str) -> Result<(), OctoError> {
-        if id.trim().is_empty() {
-            return Err(OctoError::Session(String::from("session id is empty")));
-        }
-        let valid = id
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'));
-        if !valid || id.contains("..") {
-            return Err(OctoError::Session(format!(
-                "session id contains unsupported characters: {id}"
-            )));
-        }
-        Ok(())
-    }
-
     fn session_file_path(&self, id: &str) -> PathBuf {
         self.sessions_dir.join(format!("{id}.session"))
     }
@@ -118,62 +116,68 @@ impl FileSessionStore {
         self.transcripts_dir.join(format!("{id}.messages"))
     }
 
-    fn transcript_jsonl_path(&self, id: &str) -> PathBuf {
-        self.transcripts_dir.join(format!("{id}.messages.jsonl"))
-    }
-
-    fn atomic_write(path: &PathBuf, body: &str) -> Result<(), OctoError> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|error| {
-                OctoError::Session(format!(
-                    "failed to create parent dir {}: {error}",
-                    parent.display()
-                ))
-            })?;
-        }
-        let tmp = path.with_extension(format!(
-            "{}.tmp",
-            path.extension()
-                .and_then(|extension| extension.to_str())
-                .unwrap_or("octocode")
-        ));
-        fs::write(&tmp, body).map_err(|error| {
-            OctoError::Session(format!("failed to write temp file {}: {error}", tmp.display()))
-        })?;
-        fs::rename(&tmp, path).map_err(|error| {
-            OctoError::Session(format!(
-                "failed to replace {} with {}: {error}",
-                path.display(),
-                tmp.display()
-            ))
-        })
-    }
-
     fn load_summary(&self, id: &str) -> Result<SessionSummary, OctoError> {
-        Self::validate_session_id(id)?;
         let path = self.session_file_path(id);
         let raw = fs::read_to_string(&path).map_err(|error| {
             OctoError::Session(format!("failed to read session file {}: {error}", path.display()))
         })?;
-        if raw.trim_start().starts_with('{') {
-            return parse_summary_json_line(raw.trim());
+
+        // Support both legacy 3-line format and new key=value format
+        let mut kv_id = String::new();
+        let mut kv_title = String::new();
+        let mut kv_model: Option<String> = None;
+        let mut kv_parent_id: Option<String> = None;
+        let mut kv_branch_name: Option<String> = None;
+        let mut kv_total_input_tokens: u32 = 0;
+        let mut kv_total_output_tokens: u32 = 0;
+
+        let lines: Vec<&str> = raw.lines().collect();
+        let is_kv = lines.first().map(|l| l.contains('=')).unwrap_or(false);
+
+        if is_kv {
+            for line in &lines {
+                let trimmed = line.trim();
+                if trimmed.is_empty() || trimmed.starts_with('#') { continue; }
+                if let Some((key, val)) = trimmed.split_once('=') {
+                    let val = val.trim();
+                    match key.trim() {
+                        "id" => kv_id = val.to_string(),
+                        "title" => kv_title = val.to_string(),
+                        "model" => { if !val.is_empty() { kv_model = Some(val.to_string()); } }
+                        "parent_id" => { if !val.is_empty() { kv_parent_id = Some(val.to_string()); } }
+                        "branch_name" => { if !val.is_empty() { kv_branch_name = Some(val.to_string()); } }
+                        "total_input_tokens" => kv_total_input_tokens = val.parse().unwrap_or(0),
+                        "total_output_tokens" => kv_total_output_tokens = val.parse().unwrap_or(0),
+                        _ => {}
+                    }
+                }
+            }
+        } else {
+            // Legacy 3-line format: id\ntitle\nmodel
+            let mut parts = lines.iter();
+            kv_id = parts.next().unwrap_or(&"").trim().to_string();
+            kv_title = parts.next().unwrap_or(&"").trim().to_string();
+            kv_model = parts.next()
+                .map(|v| v.trim())
+                .filter(|v| !v.is_empty())
+                .map(str::to_string);
         }
-        parse_legacy_summary(&raw)
+
+        if kv_id.is_empty() {
+            return Err(OctoError::Session(String::from("session id is empty")));
+        }
+        Ok(SessionSummary {
+            id: kv_id,
+            title: kv_title,
+            model: kv_model,
+            parent_id: kv_parent_id,
+            branch_name: kv_branch_name,
+            total_input_tokens: kv_total_input_tokens,
+            total_output_tokens: kv_total_output_tokens,
+        })
     }
 
     fn load_messages(&self, id: &str) -> Vec<ConversationMessage> {
-        if Self::validate_session_id(id).is_err() {
-            return Vec::new();
-        }
-        let jsonl_path = self.transcript_jsonl_path(id);
-        if jsonl_path.is_file() {
-            let raw = fs::read_to_string(&jsonl_path).unwrap_or_default();
-            return raw
-                .lines()
-                .filter_map(parse_message_json_line)
-                .collect();
-        }
-
         let transcript_path = self.transcript_file_path(id);
         let raw = fs::read_to_string(&transcript_path).unwrap_or_default();
         raw.lines()
@@ -181,18 +185,123 @@ impl FileSessionStore {
                 let (role, content) = line.split_once('\t')?;
                 Some(ConversationMessage {
                     role: ConversationRole::parse(role),
-                    content: content.replace("\\n", "\n").replace("\\t", "\t"),
+                    content: content.replace("\\n", "\n"),
                 })
             })
             .collect()
     }
 
+    fn load_turn(&self, id: &str) -> Result<TurnLifecycle, OctoError> {
+        let path = self.session_file_path(id);
+        let raw = fs::read_to_string(&path).map_err(|error| {
+            OctoError::Session(format!("failed to read session file {}: {error}", path.display()))
+        })?;
+
+        let mut turn = TurnLifecycle::default();
+        for line in raw.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            let Some((key, value)) = trimmed.split_once('=') else {
+                continue;
+            };
+            let value = value.trim();
+            match key.trim() {
+                "turn_id" => {
+                    if !value.is_empty() {
+                        turn.turn_id = Some(String::from(value));
+                    }
+                }
+                "turn_phase" => turn.phase = TurnLifecyclePhase::parse(value),
+                "turn_started_at_ms" => turn.started_at_ms = value.parse::<u128>().ok(),
+                "turn_updated_at_ms" => turn.updated_at_ms = value.parse::<u128>().ok(),
+                "turn_finished_at_ms" => turn.finished_at_ms = value.parse::<u128>().ok(),
+                "turn_last_error" => {
+                    if !value.is_empty() {
+                        turn.last_error = Some(String::from(value));
+                    }
+                }
+                "turn_active_sse_clients" => {
+                    turn.active_sse_clients = value.parse::<usize>().unwrap_or(0)
+                }
+                _ => {}
+            }
+        }
+
+        Ok(turn)
+    }
+
+    fn write_turn(&self, session_id: &str, turn: &TurnLifecycle) -> Result<(), OctoError> {
+        let summary = self.load_summary(session_id)?;
+        let file_path = self.session_file_path(session_id);
+        let body = format!(
+            concat!(
+                "id={id}\n",
+                "title={title}\n",
+                "model={model}\n",
+                "parent_id={parent_id}\n",
+                "branch_name={branch_name}\n",
+                "total_input_tokens={ti}\n",
+                "total_output_tokens={to}\n",
+                "turn_id={turn_id}\n",
+                "turn_phase={turn_phase}\n",
+                "turn_started_at_ms={turn_started_at_ms}\n",
+                "turn_updated_at_ms={turn_updated_at_ms}\n",
+                "turn_finished_at_ms={turn_finished_at_ms}\n",
+                "turn_last_error={turn_last_error}\n",
+                "turn_active_sse_clients={turn_active_sse_clients}\n",
+            ),
+            id = summary.id,
+            title = summary.title,
+            model = summary.model.as_deref().unwrap_or(""),
+            parent_id = summary.parent_id.as_deref().unwrap_or(""),
+            branch_name = summary.branch_name.as_deref().unwrap_or(""),
+            ti = summary.total_input_tokens,
+            to = summary.total_output_tokens,
+            turn_id = turn.turn_id.as_deref().unwrap_or(""),
+            turn_phase = turn.phase.as_str(),
+            turn_started_at_ms = turn.started_at_ms.map(|value| value.to_string()).unwrap_or_default(),
+            turn_updated_at_ms = turn.updated_at_ms.map(|value| value.to_string()).unwrap_or_default(),
+            turn_finished_at_ms = turn.finished_at_ms.map(|value| value.to_string()).unwrap_or_default(),
+            turn_last_error = turn.last_error.as_deref().unwrap_or(""),
+            turn_active_sse_clients = turn.active_sse_clients,
+        );
+        let tmp_path = file_path.with_extension("session.tmp");
+        fs::write(&tmp_path, &body)
+            .map_err(|error| OctoError::Session(format!("failed to write session tmp: {error}")))?;
+        fs::rename(&tmp_path, &file_path)
+            .map_err(|error| OctoError::Session(format!("failed to rename session file: {error}")))
+    }
+
+    pub fn load_turn_state(&self, id: &str) -> Result<TurnLifecycle, OctoError> {
+        self.load_turn(id)
+    }
+
+    pub fn save_turn_state(&self, session_id: &str, turn: &TurnLifecycle) -> Result<(), OctoError> {
+        self.write_turn(session_id, turn)
+    }
+
     fn write_messages(&self, id: &str, messages: &[ConversationMessage]) -> Result<(), OctoError> {
-        Self::validate_session_id(id)?;
-        let transcript_path = self.transcript_jsonl_path(id);
+        let transcript_path = self.transcript_file_path(id);
+        if let Some(parent) = transcript_path.parent() {
+            fs::create_dir_all(parent).map_err(|error| {
+                OctoError::Session(format!(
+                    "failed to create transcript dir {}: {error}",
+                    parent.display()
+                ))
+            })?;
+        }
+
         let body = messages
             .iter()
-            .map(message_to_json_line)
+            .map(|message| {
+                format!(
+                    "{}\t{}",
+                    message.role.as_str(),
+                    message.content.replace('\n', "\\n")
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n");
         let normalized = if body.is_empty() {
@@ -200,19 +309,103 @@ impl FileSessionStore {
         } else {
             format!("{body}\n")
         };
-        Self::atomic_write(&transcript_path, &normalized)
+
+        fs::write(&transcript_path, normalized).map_err(|error| {
+            OctoError::Session(format!(
+                "failed to write transcript {}: {error}",
+                transcript_path.display()
+            ))
+        })
     }
 
     fn last_modified_for(&self, id: &str) -> Option<SystemTime> {
-        let jsonl_path = self.transcript_jsonl_path(id);
         let transcript_path = self.transcript_file_path(id);
         let session_path = self.session_file_path(id);
-        jsonl_path
+        transcript_path
             .metadata()
             .and_then(|meta| meta.modified())
             .ok()
-            .or_else(|| transcript_path.metadata().and_then(|meta| meta.modified()).ok())
             .or_else(|| session_path.metadata().and_then(|meta| meta.modified()).ok())
+    }
+
+    /// Remove sessions older than `max_age` and keep at most `max_count` sessions.
+    pub fn cleanup(&self, max_age: std::time::Duration, max_count: usize) -> Result<usize, OctoError> {
+        let now = SystemTime::now();
+        let mut entries: Vec<(String, SystemTime)> = Vec::new();
+
+        let dir = fs::read_dir(&self.sessions_dir).map_err(|e| {
+            OctoError::Session(format!("cleanup: failed to read sessions dir: {e}"))
+        })?;
+        for entry in dir {
+            let entry = entry.map_err(|e| OctoError::Session(format!("cleanup entry: {e}")))?;
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("session") {
+                continue;
+            }
+            let Some(id) = path.file_stem().and_then(|v| v.to_str()).map(String::from) else {
+                continue;
+            };
+            let modified = self.last_modified_for(&id).unwrap_or(SystemTime::UNIX_EPOCH);
+            entries.push((id, modified));
+        }
+
+        // Sort newest first
+        entries.sort_by(|a, b| b.1.cmp(&a.1));
+
+        let mut removed = 0usize;
+        for (index, (id, modified)) in entries.iter().enumerate() {
+            let expired = now.duration_since(*modified).unwrap_or_default() > max_age;
+            let over_limit = index >= max_count;
+            if expired || over_limit {
+                let _ = fs::remove_file(self.session_file_path(id));
+                let _ = fs::remove_file(self.transcript_file_path(id));
+                removed += 1;
+            }
+        }
+        Ok(removed)
+    }
+
+    pub fn delete_session(&self, id: &str) -> Result<bool, OctoError> {
+        let mut removed = false;
+        let session_path = self.session_file_path(id);
+        let transcript_path = self.transcript_file_path(id);
+
+        if session_path.exists() {
+            fs::remove_file(&session_path).map_err(|error| {
+                OctoError::Session(format!(
+                    "failed to delete session file {}: {error}",
+                    session_path.display()
+                ))
+            })?;
+            removed = true;
+        }
+
+        if transcript_path.exists() {
+            fs::remove_file(&transcript_path).map_err(|error| {
+                OctoError::Session(format!(
+                    "failed to delete transcript file {}: {error}",
+                    transcript_path.display()
+                ))
+            })?;
+            removed = true;
+        }
+
+        Ok(removed)
+    }
+
+    pub fn delete_all_sessions(&self) -> Result<usize, OctoError> {
+        let session_ids = self
+            .list_sessions()?
+            .into_iter()
+            .map(|session| session.id)
+            .collect::<Vec<_>>();
+        let mut removed = 0usize;
+        for session_id in session_ids {
+            if self.delete_session(&session_id)? {
+                removed += 1;
+            }
+        }
+        Ok(removed)
     }
 }
 
@@ -232,9 +425,6 @@ impl SessionStore for FileSessionStore {
             let Some(id) = path.file_stem().and_then(|value| value.to_str()) else {
                 continue;
             };
-            if Self::validate_session_id(id).is_err() {
-                continue;
-            }
             sessions.push(self.load_summary(id)?);
         }
 
@@ -243,25 +433,52 @@ impl SessionStore for FileSessionStore {
     }
 
     fn save_session(&self, session: SessionSummary) -> Result<(), OctoError> {
-        Self::validate_session_id(&session.id)?;
         let file_path = self.session_file_path(&session.id);
-        let body = summary_to_json_line(&session);
-        Self::atomic_write(&file_path, &format!("{body}\n"))
+        let body = format!(
+            concat!(
+                "id={id}\n",
+                "title={title}\n",
+                "model={model}\n",
+                "parent_id={parent_id}\n",
+                "branch_name={branch_name}\n",
+                "total_input_tokens={ti}\n",
+                "total_output_tokens={to}\n",
+                "turn_id=\n",
+                "turn_phase=idle\n",
+                "turn_started_at_ms=\n",
+                "turn_updated_at_ms=\n",
+                "turn_finished_at_ms=\n",
+                "turn_last_error=\n",
+                "turn_active_sse_clients=0\n",
+            ),
+            id = session.id,
+            title = session.title,
+            model = session.model.as_deref().unwrap_or(""),
+            parent_id = session.parent_id.as_deref().unwrap_or(""),
+            branch_name = session.branch_name.as_deref().unwrap_or(""),
+            ti = session.total_input_tokens,
+            to = session.total_output_tokens,
+        );
+        // Atomic write: write to temp then rename.
+        let tmp_path = file_path.with_extension("session.tmp");
+        fs::write(&tmp_path, &body)
+            .map_err(|error| OctoError::Session(format!("failed to write session tmp: {error}")))?;
+        fs::rename(&tmp_path, &file_path)
+            .map_err(|error| OctoError::Session(format!("failed to rename session file: {error}")))
     }
 }
 
 impl ConversationStore for FileSessionStore {
     fn load_session(&self, id: &str) -> Result<ConversationSession, OctoError> {
-        Self::validate_session_id(id)?;
         let summary = self.load_summary(id)?;
         Ok(ConversationSession {
             summary,
             messages: self.load_messages(id),
+            turn: self.load_turn(id)?,
         })
     }
 
     fn append_message(&self, session_id: &str, message: ConversationMessage) -> Result<(), OctoError> {
-        Self::validate_session_id(session_id)?;
         let mut messages = self.load_messages(session_id);
         messages.push(message);
         self.write_messages(session_id, &messages)
@@ -272,7 +489,6 @@ impl ConversationStore for FileSessionStore {
         session_id: &str,
         messages: Vec<ConversationMessage>,
     ) -> Result<(), OctoError> {
-        Self::validate_session_id(session_id)?;
         self.write_messages(session_id, &messages)
     }
 
@@ -286,181 +502,125 @@ impl ConversationStore for FileSessionStore {
     }
 }
 
-fn parse_legacy_summary(raw: &str) -> Result<SessionSummary, OctoError> {
-    let mut parts = raw.lines();
-    let id = parts.next().unwrap_or_default().trim().to_string();
-    let title = parts.next().unwrap_or_default().trim().to_string();
-    let model = parts
-        .next()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
-    if id.is_empty() {
-        return Err(OctoError::Session(String::from("session id is empty")));
+impl TurnStateStore for FileSessionStore {
+    fn load_turn_state(&self, session_id: &str) -> Result<TurnLifecycle, OctoError> {
+        self.load_turn(session_id)
     }
-    Ok(SessionSummary {
-        id,
-        title,
-        model,
-        parent_id: None,
-        branch_name: None,
-        total_input_tokens: 0,
-        total_output_tokens: 0,
-    })
-}
 
-fn summary_to_json_line(summary: &SessionSummary) -> String {
-    format!(
-        concat!(
-            "{{",
-            "\"id\":\"{}\",",
-            "\"title\":\"{}\",",
-            "\"model\":{},",
-            "\"parentId\":{},",
-            "\"branchName\":{},",
-            "\"totalInputTokens\":{},",
-            "\"totalOutputTokens\":{}",
-            "}}"
-        ),
-        escape_json(&summary.id),
-        escape_json(&summary.title),
-        option_json(summary.model.as_deref()),
-        option_json(summary.parent_id.as_deref()),
-        option_json(summary.branch_name.as_deref()),
-        summary.total_input_tokens,
-        summary.total_output_tokens
-    )
-}
-
-fn parse_summary_json_line(line: &str) -> Result<SessionSummary, OctoError> {
-    let id = json_string_field(line, "id").ok_or_else(|| {
-        OctoError::Session(String::from("session json summary missing id"))
-    })?;
-    if id.is_empty() {
-        return Err(OctoError::Session(String::from("session id is empty")));
+    fn save_turn_state(&self, session_id: &str, turn: &TurnLifecycle) -> Result<(), OctoError> {
+        self.write_turn(session_id, turn)
     }
-    Ok(SessionSummary {
-        id,
-        title: json_string_field(line, "title").unwrap_or_else(|| String::from("Octocode Session")),
-        model: json_nullable_string_field(line, "model"),
-        parent_id: json_nullable_string_field(line, "parentId"),
-        branch_name: json_nullable_string_field(line, "branchName"),
-        total_input_tokens: json_u32_field(line, "totalInputTokens").unwrap_or(0),
-        total_output_tokens: json_u32_field(line, "totalOutputTokens").unwrap_or(0),
-    })
-}
-
-fn message_to_json_line(message: &ConversationMessage) -> String {
-    format!(
-        "{{\"role\":\"{}\",\"content\":\"{}\"}}",
-        message.role.as_str(),
-        escape_json(&message.content)
-    )
-}
-
-fn parse_message_json_line(line: &str) -> Option<ConversationMessage> {
-    let role = json_string_field(line, "role")?;
-    let content = json_string_field(line, "content")?;
-    Some(ConversationMessage {
-        role: ConversationRole::parse(&role),
-        content,
-    })
-}
-
-fn option_json(value: Option<&str>) -> String {
-    match value {
-        Some(value) if !value.is_empty() => format!("\"{}\"", escape_json(value)),
-        _ => String::from("null"),
-    }
-}
-
-fn json_nullable_string_field(input: &str, key: &str) -> Option<String> {
-    if has_json_null(input, key) {
-        None
-    } else {
-        json_string_field(input, key)
-    }
-}
-
-fn has_json_null(input: &str, key: &str) -> bool {
-    let needle = format!("\"{}\":null", key);
-    input.contains(&needle)
-}
-
-fn json_u32_field(input: &str, key: &str) -> Option<u32> {
-    let needle = format!("\"{}\":", key);
-    let start = input.find(&needle)? + needle.len();
-    let mut end = start;
-    let bytes = input.as_bytes();
-    while end < input.len() && bytes[end].is_ascii_digit() {
-        end += 1;
-    }
-    input[start..end].parse::<u32>().ok()
-}
-
-fn json_string_field(input: &str, key: &str) -> Option<String> {
-    let needle = format!("\"{}\":\"", key);
-    let start = input.find(&needle)? + needle.len();
-    let mut out = String::new();
-    let mut escaped = false;
-    for ch in input[start..].chars() {
-        if escaped {
-            match ch {
-                'n' => out.push('\n'),
-                'r' => out.push('\r'),
-                't' => out.push('\t'),
-                '\\' => out.push('\\'),
-                '"' => out.push('"'),
-                other => out.push(other),
-            }
-            escaped = false;
-            continue;
-        }
-        match ch {
-            '\\' => escaped = true,
-            '"' => return Some(out),
-            other => out.push(other),
-        }
-    }
-    None
-}
-
-fn escape_json(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\r', "\\r")
-        .replace('\n', "\\n")
-        .replace('\t', "\\t")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{json_string_field, parse_message_json_line, summary_to_json_line};
-    use octocode_core::{ConversationMessage, ConversationRole, SessionSummary};
+    use super::*;
+    use std::fs;
+    use std::time::Duration;
 
-    #[test]
-    fn message_json_round_trip_preserves_tabs_and_newlines() {
-        let line = super::message_to_json_line(&ConversationMessage {
-            role: ConversationRole::User,
-            content: String::from("hello\t世界\nquoted \"text\""),
-        });
-        let parsed = parse_message_json_line(&line).expect("message parses");
-        assert_eq!(parsed.role, ConversationRole::User);
-        assert_eq!(parsed.content, "hello\t世界\nquoted \"text\"");
+    fn temp_store(label: &str) -> (FileSessionStore, std::path::PathBuf) {
+        let root = std::env::temp_dir().join(format!("octocode-session-test-{}-{}", label, std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let paths = ConfigPaths {
+            config_home: root.join("config").to_string_lossy().to_string(),
+            cache_home: root.join("cache").to_string_lossy().to_string(),
+            data_home: root.join("data").to_string_lossy().to_string(),
+        };
+        let store = FileSessionStore::new(&paths).expect("create store");
+        (store, root)
     }
 
     #[test]
-    fn summary_json_preserves_branch_metadata() {
-        let line = summary_to_json_line(&SessionSummary {
-            id: String::from("demo"),
-            title: String::from("Demo"),
-            model: Some(String::from("model-a")),
-            parent_id: Some(String::from("root")),
-            branch_name: Some(String::from("branch-a")),
-            total_input_tokens: 3,
-            total_output_tokens: 5,
-        });
-        assert_eq!(json_string_field(&line, "branchName"), Some(String::from("branch-a")));
+    fn cleanup_removes_excess_sessions() {
+        let (store, root) = temp_store("cleanup");
+        for i in 0..5 {
+            let summary = SessionSummary {
+                id: format!("sess-{i}"),
+                title: format!("Title {i}"),
+                model: None,
+                parent_id: None,
+                branch_name: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+            };
+            store.save_session(summary).expect("save");
+        }
+        let removed = store.cleanup(Duration::from_secs(3600), 3).expect("cleanup");
+        assert_eq!(removed, 2, "should remove 2 excess sessions");
+        let remaining = store.list_sessions().expect("list");
+        assert_eq!(remaining.len(), 3);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn cleanup_preserves_recent_sessions() {
+        let (store, root) = temp_store("preserve");
+        let summary = SessionSummary {
+            id: String::from("recent"),
+            title: String::from("Recent"),
+            model: None,
+            parent_id: None,
+            branch_name: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+        };
+        store.save_session(summary).expect("save");
+        let removed = store.cleanup(Duration::from_secs(3600), 100).expect("cleanup");
+        assert_eq!(removed, 0);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn delete_session_removes_summary_and_transcript() {
+        let (store, root) = temp_store("delete-one");
+        let summary = SessionSummary {
+            id: String::from("delete-me"),
+            title: String::from("Delete Me"),
+            model: None,
+            parent_id: None,
+            branch_name: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+        };
+        store.save_session(summary).expect("save");
+        store
+            .append_message(
+                "delete-me",
+                ConversationMessage {
+                    role: ConversationRole::User,
+                    content: String::from("hello"),
+                },
+            )
+            .expect("append");
+
+        let removed = store.delete_session("delete-me").expect("delete");
+
+        assert!(removed);
+        assert!(store.list_sessions().expect("list").is_empty());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn delete_all_sessions_removes_everything() {
+        let (store, root) = temp_store("delete-all");
+        for index in 0..3 {
+            store
+                .save_session(SessionSummary {
+                    id: format!("sess-{index}"),
+                    title: format!("Session {index}"),
+                    model: None,
+                    parent_id: None,
+                    branch_name: None,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                })
+                .expect("save");
+        }
+
+        let removed = store.delete_all_sessions().expect("delete all");
+
+        assert_eq!(removed, 3);
+        assert!(store.list_sessions().expect("list").is_empty());
+        let _ = fs::remove_dir_all(&root);
     }
 }
