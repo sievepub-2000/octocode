@@ -120,8 +120,11 @@ use snapshot_json::{runtime_event_to_json, snapshot_to_json};
 
 const AUTO_CONTEXT_FILES: &[&str] = &["CLAUDE.md", "AGENTS.md"];
 const AUTO_CONTEXT_CHAR_LIMIT: usize = 4000;
-/// Maximum iterations of the agent tool-call loop before forcing termination.
-const MAX_AGENT_ITERATIONS: usize = 12;
+/// Built-in default for the agent tool-call loop iteration cap.
+/// Overridable via [`RuntimeConfig::agent_max_iterations`] (0 = use this default).
+const DEFAULT_AGENT_MAX_ITERATIONS: usize = 12;
+/// Hard upper bound to prevent runaway loops even if config is misconfigured.
+const HARD_AGENT_MAX_ITERATIONS: usize = 64;
 /// Token threshold at which auto-compaction is triggered.
 const AUTO_COMPACT_TOKEN_THRESHOLD: usize = 24_000;
 const STREAM_CANCELLED_MESSAGE: &str = "stream cancelled";
@@ -782,8 +785,9 @@ where
 
         let mut current_output = initial_response.output.clone();
         let mut total_tokens = initial_response.tokens;
+        let max_iterations = self.agent_max_iterations();
 
-        for iteration in 0..MAX_AGENT_ITERATIONS {
+        for iteration in 0..max_iterations {
             let calls = parse_embedded_tool_calls(&current_output);
             if calls.is_empty() {
                 // No tool calls — store final response and return
@@ -833,7 +837,7 @@ where
             let follow_up = format!(
                 "Tool execution results (iteration {}/{}):\n{}\n\nContinue with the next steps. If done, provide the final summary without tool calls.",
                 iteration + 1,
-                MAX_AGENT_ITERATIONS,
+                max_iterations,
                 tool_summary,
             );
 
@@ -888,7 +892,7 @@ where
         let final_output = format!(
             "{}\n\n[agent loop reached max iterations ({})]",
             strip_embedded_tool_calls(&current_output),
-            MAX_AGENT_ITERATIONS
+            max_iterations
         );
         self.append_session_message(
             session_id,
@@ -1389,7 +1393,7 @@ Shell: {:?}\n\n",
             let mut total_tokens = response.tokens;
             let mut interrupted_error = None;
 
-            for _iteration in 0..MAX_AGENT_ITERATIONS {
+            for _iteration in 0..self.agent_max_iterations() {
                 if stop_flag.load(Ordering::SeqCst) {
                     stop_flag.store(false, Ordering::SeqCst);
                     return Err(stream_cancelled_error());
@@ -1598,6 +1602,19 @@ Shell: {:?}\n\n",
         session_stop_flag(session_id).store(false, Ordering::SeqCst);
     }
 
+    /// Resolve the agent tool-call loop iteration cap, honouring runtime
+    /// config (`agent_max_iterations`) when set to a non-zero value, capped
+    /// by [`HARD_AGENT_MAX_ITERATIONS`] to prevent runaway configuration.
+    pub fn agent_max_iterations(&self) -> usize {
+        let configured = self.config.agent_max_iterations;
+        let chosen = if configured == 0 {
+            DEFAULT_AGENT_MAX_ITERATIONS
+        } else {
+            configured
+        };
+        chosen.min(HARD_AGENT_MAX_ITERATIONS)
+    }
+
     pub fn workspace(&self) -> &WorkspaceContext {
         self.platform.context()
     }
@@ -1766,6 +1783,34 @@ Shell: {:?}\n\n",
         Ok(format!(
             "{{\"items\":[{}]}}",
             events.iter().map(runtime_event_to_json).collect::<Vec<_>>().join(",")
+        ))
+    }
+
+    /// Return only events with `at_ms > since_ms`. Used by `/api/events?since=`
+    /// and SSE `Last-Event-ID` resume so a reconnecting WebUI can request only
+    /// the deltas instead of the entire feed (which can be tens of KB).
+    pub fn event_feed_since(
+        &self,
+        active_session_id: Option<&str>,
+        since_ms: u128,
+    ) -> Result<Vec<RuntimeEvent>, OctoError> {
+        Ok(self
+            .event_feed(active_session_id)?
+            .into_iter()
+            .filter(|event| event.at_ms.map(|ts| ts > since_ms).unwrap_or(false))
+            .collect())
+    }
+
+    pub fn event_feed_json_since(
+        &self,
+        active_session_id: Option<&str>,
+        since_ms: u128,
+    ) -> Result<String, OctoError> {
+        let events = self.event_feed_since(active_session_id, since_ms)?;
+        Ok(format!(
+            "{{\"items\":[{}],\"sinceMs\":{}}}",
+            events.iter().map(runtime_event_to_json).collect::<Vec<_>>().join(","),
+            since_ms
         ))
     }
 

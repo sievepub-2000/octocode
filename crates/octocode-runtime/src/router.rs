@@ -181,7 +181,44 @@ where
     }
 
     fn health_catalog(&self) -> Vec<ProviderHealth> {
-        self.providers.iter().map(ModelProvider::health).collect()
+        // P0-S1: Probe providers in parallel using scoped threads. Each
+        // candidate may issue an HTTP HEAD/health request; the previous
+        // serial loop summed all latencies and could exceed 4 s on a
+        // 17-provider catalog. Scoped threads give us the same `&self`
+        // borrow safety while collapsing wall time to ~max(probe).
+        if self.providers.len() <= 1 {
+            return self.providers.iter().map(ModelProvider::health).collect();
+        }
+        let mut slots: Vec<Option<ProviderHealth>> = (0..self.providers.len()).map(|_| None).collect();
+        std::thread::scope(|scope| {
+            let mut handles = Vec::with_capacity(self.providers.len());
+            for provider in &self.providers {
+                handles.push(scope.spawn(move || provider.health()));
+            }
+            for (idx, handle) in handles.into_iter().enumerate() {
+                slots[idx] = handle.join().ok();
+            }
+        });
+        slots
+            .into_iter()
+            .enumerate()
+            .map(|(idx, opt)| {
+                opt.unwrap_or_else(|| {
+                    let descriptor = self.providers[idx].descriptor();
+                    ProviderHealth {
+                        provider_id: descriptor.id.clone(),
+                        display_name: descriptor.display_name,
+                        healthy: false,
+                        detail: String::from("provider health probe panicked"),
+                        model: None,
+                        latency_ms: None,
+                        circuit_state: ProviderCircuitState::Open,
+                        failure_count: 0,
+                        cooldown_remaining_ms: None,
+                    }
+                })
+            })
+            .collect()
     }
 
     fn circuit_status(&self) -> ProviderCircuitStatus {
@@ -348,6 +385,7 @@ mod tests {
                 history_limit: 8,
                 denied_tools: Vec::new(),
                 request_timeout_secs: 90,
+                agent_max_iterations: 0,
             },
         )
         .expect("router builds");

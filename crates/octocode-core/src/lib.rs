@@ -480,6 +480,11 @@ pub struct RuntimeConfig {
     pub history_limit: usize,
     pub denied_tools: Vec<String>,
     pub request_timeout_secs: u64,
+    /// Upper bound on the agent tool-call loop. 0 means "use built-in default"
+    /// (currently 12). Higher values let plan-mode and editing sessions run
+    /// longer chains; lower values are useful for cost control.
+    #[serde(default)]
+    pub agent_max_iterations: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

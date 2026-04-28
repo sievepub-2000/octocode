@@ -102,6 +102,10 @@ impl ConfigLoader {
                 "request_timeout_secs" => {
                     config.request_timeout_secs = value.trim().parse::<u64>().unwrap_or(90);
                 }
+                "agent_max_iterations" => {
+                    config.agent_max_iterations =
+                        value.trim().parse::<usize>().unwrap_or(0);
+                }
                 _ => {}
             }
         }
@@ -129,7 +133,8 @@ impl ConfigLoader {
                 "permission_mode={}\n",
                 "history_limit={}\n",
                 "denied_tools={}\n",
-                "request_timeout_secs={}\n"
+                "request_timeout_secs={}\n",
+                "agent_max_iterations={}\n"
             ),
             config.provider_id.as_deref().unwrap_or(DEFAULT_PROVIDER_ID),
             config.provider_base_url.as_deref().unwrap_or(""),
@@ -137,7 +142,8 @@ impl ConfigLoader {
             permission_mode_label(&config.permission_mode),
             config.history_limit.max(1),
             config.denied_tools.join(","),
-            config.request_timeout_secs
+            config.request_timeout_secs,
+            config.agent_max_iterations,
         );
 
         fs::write(&path, body).map_err(|error| {
@@ -229,6 +235,7 @@ impl ConfigLoader {
             history_limit: DEFAULT_HISTORY_LIMIT,
             denied_tools: Vec::new(),
             request_timeout_secs: 90,
+            agent_max_iterations: 0,
         }
     }
 }

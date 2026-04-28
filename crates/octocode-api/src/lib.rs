@@ -687,6 +687,7 @@ impl ProviderRegistry {
                 history_limit: 24,
                 denied_tools: Vec::new(),
                 request_timeout_secs: 90,
+                agent_max_iterations: 0,
             },
         )
     }
@@ -2106,6 +2107,7 @@ mod tests {
                 history_limit: 24,
                 denied_tools: Vec::new(),
                 request_timeout_secs: 90,
+                agent_max_iterations: 0,
             },
         );
         assert!(provider.is_some());
@@ -2125,6 +2127,7 @@ mod tests {
                 history_limit: 24,
                 denied_tools: Vec::new(),
                 request_timeout_secs: 90,
+                agent_max_iterations: 0,
             },
         );
         assert!(provider.is_some());

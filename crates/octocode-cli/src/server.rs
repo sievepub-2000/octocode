@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use octocode_api::{BuiltinProvider, ProviderRegistry};
 use octocode_commands::{
@@ -92,6 +92,89 @@ pub fn render_metrics_body() -> String {
 
 /// 2026.4.24-B1: operational counters for permanent memory + agent supervision.
 static METRICS_MEMORY_NOTES_TOTAL: AtomicU64 = AtomicU64::new(0);
+
+/// P0-S1: TTL for the in-process `/api/health` cache. Provider probes can
+/// take 200–700 ms each; with 17 providers that previously summed to
+/// ~3–4 s per request. We now (a) probe in parallel inside the router
+/// and (b) memoise the JSON payload here for `HEALTH_CACHE_TTL` so a
+/// busy WebUI doesn't re-probe on every poll.
+const HEALTH_CACHE_TTL: Duration = Duration::from_secs(15);
+
+static HEALTH_CACHE: OnceLock<Mutex<Option<(Instant, String)>>> = OnceLock::new();
+
+fn health_cache() -> &'static Mutex<Option<(Instant, String)>> {
+    HEALTH_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn cached_health_payload() -> Option<String> {
+    let guard = health_cache().lock().ok()?;
+    let (stored_at, payload) = guard.as_ref()?;
+    if stored_at.elapsed() <= HEALTH_CACHE_TTL {
+        Some(payload.clone())
+    } else {
+        None
+    }
+}
+
+fn store_cached_health_payload(payload: String) {
+    if let Ok(mut guard) = health_cache().lock() {
+        *guard = Some((Instant::now(), payload));
+    }
+}
+
+/// Wall-clock millis since UNIX epoch, used as a cache marker in the JSON
+/// payload so clients can see how stale the cached probe is.
+fn turn_now_ms_for_cache() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0)
+}
+
+/// P0-L2: SSE keep-alive sentinel. Spawns a background thread that writes
+/// `: keepalive\n\n` to a cloned [`TcpStream`] every `interval` until the
+/// returned [`HeartbeatHandle::stop`] is invoked. SSE comments (lines
+/// beginning with `:`) are ignored by EventSource clients but reset proxy
+/// idle timers, preventing reverse proxies and load balancers from killing
+/// long-running tool-call chains.
+struct HeartbeatHandle {
+    flag: Arc<AtomicBool>,
+    handle: Option<thread::JoinHandle<()>>,
+}
+
+impl HeartbeatHandle {
+    fn stop(mut self) {
+        self.flag.store(true, Ordering::SeqCst);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+fn spawn_sse_heartbeat(stream: &TcpStream, interval: Duration) -> HeartbeatHandle {
+    let flag = Arc::new(AtomicBool::new(false));
+    let cloned = stream.try_clone().ok();
+    let flag_for_thread = Arc::clone(&flag);
+    let handle = cloned.map(|mut sock| {
+        thread::spawn(move || {
+            // Tick at 250 ms so stop() returns quickly; only emit a keep-alive
+            // comment when `interval` has elapsed.
+            let tick = Duration::from_millis(250);
+            let mut elapsed = Duration::ZERO;
+            while !flag_for_thread.load(Ordering::SeqCst) {
+                thread::sleep(tick);
+                elapsed += tick;
+                if elapsed >= interval {
+                    elapsed = Duration::ZERO;
+                    if sock.write_all(b": keepalive\n\n").is_err() || sock.flush().is_err() {
+                        break;
+                    }
+                }
+            }
+        })
+    });
+    HeartbeatHandle { flag, handle }
+}
 
 /// Persistent structured memory store inspired by mem0 (multi-level scope,
 /// tags, importance, keyword search) and simplemem (tag-indexed minimal
@@ -1823,7 +1906,13 @@ fn handle_sse_stream(
     let config = loader.load()?;
     let runtime = build_runtime(workspace_root, config)?;
 
-    write_sse_stream_response(stream, &runtime, &session_id, &text)
+    // P0-L2: spawn keep-alive heartbeat (SSE comment every 15 s). The thread
+    // writes to a cloned socket so it can interleave with the token stream
+    // without locking — SSE allows interleaved comment/data lines.
+    let heartbeat = spawn_sse_heartbeat(stream, Duration::from_secs(15));
+    let result = write_sse_stream_response(stream, &runtime, &session_id, &text);
+    heartbeat.stop();
+    result
 }
 
 fn write_sse_stream_response<P, S, T, W>(
@@ -2190,7 +2279,22 @@ fn route_request(
                 .query_value("session")
                 .or(initial_session_id.clone());
             let runtime = build_runtime(workspace_root, config)?;
-            json_response(runtime.event_feed_json(session_id.as_deref())?)
+            // P1-L7: support `?since=<ms>` query param OR `Last-Event-ID`
+            // header so a reconnecting WebUI can request only the deltas
+            // instead of the entire feed.
+            let since_ms = request
+                .query_value("since")
+                .and_then(|s| s.trim().parse::<u128>().ok())
+                .or_else(|| {
+                    request
+                        .headers
+                        .get("last-event-id")
+                        .and_then(|s| s.trim().parse::<u128>().ok())
+                });
+            match since_ms {
+                Some(since) => json_response(runtime.event_feed_json_since(session_id.as_deref(), since)?),
+                None => json_response(runtime.event_feed_json(session_id.as_deref())?),
+            }
         }
         ("GET", "/api/timeline") => {
             let session_id = request
@@ -2203,6 +2307,12 @@ fn route_request(
             json_response(raw)
         }
         ("GET", "/api/health") => {
+            // P0-S1: serve a 30 s in-process cached response when fresh; on miss
+            // we still build a fresh runtime to probe providers, but the router
+            // now probes them in parallel (see RuntimeProviderRouter::health_catalog).
+            if let Some(cached) = cached_health_payload() {
+                return json_response(cached);
+            }
             let runtime = build_runtime(workspace_root, config)?;
             let body = runtime
                 .provider_healths()
@@ -2232,11 +2342,14 @@ fn route_request(
                 })
                 .collect::<Vec<_>>()
                 .join(",");
-            json_response(format!(
-                "{{\"items\":[{}],\"wsConnections\":{}}}",
+            let payload = format!(
+                "{{\"items\":[{}],\"wsConnections\":{},\"cachedAt\":{}}}",
                 body,
-                ws_hub().connection_count()
-            ))
+                ws_hub().connection_count(),
+                turn_now_ms_for_cache()
+            );
+            store_cached_health_payload(payload.clone());
+            json_response(payload)
         }
         ("GET", "/api/ws-status") => {
             json_response(format!(
@@ -2480,6 +2593,23 @@ fn route_request(
             runtime.request_session_stop(&session_id);
             json_response(format!(
                 "{{\"ok\":true,\"sessionId\":\"{}\"}}",
+                escape_json(&session_id)
+            ))
+        }
+        // P0-L3 alias: many UIs use the verb "cancel" for in-flight tasks.
+        // Accept both `/api/sessions/stop` (existing) and
+        // `/api/sessions/cancel` so Canvas UI / IDE bridges don't have to
+        // pick one. Behaviourally identical — flips the per-session stop
+        // flag that runtime agent loops poll between iterations.
+        ("POST", "/api/sessions/cancel") => {
+            let session_id = request
+                .form_value("sessionId")
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| String::from("demo"));
+            let runtime = build_runtime(workspace_root, config)?;
+            runtime.request_session_stop(&session_id);
+            json_response(format!(
+                "{{\"ok\":true,\"cancelled\":true,\"sessionId\":\"{}\"}}",
                 escape_json(&session_id)
             ))
         }
@@ -3653,6 +3783,7 @@ mod tests {
             history_limit: 24,
             denied_tools: Vec::new(),
             request_timeout_secs: 5,
+            agent_max_iterations: 0,
         };
         let platform = NativePlatform::detect(root.to_string_lossy().to_string());
         let registry = ProviderRegistry::new();

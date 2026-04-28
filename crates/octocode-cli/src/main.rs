@@ -674,6 +674,7 @@ mod tests {
             history_limit: 100,
             denied_tools: vec![],
             request_timeout_secs: 90,
+            agent_max_iterations: 0,
         };
         let json = serde_json::to_string(&cfg).expect("serialize");
         let v: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
