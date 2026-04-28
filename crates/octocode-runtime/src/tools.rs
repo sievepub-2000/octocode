@@ -665,6 +665,7 @@ impl WorkspaceToolExecutor {
         let mut child = Command::new(&program)
             .args(&args)
             .current_dir(&cwd)
+            .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()
