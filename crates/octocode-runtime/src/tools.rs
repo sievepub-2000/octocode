@@ -492,7 +492,54 @@ const TOOLS: &[ToolDescriptor] = &[
         summary: "Run a common build/test task with streaming output. Input: 'cargo-build' | 'cargo-test' | 'npm-test' | 'npm-build' | 'pytest' | 'pnpm-test' | or 'custom|<shell>'",
         minimum_permission: PermissionMode::WorkspaceWrite,
     },
+    ToolDescriptor {
+        name: "ssh-command",
+        summary: "Execute a shell command on a remote host via ssh. Input: 'user@host|<remote command>' (e.g. 'ops@build-1|uname -a'). Subject to the same approval gate as shell-command.",
+        minimum_permission: PermissionMode::WorkspaceWrite,
+    },
 ];
+
+/// Pluggable shell backend used by `shell-command` / `ssh-command`. The
+/// default `Local` variant runs through the host's native shell
+/// (PowerShell on Windows, zsh/bash elsewhere). `Ssh` builds an `ssh`
+/// invocation that the local shell forwards verbatim, so streaming,
+/// timeout, and approval policy stay identical across backends.
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // `Local` is the implicit backend for shell-command and exposed for symmetry.
+pub enum ShellBackend {
+    Local,
+    Ssh { host: String },
+}
+
+impl ShellBackend {
+    /// Label used in audit messages and operator-facing prompts.
+    #[allow(dead_code)]
+    pub fn label(&self) -> String {
+        match self {
+            ShellBackend::Local => String::from("local"),
+            ShellBackend::Ssh { host } => format!("ssh:{host}"),
+        }
+    }
+
+    /// Wrap a remote command into a command line that the local shell can
+    /// spawn. For `Local` this is the input verbatim. For `Ssh` we emit a
+    /// `ssh -o BatchMode=yes ...` line so password prompts can never
+    /// silently hang the agent loop.
+    pub fn wrap(&self, remote_cmd: &str) -> String {
+        match self {
+            ShellBackend::Local => String::from(remote_cmd),
+            ShellBackend::Ssh { host } => {
+                // Wrap the remote command in double quotes; escape any
+                // existing double quotes so `ssh` receives one shell word.
+                let escaped = remote_cmd.replace('\\', "\\\\").replace('"', "\\\"");
+                format!(
+                    "ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new {} \"{}\"",
+                    host, escaped
+                )
+            }
+        }
+    }
+}
 
 pub struct WorkspaceToolExecutor {
     workspace_root: PathBuf,
@@ -523,6 +570,43 @@ impl WorkspaceToolExecutor {
 
     pub(crate) fn execute_shell_command(&self, command_line: &str) -> Result<ToolResult, OctoError> {
         self.run_shell(command_line)
+    }
+
+    /// Execute a remote command via the ssh backend. `raw_input` follows
+    /// the same `__approve:TOKEN|payload` convention as `shell-command`,
+    /// where `payload` is `host|remote_cmd`. Sessions in DangerFullAccess
+    /// auto-approve; WorkspaceWrite/ReadOnly require an approval token.
+    pub(crate) fn execute_ssh_command(
+        &self,
+        raw_input: &str,
+        session_mode: &PermissionMode,
+    ) -> Result<ToolResult, OctoError> {
+        let approved = self.enforce_approval(
+            "ssh-command",
+            raw_input,
+            session_mode,
+            |payload| {
+                let host = payload
+                    .split_once('|')
+                    .map(|(left, _)| left.trim())
+                    .unwrap_or(payload.trim());
+                format!("ssh '{}'", preview_for_audit(host, 80))
+            },
+        )?;
+        let (host, remote_cmd) = approved.split_once('|').ok_or_else(|| {
+            OctoError::Runtime(String::from(
+                "ssh-command expects input in the form 'user@host|<remote command>'",
+            ))
+        })?;
+        let host = host.trim();
+        let remote_cmd = remote_cmd.trim();
+        if host.is_empty() || remote_cmd.is_empty() {
+            return Err(OctoError::Runtime(String::from(
+                "ssh-command requires non-empty host and remote command",
+            )));
+        }
+        let backend = ShellBackend::Ssh { host: host.to_string() };
+        self.run_shell(&backend.wrap(remote_cmd))
     }
 
     /// Streaming variant of [`execute_shell_command`]. Forwards each chunk
@@ -2942,6 +3026,7 @@ impl ToolExecutor for WorkspaceToolExecutor {
                 })?;
                 self.run_shell(&approved)
             }
+            "ssh-command" => self.execute_ssh_command(&call.input, &call.permission),
             "search-text" => self.search_text(&call.input),
             "workflow-plan" => Ok(self.workflow_plan(&call.input)),
             "agent-action" => Ok(self.agent_action(&call.input)),
@@ -3588,6 +3673,36 @@ mod tests {
             })
             .expect("shell command with approval token should run");
         assert!(approved.output.to_ascii_lowercase().contains("approval-check"));
+    }
+
+    #[test]
+    fn ssh_command_requires_approval_under_workspace_write() {
+        // ssh-command must enforce the same approval gate as shell-command.
+        // We never actually exec ssh — only assert the gate denies first
+        // and surfaces a token tied to the host preview.
+        let exec = test_executor();
+        let denied = exec.execute(ToolCall {
+            name: String::from("ssh-command"),
+            input: String::from("ops@example.invalid|uname -a"),
+            permission: PermissionMode::WorkspaceWrite,
+        });
+
+        let err = denied.expect_err("workspace-write must require ssh-command approval");
+        let msg = err.to_string();
+        assert!(msg.contains("approval required for ssh-command"), "msg={msg}");
+        assert!(msg.contains("ops@example.invalid"), "msg={msg}");
+    }
+
+    #[test]
+    fn ssh_backend_wraps_remote_command_for_local_shell() {
+        let backend = ShellBackend::Ssh { host: String::from("ops@host-1") };
+        let wrapped = backend.wrap("uname -a");
+        assert!(wrapped.starts_with("ssh -o BatchMode=yes"), "wrapped={wrapped}");
+        assert!(wrapped.contains("ops@host-1"));
+        assert!(wrapped.ends_with("\"uname -a\""));
+        assert_eq!(backend.label(), "ssh:ops@host-1");
+        assert_eq!(ShellBackend::Local.label(), "local");
+        assert_eq!(ShellBackend::Local.wrap("echo x"), "echo x");
     }
 
     #[test]
