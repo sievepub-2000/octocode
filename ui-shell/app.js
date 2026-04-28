@@ -9,7 +9,11 @@ let authToken = window.__OCTOCODE_AUTH_TOKEN__ || '';
 const builtInLocales = ['en-US', 'ja-JP', 'ko-KR', 'zh-CN'];
 const urlState = new URL(window.location.href);
 const STREAM_STATE_POLL_MS = 1500;
-const SNAPSHOT_REFRESH_MS = 15000;
+// Idle snapshot refresh interval. Was 15s but that produced visible network
+// chatter and re-renders on a quiet page (no conversation, no streaming).
+// During an active stream we already poll via STREAM_STATE_POLL_MS, so the
+// idle interval only needs to catch out-of-band changes (other tab / CLI).
+const SNAPSHOT_REFRESH_MS = 60000;
 
 function authHeaders(extra = {}) {
   const headers = { ...extra };
@@ -407,15 +411,18 @@ function conversationSettledInState(runtime, state) {
 
 async function fetchSessionSnapshot(sessionId) {
   const params = sessionId ? `?session=${encodeURIComponent(sessionId)}` : '';
-  const [stateResponse, eventsResponse] = await Promise.all([
-    fetchWithAuth(`/api/state${params}`),
-    fetchWithAuth(`/api/events${params}`),
-  ]);
+  // Serialize state then events. Both endpoints internally rebuild the
+  // runtime + provider router on first hit; firing them in parallel makes
+  // them contend for the same provider-init mutex (cold load measured at
+  // ~15s each). Sequential gets the second call onto a warm cache: state
+  // ~15s once + events ~30ms, instead of 15s+15s.
+  const stateResponse = await fetchWithAuth(`/api/state${params}`);
   if (!stateResponse.ok) {
     const message = await stateResponse.text();
     throw new Error(message || `state: HTTP ${stateResponse.status}`);
   }
   const state = await stateResponse.json();
+  const eventsResponse = await fetchWithAuth(`/api/events${params}`);
   if (eventsResponse.ok) {
     const events = await eventsResponse.json();
     currentEventFeed = events.events || events.items || [];
@@ -460,7 +467,10 @@ async function monitorConversationSettlement(runtime) {
 function scheduleSnapshotRefresh() {
   if (snapshotRefreshTimer) window.clearInterval(snapshotRefreshTimer);
   snapshotRefreshTimer = window.setInterval(() => {
+    // Skip when: tab hidden, user is submitting, no session bound, OR an
+    // active stream is already polling /api/state on its own ticker.
     if (document.hidden || isSubmitting || !currentSessionId) return;
+    if (streamAbortController) return;
     void sessionController.syncSessionSnapshot();
   }, SNAPSHOT_REFRESH_MS);
 }
@@ -892,8 +902,20 @@ function applyState(state, sessionId) {
 
 function render(state) {
   if (!state) return;
-  const activeSession = state.activeSession || state.sessions?.[0] || null;
-  renderHeader(state, activeSession);
+  // Session isolation: derive the displayed session from this tab's pinned
+  // currentSessionId, not from state.activeSession (which is the server's
+  // notion of "currently active" — possibly written by another tab).
+  // Falling back to state.activeSession only when this tab has no pin.
+  let displaySession = null;
+  if (currentSessionId) {
+    const candidates = [state.activeSession, ...(state.sessions || [])];
+    displaySession = candidates.find((s) => s
+      && ((s.summary?.id || s.sessionId) === currentSessionId)) || null;
+  }
+  if (!displaySession) {
+    displaySession = state.activeSession || state.sessions?.[0] || null;
+  }
+  renderHeader(state, displaySession);
   renderSidebar(state, currentSessionId);
   renderMessages(currentMessages);
   renderInfoCards(state);
@@ -991,7 +1013,12 @@ function renderInfoCards(state) {
 function renderSettings(state) {
   const providers = state.providers || [];
   const profiles = manageCatalog?.providerProfiles || [];
-  if (!manageCatalog) void ensureManageCatalog();
+  // Catalog is only needed for the rich provider profile descriptors. Defer
+  // the fetch until the operator actually opens the settings panel; in the
+  // meantime we render the providers we already have from /api/state.
+  const settingsPanelEl = document.getElementById('manage-panel-settings');
+  const settingsActive = settingsPanelEl && settingsPanelEl.classList.contains('active');
+  if (!manageCatalog && settingsActive) void ensureManageCatalog();
   if (settingProvider && (providers.length || profiles.length)) {
     settingProvider.replaceChildren();
     providers.forEach((provider) => {
@@ -2021,7 +2048,10 @@ function setManagePanel(panel) {
   currentManagePanel = panel || 'overview';
   syncManagePanelControls(currentManagePanel);
   if (currentState) renderManagePanel(currentState);
-  if (currentManagePanel !== 'overview' && currentManagePanel !== 'settings') {
+  // Settings + management subpanels need the rich catalog to render
+  // provider profiles, model lists, MCP, skills, hooks. Overview shows
+  // only summary counts and does not need the catalog.
+  if (currentManagePanel !== 'overview') {
     void ensureManageCatalog();
   }
 }
@@ -3756,7 +3786,10 @@ async function init() {
   resetStreamingUiState();
   await loadLocalePlugin();
   await sessionController.initializeSessionContext();
-  void ensureManageCatalog();
+  // Catalog is only needed when the operator opens the manage panel or
+  // settings dialog. Both call sites already lazily call ensureManageCatalog
+  // (setManagePanel + the renderSettings fallback). Fetching it eagerly in
+  // init() blocks the cold load by ~1.9s for ~100KB the user may never see.
   setManagePanel(currentManagePanel);
   initGithubConnectionPanel();
 }
