@@ -127,6 +127,7 @@ const manageEditorClose = document.getElementById('manage-editor-close');
 const manageEditorCancel = document.getElementById('manage-editor-cancel');
 const manageEditorDelete = document.getElementById('manage-editor-delete');
 const manageEditorApply = document.getElementById('manage-editor-apply');
+const manageEditorSetDefaultModel = document.getElementById('manage-editor-set-default-model');
 const pathQuickLinks = document.getElementById('path-quick-links');
 const pathUpButton = document.getElementById('path-up-button');
 const pathRefreshButton = document.getElementById('path-refresh-button');
@@ -1602,6 +1603,7 @@ function openManageEditor(kind, item = null) {
   }
   if (manageEditorDelete) manageEditorDelete.hidden = creating;
   if (manageEditorApply) manageEditorApply.hidden = kind !== 'providerProfile' || creating;
+  if (manageEditorSetDefaultModel) manageEditorSetDefaultModel.hidden = kind !== 'providerProfile';
 
   if (kind === 'providerProfile') {
     manageEditorFields.innerHTML = `
@@ -3198,42 +3200,45 @@ settingsForm.addEventListener('submit', async (event) => {
   }
 });
 
-// Red [Set as default model] CTA in the conversation header. Lets the
-// operator explicitly bind a model to the global config without
-// navigating into Manage → Settings. The chosen model is persisted via
-// the existing `/api/settings` endpoint (defaultModel field) and then
-// inherited by every freshly created session.
-const setDefaultModelBtn = document.getElementById('set-default-model-btn');
-if (setDefaultModelBtn) {
-  setDefaultModelBtn.addEventListener('click', async () => {
-    const current = currentState?.config?.defaultModel
-      || activeSessionSummary()?.model
-      || '';
-    const promptLabel = t(
-      'action.setDefaultModelPrompt',
-      '请输入要设为默认对话模型的 model id（留空则清除）：',
+// [设为默认模型] CTA inside the provider-profile editor (red
+// button placed before the existing [应用] button). Reads the current
+// `Default Model` input from the editor form and POSTs it to
+// `/api/settings` so the conversation header model immediately switches
+// to the edited value. Differs from [应用] which also persists
+// providerId / baseUrl — this one only flips the default model so the
+// operator can quickly bind the model being edited without overwriting
+// the active provider routing.
+async function setEditorDefaultModelAsActive() {
+  if (!manageEditorState || manageEditorState.kind !== 'providerProfile') return;
+  if (!manageEditorForm) return;
+  const formData = new FormData(manageEditorForm);
+  const candidate = String(formData.get('defaultModel') || '').trim();
+  if (!candidate) {
+    showToast(
+      t('action.setDefaultModelEmpty', '请先填入 Default Model 后再设为默认模型'),
+      'error',
     );
-    const next = window.prompt(promptLabel, current);
-    if (next === null) return; // user cancelled
-    try {
-      const sessionId = await sessionController.ensureWritableSession();
-      const state = await postForm('/api/settings', {
-        sessionId,
-        defaultModel: next.trim(),
-      });
-      lastSettingsSaveAt = new Date();
-      applyState(state, sessionId);
-      await refreshEventFeed(sessionId);
-      const trimmed = next.trim();
-      showToast(
-        trimmed
-          ? `${t('action.setDefaultModelOk', '默认模型已设为')} ${trimmed}`
-          : t('action.setDefaultModelCleared', '默认模型已清除'),
-        'success',
-      );
-    } catch (error) {
-      showToast(`${t('error.settingsFailed', '保存设置失败')}: ${error.message}`, 'error');
-    }
+    return;
+  }
+  try {
+    const sessionId = await sessionController.ensureWritableSession();
+    const state = await postForm('/api/settings', {
+      sessionId,
+      defaultModel: candidate,
+    });
+    lastSettingsSaveAt = new Date();
+    applyState(state, sessionId);
+    await refreshEventFeed(sessionId);
+    closeManageEditor();
+    showToast(`${t('action.setDefaultModelOk', '默认模型已设为')} ${candidate}`, 'success');
+  } catch (error) {
+    showToast(`${t('error.settingsFailed', '保存设置失败')}: ${error.message}`, 'error');
+  }
+}
+
+if (manageEditorSetDefaultModel) {
+  manageEditorSetDefaultModel.addEventListener('click', () => {
+    void setEditorDefaultModelAsActive();
   });
 }
 

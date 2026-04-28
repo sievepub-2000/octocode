@@ -144,6 +144,7 @@
   "action.setDefaultModelPrompt": "既定の会話モデルに設定する model id を入力してください（空でクリア）：",
   "action.setDefaultModelOk": "既定モデルを以下に設定しました",
   "action.setDefaultModelCleared": "既定モデルをクリアしました",
+  "action.setDefaultModelEmpty": "まず Default Model を入力してから既定に設定してください",
   "manage.group.workspace": "ワークスペース",
   "manage.group.tooling": "システムツール",
   "manage.overview": "概要",
