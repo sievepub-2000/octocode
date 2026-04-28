@@ -3,6 +3,7 @@ mod desktop;
 mod index;
 mod manage_config;
 mod server;
+mod server_cache;
 mod skills_install;
 mod terminal;
 #[allow(dead_code)]
@@ -257,6 +258,142 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // P3-E6: self-review [--since <epoch_ms>] — produce a triage report from
+    // the runtime's own telemetry. Surfaces top failures, slow probes, open
+    // circuits, and proposes concrete next-step actions (config / skill /
+    // parser / routing). This is the imperative entry point that the
+    // `skills/self-review/SKILL.md` describes.
+    if raw_args.first().map(|s| s.as_str()) == Some("self-review") {
+        let mut since_ms: u128 = 0;
+        let mut iter = raw_args.iter().skip(1);
+        while let Some(arg) = iter.next() {
+            if arg == "--since" {
+                if let Some(value) = iter.next() {
+                    since_ms = value.parse::<u128>().map_err(|e| {
+                        Box::<dyn std::error::Error>::from(format!(
+                            "--since must be epoch millis: {e}"
+                        ))
+                    })?;
+                }
+            }
+        }
+        if since_ms == 0 {
+            // Default window: last 24 hours.
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0);
+            since_ms = now_ms.saturating_sub(24 * 60 * 60 * 1000);
+        }
+
+        let platform = NativePlatform::detect(String::from("."));
+        let config = ConfigLoader::new(platform.config_paths()).load()?;
+        let runtime = server::build_runtime(platform.context().root.clone(), config)?;
+
+        let healths = runtime.provider_healths();
+        let circuits = runtime.provider_circuits();
+        let events = runtime.event_feed_since(None, since_ms).unwrap_or_default();
+
+        // Top failures: events whose message contains an error/blocked
+        // marker. We aggregate by a coarse key (scope + first 80 chars).
+        let mut failure_counts: std::collections::HashMap<String, u32> =
+            std::collections::HashMap::new();
+        let mut blocked_tools: std::collections::HashMap<String, u32> =
+            std::collections::HashMap::new();
+        for ev in &events {
+            let msg = &ev.message;
+            let lower = msg.to_lowercase();
+            if lower.contains("error")
+                || lower.contains("failed")
+                || lower.contains("blocked")
+                || lower.contains("denied")
+            {
+                let trimmed: String = msg.chars().take(80).collect();
+                let key = format!("{}:{}", ev.scope, trimmed);
+                *failure_counts.entry(key).or_insert(0) += 1;
+            }
+            if let Some(rest) = lower.strip_prefix("tool_blocked ") {
+                let name: String = rest.chars().take(48).collect();
+                *blocked_tools.entry(name).or_insert(0) += 1;
+            }
+        }
+        let mut top_failures: Vec<(String, u32)> =
+            failure_counts.into_iter().collect();
+        top_failures.sort_by(|a, b| b.1.cmp(&a.1));
+        top_failures.truncate(5);
+
+        // Slowest probes (descending latency_ms among healthy probes).
+        let mut slow: Vec<(&str, u128, bool)> = healths
+            .iter()
+            .map(|h| (h.provider_id.as_str(), h.latency_ms.unwrap_or(0), h.healthy))
+            .collect();
+        slow.sort_by(|a, b| b.1.cmp(&a.1));
+        slow.truncate(5);
+
+        // Circuit activity: anything not Closed.
+        let circuit_activity: Vec<_> = circuits
+            .iter()
+            .filter(|c| !matches!(c.circuit_state, octocode_core::ProviderCircuitState::Closed))
+            .collect();
+
+        // Concrete proposals.
+        let mut proposals: Vec<serde_json::Value> = Vec::new();
+        for (name, hits) in blocked_tools.iter().filter(|(_, c)| **c >= 3) {
+            proposals.push(serde_json::json!({
+                "kind": "parser",
+                "action": format!(
+                    "Add alias for `{name}` to canonicalize_embedded_tool_name in crates/octocode-runtime/src/tool_call_parser.rs"
+                ),
+                "hits": hits,
+            }));
+        }
+        for c in &circuit_activity {
+            proposals.push(serde_json::json!({
+                "kind": "routing",
+                "action": format!(
+                    "Demote provider `{}` (circuit state={:?}); consider disabling in octocode.conf until outage clears",
+                    c.provider_id, c.circuit_state
+                ),
+            }));
+        }
+        if events.iter().filter(|e| e.scope == "turn").count() >= 24 {
+            proposals.push(serde_json::json!({
+                "kind": "config",
+                "action": "Long task chain detected — consider raising agent_max_iterations beyond 12 (cap 64) in octocode.conf",
+            }));
+        }
+
+        let report = serde_json::json!({
+            "window": {
+                "sinceMs": since_ms,
+                "events": events.len(),
+                "turns": events.iter().filter(|e| e.scope == "turn").count(),
+            },
+            "topFailures": top_failures
+                .into_iter()
+                .map(|(key, count)| serde_json::json!({"key": key, "count": count}))
+                .collect::<Vec<_>>(),
+            "slowestProbes": slow
+                .into_iter()
+                .map(|(id, lat, healthy)| serde_json::json!({
+                    "providerId": id,
+                    "latencyMs": lat,
+                    "healthy": healthy,
+                }))
+                .collect::<Vec<_>>(),
+            "circuitActivity": circuit_activity
+                .iter()
+                .map(|c| serde_json::json!({
+                    "providerId": c.provider_id,
+                    "state": format!("{:?}", c.circuit_state),
+                }))
+                .collect::<Vec<_>>(),
+            "proposals": proposals,
+        });
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
+
     // P6-C: completions <shell> — emit static shell-completion snippets.
     if raw_args.first().map(|s| s.as_str()) == Some("completions") {
         let shell = raw_args.get(1).map(String::as_str).unwrap_or("bash");
@@ -462,6 +599,7 @@ const ALL_SUBCOMMANDS: &[&str] = &[
     "commands-list",
     "doctor",
     "tasks-list",
+    "self-review",
     "completions",
     "serve",
     "desktop",
@@ -487,6 +625,7 @@ fn render_help_text() -> String {
         ("commands-list", "JSON list of built-in /slash commands."),
         ("doctor", "Full diagnostic report (config + providers + circuits)."),
         ("tasks-list [<session>]", "JSON list of task records (optionally filtered)."),
+        ("self-review [--since <ms>]", "P3-E6 triage report from runtime telemetry: top failures, slow probes, open circuits, proposed actions."),
         ("completions <shell>", "Emit shell completion script (bash | zsh | powershell)."),
         ("serve --port <N>", "Start the web workbench on the given port."),
         ("desktop --port <N>", "Launch the native desktop shell."),

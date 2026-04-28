@@ -22,6 +22,10 @@ use octocode_runtime::{
     OctocodeRuntime, RuntimeProviderRouter, TaskStore, WorkspaceToolExecutor,
 };
 use crate::{manage_config, terminal, ws};
+use crate::server_cache::{
+    cached_config_load, cached_health_payload, spawn_sse_heartbeat,
+    store_cached_health_payload, turn_now_ms_for_cache,
+};
 
 /// Maximum HTTP request body size (10 MB).
 const MAX_BODY_BYTES: usize = 10 * 1024 * 1024;
@@ -92,89 +96,6 @@ pub fn render_metrics_body() -> String {
 
 /// 2026.4.24-B1: operational counters for permanent memory + agent supervision.
 static METRICS_MEMORY_NOTES_TOTAL: AtomicU64 = AtomicU64::new(0);
-
-/// P0-S1: TTL for the in-process `/api/health` cache. Provider probes can
-/// take 200–700 ms each; with 17 providers that previously summed to
-/// ~3–4 s per request. We now (a) probe in parallel inside the router
-/// and (b) memoise the JSON payload here for `HEALTH_CACHE_TTL` so a
-/// busy WebUI doesn't re-probe on every poll.
-const HEALTH_CACHE_TTL: Duration = Duration::from_secs(15);
-
-static HEALTH_CACHE: OnceLock<Mutex<Option<(Instant, String)>>> = OnceLock::new();
-
-fn health_cache() -> &'static Mutex<Option<(Instant, String)>> {
-    HEALTH_CACHE.get_or_init(|| Mutex::new(None))
-}
-
-fn cached_health_payload() -> Option<String> {
-    let guard = health_cache().lock().ok()?;
-    let (stored_at, payload) = guard.as_ref()?;
-    if stored_at.elapsed() <= HEALTH_CACHE_TTL {
-        Some(payload.clone())
-    } else {
-        None
-    }
-}
-
-fn store_cached_health_payload(payload: String) {
-    if let Ok(mut guard) = health_cache().lock() {
-        *guard = Some((Instant::now(), payload));
-    }
-}
-
-/// Wall-clock millis since UNIX epoch, used as a cache marker in the JSON
-/// payload so clients can see how stale the cached probe is.
-fn turn_now_ms_for_cache() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0)
-}
-
-/// P0-L2: SSE keep-alive sentinel. Spawns a background thread that writes
-/// `: keepalive\n\n` to a cloned [`TcpStream`] every `interval` until the
-/// returned [`HeartbeatHandle::stop`] is invoked. SSE comments (lines
-/// beginning with `:`) are ignored by EventSource clients but reset proxy
-/// idle timers, preventing reverse proxies and load balancers from killing
-/// long-running tool-call chains.
-struct HeartbeatHandle {
-    flag: Arc<AtomicBool>,
-    handle: Option<thread::JoinHandle<()>>,
-}
-
-impl HeartbeatHandle {
-    fn stop(mut self) {
-        self.flag.store(true, Ordering::SeqCst);
-        if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
-        }
-    }
-}
-
-fn spawn_sse_heartbeat(stream: &TcpStream, interval: Duration) -> HeartbeatHandle {
-    let flag = Arc::new(AtomicBool::new(false));
-    let cloned = stream.try_clone().ok();
-    let flag_for_thread = Arc::clone(&flag);
-    let handle = cloned.map(|mut sock| {
-        thread::spawn(move || {
-            // Tick at 250 ms so stop() returns quickly; only emit a keep-alive
-            // comment when `interval` has elapsed.
-            let tick = Duration::from_millis(250);
-            let mut elapsed = Duration::ZERO;
-            while !flag_for_thread.load(Ordering::SeqCst) {
-                thread::sleep(tick);
-                elapsed += tick;
-                if elapsed >= interval {
-                    elapsed = Duration::ZERO;
-                    if sock.write_all(b": keepalive\n\n").is_err() || sock.flush().is_err() {
-                        break;
-                    }
-                }
-            }
-        })
-    });
-    HeartbeatHandle { flag, handle }
-}
 
 /// Persistent structured memory store inspired by mem0 (multi-level scope,
 /// tags, importance, keyword search) and simplemem (tag-indexed minimal
@@ -946,7 +867,7 @@ fn start_async_task_worker(
         let run = || -> Result<(), Box<dyn std::error::Error>> {
             let platform = NativePlatform::detect(workspace_root.clone());
             let loader = ConfigLoader::new(platform.config_paths());
-            let config = loader.load()?;
+            let config = cached_config_load(&loader)?;
             let runtime = build_runtime(workspace_root.clone(), config)?;
 
             let _ = runtime.task_start(&task_id, Some(String::from("worker started")));
@@ -1903,7 +1824,7 @@ fn handle_sse_stream(
     let workspace_root = String::from(".");
     let platform = NativePlatform::detect(workspace_root.clone());
     let loader = ConfigLoader::new(platform.config_paths());
-    let config = loader.load()?;
+    let config = cached_config_load(&loader)?;
     let runtime = build_runtime(workspace_root, config)?;
 
     // P0-L2: spawn keep-alive heartbeat (SSE comment every 15 s). The thread
@@ -2055,7 +1976,7 @@ fn handle_ws_upgrade(
         let workspace_root = String::from(".");
         let platform = NativePlatform::detect(workspace_root.clone());
         let loader = ConfigLoader::new(platform.config_paths());
-        let config = loader.load()?;
+        let config = cached_config_load(&loader)?;
         let runtime = build_runtime(workspace_root, config)?;
 
         let stream_ref = std::cell::RefCell::new(&mut *stream);
@@ -2263,7 +2184,7 @@ fn route_request(
     let workspace_root = String::from(".");
     let platform = NativePlatform::detect(workspace_root.clone());
     let loader = ConfigLoader::new(platform.config_paths());
-    let config = loader.load()?;
+    let config = cached_config_load(&loader)?;
 
     match (request.method.as_str(), request.path.as_str()) {
         ("GET", "/") => Ok(http_redirect("/ui-shell/")),

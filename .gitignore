@@ -36,6 +36,27 @@ capture.png
 temp_cdp.*
 RunCDP.cs
 
+# transient validation artifacts (Phase 4/5 verification logs)
+fa_*.txt
+fa2_*.txt
+check_now.txt
+check_full.txt
+check_output_now.txt
+clippy_now*.txt
+test_now.txt
+merge_*.txt
+build_release*.txt
+live_regression.txt
+result.txt
+probe-file.txt
+test.text
+test_stream.ps1
+test_ws.ps1
+inspect.js
+verify_ui.js
+.srv.err
+test_output.log
+
 /target-*/
 
 /node_modules/
