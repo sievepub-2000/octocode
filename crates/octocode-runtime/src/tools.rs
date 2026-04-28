@@ -522,6 +522,26 @@ const TOOLS: &[ToolDescriptor] = &[
         summary: "Full-text search across indexed session segments using SQLite FTS5. Input: 'query' (or 'query|limit' to override the default 20 hits).",
         minimum_permission: PermissionMode::ReadOnly,
     },
+    ToolDescriptor {
+        name: "schedule-add-cron",
+        summary: "Register a recurring shell command on a 5-field cron expression (UTC). Input: 'name|<cron expr>|command' (e.g. 'nightly|0 2 * * *|cargo build').",
+        minimum_permission: PermissionMode::WorkspaceWrite,
+    },
+    ToolDescriptor {
+        name: "docker-command",
+        summary: "Execute a shell command inside a docker container. Input: 'container|<remote command>'. Subject to the same approval gate as shell-command.",
+        minimum_permission: PermissionMode::WorkspaceWrite,
+    },
+    ToolDescriptor {
+        name: "skill-score",
+        summary: "Update the success/failure score for a recorded skill. Input: 'skill-slug|+1' for success, 'skill-slug|-1' for failure. Persisted to skills/auto/<slug>/score.txt.",
+        minimum_permission: PermissionMode::WorkspaceWrite,
+    },
+    ToolDescriptor {
+        name: "skill-list",
+        summary: "List recorded skills under skills/auto/ ranked by success score (highest first). No input.",
+        minimum_permission: PermissionMode::ReadOnly,
+    },
 ];
 
 /// Pluggable shell backend used by `shell-command` / `ssh-command`. The
@@ -534,6 +554,7 @@ const TOOLS: &[ToolDescriptor] = &[
 pub enum ShellBackend {
     Local,
     Ssh { host: String },
+    Docker { container: String },
 }
 
 impl ShellBackend {
@@ -543,6 +564,7 @@ impl ShellBackend {
         match self {
             ShellBackend::Local => String::from("local"),
             ShellBackend::Ssh { host } => format!("ssh:{host}"),
+            ShellBackend::Docker { container } => format!("docker:{container}"),
         }
     }
 
@@ -561,6 +583,10 @@ impl ShellBackend {
                     "ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new {} \"{}\"",
                     host, escaped
                 )
+            }
+            ShellBackend::Docker { container } => {
+                let escaped = remote_cmd.replace('\\', "\\\\").replace('"', "\\\"");
+                format!("docker exec {container} sh -c \"{escaped}\"")
             }
         }
     }
@@ -800,6 +826,142 @@ impl WorkspaceToolExecutor {
         }
         let backend = ShellBackend::Ssh { host: host.to_string() };
         self.run_shell(&backend.wrap(remote_cmd))
+    }
+
+    /// Execute a remote command inside a docker container. Mirrors
+    /// `execute_ssh_command` semantics: same approval gate, same
+    /// `container|<remote cmd>` payload shape, but uses
+    /// `ShellBackend::Docker` so the wire command becomes
+    /// `docker exec <container> sh -c "..."`.
+    pub(crate) fn execute_docker_command(
+        &self,
+        raw_input: &str,
+        session_mode: &PermissionMode,
+    ) -> Result<ToolResult, OctoError> {
+        let approved = self.enforce_approval(
+            "docker-command",
+            raw_input,
+            session_mode,
+            |payload| {
+                let container = payload
+                    .split_once('|')
+                    .map(|(left, _)| left.trim())
+                    .unwrap_or(payload.trim());
+                format!("docker '{}'", preview_for_audit(container, 80))
+            },
+        )?;
+        let (container, remote_cmd) = approved.split_once('|').ok_or_else(|| {
+            OctoError::Runtime(String::from(
+                "docker-command expects input in the form 'container|<remote command>'",
+            ))
+        })?;
+        let container = container.trim();
+        let remote_cmd = remote_cmd.trim();
+        if container.is_empty() || remote_cmd.is_empty() {
+            return Err(OctoError::Runtime(String::from(
+                "docker-command requires non-empty container and remote command",
+            )));
+        }
+        let backend = ShellBackend::Docker { container: container.to_string() };
+        self.run_shell(&backend.wrap(remote_cmd))
+    }
+
+    /// Cron-flavoured sibling of [`execute_schedule_add`]. Input shape:
+    /// `name|<cron expr>|command`. The cron expression is validated by
+    /// the scheduler at registration time, so syntax errors surface
+    /// immediately rather than on first tick.
+    pub(crate) fn execute_schedule_add_cron(&self, raw_input: &str) -> Result<ToolResult, OctoError> {
+        let mut parts = raw_input.splitn(3, '|');
+        let name = parts.next().unwrap_or("").trim();
+        let expr = parts.next().unwrap_or("").trim();
+        let command = parts.next().unwrap_or("").trim();
+        if name.is_empty() || expr.is_empty() || command.is_empty() {
+            return Err(OctoError::Runtime(String::from(
+                "schedule-add-cron expects 'name|<cron expr>|command'",
+            )));
+        }
+        let scheduler = crate::scheduler::Scheduler::new(self.workspace_root.clone());
+        scheduler.add_cron(name, expr, command)?;
+        Ok(ToolResult {
+            output: format!("scheduled '{name}' on cron '{expr}' -> {command}"),
+        })
+    }
+
+    /// Bump the success/failure score for a previously recorded skill.
+    /// Persists the running total to `skills/auto/<slug>/score.txt`.
+    /// Input: `slug|+1` for success, `slug|-1` for failure.
+    pub(crate) fn execute_skill_score(&self, raw_input: &str) -> Result<ToolResult, OctoError> {
+        let (slug, delta_raw) = raw_input.split_once('|').ok_or_else(|| {
+            OctoError::Runtime(String::from(
+                "skill-score expects 'slug|+1' or 'slug|-1'",
+            ))
+        })?;
+        let slug = slug.trim();
+        let delta_raw = delta_raw.trim();
+        if slug.is_empty() {
+            return Err(OctoError::Runtime(String::from(
+                "skill-score requires a non-empty slug",
+            )));
+        }
+        let delta: i64 = delta_raw.parse().map_err(|_| {
+            OctoError::Runtime(format!("skill-score delta '{delta_raw}' must be a signed integer"))
+        })?;
+        let dir = self.workspace_root.join("skills").join("auto").join(slug);
+        if !dir.exists() {
+            return Err(OctoError::Runtime(format!(
+                "skill '{slug}' does not exist under skills/auto/"
+            )));
+        }
+        let score_path = dir.join("score.txt");
+        self.security_check_path(&score_path)?;
+        let current: i64 = std::fs::read_to_string(&score_path)
+            .ok()
+            .and_then(|s| s.trim().parse::<i64>().ok())
+            .unwrap_or(0);
+        let next = current.saturating_add(delta);
+        std::fs::write(&score_path, format!("{next}\n")).map_err(|e| {
+            OctoError::Runtime(format!("failed to write {}: {e}", score_path.display()))
+        })?;
+        Ok(ToolResult {
+            output: format!("skill '{slug}' score: {current} -> {next}"),
+        })
+    }
+
+    /// Enumerate every recorded skill under `skills/auto/<slug>/` and
+    /// rank by score (descending). Skills without a score file are
+    /// treated as zero. The output is one line per skill, suitable for
+    /// quick inspection by the agent loop or operator.
+    pub(crate) fn execute_skill_list(&self) -> Result<ToolResult, OctoError> {
+        let auto_dir = self.workspace_root.join("skills").join("auto");
+        if !auto_dir.exists() {
+            return Ok(ToolResult { output: String::from("no skills recorded") });
+        }
+        let read = std::fs::read_dir(&auto_dir).map_err(|e| {
+            OctoError::Runtime(format!("read {}: {e}", auto_dir.display()))
+        })?;
+        let mut entries: Vec<(String, i64)> = Vec::new();
+        for entry in read.flatten() {
+            if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let slug = entry.file_name().to_string_lossy().into_owned();
+            let score_path = entry.path().join("score.txt");
+            let score: i64 = std::fs::read_to_string(&score_path)
+                .ok()
+                .and_then(|s| s.trim().parse::<i64>().ok())
+                .unwrap_or(0);
+            entries.push((slug, score));
+        }
+        if entries.is_empty() {
+            return Ok(ToolResult { output: String::from("no skills recorded") });
+        }
+        entries.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        let body = entries
+            .iter()
+            .map(|(slug, score)| format!("- {slug} (score={score})"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        Ok(ToolResult { output: body })
     }
 
     /// Streaming variant of [`execute_shell_command`]. Forwards each chunk
@@ -3225,6 +3387,10 @@ impl ToolExecutor for WorkspaceToolExecutor {
             "schedule-list" => self.execute_schedule_list(),
             "session-index" => self.execute_session_index(&call.input),
             "session-search" => self.execute_session_search(&call.input),
+            "schedule-add-cron" => self.execute_schedule_add_cron(&call.input),
+            "docker-command" => self.execute_docker_command(&call.input, &call.permission),
+            "skill-score" => self.execute_skill_score(&call.input),
+            "skill-list" => self.execute_skill_list(),
             "search-text" => self.search_text(&call.input),
             "workflow-plan" => Ok(self.workflow_plan(&call.input)),
             "agent-action" => Ok(self.agent_action(&call.input)),
@@ -3753,7 +3919,7 @@ mod tests {
     fn tool_catalog_has_expected_tools() {
         let catalog = RuntimeToolCatalog;
         let descriptors = catalog.descriptors();
-        assert_eq!(descriptors.len(), 73, "expected 73 tool descriptors, got {}", descriptors.len());
+        assert_eq!(descriptors.len(), 77, "expected 77 tool descriptors, got {}", descriptors.len());
     }
 
     #[test]
@@ -3944,6 +4110,135 @@ mod tests {
         assert_eq!(backend.label(), "ssh:ops@host-1");
         assert_eq!(ShellBackend::Local.label(), "local");
         assert_eq!(ShellBackend::Local.wrap("echo x"), "echo x");
+    }
+
+    #[test]
+    fn docker_backend_wraps_remote_command_via_docker_exec() {
+        let backend = ShellBackend::Docker { container: String::from("octo-build") };
+        let wrapped = backend.wrap("ls /app");
+        assert!(wrapped.starts_with("docker exec octo-build sh -c "), "wrapped={wrapped}");
+        assert!(wrapped.ends_with("\"ls /app\""));
+        assert_eq!(backend.label(), "docker:octo-build");
+    }
+
+    #[test]
+    fn skill_score_persists_running_total_to_score_file() {
+        let root = std::env::temp_dir().join(format!(
+            "octocode-skill-score-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let exec = test_executor_for(&root);
+        // Record a skill so the slug directory exists.
+        exec.execute(ToolCall {
+            name: String::from("skill-record"),
+            input: String::from("Beta Skill|description here|step one"),
+            permission: PermissionMode::WorkspaceWrite,
+        })
+        .expect("record");
+        // Bump up twice, down once.
+        exec.execute(ToolCall {
+            name: String::from("skill-score"),
+            input: String::from("beta-skill|+1"),
+            permission: PermissionMode::WorkspaceWrite,
+        })
+        .expect("score +1");
+        exec.execute(ToolCall {
+            name: String::from("skill-score"),
+            input: String::from("beta-skill|+1"),
+            permission: PermissionMode::WorkspaceWrite,
+        })
+        .expect("score +1");
+        let last = exec
+            .execute(ToolCall {
+                name: String::from("skill-score"),
+                input: String::from("beta-skill|-1"),
+                permission: PermissionMode::WorkspaceWrite,
+            })
+            .expect("score -1");
+        assert!(last.output.contains("2 -> 1"), "got {}", last.output);
+        let score = fs::read_to_string(
+            root.join("skills")
+                .join("auto")
+                .join("beta-skill")
+                .join("score.txt"),
+        )
+        .unwrap();
+        assert_eq!(score.trim(), "1");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn skill_score_rejects_unknown_slug() {
+        let root = std::env::temp_dir().join(format!(
+            "octocode-skill-score-missing-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let exec = test_executor_for(&root);
+        let err = exec
+            .execute(ToolCall {
+                name: String::from("skill-score"),
+                input: String::from("ghost-skill|+1"),
+                permission: PermissionMode::WorkspaceWrite,
+            })
+            .expect_err("should fail for missing skill");
+        assert!(err.to_string().contains("does not exist"), "err={err}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn skill_list_ranks_by_score_descending() {
+        let root = std::env::temp_dir().join(format!(
+            "octocode-skill-list-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let exec = test_executor_for(&root);
+        for (name, ups) in [("alpha", 1), ("bravo", 5), ("charlie", 3)] {
+            exec.execute(ToolCall {
+                name: String::from("skill-record"),
+                input: format!("{name}|desc|step"),
+                permission: PermissionMode::WorkspaceWrite,
+            })
+            .expect("record");
+            for _ in 0..ups {
+                exec.execute(ToolCall {
+                    name: String::from("skill-score"),
+                    input: format!("{name}|+1"),
+                    permission: PermissionMode::WorkspaceWrite,
+                })
+                .expect("score");
+            }
+        }
+        let listing = exec
+            .execute(ToolCall {
+                name: String::from("skill-list"),
+                input: String::new(),
+                permission: PermissionMode::ReadOnly,
+            })
+            .expect("list");
+        let lines: Vec<&str> = listing.output.lines().collect();
+        // Bravo (5) > charlie (3) > alpha (1).
+        assert!(lines[0].contains("bravo"), "first line: {}", lines[0]);
+        assert!(lines[1].contains("charlie"), "second line: {}", lines[1]);
+        assert!(lines[2].contains("alpha"), "third line: {}", lines[2]);
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

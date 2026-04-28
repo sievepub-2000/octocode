@@ -12,11 +12,24 @@
 //! without forcing a runtime decision here.
 
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use octocode_core::OctoError;
 
+use crate::cron::CronSchedule;
+
 const SCHEDULE_FILE: &str = "schedules.json";
+
+/// Trigger metadata for a registered schedule. `Interval` repeats every
+/// N seconds; `Cron` evaluates a 5-field expression (UTC).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ScheduleTrigger {
+    Interval { secs: u64 },
+    Cron { expr: String },
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScheduleEntry {
@@ -24,6 +37,7 @@ pub struct ScheduleEntry {
     pub interval_secs: u64,
     pub command: String,
     pub last_fired_unix: u64,
+    pub trigger: ScheduleTrigger,
 }
 
 #[derive(Debug, Clone)]
@@ -81,6 +95,32 @@ impl Scheduler {
             interval_secs,
             command: String::from(command.trim()),
             last_fired_unix: 0,
+            trigger: ScheduleTrigger::Interval { secs: interval_secs },
+        });
+        self.save(&entries)
+    }
+
+    /// Register or replace a schedule that fires on a 5-field cron
+    /// expression (UTC). Validates the expression eagerly so callers
+    /// see syntax errors at registration time, not at first tick.
+    pub fn add_cron(&self, name: &str, expr: &str, command: &str) -> Result<(), OctoError> {
+        if name.trim().is_empty() {
+            return Err(OctoError::Runtime(String::from("schedule name must be non-empty")));
+        }
+        if command.trim().is_empty() {
+            return Err(OctoError::Runtime(String::from("schedule command must be non-empty")));
+        }
+        // Validate up-front; we do not store the parsed form because
+        // schedules persist as plain text.
+        let _ = CronSchedule::parse(expr)?;
+        let mut entries = self.load()?;
+        entries.retain(|e| e.name != name);
+        entries.push(ScheduleEntry {
+            name: String::from(name.trim()),
+            interval_secs: 0,
+            command: String::from(command.trim()),
+            last_fired_unix: 0,
+            trigger: ScheduleTrigger::Cron { expr: String::from(expr.trim()) },
         });
         self.save(&entries)
     }
@@ -89,16 +129,30 @@ impl Scheduler {
         self.load()
     }
 
-    /// Return names of entries that have elapsed since `last_fired_unix`
-    /// when measured against `now_unix`. Updates persistence so each
-    /// entry only fires once per interval per `tick` call.
+    /// Return entries that are due relative to `now_unix`. Each entry's
+    /// trigger decides "due":
+    ///   * `Interval { secs }` — fires when `now >= last_fired + secs`.
+    ///   * `Cron { expr }` — fires when `now >= next_after(last_fired)`.
+    /// Updates persistence so each entry only fires once per call.
     #[allow(dead_code)]
     pub fn tick(&self, now_unix: u64) -> Result<Vec<ScheduleEntry>, OctoError> {
         let mut entries = self.load()?;
         let mut due: Vec<ScheduleEntry> = Vec::new();
         for entry in entries.iter_mut() {
-            let next_fire = entry.last_fired_unix.saturating_add(entry.interval_secs);
-            if now_unix >= next_fire {
+            let is_due = match &entry.trigger {
+                ScheduleTrigger::Interval { secs } => {
+                    let next_fire = entry.last_fired_unix.saturating_add(*secs);
+                    now_unix >= next_fire
+                }
+                ScheduleTrigger::Cron { expr } => match CronSchedule::parse(expr) {
+                    Ok(sched) => match sched.next_after(entry.last_fired_unix) {
+                        Some(next) => now_unix >= next,
+                        None => false,
+                    },
+                    Err(_) => false, // skip invalid expression silently
+                },
+            };
+            if is_due {
                 entry.last_fired_unix = now_unix;
                 due.push(entry.clone());
             }
@@ -107,6 +161,76 @@ impl Scheduler {
             self.save(&entries)?;
         }
         Ok(due)
+    }
+
+    /// Spawn a background thread that wakes every `poll_interval` and
+    /// invokes `on_due` for each fired entry. The returned handle owns
+    /// the shutdown flag and the join handle, so callers can stop the
+    /// runner deterministically. The runner intentionally swallows
+    /// individual errors to keep the loop alive across transient I/O
+    /// failures (e.g. a temporarily unwritable schedules file).
+    #[allow(dead_code)]
+    pub fn spawn_background<F>(
+        self,
+        poll_interval: Duration,
+        on_due: F,
+    ) -> SchedulerHandle
+    where
+        F: Fn(&ScheduleEntry) + Send + 'static,
+    {
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_for_thread = stop.clone();
+        let join = thread::spawn(move || {
+            while !stop_for_thread.load(Ordering::Relaxed) {
+                let now = now_unix();
+                if let Ok(due) = self.tick(now) {
+                    for entry in &due {
+                        on_due(entry);
+                    }
+                }
+                // Sleep in small chunks so shutdown is responsive.
+                let mut slept = Duration::ZERO;
+                while slept < poll_interval && !stop_for_thread.load(Ordering::Relaxed) {
+                    let chunk = poll_interval
+                        .saturating_sub(slept)
+                        .min(Duration::from_millis(50));
+                    thread::sleep(chunk);
+                    slept += chunk;
+                }
+            }
+        });
+        SchedulerHandle { stop, join: Some(join) }
+    }
+}
+
+/// Owning handle for a background scheduler. Dropping the handle stops
+/// the runner thread and joins it, so test cleanup is deterministic.
+#[allow(dead_code)]
+pub struct SchedulerHandle {
+    stop: Arc<AtomicBool>,
+    join: Option<JoinHandle<()>>,
+}
+
+#[allow(dead_code)]
+impl SchedulerHandle {
+    pub fn stop(&self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
+
+    pub fn join(mut self) {
+        self.stop();
+        if let Some(j) = self.join.take() {
+            let _ = j.join();
+        }
+    }
+}
+
+impl Drop for SchedulerHandle {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(j) = self.join.take() {
+            let _ = j.join();
+        }
     }
 }
 
@@ -134,13 +258,22 @@ fn sanitize(value: &str) -> String {
 fn render_entries(entries: &[ScheduleEntry]) -> String {
     let mut out = String::from("# octocode schedules v1\n");
     for e in entries {
-        out.push_str(&format!(
-            "v1|{}|{}|{}|{}\n",
-            sanitize(&e.name),
-            e.interval_secs,
-            e.last_fired_unix,
-            sanitize(&e.command)
-        ));
+        match &e.trigger {
+            ScheduleTrigger::Interval { secs } => out.push_str(&format!(
+                "v1|{}|{}|{}|{}\n",
+                sanitize(&e.name),
+                secs,
+                e.last_fired_unix,
+                sanitize(&e.command)
+            )),
+            ScheduleTrigger::Cron { expr } => out.push_str(&format!(
+                "v2|{}|cron:{}|{}|{}\n",
+                sanitize(&e.name),
+                sanitize(expr),
+                e.last_fired_unix,
+                sanitize(&e.command)
+            )),
+        }
     }
     out
 }
@@ -154,22 +287,45 @@ fn parse_entries(text: &str) -> Vec<ScheduleEntry> {
         }
         let mut parts = line.splitn(5, '|');
         let tag = parts.next().unwrap_or("");
-        if tag != "v1" {
-            continue;
-        }
         let name = parts.next().unwrap_or("").to_string();
-        let interval = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+        let trigger_field = parts.next().unwrap_or("");
         let last = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
         let command = parts.next().unwrap_or("").to_string();
-        if name.is_empty() || interval == 0 || command.is_empty() {
+        if name.is_empty() || command.is_empty() {
             continue;
         }
-        out.push(ScheduleEntry {
-            name,
-            interval_secs: interval,
-            command,
-            last_fired_unix: last,
-        });
+        match tag {
+            "v1" => {
+                let interval = trigger_field.parse::<u64>().unwrap_or(0);
+                if interval == 0 {
+                    continue;
+                }
+                out.push(ScheduleEntry {
+                    name,
+                    interval_secs: interval,
+                    command,
+                    last_fired_unix: last,
+                    trigger: ScheduleTrigger::Interval { secs: interval },
+                });
+            }
+            "v2" => {
+                let expr = match trigger_field.strip_prefix("cron:") {
+                    Some(rest) => rest.to_string(),
+                    None => continue,
+                };
+                if expr.is_empty() {
+                    continue;
+                }
+                out.push(ScheduleEntry {
+                    name,
+                    interval_secs: 0,
+                    command,
+                    last_fired_unix: last,
+                    trigger: ScheduleTrigger::Cron { expr },
+                });
+            }
+            _ => continue,
+        }
     }
     out
 }
@@ -263,6 +419,72 @@ mod tests {
         assert_eq!(entries.len(), 1);
         // pipe replaced with '/', newline with space — round-trip safe.
         assert_eq!(entries[0].command, "echo a/b c");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn add_cron_round_trips_and_reports_trigger() {
+        let root = temp_root();
+        let s = Scheduler::new(&root);
+        s.add_cron("daily-9am", "0 9 * * 1-5", "cargo build").unwrap();
+        let entries = s.list().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "daily-9am");
+        assert_eq!(entries[0].command, "cargo build");
+        match &entries[0].trigger {
+            ScheduleTrigger::Cron { expr } => assert_eq!(expr, "0 9 * * 1-5"),
+            other => panic!("expected cron trigger, got {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn add_cron_rejects_invalid_expression_eagerly() {
+        let root = temp_root();
+        let s = Scheduler::new(&root);
+        let err = s.add_cron("bad", "60 * * * *", "x").expect_err("must reject");
+        assert!(err.to_string().contains("cron"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn tick_fires_cron_entry_when_minute_elapses() {
+        let root = temp_root();
+        let s = Scheduler::new(&root);
+        // Wildcard cron fires every minute. last_fired_unix=0 initially,
+        // and tick at any positive time should fire.
+        s.add_cron("every-min", "* * * * *", "echo ping").unwrap();
+        let due = s.tick(120).unwrap();
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].name, "every-min");
+        // Re-tick at the same second is a no-op because last_fired==120,
+        // and next_after(120) is 180, so 120 < 180.
+        let again = s.tick(120).unwrap();
+        assert!(again.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn spawn_background_invokes_callback_then_stops_cleanly() {
+        use std::sync::atomic::{AtomicUsize, Ordering as O};
+        let root = temp_root();
+        let s = Scheduler::new(&root);
+        s.add("ping", 1, "echo go").unwrap();
+        let counter = std::sync::Arc::new(AtomicUsize::new(0));
+        let counter_for_cb = counter.clone();
+        let handle = s.spawn_background(Duration::from_millis(20), move |_e| {
+            counter_for_cb.fetch_add(1, O::Relaxed);
+        });
+        // Wait up to 500 ms for at least one fire (interval=1s with
+        // last_fired=0 means immediately due on first tick).
+        for _ in 0..50 {
+            if counter.load(O::Relaxed) > 0 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        handle.join();
+        assert!(counter.load(O::Relaxed) >= 1);
         let _ = std::fs::remove_dir_all(&root);
     }
 }

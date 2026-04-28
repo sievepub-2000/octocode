@@ -91,6 +91,11 @@ impl TurnStateStore for MemorySessionStore {
 pub struct FileSessionStore {
     sessions_dir: PathBuf,
     transcripts_dir: PathBuf,
+    /// Optional workspace root used to opportunistically index every
+    /// appended message into the FTS5 search corpus. When unset (the
+    /// default) the store stays purely file-backed and tests that do
+    /// not exercise search remain unaffected.
+    search_index_root: Option<PathBuf>,
 }
 
 impl FileSessionStore {
@@ -105,7 +110,19 @@ impl FileSessionStore {
         Ok(Self {
             sessions_dir,
             transcripts_dir,
+            search_index_root: None,
         })
+    }
+
+    /// Enable auto-indexing of every appended message into the FTS5
+    /// search corpus rooted at `workspace_root`. Indexing failures are
+    /// swallowed so they cannot block conversation persistence — the
+    /// search index is best-effort, the transcript is the source of
+    /// truth.
+    #[allow(dead_code)]
+    pub fn with_search_index_root(mut self, workspace_root: impl Into<PathBuf>) -> Self {
+        self.search_index_root = Some(workspace_root.into());
+        self
     }
 
     fn session_file_path(&self, id: &str) -> PathBuf {
@@ -480,6 +497,17 @@ impl ConversationStore for FileSessionStore {
 
     fn append_message(&self, session_id: &str, message: ConversationMessage) -> Result<(), OctoError> {
         let mut messages = self.load_messages(session_id);
+        // Best-effort FTS5 indexing of the new segment, gated on the
+        // optional `search_index_root`. Errors are intentionally
+        // ignored — the transcript persistence below remains the
+        // source of truth and must never be blocked by a search-side
+        // failure.
+        if let Some(root) = &self.search_index_root {
+            let segment = format!("{}: {}", message.role.as_str(), message.content);
+            if let Ok(store) = crate::sqlite_store::SqliteStore::open(root) {
+                let _ = store.index_session_segment(session_id, &segment);
+            }
+        }
         messages.push(message);
         self.write_messages(session_id, &messages)
     }
@@ -622,5 +650,58 @@ mod tests {
         assert_eq!(removed, 3);
         assert!(store.list_sessions().expect("list").is_empty());
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn append_message_auto_indexes_into_fts5_when_root_set() {
+        // Pin a unique workspace root so this test never collides with
+        // the temp-store root above (which lives under data_home, not
+        // workspace_root) or with other parallel tests.
+        let workspace = std::env::temp_dir().join(format!(
+            "octocode-session-fts-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = fs::remove_dir_all(&workspace);
+        fs::create_dir_all(&workspace).unwrap();
+
+        let (store, data_root) = temp_store("fts-hook");
+        let store = store.with_search_index_root(&workspace);
+
+        store
+            .save_session(SessionSummary {
+                id: String::from("sess-fts"),
+                title: String::from("fts session"),
+                model: None,
+                parent_id: None,
+                branch_name: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+            })
+            .expect("save");
+        store
+            .append_message(
+                "sess-fts",
+                ConversationMessage {
+                    role: ConversationRole::User,
+                    content: String::from("dockerized smoke build pipeline"),
+                },
+            )
+            .expect("append");
+
+        // The auto-index path opens a SqliteStore at `workspace`, so
+        // searching the same root must surface the appended segment.
+        let store_db = crate::sqlite_store::SqliteStore::open(&workspace).unwrap();
+        let hits = store_db.search_sessions("dockerized", 10).unwrap();
+        assert!(
+            hits.iter().any(|(sid, _)| sid == "sess-fts"),
+            "expected auto-indexed segment for sess-fts; got {hits:?}"
+        );
+
+        let _ = fs::remove_dir_all(&data_root);
+        let _ = fs::remove_dir_all(&workspace);
     }
 }

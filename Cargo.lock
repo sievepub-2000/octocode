@@ -1655,6 +1655,7 @@ name = "octocode-gateway"
 version = "2026.4.24"
 dependencies = [
  "octocode-core",
+ "ureq",
 ]
 
 [[package]]

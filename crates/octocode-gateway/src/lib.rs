@@ -98,6 +98,181 @@ impl TelegramGateway {
             "telegram sendMessage response missing 'message_id': {body}"
         )))
     }
+
+    /// Poll Telegram getUpdates with a long-polling offset. Returns the
+    /// list of `(update_id, chat_id, text)` triplets parsed from the
+    /// response. Callers should pass `next_offset = max(update_id) + 1`
+    /// on the next poll to acknowledge processed updates.
+    pub fn get_updates(
+        &self,
+        transport: &dyn MessageTransport,
+        offset: u64,
+        timeout_secs: u64,
+    ) -> Result<Vec<InboundUpdate>, OctoError> {
+        let body = transport.post(
+            &self.endpoint("getUpdates"),
+            &[
+                (String::from("offset"), offset.to_string()),
+                (String::from("timeout"), timeout_secs.to_string()),
+            ],
+        )?;
+        Ok(parse_updates(&body))
+    }
+}
+
+/// Inbound update parsed from `getUpdates`. Carries only the fields the
+/// runtime currently needs (`update_id`, `chat_id`, `text`); richer
+/// fields can be added incrementally without breaking callers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InboundUpdate {
+    pub update_id: u64,
+    pub chat_id: String,
+    pub text: String,
+}
+
+/// Parse the result array of a Telegram `getUpdates` response. The
+/// parser is intentionally tolerant of unknown fields and simply scans
+/// for the three keys we care about per `update_id` block.
+fn parse_updates(body: &str) -> Vec<InboundUpdate> {
+    let mut out = Vec::new();
+    // Split on `"update_id"` to isolate one update per chunk.
+    let mut chunks = body.split("\"update_id\"");
+    let _prefix = chunks.next();
+    for chunk in chunks {
+        let after_colon = chunk.trim_start_matches(|c: char| c.is_whitespace() || c == ':');
+        let id_end = after_colon
+            .find(|c: char| c == ',' || c == '}' || c.is_whitespace())
+            .unwrap_or(after_colon.len());
+        let id_str = after_colon[..id_end].trim();
+        let Ok(update_id) = id_str.parse::<u64>() else {
+            continue;
+        };
+        // Search the remaining chunk for the first chat id and text.
+        let chat_id = extract_nested_id(chunk, "\"chat\"", "\"id\"")
+            .unwrap_or_default();
+        let text = extract_string_field(chunk, "text").unwrap_or_default();
+        if !chat_id.is_empty() && !text.is_empty() {
+            out.push(InboundUpdate {
+                update_id,
+                chat_id,
+                text,
+            });
+        }
+    }
+    out
+}
+
+/// Extract `outer.inner` style nested numeric ids: find `outer`, then
+/// inside the following object look for `inner`.
+fn extract_nested_id(body: &str, outer: &str, inner: &str) -> Option<String> {
+    let idx = body.find(outer)?;
+    let rest = &body[idx + outer.len()..];
+    let inner_idx = rest.find(inner)?;
+    let after = &rest[inner_idx + inner.len()..];
+    let after_colon = after.trim_start_matches(|c: char| c.is_whitespace() || c == ':');
+    let end = after_colon
+        .find(|c: char| c == ',' || c == '}' || c.is_whitespace())
+        .unwrap_or(after_colon.len());
+    let v = after_colon[..end].trim().trim_matches('"');
+    if v.is_empty() {
+        None
+    } else {
+        Some(v.to_string())
+    }
+}
+
+/// Real `ureq`-backed transport. Built behind the `network` feature so
+/// the default crate stays HTTP-free for tests and offline builds.
+#[cfg(feature = "network")]
+#[derive(Debug, Default, Clone)]
+pub struct UreqTransport;
+
+#[cfg(feature = "network")]
+impl MessageTransport for UreqTransport {
+    fn post(&self, url: &str, form: &[(String, String)]) -> Result<String, OctoError> {
+        let pairs: Vec<(&str, &str)> =
+            form.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        ureq::post(url)
+            .send_form(&pairs)
+            .map_err(|e| OctoError::Runtime(format!("ureq POST {url}: {e}")))?
+            .into_string()
+            .map_err(|e| OctoError::Runtime(format!("ureq read {url}: {e}")))
+    }
+}
+
+/// Slack incoming-webhook gateway. Slack does not return a numeric
+/// message id from incoming webhooks; success is reported as the literal
+/// body `ok`. We therefore return the raw body so callers can decide
+/// how strict to be.
+#[derive(Debug, Clone)]
+pub struct SlackGateway {
+    webhook_url: String,
+}
+
+impl SlackGateway {
+    pub fn new(webhook_url: impl Into<String>) -> Self {
+        Self {
+            webhook_url: webhook_url.into(),
+        }
+    }
+
+    pub fn send_message(
+        &self,
+        transport: &dyn MessageTransport,
+        msg: &OutboundMessage,
+    ) -> Result<String, OctoError> {
+        if msg.text.trim().is_empty() {
+            return Err(OctoError::Runtime(String::from("text must be non-empty")));
+        }
+        // Slack incoming-webhook uses a JSON `payload` field. We craft
+        // it manually to avoid pulling serde_json into this crate.
+        let payload = format!(
+            "{{\"text\":\"{}\",\"channel\":\"{}\"}}",
+            escape_json(&msg.text),
+            escape_json(&msg.chat_id),
+        );
+        let body = transport.post(
+            &self.webhook_url,
+            &[(String::from("payload"), payload)],
+        )?;
+        Ok(body)
+    }
+}
+
+/// Discord webhook gateway. Discord webhooks return `204 No Content`
+/// on success — most transports surface that as an empty string body,
+/// which we treat as success. Non-empty bodies typically describe an
+/// error and are propagated to the caller.
+#[derive(Debug, Clone)]
+pub struct DiscordGateway {
+    webhook_url: String,
+}
+
+impl DiscordGateway {
+    pub fn new(webhook_url: impl Into<String>) -> Self {
+        Self {
+            webhook_url: webhook_url.into(),
+        }
+    }
+
+    pub fn send_message(
+        &self,
+        transport: &dyn MessageTransport,
+        msg: &OutboundMessage,
+    ) -> Result<(), OctoError> {
+        if msg.text.trim().is_empty() {
+            return Err(OctoError::Runtime(String::from("text must be non-empty")));
+        }
+        let _body = transport.post(
+            &self.webhook_url,
+            &[(String::from("content"), msg.text.clone())],
+        )?;
+        Ok(())
+    }
+}
+
+fn escape_json(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 /// Extract `"<field>":<value>` from a flat JSON response. Handles both
@@ -224,5 +399,89 @@ mod tests {
         let gw = TelegramGateway::new("STUB").with_base_url("http://mock.local");
         let err = gw.get_me(&transport).expect_err("must error");
         assert!(err.to_string().contains("missing 'username'"));
+    }
+
+    #[test]
+    fn get_updates_parses_chat_id_and_text() {
+        let transport = MockTransport::new(vec![
+            r#"{"ok":true,"result":[
+                {"update_id":101,"message":{"chat":{"id":555,"type":"private"},"text":"hello bot"}},
+                {"update_id":102,"message":{"chat":{"id":777,"type":"group"},"text":"second one"}}
+            ]}"#,
+        ]);
+        let gw = TelegramGateway::new("STUB").with_base_url("http://mock.local");
+        let updates = gw.get_updates(&transport, 0, 30).expect("getUpdates");
+        assert_eq!(updates.len(), 2);
+        assert_eq!(updates[0].update_id, 101);
+        assert_eq!(updates[0].chat_id, "555");
+        assert_eq!(updates[0].text, "hello bot");
+        assert_eq!(updates[1].update_id, 102);
+        assert_eq!(updates[1].chat_id, "777");
+        assert_eq!(updates[1].text, "second one");
+    }
+
+    #[test]
+    fn get_updates_returns_empty_for_empty_result() {
+        let transport = MockTransport::new(vec![r#"{"ok":true,"result":[]}"#]);
+        let gw = TelegramGateway::new("STUB").with_base_url("http://mock.local");
+        let updates = gw.get_updates(&transport, 0, 1).unwrap();
+        assert!(updates.is_empty());
+    }
+
+    #[test]
+    fn slack_gateway_posts_payload() {
+        let transport = MockTransport::new(vec!["ok"]);
+        let gw = SlackGateway::new("https://hooks.slack/x");
+        let body = gw
+            .send_message(
+                &transport,
+                &OutboundMessage {
+                    chat_id: String::from("#general"),
+                    text: String::from("hi from octocode"),
+                },
+            )
+            .unwrap();
+        assert_eq!(body, "ok");
+        let calls = transport.calls();
+        assert_eq!(calls[0].0, "https://hooks.slack/x");
+        let payload = calls[0].1[0].1.clone();
+        assert!(payload.contains("\"text\":\"hi from octocode\""));
+        assert!(payload.contains("\"channel\":\"#general\""));
+    }
+
+    #[test]
+    fn discord_gateway_posts_content_and_accepts_empty_body() {
+        let transport = MockTransport::new(vec![""]);
+        let gw = DiscordGateway::new("https://discord/webhook/x");
+        gw.send_message(
+            &transport,
+            &OutboundMessage {
+                chat_id: String::from("ignored"),
+                text: String::from("hello"),
+            },
+        )
+        .unwrap();
+        let calls = transport.calls();
+        assert_eq!(calls[0].0, "https://discord/webhook/x");
+        assert!(calls[0].1.iter().any(|(k, v)| k == "content" && v == "hello"));
+    }
+
+    #[test]
+    fn slack_and_discord_reject_empty_text() {
+        let transport = MockTransport::new(vec![]);
+        let slack = SlackGateway::new("https://hooks.slack/x");
+        assert!(slack
+            .send_message(
+                &transport,
+                &OutboundMessage { chat_id: String::from("c"), text: String::new() }
+            )
+            .is_err());
+        let discord = DiscordGateway::new("https://discord/x");
+        assert!(discord
+            .send_message(
+                &transport,
+                &OutboundMessage { chat_id: String::from("c"), text: String::new() }
+            )
+            .is_err());
     }
 }
