@@ -65,11 +65,25 @@ denied_tools=
 
 | Provider ID     | Kind              | Example Base URL                       |
 |----------------|-------------------|----------------------------------------|
-| `local-openai` | OpenAI-compatible | `http://localhost:8080/v1`             |
-| `remote-openai`| OpenAI-compatible | `https://api.openai.com/v1`            |
-| `ollama`       | Ollama            | `http://localhost:11434`               |
-| `linkmind`     | LinkMind          | `http://localhost:8765`                |
-| `stub`         | Stub (fallback)   | —                                      |
+| `local-openai` | LlamaCpp / OpenAI-compatible | `http://localhost:8080/v1`           |
+| `remote-openai`| OpenAI-compatible | `https://api.openai.com/v1`                       |
+| `ollama`       | Ollama            | `http://localhost:11434`                          |
+| `linkmind`     | LinkMind          | `http://localhost:8765`                           |
+| `gemini`       | OpenAI-compatible | `https://generativelanguage.googleapis.com/v1`    |
+| `azure-openai` | OpenAI-compatible | `https://<resource>.openai.azure.com`             |
+| `nvidia-free`  | OpenAI-compatible | `https://integrate.api.nvidia.com/v1`             |
+| `anthropic`    | Anthropic         | `https://api.anthropic.com`                       |
+| `xai`          | xAI               | `https://api.x.ai/v1`                             |
+| `openrouter`   | OpenRouter        | `https://openrouter.ai/api/v1`                    |
+| `qwen`         | Qwen / DashScope  | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| `glm`          | Zhipu GLM         | `https://open.bigmodel.cn/api/paas/v4`            |
+| `kimi`         | Moonshot Kimi     | `https://api.moonshot.cn/v1`                      |
+| `xiaomi`       | Xiaomi (stream)   | per-deployment                                    |
+| `minimax`      | MiniMax           | `https://api.minimax.chat/v1`                     |
+| `openai-completion` | Legacy `/v1/completions` | self-hosted gateway                       |
+| `stub`         | Stub (fallback)   | —                                                 |
+
+All **17 providers** are described in detail under [`docs/architecture.md`](docs/architecture.md#3-provider-layer).
 
 ### Environment Variables
 
@@ -106,7 +120,7 @@ Each provider has a circuit breaker that tracks failures, with automatic recover
 | `session-show <id>` | Show session transcript |
 | `session-add <id> <title>` | Create a new session |
 | `session-export <path>` | Export sessions to file |
-| `tools` | List available tools (29) |
+| `tools` | List available tools (67) |
 | `tool <name> <input>` | Execute a specific tool |
 | `agent <sid> <action>` | Run agent orchestration |
 | `workflow <sid> <goal>` | Execute workflow step |
@@ -115,9 +129,9 @@ Each provider has a circuit breaker that tracks failures, with automatic recover
 | `desktop <port> <sid>` | Launch desktop app |
 | `--json <cmd>` | JSON output mode |
 
-## Tools (29 built-in)
+## Tools (67 built-in)
 
-File operations, code search, shell execution, agent actions, and more. All file tools enforce workspace-root path security.
+File operations, code search, shell execution, agent actions, multi-agent coordination (`team-create / team-list / team-delete / team-status / agent-message / subagent-spawn / subagent-list / subagent-status`), persistent todos (`todo-add / todo-list / todo-done`), task lifecycle (`task-submit / task-list / task-get`), memory v2 (`memory-save / memory-read / memory-list / memory-search / memory-delete`), worktree controls (`worktree-enter / worktree-exit`), web (`web-search / web-browse / fetch-readable / html-to-markdown / http-get / http-post / json-query`), notebook (`notebook-edit`), LSP hover (`lsp-hover`), git (`git-status / git-diff / git-log / git-commit / git-branch`), and more. All file tools enforce workspace-root path security via `runtime/file_guard.rs`.
 
 ```bash
 # Read a file
@@ -133,8 +147,8 @@ cargo run -p octocode-cli -- tool list-files src/
 ## Development
 
 ```bash
-# Run all tests (75 unit + 6 ignored E2E)
-cargo test --workspace
+# Run all tests (336+ unit, 0 failed at last release gate)
+cargo test --workspace --no-fail-fast
 
 # Run clippy (0 warnings policy)
 cargo clippy --workspace -- -D warnings

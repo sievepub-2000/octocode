@@ -1741,7 +1741,7 @@ impl WorkspaceToolExecutor {
                     // actual answer for factual queries (weather, prices,
                     // times, scores). Tell the model explicitly what to do
                     // next rather than hoping it infers.
-                    out.push_str(&web_search_followup_hint(&query));
+                    out.push_str(&web_search_followup_hint(query));
                     return Ok(ToolResult {
                         output: truncate_output(&out, 16 * 1024),
                     });
@@ -1966,7 +1966,7 @@ fn parse_duckduckgo_results(html: &str) -> Vec<SearchHit> {
                     href.split("uddg=")
                         .nth(1)
                         .and_then(|s| s.split('&').next())
-                        .map(|s| url_decode(s))
+                        .map(url_decode)
                         .unwrap_or(href.clone())
                 } else {
                     href.clone()
@@ -3611,7 +3611,7 @@ fn http_get_host_is_preapproved(raw_payload: &str) -> bool {
         None => return false,
     };
     let host_end = rest
-        .find(|c: char| c == '/' || c == '?' || c == '#' || c == ':')
+        .find(['/', '?', '#', ':'])
         .unwrap_or(rest.len());
     let host = rest[..host_end].to_ascii_lowercase();
     HTTP_GET_PREAPPROVED_HOSTS
