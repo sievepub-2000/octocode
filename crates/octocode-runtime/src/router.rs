@@ -538,6 +538,7 @@ mod tests {
                 history_limit: 8,
                 denied_tools: Vec::new(),
                 request_timeout_secs: 90,
+                config_version: 0,
                 agent_max_iterations: 0,
             },
         )

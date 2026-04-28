@@ -473,6 +473,12 @@ pub struct ConfigPaths {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeConfig {
+    /// Schema version of the persisted `octocode.conf`. Increments when
+    /// fields are renamed/removed so the loader can migrate older files
+    /// instead of erroring out. `0` (legacy/unset) is treated as "v1
+    /// equivalent" for backwards compatibility.
+    #[serde(default)]
+    pub config_version: u32,
     pub provider_id: Option<String>,
     pub provider_base_url: Option<String>,
     pub default_model: Option<String>,
@@ -486,6 +492,11 @@ pub struct RuntimeConfig {
     #[serde(default)]
     pub agent_max_iterations: usize,
 }
+
+/// Current schema version emitted by `default_config()` and persisted by
+/// `ConfigLoader::save`. Bump this together with a migration step when
+/// breaking field changes land.
+pub const CONFIG_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]

@@ -680,6 +680,7 @@ impl ProviderRegistry {
         self.create_by_id_with_config(
             id,
             &RuntimeConfig {
+                config_version: 0,
                 provider_id: Some(String::from(id)),
                 provider_base_url: None,
                 default_model: None,
@@ -2100,6 +2101,7 @@ mod tests {
         let provider = registry.create_by_id_with_config(
             "linkmind",
             &RuntimeConfig {
+                config_version: 0,
                 provider_id: Some(String::from("linkmind")),
                 provider_base_url: None,
                 default_model: None,
@@ -2120,6 +2122,7 @@ mod tests {
         let provider = registry.create_by_id_with_config(
             "ollama",
             &RuntimeConfig {
+                config_version: 0,
                 provider_id: Some(String::from("ollama")),
                 provider_base_url: None,
                 default_model: None,

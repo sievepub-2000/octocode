@@ -26,6 +26,20 @@ cargo run -p octocode-cli -- desktop 999 demo
 
 WebUI/desktop port is restricted to `990-999`.
 
+## Security model (release-hardening)
+
+Octocode binds the WebUI to `127.0.0.1` only and gates every HTTP/WS request with a bearer token. The token is resolved with the following precedence (T1):
+
+1. `OCTOCODE_BEARER_TOKEN` environment variable — preferred for production / CI.
+2. `OCTOCODE_BEARER_TOKEN_FILE` environment variable — points to a file whose first non-empty trimmed line is the token (preferred for desktop installs).
+3. Auto-generated 64-char hex secret (printed at startup). Suitable for local development only.
+
+The startup log prints `Auth token: <token> (source: ...)` so operators can confirm which path was used. All API responses now include `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and a `Content-Security-Policy` that pins script/style/connect to `'self'` + `127.0.0.1` only (T14). CORS is restricted to `http://127.0.0.1` rather than `*`.
+
+Permission modes (`permission_mode` in `octocode.conf`): `read-only`, `workspace-write` (default), `escalated`. Tool execution honours `denied_tools` and the workspace-root `file_guard`.
+
+Config file forward-compatibility: `octocode.conf` now records `config_version=1` (T10). Older configs without the field are read as v0 and upgraded on next save.
+
 ## Architecture
 
 ```

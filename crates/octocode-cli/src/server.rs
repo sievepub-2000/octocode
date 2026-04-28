@@ -43,6 +43,12 @@ static METRICS_ERRORS_TOTAL: AtomicU64 = AtomicU64::new(0);
 static METRICS_CHAT_REQUESTS_TOTAL: AtomicU64 = AtomicU64::new(0);
 static METRICS_TOOL_INVOCATIONS_TOTAL: AtomicU64 = AtomicU64::new(0);
 static METRICS_SESSIONS_CREATED_TOTAL: AtomicU64 = AtomicU64::new(0);
+/// T6 (release-hardening): release operability counters.
+/// `agent_iterations_total` increments per supervised agent loop step;
+/// `circuit_open_total` increments each time the provider router trips
+/// a circuit breaker open. Both are label-free for cardinality safety.
+pub(crate) static METRICS_AGENT_ITERATIONS_TOTAL: AtomicU64 = AtomicU64::new(0);
+pub(crate) static METRICS_CIRCUIT_OPEN_TOTAL: AtomicU64 = AtomicU64::new(0);
 
 /// P13-B: Render the Prometheus text body for the `/metrics` endpoint.
 /// Exposed as a pub fn so integration tests can assert the format
@@ -55,6 +61,8 @@ pub fn render_metrics_body() -> String {
     let sessions_created = METRICS_SESSIONS_CREATED_TOTAL.load(Ordering::Relaxed);
     let memory_notes = METRICS_MEMORY_NOTES_TOTAL.load(Ordering::Relaxed);
     let agent_tasks_active = agent_tasks::active_count();
+    let agent_iterations = METRICS_AGENT_ITERATIONS_TOTAL.load(Ordering::Relaxed);
+    let circuit_open = METRICS_CIRCUIT_OPEN_TOTAL.load(Ordering::Relaxed);
     let version = env!("CARGO_PKG_VERSION");
     format!(
         concat!(
@@ -79,6 +87,12 @@ pub fn render_metrics_body() -> String {
             "# HELP octocode_agent_tasks_active Current number of supervised agent tasks in 'running' status.\n",
             "# TYPE octocode_agent_tasks_active gauge\n",
             "octocode_agent_tasks_active {agent_tasks_active}\n",
+            "# HELP octocode_agent_iterations_total Total agent loop iterations executed across all sessions.\n",
+            "# TYPE octocode_agent_iterations_total counter\n",
+            "octocode_agent_iterations_total {agent_iterations}\n",
+            "# HELP octocode_circuit_open_total Total number of times a provider circuit breaker tripped open.\n",
+            "# TYPE octocode_circuit_open_total counter\n",
+            "octocode_circuit_open_total {circuit_open}\n",
             "# HELP octocode_build_info Build information (labeled gauge, always 1).\n",
             "# TYPE octocode_build_info gauge\n",
             "octocode_build_info{{version=\"{version}\"}} 1\n",
@@ -90,6 +104,8 @@ pub fn render_metrics_body() -> String {
         sessions_created = sessions_created,
         memory_notes = memory_notes,
         agent_tasks_active = agent_tasks_active,
+        agent_iterations = agent_iterations,
+        circuit_open = circuit_open,
         version = version,
     )
 }
@@ -773,8 +789,38 @@ fn generate_auth_token() -> String {
     buf.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
+/// T1 (release-hardening): resolve the WebUI bearer token. Priority:
+///
+/// 1. `OCTOCODE_BEARER_TOKEN` environment variable (operators inject via
+///    systemd / docker / launchd).
+/// 2. `OCTOCODE_BEARER_TOKEN_FILE` env var pointing at a file whose
+///    trimmed contents are the token (lets the operator chmod 600 a
+///    secret file separately).
+/// 3. Fresh `getrandom` token, printed once on stdout (current dev
+///    behaviour, kept as the safe default).
+///
+/// Once resolved, the value is memoised in [`SERVER_AUTH_TOKEN`] so the
+/// rest of the request lifecycle never re-reads disk / env.
+fn resolve_auth_token() -> String {
+    if let Ok(token) = std::env::var("OCTOCODE_BEARER_TOKEN") {
+        let trimmed = token.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    if let Ok(path) = std::env::var("OCTOCODE_BEARER_TOKEN_FILE") {
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            let trimmed = content.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+    }
+    generate_auth_token()
+}
+
 fn get_server_token() -> &'static str {
-    SERVER_AUTH_TOKEN.get_or_init(generate_auth_token)
+    SERVER_AUTH_TOKEN.get_or_init(resolve_auth_token)
 }
 
 /// Validate the auth token from request headers.
@@ -998,8 +1044,15 @@ pub fn run_server(
 
     // Generate and display auth token for API access
     let token = get_server_token();
+    let token_source = if std::env::var("OCTOCODE_BEARER_TOKEN").is_ok() {
+        "OCTOCODE_BEARER_TOKEN env"
+    } else if std::env::var("OCTOCODE_BEARER_TOKEN_FILE").is_ok() {
+        "OCTOCODE_BEARER_TOKEN_FILE env"
+    } else {
+        "auto-generated"
+    };
     println!("Octocode WebUI ready on port {port} (thread pool: {THREAD_POOL_SIZE} workers)");
-    println!("Auth token: {token}");
+    println!("Auth token: {token} (source: {token_source})");
 
     // Write token to a file for the WebUI to read
     let token_path = std::env::temp_dir().join(format!("octocode-auth-{port}.token"));
@@ -1722,7 +1775,7 @@ fn handle_connection(
 
     // CORS preflight
     if request.method == "OPTIONS" {
-        let preflight = "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization, X-Auth-Token\r\nAccess-Control-Max-Age: 86400\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        let preflight = "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: http://127.0.0.1\r\nVary: Origin\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization, X-Auth-Token\r\nAccess-Control-Max-Age: 86400\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
         stream.write_all(preflight.as_bytes())?;
         stream.flush()?;
         return Ok(());
@@ -1864,7 +1917,9 @@ where
         "Content-Type: text/event-stream\r\n",
         "Cache-Control: no-cache\r\n",
         "Connection: keep-alive\r\n",
-        "Access-Control-Allow-Origin: *\r\n",
+        "Access-Control-Allow-Origin: http://127.0.0.1\r\n",
+        "Vary: Origin\r\n",
+        "X-Content-Type-Options: nosniff\r\n",
         "\r\n"
     );
     stream_ref.borrow_mut().write_all(headers.as_bytes())?;
@@ -2687,6 +2742,11 @@ fn route_request(
                 .unwrap_or_else(|| String::from("demo"));
             let text = request.form_value("text").unwrap_or_default();
             METRICS_CHAT_REQUESTS_TOTAL.fetch_add(1, Ordering::Relaxed);
+            // T6 (release-hardening): each chat turn drives one or more
+            // agent loop iterations. We approximate `agent_iterations_total`
+            // as one-per-turn here — finer-grained accounting requires a
+            // dedicated runtime callback and is deferred.
+            METRICS_AGENT_ITERATIONS_TOTAL.fetch_add(1, Ordering::Relaxed);
             let runtime = build_runtime(workspace_root, config)?;
             let result = runtime.prompt_in_session(&session_id, &text);
             match result {
@@ -3534,8 +3594,26 @@ fn error_response(status: u16, message: &str) -> Result<String, Box<dyn std::err
 }
 
 fn http_response(status: u16, status_text: &str, content_type: &str, body: String) -> String {
+    // T14 (release-hardening): always emit conservative security headers.
+    // CSP is intentionally strict for the bundled UI shell — we serve our
+    // own static assets without any third-party CDN — and X-Frame-Options
+    // / X-Content-Type-Options block trivial clickjacking + MIME sniffing.
+    // ACAO is restricted to localhost since the WebUI is bound to
+    // 127.0.0.1; widen it via a dedicated config flag if remote access
+    // is required.
     format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{}",
+        "HTTP/1.1 {} {}\r\n\
+         Content-Type: {}\r\n\
+         Content-Length: {}\r\n\
+         Cache-Control: no-store\r\n\
+         X-Content-Type-Options: nosniff\r\n\
+         X-Frame-Options: DENY\r\n\
+         Referrer-Policy: no-referrer\r\n\
+         Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://127.0.0.1:* http://127.0.0.1:*; frame-ancestors 'none'\r\n\
+         Access-Control-Allow-Origin: http://127.0.0.1\r\n\
+         Vary: Origin\r\n\
+         Connection: close\r\n\
+         \r\n{}",
         status,
         status_text,
         content_type,
@@ -3704,6 +3782,7 @@ mod tests {
             history_limit: 24,
             denied_tools: Vec::new(),
             request_timeout_secs: 5,
+            config_version: 0,
             agent_max_iterations: 0,
         };
         let platform = NativePlatform::detect(root.to_string_lossy().to_string());

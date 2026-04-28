@@ -106,6 +106,10 @@ impl ConfigLoader {
                     config.agent_max_iterations =
                         value.trim().parse::<usize>().unwrap_or(0);
                 }
+                "config_version" => {
+                    config.config_version =
+                        value.trim().parse::<u32>().unwrap_or(0);
+                }
                 _ => {}
             }
         }
@@ -127,6 +131,7 @@ impl ConfigLoader {
         let body = format!(
             concat!(
                 "# Octocode config\n",
+                "config_version={}\n",
                 "provider_id={}\n",
                 "provider_base_url={}\n",
                 "default_model={}\n",
@@ -136,6 +141,7 @@ impl ConfigLoader {
                 "request_timeout_secs={}\n",
                 "agent_max_iterations={}\n"
             ),
+            if config.config_version == 0 { octocode_core::CONFIG_SCHEMA_VERSION } else { config.config_version },
             config.provider_id.as_deref().unwrap_or(DEFAULT_PROVIDER_ID),
             config.provider_base_url.as_deref().unwrap_or(""),
             config.default_model.as_deref().unwrap_or(""),
@@ -228,6 +234,7 @@ impl ConfigLoader {
 
     pub fn default_config() -> RuntimeConfig {
         RuntimeConfig {
+            config_version: octocode_core::CONFIG_SCHEMA_VERSION,
             provider_id: Some(String::from(DEFAULT_PROVIDER_ID)),
             provider_base_url: Some(String::from(DEFAULT_PROVIDER_BASE_URL)),
             default_model: Some(String::from(DEFAULT_MODEL)),

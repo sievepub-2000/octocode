@@ -265,6 +265,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // `skills/self-review/SKILL.md` describes.
     if raw_args.first().map(|s| s.as_str()) == Some("self-review") {
         let mut since_ms: u128 = 0;
+        let mut cron_secs: Option<u64> = None;
         let mut iter = raw_args.iter().skip(1);
         while let Some(arg) = iter.next() {
             if arg == "--since" {
@@ -274,6 +275,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             "--since must be epoch millis: {e}"
                         ))
                     })?;
+                }
+            } else if arg == "--cron" {
+                // T13 (release-hardening): periodic self-review writer.
+                // When set, produce a report every <secs> seconds and
+                // append it as a JSONL record to
+                // `{data_home}/self-review-history.jsonl`.
+                if let Some(value) = iter.next() {
+                    let parsed: u64 = value.parse().map_err(|e| {
+                        Box::<dyn std::error::Error>::from(format!(
+                            "--cron must be seconds: {e}"
+                        ))
+                    })?;
+                    if parsed == 0 {
+                        return Err("--cron interval must be > 0 seconds".into());
+                    }
+                    cron_secs = Some(parsed);
                 }
             }
         }
@@ -288,7 +305,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let platform = NativePlatform::detect(String::from("."));
         let config = ConfigLoader::new(platform.config_paths()).load()?;
-        let runtime = server::build_runtime(platform.context().root.clone(), config)?;
+        let data_home = platform.config_paths().data_home.clone();
+        let history_path = std::path::PathBuf::from(&data_home).join("self-review-history.jsonl");
+
+        loop {
+            let runtime = server::build_runtime(platform.context().root.clone(), config.clone())?;
 
         let healths = runtime.provider_healths();
         let circuits = runtime.provider_circuits();
@@ -390,8 +411,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .collect::<Vec<_>>(),
             "proposals": proposals,
         });
-        println!("{}", serde_json::to_string_pretty(&report)?);
-        return Ok(());
+            match cron_secs {
+                Some(secs) => {
+                    if let Some(parent) = history_path.parent() {
+                        std::fs::create_dir_all(parent).ok();
+                    }
+                    let mut line = serde_json::to_string(&report)?;
+                    line.push('\n');
+                    use std::io::Write;
+                    let mut file = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&history_path)?;
+                    file.write_all(line.as_bytes())?;
+                    eprintln!(
+                        "self-review[cron]: appended report to {} (next run in {}s)",
+                        history_path.display(),
+                        secs
+                    );
+                    std::thread::sleep(std::time::Duration::from_secs(secs));
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis())
+                        .unwrap_or(0);
+                    since_ms = now_ms.saturating_sub((secs as u128) * 1000);
+                }
+                None => {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                    return Ok(());
+                }
+            }
+        }
     }
 
     // P6-C: completions <shell> — emit static shell-completion snippets.
@@ -625,7 +675,7 @@ fn render_help_text() -> String {
         ("commands-list", "JSON list of built-in /slash commands."),
         ("doctor", "Full diagnostic report (config + providers + circuits)."),
         ("tasks-list [<session>]", "JSON list of task records (optionally filtered)."),
-        ("self-review [--since <ms>]", "P3-E6 triage report from runtime telemetry: top failures, slow probes, open circuits, proposed actions."),
+        ("self-review [--since <ms>] [--cron <secs>]", "P3-E6 triage report from runtime telemetry: top failures, slow probes, open circuits, proposed actions. --cron N appends JSONL history every N seconds."),
         ("completions <shell>", "Emit shell completion script (bash | zsh | powershell)."),
         ("serve --port <N>", "Start the web workbench on the given port."),
         ("desktop --port <N>", "Launch the native desktop shell."),
@@ -813,6 +863,7 @@ mod tests {
             history_limit: 100,
             denied_tools: vec![],
             request_timeout_secs: 90,
+            config_version: 0,
             agent_max_iterations: 0,
         };
         let json = serde_json::to_string(&cfg).expect("serialize");
