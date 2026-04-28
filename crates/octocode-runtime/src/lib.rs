@@ -1724,8 +1724,14 @@ Shell: {:?}\n\n",
     }
 
     pub fn snapshot(&self, active_session_id: Option<&str>) -> Result<UiSnapshot, OctoError> {
+        // Robust first-paint: if the caller names a session that does not yet
+        // exist (e.g. WebUI just opened with a default session id from
+        // `serve <port> <session>`), fall back to the most recent session
+        // instead of returning an error. This lets the UI render the catalog,
+        // tools, and provider routes immediately while waiting for the first
+        // chat to materialize the named session.
         let resolved_session = match active_session_id {
-            Some(id) if !id.trim().is_empty() => Some(self.session(id)?),
+            Some(id) if !id.trim().is_empty() => self.session(id).ok().or_else(|| self.resume_session(None).ok()),
             _ => self.resume_session(None).ok(),
         };
         let event_feed = self.build_event_feed(resolved_session.as_ref());
@@ -1746,8 +1752,10 @@ Shell: {:?}\n\n",
     }
 
     pub fn event_feed(&self, active_session_id: Option<&str>) -> Result<Vec<RuntimeEvent>, OctoError> {
+        // Same first-paint robustness as snapshot(): unknown session id
+        // degrades gracefully to the latest session rather than 500.
         let resolved_session = match active_session_id {
-            Some(id) if !id.trim().is_empty() => Some(self.session(id)?),
+            Some(id) if !id.trim().is_empty() => self.session(id).ok().or_else(|| self.resume_session(None).ok()),
             _ => self.resume_session(None).ok(),
         };
         Ok(self.build_event_feed(resolved_session.as_ref()))
