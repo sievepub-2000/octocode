@@ -82,7 +82,7 @@ fn argspec_for(canonical: &str) -> Option<&'static ArgSpec> {
     // splitting `call.input` on `|`.
     const P_PATH: &[&str] = &["path", "file", "file_path", "filepath", "target"];
     const P_CONTENT: &[&str] = &["content", "contents", "text", "body", "data"];
-    const P_COMMAND: &[&str] = &["command", "cmd", "input", "script"];
+    const P_COMMAND: &[&str] = &["command", "cmd", "input", "script", "custom", "shell", "exec", "run", "line", "code"];
     const P_QUERY: &[&str] = &["query", "q", "pattern", "text", "keyword"];
     const P_URL: &[&str] = &["url", "href", "link", "target"];
     const P_ID: &[&str] = &["id", "task_id", "todo_id", "team_id"];
@@ -419,7 +419,11 @@ fn canonicalize_embedded_tool_name(raw_name: &str) -> Option<String> {
         "move-file" | "movefile" | "rename-file" | "mv" => Some("move-file"),
         "delete-file" | "deletefile" | "remove-file" | "rm" => Some("delete-file"),
         "search-text" | "searchtext" | "search" | "grep" => Some("search-text"),
-        "shell-command" | "shell" | "run-shell" | "run-command" | "exec" | "bash" | "sh" => {
+        "shell-command" | "shell" | "run-shell" | "run-command" | "exec" | "bash" | "sh"
+        | "run-task" | "runtask" | "run-terminal" | "run-in-terminal" | "runinterminal"
+        | "terminal" | "task" | "run" | "execute" | "execute-command"
+        | "run-command-in-terminal" | "shell-exec" | "shellexec"
+        | "powershell" | "pwsh" | "cmd" | "system" | "subprocess" => {
             Some("shell-command")
         }
         "web-search" | "websearch" | "search-web" => Some("web-search"),
@@ -759,6 +763,41 @@ That's all."#;
         assert_eq!(canonicalize_embedded_tool_name("exec"), Some("shell-command".into()));
         assert_eq!(canonicalize_embedded_tool_name("listdir"), Some("list-files".into()));
         assert_eq!(canonicalize_embedded_tool_name("unknown_tool"), None);
+    }
+
+    #[test]
+    fn test_run_task_aliases_route_to_shell_command() {
+        // Regression for the operator-visible failure where a Gemma reply
+        // emitted `tool-run-task(custom="ssh ...")` and the runtime
+        // surfaced `tool_blocked: model tried to call unknown tool
+        // run-task`. After the alias expansion these all map to
+        // `shell-command` and the `custom`/`shell` argument keys are
+        // accepted as the command body.
+        for raw in [
+            "tool-run-task",
+            "run-task",
+            "runtask",
+            "run-in-terminal",
+            "run-terminal",
+            "terminal",
+            "task",
+            "powershell",
+            "pwsh",
+            "system",
+        ] {
+            assert_eq!(
+                canonicalize_embedded_tool_name(raw),
+                Some("shell-command".into()),
+                "`{raw}` should canonicalize to shell-command"
+            );
+        }
+        // And the arg-key alias `custom=` must encode as the command body.
+        let mut args = BTreeMap::new();
+        args.insert("custom".into(), "echo hi".into());
+        let call = EmbeddedToolCall { tool_name: "shell-command".into(), arguments: args }
+            .to_tool_call()
+            .expect("custom= must satisfy shell-command schema");
+        assert_eq!(call.input, "echo hi");
     }
 
     #[test]
