@@ -129,6 +129,14 @@ const HARD_AGENT_MAX_ITERATIONS: usize = 64;
 const AUTO_COMPACT_TOKEN_THRESHOLD: usize = 24_000;
 const STREAM_CANCELLED_MESSAGE: &str = "stream cancelled";
 
+/// T6 (release-hardening): re-export of process-wide counters owned by
+/// `octocode-core` so existing call sites in this crate keep working.
+/// `AGENT_ITERATIONS_TOTAL` increments once per agent tool-call loop step.
+/// `CIRCUIT_OPEN_TOTAL` is incremented from `octocode-api` when a provider
+/// circuit transitions Closed/HalfOpen -> Open. Both are label-free and
+/// process-local (reset on restart).
+pub use octocode_core::{AGENT_ITERATIONS_TOTAL, CIRCUIT_OPEN_TOTAL};
+
 static WORKSPACE_CONTEXT_CACHE: OnceLock<Mutex<std::collections::HashMap<String, Option<String>>>> =
     OnceLock::new();
 static SESSION_STOP_FLAGS: OnceLock<Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>> =
@@ -788,6 +796,7 @@ where
         let max_iterations = self.agent_max_iterations();
 
         for iteration in 0..max_iterations {
+            AGENT_ITERATIONS_TOTAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let calls = parse_embedded_tool_calls(&current_output);
             if calls.is_empty() {
                 // No tool calls — store final response and return
@@ -1394,6 +1403,7 @@ Shell: {:?}\n\n",
             let mut interrupted_error = None;
 
             for _iteration in 0..self.agent_max_iterations() {
+                AGENT_ITERATIONS_TOTAL.fetch_add(1, Ordering::Relaxed);
                 if stop_flag.load(Ordering::SeqCst) {
                     stop_flag.store(false, Ordering::SeqCst);
                     return Err(stream_cancelled_error());

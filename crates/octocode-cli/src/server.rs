@@ -44,11 +44,14 @@ static METRICS_CHAT_REQUESTS_TOTAL: AtomicU64 = AtomicU64::new(0);
 static METRICS_TOOL_INVOCATIONS_TOTAL: AtomicU64 = AtomicU64::new(0);
 static METRICS_SESSIONS_CREATED_TOTAL: AtomicU64 = AtomicU64::new(0);
 /// T6 (release-hardening): release operability counters.
-/// `agent_iterations_total` increments per supervised agent loop step;
-/// `circuit_open_total` increments each time the provider router trips
-/// a circuit breaker open. Both are label-free for cardinality safety.
-pub(crate) static METRICS_AGENT_ITERATIONS_TOTAL: AtomicU64 = AtomicU64::new(0);
-pub(crate) static METRICS_CIRCUIT_OPEN_TOTAL: AtomicU64 = AtomicU64::new(0);
+/// Owned by `octocode-core` so the runtime crate (agent loop) and the
+/// api crate (circuit breaker) can both increment them without a
+/// circular dependency. Re-exported here for ergonomic use within
+/// `server.rs`.
+use octocode_core::{
+    AGENT_ITERATIONS_TOTAL as METRICS_AGENT_ITERATIONS_TOTAL,
+    CIRCUIT_OPEN_TOTAL as METRICS_CIRCUIT_OPEN_TOTAL,
+};
 
 /// P13-B: Render the Prometheus text body for the `/metrics` endpoint.
 /// Exposed as a pub fn so integration tests can assert the format
@@ -2742,11 +2745,11 @@ fn route_request(
                 .unwrap_or_else(|| String::from("demo"));
             let text = request.form_value("text").unwrap_or_default();
             METRICS_CHAT_REQUESTS_TOTAL.fetch_add(1, Ordering::Relaxed);
-            // T6 (release-hardening): each chat turn drives one or more
-            // agent loop iterations. We approximate `agent_iterations_total`
-            // as one-per-turn here — finer-grained accounting requires a
-            // dedicated runtime callback and is deferred.
-            METRICS_AGENT_ITERATIONS_TOTAL.fetch_add(1, Ordering::Relaxed);
+            // T6: per-iteration accounting now happens inside
+            // `octocode_runtime` (see AGENT_ITERATIONS_TOTAL increments
+            // in the prompt + prompt_stream agent loops). The chat
+            // endpoint deliberately does NOT bump the counter here so
+            // each loop step is reflected, not each user turn.
             let runtime = build_runtime(workspace_root, config)?;
             let result = runtime.prompt_in_session(&session_id, &text);
             match result {

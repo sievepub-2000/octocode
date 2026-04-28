@@ -361,6 +361,17 @@ impl OpenAiCompatibleProvider {
             detail.clone(),
         );
         if state.consecutive_failures >= CIRCUIT_FAILURE_THRESHOLD {
+            // T6 (release-hardening): count circuit-open transitions.
+            // Trip event = either the very first time we cross the
+            // threshold, or a previously-expired/half-open circuit
+            // re-tripping. Repeat failures while already Open are NOT
+            // counted to avoid inflating the metric.
+            let was_open_now =
+                matches!(state.open_until, Some(deadline) if deadline > now);
+            if !was_open_now {
+                octocode_core::CIRCUIT_OPEN_TOTAL
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
             // Exponential backoff: 5s, 10s, 20s, 40s, 80s, 120s (capped)
             let exponent = (state.consecutive_failures - CIRCUIT_FAILURE_THRESHOLD).min(6);
             let cooldown_secs = (CIRCUIT_BASE_COOLDOWN_SECS * (1 << exponent)).min(CIRCUIT_MAX_COOLDOWN_SECS);

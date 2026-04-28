@@ -25,9 +25,21 @@ if ($Profile -eq "release") {
   $cargoArgs += "--release"
 }
 
-& cargo @cargoArgs
-if ($LASTEXITCODE -ne 0) {
-  throw "cargo build failed with exit code $LASTEXITCODE"
+# T4 (release-hardening): cargo emits status lines to stderr; under
+# PS5.1's strict ErrorActionPreference those would terminate the
+# script even on success. Capture exit code explicitly and route
+# stderr through stdout so non-zero exits are detected reliably.
+$savedEAP = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+  & cargo @cargoArgs 2>&1 | ForEach-Object { "$_" } | Out-Host
+  $cargoExit = $LASTEXITCODE
+}
+finally {
+  $ErrorActionPreference = $savedEAP
+}
+if ($cargoExit -ne 0) {
+  throw "cargo build failed with exit code $cargoExit"
 }
 
 $profileDir = if ($Profile -eq "release") { "release" } else { "debug" }

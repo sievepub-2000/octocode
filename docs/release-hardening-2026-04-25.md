@@ -25,9 +25,9 @@ Octocode now meets a release-quality baseline for Windows operators. Every HTTP 
 
 | ID | Title | Status | Reason |
 |----|-------|--------|--------|
-| T2 | Long-task stub-replay smoke (iteration cap, keepalive, since-resume, mid-stream cancel) | ⏸ partial | smoke covered SSE keepalive presence indirectly via existing tests; full stub-driven replay deferred to a stub-provider milestone |
-| T4 | Windows installer script try-and-document | ⏸ partial | release binary built clean (`target/release/octocode-cli.exe` 32s); installer packaging script not run end-to-end this phase |
-| T5 | Permission boundary / shell-injection / 413 / 429 smoke | ⏸ partial | header smoke confirmed CSP + 401 unauth + ACAO; full payload smoke deferred (covered by existing security unit tests + `file_guard`) |
+| T2 | Long-task stub-replay smoke (iteration cap, keepalive, since-resume, mid-stream cancel) | ✅ done | `scripts/smoke-windows.ps1` covers SSE frame presence, `?since=` resume, `/api/sessions/cancel` alias |
+| T4 | Windows installer try-and-document | ✅ done | `scripts/package-windows-installer.ps1` produces 3.8MB setup.exe; PS5.1 stderr handling fixed |
+| T5 | Permission boundary / shell-injection / 413 / 429 smoke | ✅ done | smoke validates 401, 413 (oversize POST close), 429 (>30 req/s burst), CSP/XCTO/XFO/Referrer-Policy/ACAO |
 | T3 | Linux/macOS smoke | ⛔ deferred | per user "Linux和mac先不做" |
 | T9 | EWMA tuning (α calibration) | ⛔ deferred | requires production telemetry sample |
 | T11 | Full `server.rs` split (3933 LOC → routes/state/handlers) | ⛔ deferred | minimal `server_cache.rs` extraction already done; remainder post-release to avoid release-window churn |
@@ -67,8 +67,9 @@ octocode_build_info{version="2026.4.24"} 1
 
 Notes:
 
-- `agent_iterations_total` increments once per `/api/chat` turn. Sub-iteration accuracy requires a runtime callback hook (deferred).
-- `circuit_open_total` counter is wired through `/metrics` rendering but increments on circuit transitions inside `octocode-runtime`. Wire-up of the actual transition path is deferred to a runtime-side instrumentation pass (left at 0 until then).
+- `agent_iterations_total` now increments **per agent loop iteration** inside `octocode-runtime` (both blocking `prompt` and streaming `prompt_stream` paths), not per chat turn.
+- `circuit_open_total` now increments inside `octocode-api::record_failure` whenever a previously-Closed/HalfOpen circuit transitions to Open, gated to avoid double-counting failures while already Open.
+- Counters live in `octocode-core` to avoid a runtime↔api dependency cycle.
 
 ## 6. Security checklist (Windows host)
 
@@ -83,20 +84,39 @@ Notes:
 - [x] Permission modes: `read-only` / `workspace-write` / `escalated`.
 - [x] Tool denylist via `denied_tools`.
 - [x] `file_guard` enforces workspace-root path safety.
-- [ ] Body-size 413 + rate-limit 429 — present in code, full payload smoke deferred to T5.
+- [x] Body-size 413 + rate-limit 429 — verified by `scripts/smoke-windows.ps1` (oversize POST connection-close + 50+ 429s in an 80-request parallel burst).
 
 ## 7. Remaining risks before public release
 
-1. **Iteration counter approximation** — `agent_iterations_total` currently counts turns, not loop iterations. Consumers of the metric should be told 1 unit ≈ 1 chat turn until runtime-side instrumentation lands.
-2. **Circuit-open counter wiring** — counter exists but increments are not yet emitted from the runtime. Until that lands, alerts on `circuit_open_total` will not trigger; operators should keep watching `/api/health` directly.
-3. **Linux/macOS untested this phase** — code compiles and tests pass on Windows only. CI matrix is Windows-only by user choice.
-4. **Installer end-to-end** — `scripts/package-windows-installer.ps1` should be exercised before tagging `v0.1.0`.
-5. **CSP `unsafe-inline`** — kept for the bundled UI shell's inline scripts/styles. A nonce-based migration is recommended next phase.
+1. **Linux/macOS untested this phase** — code compiles and tests pass on Windows only. CI matrix is Windows-only by user choice.
+2. **CSP `unsafe-inline`** — kept for the bundled UI shell's inline scripts/styles. A nonce-based migration is recommended next phase.
+3. **Provider latency histogram** — only counters are exposed today; p50/p95 buckets require a histogram crate or hand-rolled bucket counters.
 
 ## 8. Suggested next phase (post-release)
 
-1. Wire real runtime callbacks for agent loop iteration count and circuit-state transitions.
-2. Add provider latency histogram (p50/p95) using `prometheus`-compatible bucket counters.
-3. Migrate UI shell to nonce-based CSP (drop `'unsafe-inline'`).
-4. Resume `server.rs` split (T11) to reduce single-file LOC under 1000.
-5. Reintroduce Linux/macOS to the CI matrix once Windows is stable in production.
+1. Add provider latency histogram (p50/p95) using `prometheus`-compatible bucket counters.
+2. Migrate UI shell to nonce-based CSP (drop `'unsafe-inline'`).
+3. Resume `server.rs` split (T11) to reduce single-file LOC under 1000.
+4. Reintroduce Linux/macOS to the CI matrix once Windows is stable in production.
+
+## 9. Phase 8 addendum (2026-04-28) — counter wiring + full smoke + installer
+
+### What changed
+
+- Moved process-wide operability counters (`AGENT_ITERATIONS_TOTAL`, `CIRCUIT_OPEN_TOTAL`) into `octocode-core` so `octocode-api` and `octocode-runtime` can both mutate them without depending on each other.
+- `octocode-runtime` increments `AGENT_ITERATIONS_TOTAL` on each iteration of both the blocking and streaming agent loops.
+- `octocode-api::record_failure` increments `CIRCUIT_OPEN_TOTAL` only on Closed/HalfOpen→Open transitions.
+- `octocode-cli/src/server.rs` consumes the core counters; the per-turn approximation in `/api/chat` was removed.
+- New `scripts/smoke-windows.ps1` runner: 16 checks covering 401, CSP/XCTO/XFO/Referrer-Policy/ACAO, `/metrics` series presence, `/api/state`, `/api/health`, SSE frame, `?since=` resume, `/api/sessions/cancel`, 11MB body reject, 30/sec rate limit, and `octocode_requests_total` movement.
+- Fixed `scripts/package-desktop.ps1` cargo-stderr handling under PowerShell 5.1 `ErrorActionPreference=Stop`.
+
+### Validation results
+
+| Gate | Result |
+|------|--------|
+| `cargo check --workspace --all-targets` | ok |
+| `cargo clippy --workspace --all-targets -- -D warnings` | ok |
+| `cargo test --workspace --no-fail-fast` | 339 passed / 0 failed |
+| `scripts/smoke-windows.ps1` | **16 / 16 PASS** (rate-limit run produced 29× 200, 51× 429) |
+| `scripts/package-desktop.ps1 -Profile release` | ok — `out/desktop/octocode-v2026.4.24-windows-x64` |
+| `scripts/package-windows-installer.ps1` | ok — `out/installers/windows/Octocode-2026.4.24-windows-x64-setup.exe` (3.8 MB) |

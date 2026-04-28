@@ -498,6 +498,17 @@ pub struct RuntimeConfig {
 /// breaking field changes land.
 pub const CONFIG_SCHEMA_VERSION: u32 = 1;
 
+/// T6 (release-hardening): process-wide operability counters surfaced via
+/// `/metrics`. They live in `octocode-core` so both `octocode-api`
+/// (provider circuit transitions) and `octocode-runtime` (agent loop
+/// iterations) can mutate them without depending on each other. They are
+/// label-free for cardinality safety and intentionally process-local
+/// (reset on restart).
+pub static AGENT_ITERATIONS_TOTAL: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+pub static CIRCUIT_OPEN_TOTAL: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum OutputMode {
