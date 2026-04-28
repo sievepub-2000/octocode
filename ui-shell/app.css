@@ -333,6 +333,42 @@ button { cursor: pointer; }
   font-size: 11px;
   color: var(--ink-dim);
 }
+/* Pinned [+ 新对话] button — sits above the session history list
+   inside the left sidebar. Uses the accent palette so it reads as a
+   primary CTA without being noisy. */
+.sidebar-new-session-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 6px 0 4px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--accent-dim);
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+.sidebar-new-session-btn:hover {
+  background: var(--accent);
+  color: var(--bg-1);
+  border-color: var(--accent);
+}
+.sidebar-new-session-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* Hairline divider that separates the pinned [新对话] CTA from the
+   historical session list below. 1px tall, low-contrast, full-width. */
+.sidebar-pinned-divider {
+  height: 1px;
+  margin: 4px 0 6px;
+  background: var(--border);
+  opacity: 0.6;
+}
 .sidebar-row {
   --tree-depth: 0;
   --tree-indent: 0px;

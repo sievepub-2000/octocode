@@ -49,6 +49,7 @@ const menuPlatform = document.getElementById('menu-platform');
 const menuTime = document.getElementById('menu-time');
 const toastContainer = document.getElementById('toast-container');
 const sidebarActionsButton = document.getElementById('sidebar-actions-button');
+const newSessionButton = document.getElementById('new-session-btn');
 const contextMenu = document.getElementById('context-menu');
 
 const chatForm = document.getElementById('chat-form');
@@ -3480,6 +3481,32 @@ if (sidebarActionsButton) {
         action: async () => deleteAllSessions(),
       },
     ]);
+  });
+}
+
+// [+ 新对话] pinned CTA in the left sidebar. Always spawns a brand-new
+// browser session so the operator can start a clean conversation
+// without polluting the currently viewed session.
+if (newSessionButton) {
+  newSessionButton.addEventListener('click', async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      const viewedSessionId = currentSessionId;
+      if (viewedSessionId) {
+        await sessionController.closeSessionContext(viewedSessionId, {
+          detachOwnedSession: sessionController.getOwnedSessionId() === viewedSessionId,
+          closeTerminals: true,
+        });
+      }
+      const { state, sessionId } = await sessionController.createBrowserSession({ applyState: false });
+      sessionController.claimOwnedSession(sessionId);
+      applyState(state, sessionId);
+      await refreshEventFeed(sessionId);
+      showToast(t('session.newOk', '已创建新对话'), 'success');
+    } catch (error) {
+      showToast(`${t('session.newFailed', '创建新对话失败')}: ${error.message}`, 'error');
+    }
   });
 }
 
