@@ -525,6 +525,26 @@ impl WorkspaceToolExecutor {
         self.run_shell(command_line)
     }
 
+    /// Streaming variant of [`execute_shell_command`]. Forwards each chunk
+    /// of combined stdout+stderr to `on_chunk` as it arrives so callers
+    /// (e.g. the agent loop) can emit incremental updates to the operator
+    /// instead of waiting for the whole process to exit. The returned
+    /// [`ToolResult`] still contains the full captured output, so the
+    /// caller does not need to accumulate chunks itself.
+    pub(crate) fn execute_shell_command_streaming(
+        &self,
+        command_line: &str,
+        on_chunk: &mut dyn FnMut(&str),
+    ) -> Result<ToolResult, OctoError> {
+        // Mirror the approval-token gate that `execute()` applies to the
+        // blocking shell-command path so streaming callers stay subject to
+        // the exact same human-in-the-loop policy.
+        let approved = self.enforce_approval("shell-command", command_line, |payload| {
+            format!("command '{}'", preview_for_audit(payload, 120))
+        })?;
+        self.run_shell_with_timeout_inner(&approved, SHELL_TIMEOUT, Some(on_chunk))
+    }
+
     fn resolve_workspace_path(&self, input: &str) -> PathBuf {
         let path = Path::new(input);
         if path.is_absolute() {
@@ -619,12 +639,29 @@ impl WorkspaceToolExecutor {
     }
 
     fn run_shell_with_timeout(&self, command_line: &str, timeout: Duration) -> Result<ToolResult, OctoError> {
+        self.run_shell_with_timeout_inner(command_line, timeout, None)
+    }
+
+    /// Spawn the shell and capture combined stdout+stderr. When
+    /// `on_chunk` is `Some`, each chunk is forwarded incrementally as it
+    /// arrives so long-running commands (ssh sessions, package installs,
+    /// build pipelines) surface live progress to the operator instead of
+    /// blocking until exit. The captured output is also returned in full
+    /// so the agent loop can keep its existing transcript shape.
+    fn run_shell_with_timeout_inner(
+        &self,
+        command_line: &str,
+        timeout: Duration,
+        mut on_chunk: Option<&mut dyn FnMut(&str)>,
+    ) -> Result<ToolResult, OctoError> {
+        use std::io::Read;
+        use std::sync::mpsc;
+
         let invocation = NativeShellInvocation::detect(&self.preferred_shell, command_line);
         let program = invocation.program.clone();
         let args = invocation.args.clone();
         let cwd = self.workspace_root.clone();
 
-        // Spawn the child process directly so we can kill it on timeout.
         let mut child = Command::new(&program)
             .args(&args)
             .current_dir(&cwd)
@@ -633,41 +670,133 @@ impl WorkspaceToolExecutor {
             .spawn()
             .map_err(|e| OctoError::Runtime(format!("failed to spawn shell: {e}")))?;
 
-        // Wait in a thread so we can enforce a wall-clock timeout.
+        // Drain stdout / stderr on background threads so neither pipe can
+        // back-pressure the child while we poll for exit. Each reader
+        // forwards chunks across an mpsc so the main loop can interleave
+        // them with timeout / cancellation checks.
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| OctoError::Runtime(String::from("shell child missing stdout")))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| OctoError::Runtime(String::from("shell child missing stderr")))?;
+        let (tx, rx) = mpsc::channel::<Vec<u8>>();
+        let tx_err = tx.clone();
+        let stdout_thread = std::thread::spawn(move || {
+            let mut reader = stdout;
+            let mut buf = [0u8; 4096];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if tx.send(buf[..n].to_vec()).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        let stderr_thread = std::thread::spawn(move || {
+            let mut reader = stderr;
+            let mut buf = [0u8; 4096];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if tx_err.send(buf[..n].to_vec()).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
         let timeout_ms = timeout.as_millis() as u64;
         let start = std::time::Instant::now();
-        loop {
-            match child.try_wait() {
-                Ok(Some(_status)) => {
-                    // Process exited — collect output.
-                    let output = child.wait_with_output()
-                        .map_err(|e| OctoError::Runtime(format!("failed to read output: {e}")))?;
-                    let combined = format!(
-                        "{}{}",
-                        String::from_utf8_lossy(&output.stdout),
-                        String::from_utf8_lossy(&output.stderr)
-                    );
-                    return Ok(ToolResult {
-                        output: truncate_output(combined.trim(), MAX_OUTPUT_BYTES),
-                    });
+        let mut combined: Vec<u8> = Vec::with_capacity(8 * 1024);
+        let mut carry: Vec<u8> = Vec::new();
+
+        let exit_status = loop {
+            // Drain any chunks that have arrived without blocking.
+            loop {
+                match rx.try_recv() {
+                    Ok(chunk) => {
+                        combined.extend_from_slice(&chunk);
+                        if let Some(cb) = on_chunk.as_deref_mut() {
+                            // Decode UTF-8 across chunk boundaries so we
+                            // never split a multi-byte char.
+                            carry.extend_from_slice(&chunk);
+                            let valid_up_to = match std::str::from_utf8(&carry) {
+                                Ok(s) => s.len(),
+                                Err(e) => e.valid_up_to(),
+                            };
+                            if valid_up_to > 0 {
+                                let s = String::from_utf8_lossy(&carry[..valid_up_to]).into_owned();
+                                cb(&s);
+                                carry.drain(..valid_up_to);
+                            }
+                        }
+                    }
+                    Err(mpsc::TryRecvError::Empty) => break,
+                    Err(mpsc::TryRecvError::Disconnected) => break,
                 }
+            }
+
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
                 Ok(None) => {
-                    // Still running — check timeout.
                     if start.elapsed().as_millis() as u64 >= timeout_ms {
                         let _ = child.kill();
                         let _ = child.wait();
+                        let _ = stdout_thread.join();
+                        let _ = stderr_thread.join();
                         return Err(OctoError::Runtime(format!(
                             "shell command timed out after {}s and was killed",
                             timeout.as_secs()
                         )));
                     }
-                    std::thread::sleep(Duration::from_millis(50));
+                    std::thread::sleep(Duration::from_millis(40));
                 }
                 Err(e) => {
                     return Err(OctoError::Runtime(format!("wait error: {e}")));
                 }
             }
+        };
+        let _ = exit_status; // exit code intentionally collapsed into output
+
+        // Drain any final chunks that arrived after the child exited.
+        let _ = stdout_thread.join();
+        let _ = stderr_thread.join();
+        while let Ok(chunk) = rx.try_recv() {
+            combined.extend_from_slice(&chunk);
+            if let Some(cb) = on_chunk.as_deref_mut() {
+                carry.extend_from_slice(&chunk);
+                let valid_up_to = match std::str::from_utf8(&carry) {
+                    Ok(s) => s.len(),
+                    Err(e) => e.valid_up_to(),
+                };
+                if valid_up_to > 0 {
+                    let s = String::from_utf8_lossy(&carry[..valid_up_to]).into_owned();
+                    cb(&s);
+                    carry.drain(..valid_up_to);
+                }
+            }
         }
+        if let Some(cb) = on_chunk.as_deref_mut() {
+            if !carry.is_empty() {
+                let s = String::from_utf8_lossy(&carry).into_owned();
+                cb(&s);
+            }
+        }
+
+        let combined_text = String::from_utf8_lossy(&combined).to_string();
+        Ok(ToolResult {
+            output: truncate_output(combined_text.trim(), MAX_OUTPUT_BYTES),
+        })
     }
 
     fn search_text(&self, input: &str) -> Result<ToolResult, OctoError> {
@@ -2690,6 +2819,20 @@ impl ToolCatalog for RuntimeToolCatalog {
 }
 
 impl ToolExecutor for WorkspaceToolExecutor {
+    fn execute_streaming(
+        &self,
+        call: ToolCall,
+        on_chunk: &mut dyn FnMut(&str),
+    ) -> Result<ToolResult, OctoError> {
+        // Only shell-command actually produces incremental output today.
+        // Everything else returns its full result in a single call so the
+        // default trait fallback is fine.
+        if call.name == "shell-command" {
+            return self.execute_shell_command_streaming(&call.input, on_chunk);
+        }
+        self.execute(call)
+    }
+
     fn execute(&self, call: ToolCall) -> Result<ToolResult, OctoError> {
         tracing::debug!(tool = %call.name, "executing tool");
         match call.name.as_str() {
@@ -3431,6 +3574,36 @@ mod tests {
             })
             .expect("shell command with approval token should run");
         assert!(approved.output.to_ascii_lowercase().contains("approval-check"));
+    }
+
+    #[test]
+    fn shell_command_streaming_emits_chunks_before_completion() {
+        let exec = test_executor();
+        // Obtain an approval token first.
+        let denied = exec.execute(ToolCall {
+            name: String::from("shell-command"),
+            input: String::from("echo stream-check"),
+            permission: PermissionMode::DangerFullAccess,
+        });
+        let err_text = denied.unwrap_err().to_string();
+        let token = extract_approval_token(&err_text).expect("approval token");
+
+        let mut chunks: Vec<String> = Vec::new();
+        let result = {
+            let mut on_chunk = |s: &str| chunks.push(s.to_string());
+            exec.execute_shell_command_streaming(
+                &format!("__approve:{token}|echo stream-check"),
+                &mut on_chunk,
+            )
+            .expect("streaming shell-command should succeed")
+        };
+
+        assert!(result.output.to_ascii_lowercase().contains("stream-check"));
+        let combined = chunks.join("");
+        assert!(
+            combined.to_ascii_lowercase().contains("stream-check"),
+            "expected streamed chunks to contain command output, got: {combined:?}"
+        );
     }
 
     #[test]

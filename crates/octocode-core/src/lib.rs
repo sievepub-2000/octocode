@@ -713,6 +713,19 @@ pub trait TurnStateStore: Send + Sync {
 
 pub trait ToolExecutor: Send + Sync {
     fn execute(&self, call: ToolCall) -> Result<ToolResult, OctoError>;
+
+    /// Streaming-aware variant. Default implementation delegates to
+    /// [`execute`] and never invokes `on_chunk`; tool executors that
+    /// produce live output (e.g. shell processes) can override this to
+    /// forward chunks as they arrive so callers like the agent loop can
+    /// surface incremental progress to the operator.
+    fn execute_streaming(
+        &self,
+        call: ToolCall,
+        _on_chunk: &mut dyn FnMut(&str),
+    ) -> Result<ToolResult, OctoError> {
+        self.execute(call)
+    }
 }
 
 pub trait ToolCatalog: Send + Sync {

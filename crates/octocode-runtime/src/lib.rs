@@ -1042,6 +1042,56 @@ where
         }
     }
 
+    /// Streaming-aware sibling of [`execute_tool_for_agent`]. For tools
+    /// that produce live output (currently `shell-command`), forwards
+    /// each output chunk to `on_chunk` as it arrives so the agent loop
+    /// can flush incremental progress to the operator. Other tools fall
+    /// back to the normal blocking execute path.
+    fn execute_tool_for_agent_streaming(
+        &self,
+        session_id: &str,
+        mut call: ToolCall,
+        on_chunk: &mut dyn FnMut(&str),
+    ) -> Result<ToolResult, OctoError> {
+        if let Some(result) = self.try_runtime_tool(&call)? {
+            return Ok(result);
+        }
+        let descriptor = self
+            .tool_descriptor(&call.name)
+            .ok_or_else(|| OctoError::Runtime(format!("unknown tool: {}", call.name)))?;
+        call.permission = descriptor.minimum_permission.clone();
+        self.ensure_permission(&call.permission, descriptor.name)?;
+        if call.name != "shell-command" {
+            // No streaming hook for this tool yet — fall back to blocking
+            // execution so we still respect the plugin host contract.
+            return self.execute_tool_for_agent(session_id, call);
+        }
+        self.plugin_host.dispatch(PluginHook::BeforeTool {
+            session_id,
+            call: &call,
+        });
+        let outcome = self.tools.execute_streaming(call.clone(), on_chunk);
+        match outcome {
+            Ok(result) => {
+                self.plugin_host.dispatch(PluginHook::AfterTool {
+                    session_id,
+                    call: &call,
+                    result: Ok(&result),
+                });
+                Ok(result)
+            }
+            Err(error) => {
+                let err_message = error.to_string();
+                self.plugin_host.dispatch(PluginHook::AfterTool {
+                    session_id,
+                    call: &call,
+                    result: Err(&err_message),
+                });
+                Err(error)
+            }
+        }
+    }
+
     /// Auto-compact session if token estimate exceeds threshold.
     fn maybe_auto_compact(&self, session_id: &str) -> Result<(), OctoError> {
         let session = self.sessions.load_session(session_id)?;
@@ -1561,9 +1611,23 @@ Shell: {:?}\n\n",
                         on_token,
                         &format!("\n[executing: {}]\n", tool_call.name),
                     )?;
-                    let result = match self.execute_tool_for_agent(session_id, tool_call.clone()) {
-                        Ok(result) => result.output,
-                        Err(error) => format!("error: {error}"),
+                    let result = {
+                        // Forward live chunks to the operator stream so
+                        // long-running tool runs (ssh, cargo build, large
+                        // greps, etc.) surface progress in real time
+                        // instead of materializing only after exit.
+                        let stop_flag_for_chunks = stop_flag.clone();
+                        let mut forward = |chunk: &str| {
+                            let _ = emit_stream_token(&stop_flag_for_chunks, on_token, chunk);
+                        };
+                        match self.execute_tool_for_agent_streaming(
+                            session_id,
+                            tool_call.clone(),
+                            &mut forward,
+                        ) {
+                            Ok(result) => result.output,
+                            Err(error) => format!("error: {error}"),
+                        }
                     };
                     // Annotate tool output when it looks like a bot-wall /
                     // CAPTCHA response so the model can see an explicit retry
