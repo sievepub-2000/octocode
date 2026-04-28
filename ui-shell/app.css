@@ -337,18 +337,23 @@ button { cursor: pointer; }
    inside the left sidebar. Uses the accent palette so it reads as a
    primary CTA without being noisy. */
 .sidebar-new-session-btn {
+  /* Match width of .sidebar-item column inside .sidebar-row.
+     .sidebar-row uses grid-template-columns: minmax(0,1fr) auto with
+     6px gap; the trailing auto column hosts a 30px .session-menu-btn,
+     so we reserve 36px on the right to align the CTA with history rows. */
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
-  margin: 6px 0 4px;
-  padding: 6px 10px;
+  margin: 6px 36px 4px 0;
+  padding: 4px 8px;
   border-radius: var(--radius);
   border: 1px solid var(--accent-dim);
   background: var(--accent-dim);
   color: var(--accent);
   font-size: 12px;
   font-weight: 600;
+  line-height: 1.25;
   cursor: pointer;
   transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
@@ -365,7 +370,7 @@ button { cursor: pointer; }
    historical session list below. 1px tall, low-contrast, full-width. */
 .sidebar-pinned-divider {
   height: 1px;
-  margin: 4px 0 6px;
+  margin: 4px 36px 6px 0;
   background: var(--border);
   opacity: 0.6;
 }

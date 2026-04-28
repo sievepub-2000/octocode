@@ -826,21 +826,12 @@ fn get_server_token() -> &'static str {
     SERVER_AUTH_TOKEN.get_or_init(resolve_auth_token)
 }
 
-/// Validate the auth token from request headers.
-/// Returns true if auth is valid or auth is disabled (no token set).
-fn check_auth(headers: &HashMap<String, String>) -> bool {
-    let expected = get_server_token();
-    // Allow requests from the same-origin WebUI (served by us)
-    // by checking the Authorization header or x-auth-token header.
-    if let Some(auth) = headers.get("authorization") {
-        if let Some(token) = auth.strip_prefix("Bearer ") {
-            return token.trim() == expected;
-        }
-    }
-    if let Some(token) = headers.get("x-auth-token") {
-        return token.trim() == expected;
-    }
-    false
+/// Single-machine tool: auth is disabled. Always allow.
+/// Token resolution / generation is kept for backwards compatibility
+/// with any external clients that still send a Bearer header, but the
+/// value is not validated.
+fn check_auth(_headers: &HashMap<String, String>) -> bool {
+    true
 }
 
 fn summarize_text(value: &str, max_chars: usize) -> String {
@@ -1045,19 +1036,13 @@ pub fn run_server(
     let listener = TcpListener::bind(("127.0.0.1", port))?;
     listener.set_nonblocking(true)?;
 
-    // Generate and display auth token for API access
+    // Single-machine tool: auth disabled. Token retained as a no-op
+    // identifier for any legacy clients but not required.
     let token = get_server_token();
-    let token_source = if std::env::var("OCTOCODE_BEARER_TOKEN").is_ok() {
-        "OCTOCODE_BEARER_TOKEN env"
-    } else if std::env::var("OCTOCODE_BEARER_TOKEN_FILE").is_ok() {
-        "OCTOCODE_BEARER_TOKEN_FILE env"
-    } else {
-        "auto-generated"
-    };
     println!("Octocode WebUI ready on port {port} (thread pool: {THREAD_POOL_SIZE} workers)");
-    println!("Auth token: {token} (source: {token_source})");
 
-    // Write token to a file for the WebUI to read
+    // Keep writing the token file so existing helper scripts don't break,
+    // but the server no longer validates it.
     let token_path = std::env::temp_dir().join(format!("octocode-auth-{port}.token"));
     let _ = fs::write(&token_path, token);
 
