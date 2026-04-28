@@ -1651,6 +1651,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "octocode-gateway"
+version = "2026.4.24"
+dependencies = [
+ "octocode-core",
+]
+
+[[package]]
 name = "octocode-mcp"
 version = "2026.4.24"
 dependencies = [

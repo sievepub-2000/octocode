@@ -50,7 +50,8 @@ impl SqliteStore {
                 at_ms INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
-            CREATE INDEX IF NOT EXISTS idx_cost_session ON cost_records(session_id);",
+            CREATE INDEX IF NOT EXISTS idx_cost_session ON cost_records(session_id);
+            CREATE VIRTUAL TABLE IF NOT EXISTS session_search USING fts5(session_id UNINDEXED, segment);",
         )
         .map_err(|e| OctoError::Runtime(format!("sqlite migrate: {e}")))?;
         Ok(())
@@ -181,6 +182,50 @@ impl SqliteStore {
             .map_err(|e| OctoError::Runtime(format!("sqlite query: {e}")))?;
         Ok(result)
     }
+
+    // ── Session full-text search (FTS5) ───────────────────────────
+    //
+    // The FTS5 virtual table is populated by callers (agent loop,
+    // session resume, transcript writer) via `index_session_segment`.
+    // Search returns the matching session ids together with a short
+    // FTS5 snippet so the WebUI can render context-aware results.
+
+    pub fn index_session_segment(&self, session_id: &str, segment: &str) -> Result<(), OctoError> {
+        if session_id.trim().is_empty() || segment.trim().is_empty() {
+            return Ok(());
+        }
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO session_search (session_id, segment) VALUES (?1, ?2)",
+            params![session_id, segment],
+        )
+        .map_err(|e| OctoError::Runtime(format!("sqlite fts insert: {e}")))?;
+        Ok(())
+    }
+
+    pub fn search_sessions(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<(String, String)>, OctoError> {
+        let trimmed = query.trim();
+        if trimmed.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT session_id, snippet(session_search, 1, '[', ']', '…', 12) AS snip \
+                 FROM session_search WHERE session_search MATCH ?1 ORDER BY rank LIMIT ?2",
+            )
+            .map_err(|e| OctoError::Runtime(format!("sqlite fts prepare: {e}")))?;
+        let rows = stmt
+            .query_map(params![trimmed, limit as i64], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| OctoError::Runtime(format!("sqlite fts query: {e}")))?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
 }
 
 fn row_to_task(row: &rusqlite::Row) -> rusqlite::Result<TaskRecord> {
@@ -284,5 +329,36 @@ mod tests {
 
         let total = store.total_tokens().unwrap();
         assert_eq!(total.input_tokens, 200);
+    }
+
+    #[test]
+    fn fts_index_and_search_round_trip() {
+        let store = temp_store("fts_session_search");
+        store
+            .index_session_segment("s-alpha", "fixed approval token bug in workspace shell")
+            .unwrap();
+        store
+            .index_session_segment("s-beta", "wired remote tool with shellbackend abstraction")
+            .unwrap();
+        store
+            .index_session_segment("s-gamma", "investigated unrelated provider routing")
+            .unwrap();
+
+        let hits = store.search_sessions("shellbackend", 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].0, "s-beta");
+        assert!(hits[0].1.contains("[shellbackend]"), "snippet={}", hits[0].1);
+
+        let multi = store.search_sessions("approval OR shellbackend", 10).unwrap();
+        let ids: Vec<&str> = multi.iter().map(|(id, _)| id.as_str()).collect();
+        assert!(ids.contains(&"s-alpha"));
+        assert!(ids.contains(&"s-beta"));
+    }
+
+    #[test]
+    fn fts_empty_query_returns_empty() {
+        let store = temp_store("fts_empty");
+        store.index_session_segment("s-1", "alpha beta").unwrap();
+        assert!(store.search_sessions("   ", 10).unwrap().is_empty());
     }
 }

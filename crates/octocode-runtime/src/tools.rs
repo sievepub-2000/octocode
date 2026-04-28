@@ -512,6 +512,16 @@ const TOOLS: &[ToolDescriptor] = &[
         summary: "List all registered schedules with their interval and last-fired timestamp.",
         minimum_permission: PermissionMode::ReadOnly,
     },
+    ToolDescriptor {
+        name: "session-index",
+        summary: "Index a free-text segment into the FTS5 search corpus for a given session id. Input: 'session_id|segment'.",
+        minimum_permission: PermissionMode::WorkspaceWrite,
+    },
+    ToolDescriptor {
+        name: "session-search",
+        summary: "Full-text search across indexed session segments using SQLite FTS5. Input: 'query' (or 'query|limit' to override the default 20 hits).",
+        minimum_permission: PermissionMode::ReadOnly,
+    },
 ];
 
 /// Pluggable shell backend used by `shell-command` / `ssh-command`. The
@@ -711,6 +721,46 @@ impl WorkspaceToolExecutor {
                 "- {} every {}s (last_fired={}) :: {}",
                 e.name, e.interval_secs, e.last_fired_unix, e.command
             ));
+        }
+        Ok(ToolResult { output: lines.join("\n") })
+    }
+
+    /// Index a single text segment for a session into the FTS5 corpus.
+    /// Input: `session_id|segment`.
+    pub(crate) fn execute_session_index(&self, raw_input: &str) -> Result<ToolResult, OctoError> {
+        let (sid, segment) = raw_input.split_once('|').ok_or_else(|| {
+            OctoError::Runtime(String::from("session-index expects 'session_id|segment'"))
+        })?;
+        let store = crate::sqlite_store::SqliteStore::open(&self.workspace_root)?;
+        store.index_session_segment(sid.trim(), segment.trim())?;
+        Ok(ToolResult {
+            output: format!(
+                "indexed {} bytes for session '{}'",
+                segment.trim().len(),
+                sid.trim()
+            ),
+        })
+    }
+
+    /// Run a full-text search across indexed session segments.
+    pub(crate) fn execute_session_search(&self, raw_input: &str) -> Result<ToolResult, OctoError> {
+        let (query, limit) = match raw_input.split_once('|') {
+            Some((q, l)) => (q.trim(), l.trim().parse::<usize>().unwrap_or(20)),
+            None => (raw_input.trim(), 20),
+        };
+        if query.is_empty() {
+            return Err(OctoError::Runtime(String::from(
+                "session-search requires a non-empty query",
+            )));
+        }
+        let store = crate::sqlite_store::SqliteStore::open(&self.workspace_root)?;
+        let hits = store.search_sessions(query, limit.max(1))?;
+        if hits.is_empty() {
+            return Ok(ToolResult { output: format!("no matches for '{query}'") });
+        }
+        let mut lines = Vec::with_capacity(hits.len());
+        for (sid, snippet) in hits {
+            lines.push(format!("- {sid}: {snippet}"));
         }
         Ok(ToolResult { output: lines.join("\n") })
     }
@@ -3173,6 +3223,8 @@ impl ToolExecutor for WorkspaceToolExecutor {
             "skill-record" => self.execute_skill_record(&call.input),
             "schedule-add" => self.execute_schedule_add(&call.input),
             "schedule-list" => self.execute_schedule_list(),
+            "session-index" => self.execute_session_index(&call.input),
+            "session-search" => self.execute_session_search(&call.input),
             "search-text" => self.search_text(&call.input),
             "workflow-plan" => Ok(self.workflow_plan(&call.input)),
             "agent-action" => Ok(self.agent_action(&call.input)),
@@ -3701,7 +3753,7 @@ mod tests {
     fn tool_catalog_has_expected_tools() {
         let catalog = RuntimeToolCatalog;
         let descriptors = catalog.descriptors();
-        assert_eq!(descriptors.len(), 67, "expected 67 tool descriptors, got {}", descriptors.len());
+        assert_eq!(descriptors.len(), 73, "expected 73 tool descriptors, got {}", descriptors.len());
     }
 
     #[test]
