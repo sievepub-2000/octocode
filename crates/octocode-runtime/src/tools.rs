@@ -502,6 +502,16 @@ const TOOLS: &[ToolDescriptor] = &[
         summary: "Capture a learned procedure into skills/auto/<name>/SKILL.md so future sessions can reuse it. Input: 'name|description|step 1\\nstep 2\\n...' (literal '\\n' separates steps).",
         minimum_permission: PermissionMode::WorkspaceWrite,
     },
+    ToolDescriptor {
+        name: "schedule-add",
+        summary: "Register a recurring shell command in the workspace scheduler. Input: 'name|interval_secs|command'. Persisted to .octocode/schedules.json.",
+        minimum_permission: PermissionMode::WorkspaceWrite,
+    },
+    ToolDescriptor {
+        name: "schedule-list",
+        summary: "List all registered schedules with their interval and last-fired timestamp.",
+        minimum_permission: PermissionMode::ReadOnly,
+    },
 ];
 
 /// Pluggable shell backend used by `shell-command` / `ssh-command`. The
@@ -665,6 +675,44 @@ impl WorkspaceToolExecutor {
                 file.display()
             ),
         })
+    }
+
+    /// Register a recurring shell command in the workspace scheduler.
+    /// Input: `name|interval_secs|command`.
+    pub(crate) fn execute_schedule_add(&self, raw_input: &str) -> Result<ToolResult, OctoError> {
+        let mut parts = raw_input.splitn(3, '|');
+        let name = parts.next().unwrap_or("").trim();
+        let interval = parts
+            .next()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .ok_or_else(|| {
+                OctoError::Runtime(String::from(
+                    "schedule-add expects 'name|interval_secs|command' (interval must be a positive integer)",
+                ))
+            })?;
+        let command = parts.next().unwrap_or("").trim();
+        let scheduler = crate::scheduler::Scheduler::new(self.workspace_root.clone());
+        scheduler.add(name, interval, command)?;
+        Ok(ToolResult {
+            output: format!("scheduled '{name}' every {interval}s -> {command}"),
+        })
+    }
+
+    /// List every registered schedule.
+    pub(crate) fn execute_schedule_list(&self) -> Result<ToolResult, OctoError> {
+        let scheduler = crate::scheduler::Scheduler::new(self.workspace_root.clone());
+        let entries = scheduler.list()?;
+        if entries.is_empty() {
+            return Ok(ToolResult { output: String::from("no schedules registered") });
+        }
+        let mut lines = Vec::with_capacity(entries.len());
+        for e in entries {
+            lines.push(format!(
+                "- {} every {}s (last_fired={}) :: {}",
+                e.name, e.interval_secs, e.last_fired_unix, e.command
+            ));
+        }
+        Ok(ToolResult { output: lines.join("\n") })
     }
 
     /// Execute a remote command via the ssh backend. `raw_input` follows
@@ -3123,6 +3171,8 @@ impl ToolExecutor for WorkspaceToolExecutor {
             }
             "ssh-command" => self.execute_ssh_command(&call.input, &call.permission),
             "skill-record" => self.execute_skill_record(&call.input),
+            "schedule-add" => self.execute_schedule_add(&call.input),
+            "schedule-list" => self.execute_schedule_list(),
             "search-text" => self.search_text(&call.input),
             "workflow-plan" => Ok(self.workflow_plan(&call.input)),
             "agent-action" => Ok(self.agent_action(&call.input)),

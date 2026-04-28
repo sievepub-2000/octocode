@@ -33,6 +33,7 @@ mod router;
 mod session;
 mod snapshot_json;
 mod sqlite_store;
+mod scheduler;
 mod subagent;
 mod tasks;
 pub mod tool_call_parser;
