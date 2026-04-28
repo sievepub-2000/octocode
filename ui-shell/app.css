@@ -277,7 +277,11 @@ button { cursor: pointer; }
 /* ─── Left panel: Sidebar ─── */
 .panel-left {
   display: grid;
-  grid-template-rows: auto auto minmax(0,1fr);
+  /* 5 children in order: .panel-head, .sidebar-summary-row,
+     #new-session-btn, .sidebar-pinned-divider, #sidebar-list.
+     Only the last row (the scrollable history list) should grow; all
+     fixed-height affordances above it must stay at content size. */
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
   gap: 6px;
   padding: 8px 4px 8px 0;
   background: var(--bg-1);
@@ -346,12 +350,19 @@ button { cursor: pointer; }
   justify-content: center;
   gap: 4px;
   margin: 6px 36px 4px 0;
-  padding: 4px 8px;
+  /* Match .sidebar-item rendered geometry: same padding (4px 6px 4px 2px),
+     same 2px left border, same font (11px / 1.25). The historical row is
+     two text lines tall (title + desc with 1px gap); empirical render
+     height of .sidebar-item is 35.5px, so pin min-height to the same. */
+  padding: 4px 6px 4px 2px;
+  min-height: 35.5px;
+  box-sizing: border-box;
   border-radius: var(--radius);
   border: 1px solid var(--accent-dim);
+  border-left: 2px solid var(--accent);
   background: var(--accent-dim);
   color: var(--accent);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   line-height: 1.25;
   cursor: pointer;
@@ -786,12 +797,23 @@ button { cursor: pointer; }
   gap: 10px;
 }
 .msg-bubble.role-user {
+  /* Classic chat layout: user messages float to the right with the
+     accent stripe on the right edge. Cap width so long messages still
+     wrap inside the right column instead of crossing the whole pane. */
   background: var(--orange-dim);
-  border-left-color: var(--orange);
+  border-left: none;
+  border-right: 2px solid var(--orange);
+  align-self: flex-end;
+  max-width: 78%;
+  text-align: left;
 }
 .msg-bubble.role-assistant {
+  /* Assistant output stays anchored to the left so reading flow matches
+     traditional chat clients (model on the left, user on the right). */
   background: transparent;
   border-left-color: var(--accent);
+  align-self: flex-start;
+  max-width: 92%;
 }
 .msg-bubble.role-tool {
   background: var(--green-dim);
