@@ -4,6 +4,7 @@ members = [
     "crates/octocode-cli",
     "crates/octocode-commands",
     "crates/octocode-core",
+    "crates/octocode-gateway",
     "crates/octocode-mcp",
     "crates/octocode-mock-provider",
     "crates/octocode-plugins",
