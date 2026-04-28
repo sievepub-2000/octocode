@@ -18,8 +18,8 @@ use octocode_core::{
     ToolCall, ToolExecutor, TurnStateStore,
 };
 use octocode_runtime::{
-    ConfigLoader, CoordinatorEngine, FileSessionStore, NativePlatform,
-    OctocodeRuntime, RuntimeProviderRouter, TaskStore, WorkspaceToolExecutor,
+    strip_extended_path_prefix, ConfigLoader, CoordinatorEngine, FileSessionStore,
+    NativePlatform, OctocodeRuntime, RuntimeProviderRouter, TaskStore, WorkspaceToolExecutor,
 };
 use crate::{manage_config, terminal, ws};
 use crate::server_cache::{
@@ -1222,7 +1222,7 @@ fn list_fs_entries(path: &Path) -> Result<Vec<serde_json::Value>, OctoError> {
             file_name.to_ascii_lowercase(),
             serde_json::json!({
                 "name": file_name,
-                "path": entry_path.display().to_string(),
+                "path": strip_extended_path_prefix(&entry_path.display().to_string()),
                 "kind": if is_dir { "directory" } else { "file" },
                 "size": if metadata.is_file() { Some(metadata.len()) } else { None },
                 "modifiedAtMs": entry_modified_ms(&metadata),
@@ -2363,11 +2363,15 @@ fn route_request(
             if !dir_path.is_dir() {
                 return error_response(400, "path is not a directory");
             }
+            let current_display = strip_extended_path_prefix(&dir_path.display().to_string());
+            let parent_display = dir_path
+                .parent()
+                .map(|value| strip_extended_path_prefix(&value.display().to_string()));
             json_response(
                 serde_json::json!({
                     "workspaceRoot": platform.context().root,
-                    "currentPath": dir_path.display().to_string(),
-                    "parentPath": dir_path.parent().map(|value| value.display().to_string()),
+                    "currentPath": current_display,
+                    "parentPath": parent_display,
                     "entries": list_fs_entries(&dir_path)?,
                 })
                 .to_string(),

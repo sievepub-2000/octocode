@@ -192,6 +192,13 @@ let currentManagePanel = 'overview';
 let currentSessionId = null;
 let currentMessages = [];
 let currentEventFeed = [];
+// Last signature of the rendered transcript + view-mode + model. Used to
+// short-circuit `renderMessages` when nothing visible has changed, so the
+// 15-second snapshot refresh does not visibly tear down and rebuild the
+// entire conversation pane (which manifested to operators as a "对话栏不停
+// 刷新" flicker).
+let lastRenderedMessagesSignature = '';
+let lastRenderedSidebarSignature = '';
 let activeLocale = 'zh-CN';
 let localeMessages = {};
 let activeViewMode = 'normal';
@@ -1205,6 +1212,14 @@ function renderSidebar(state, activeSessionId) {
   syncViewControls('sessions');
   if (sidebarTitle) sidebarTitle.textContent = t('sidebar.sessions', 'Sessions');
   const items = buildSidebarItems(state, activeSessionId);
+  // Dedupe identical re-renders so the 15s snapshot refresh does not
+  // tear down and rebuild every sidebar row (visible flicker).
+  const sig = JSON.stringify({
+    a: activeSessionId,
+    items: items.map((it) => [it.id, it.active ? 1 : 0, it.collapsed ? 1 : 0, it.depth || 0, it.title, it.description, it.lineage || '', it.branchLabel || '']),
+  });
+  if (sig === lastRenderedSidebarSignature) return;
+  lastRenderedSidebarSignature = sig;
   sidebarList.replaceChildren();
   if (!items.length) {
     const empty = document.createElement('div');
@@ -1328,6 +1343,18 @@ function renderMessages(messages) {
   const sourceMessages = Array.isArray(messages) ? messages : [];
   const events = currentState?.eventFeed || currentEventFeed || [];
   const messagesToRender = sourceMessages.length ? sourceMessages : transcriptEventsToMessages(events);
+  // Skip the full DOM rebuild when neither the messages nor the relevant
+  // render parameters have changed. Otherwise every 15-second snapshot
+  // refresh causes a full replaceChildren() flicker even when the
+  // transcript is identical.
+  const signature = JSON.stringify({
+    n: messagesToRender.length,
+    mode: activeViewMode,
+    model: currentState?.config?.defaultModel || '',
+    items: messagesToRender.map((m) => [m.role || 'system', String(m.content || '').length, m.timestamp || m.atMs || 0]),
+  });
+  if (signature === lastRenderedMessagesSignature) return;
+  lastRenderedMessagesSignature = signature;
   const nearBottom = messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight < 40;
   messageList.replaceChildren();
   if (!messagesToRender.length) {
@@ -1478,6 +1505,7 @@ function renderManageCards(host, items, buildMeta) {
       </div>
       <div class="manage-card-desc">${escapeHtml(meta.description || '-')}</div>
       ${detailHtml}
+      ${meta.free ? `<span class="manage-card-free" title="${escapeHtml(t('manage.free.hint', '本地或免费模型'))}">free</span>` : ''}
     `;
     if (typeof meta.onAction === 'function') {
       card.addEventListener('click', meta.onAction);
@@ -1493,6 +1521,43 @@ function manageCreateCard(label, description, action) {
     description,
     action,
   };
+}
+
+// Decide whether a provider profile should be flagged as "free" in the
+// manage panel. Rules (any match → free):
+//   1. Base URL points at a local / private host (localhost, 127.0.0.1,
+//      ::1, RFC1918 ranges 10.0.0.0/8, 172.16-31.0.0/12, 192.168.0.0/16)
+//      — the user explicitly asked that local models count as free.
+//   2. Profile id starts with `fcc-` — the curated free-claude-code list.
+//   3. Profile id contains `openrelay` — all OpenRelay routes proxy
+//      through the local relay and surface free upstream sessions.
+//   4. Display name or default model literally contains "free".
+function isFreeProviderProfile(profile) {
+  if (!profile) return false;
+  const id = String(profile.id || '').toLowerCase();
+  const name = String(profile.displayName || '').toLowerCase();
+  const model = String(profile.defaultModel || '').toLowerCase();
+  if (id.startsWith('fcc-') || id.includes('openrelay')) return true;
+  if (name.includes('free') || model.includes('free')) return true;
+  const baseUrl = String(profile.providerBaseUrl || '');
+  if (!baseUrl) return false;
+  let host = '';
+  try {
+    host = new URL(baseUrl).hostname.toLowerCase();
+  } catch (_) {
+    host = baseUrl.toLowerCase();
+  }
+  if (!host) return false;
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return true;
+  if (host.startsWith('10.')) return true;
+  if (host.startsWith('192.168.')) return true;
+  // 172.16.0.0/12
+  const m = host.match(/^172\.(\d+)\./);
+  if (m) {
+    const second = Number(m[1]);
+    if (second >= 16 && second <= 31) return true;
+  }
+  return false;
 }
 
 function providerOptionsMarkup(selectedValue = '') {
@@ -1734,6 +1799,7 @@ function renderManagePanel(state) {
       description: provider.defaultModel || provider.providerBaseUrl || '-',
       badge: provider.providerId || '-',
       details: [provider.providerBaseUrl || '-', provider.defaultModel || '-'],
+      free: isFreeProviderProfile(provider),
       onAction: () => openManageEditor('providerProfile', provider),
     };
   });

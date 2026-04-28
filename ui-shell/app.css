@@ -12,8 +12,8 @@
   --radius: 6px;
   --radius-lg: 10px;
   --radius-sm: 3px;
-  --mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace;
-  --sans: 'Zen Kaku Gothic New', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Source Han Sans CN', monospace;
+  --sans: 'Zen Kaku Gothic New', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Source Han Sans CN', 'Noto Sans CJK SC', 'WenQuanYi Micro Hei', sans-serif;
   --transition: 180ms cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
@@ -279,7 +279,7 @@ button { cursor: pointer; }
   display: grid;
   grid-template-rows: auto auto minmax(0,1fr);
   gap: 6px;
-  padding: 8px 6px;
+  padding: 8px 4px 8px 0;
   background: var(--bg-1);
   overflow: hidden;
   min-width: 0;
@@ -385,7 +385,7 @@ button { cursor: pointer; }
 }
 .sidebar-item {
   position: relative;
-  padding: 4px 6px 4px 8px;
+  padding: 4px 6px 4px 2px;
   border-radius: var(--radius);
   border: none;
   background: transparent;
@@ -393,14 +393,14 @@ button { cursor: pointer; }
   transition: all var(--transition);
   min-width: 0;
   border-left: 2px solid transparent;
-  padding-left: calc(8px + var(--tree-indent));
+  padding-left: calc(2px + var(--tree-indent));
   line-height: 1.25;
   text-align: left;
 }
 .sidebar-item::before {
   content: '';
   position: absolute;
-  left: calc(8px + var(--tree-indent));
+  left: calc(2px + var(--tree-indent));
   top: 12px;
   bottom: 12px;
   width: 1px;
@@ -425,6 +425,14 @@ button { cursor: pointer; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+/* Hide the leading spacer so root rows without a toggle are flush left.
+   Keep .session-tree-toggle width unchanged when present so a child's
+   toggle still takes its 14px column. */
+.session-tree-spacer {
+  width: 0;
+  min-width: 0;
+  display: none;
 }
 .session-tree-toggle {
   border: 1px solid transparent;
@@ -485,7 +493,7 @@ button { cursor: pointer; }
   font-size: 9px;
   color: var(--ink-dim);
   margin-top: 1px;
-  padding-left: 19px;
+  padding-left: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1299,6 +1307,29 @@ button { cursor: pointer; }
   background: var(--accent-dim);
   color: var(--accent);
 }
+/* Small "free" tag pinned to the bottom-right of provider cards.
+   Uses the same accent color and rounded shape as the composer send
+   button so operators can spot zero-cost / local providers at a glance. */
+.manage-card {
+  position: relative;
+}
+.manage-card-free {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;
+}
 .manage-card-desc,
 .manage-card-detail {
   font-size: 12px;
@@ -2002,14 +2033,14 @@ button.is-loading {
   background: var(--border);
   margin: 4px 0;
 }
-/* ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-   2026.4.24-C1  ¡¤  Accessibility & polish refinements
+/* ï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½T
+   2026.4.24-C1  ï¿½ï¿½  Accessibility & polish refinements
    - Unified focus ring (visible only on :focus-visible, not :focus)
    - Accessible scrollbar across WebKit + Firefox
    - Honours prefers-reduced-motion
-   ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T */
+   ï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½T */
 
-/* Accessible focus ring ¡ª only on keyboard nav, not mouse click. */
+/* Accessible focus ring ï¿½ï¿½ only on keyboard nav, not mouse click. */
 :where(button, a, input, select, textarea, [role='button'], [tabindex]):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -2019,7 +2050,7 @@ button.is-loading {
   outline: none;
 }
 
-/* Scrollbars ¡ª WebKit (Chromium, Safari). */
+/* Scrollbars ï¿½ï¿½ WebKit (Chromium, Safari). */
 :where(.scroll, [data-scroll], .right-top, .center, .left, main, body) *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -2038,13 +2069,13 @@ button.is-loading {
   background-clip: content-box;
 }
 
-/* Scrollbars ¡ª Firefox. */
+/* Scrollbars ï¿½ï¿½ Firefox. */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
-/* Respect reduced-motion preference ¡ª disables cosmetic transitions. */
+/* Respect reduced-motion preference ï¿½ï¿½ disables cosmetic transitions. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     transition-duration: 0.001ms !important;

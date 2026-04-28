@@ -368,13 +368,101 @@ impl NativePlatform {
             PlatformKind::Linux => ShellKind::Bash,
         };
 
+        // Resolve relative roots like "." to an absolute, display-friendly path
+        // so /api/state and downstream consumers (file dialog, breadcrumbs)
+        // never have to render bare "." or carry the Windows extended-length
+        // `\\?\` prefix into the UI.
+        let resolved_root = resolve_workspace_root_display(&workspace_root);
+
         Self {
             context: WorkspaceContext {
-                root: workspace_root,
+                root: resolved_root,
                 platform,
                 preferred_shell,
             },
         }
+    }
+}
+
+/// Strip the Windows extended-length `\\?\` and `\\?\UNC\` prefixes that
+/// `std::fs::canonicalize` adds, so paths render cleanly in the UI shell and
+/// in JSON snapshots. On non-Windows targets this is a no-op.
+pub fn strip_extended_path_prefix(path: &str) -> String {
+    if cfg!(target_os = "windows") {
+        if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+            return format!(r"\\{}", rest);
+        }
+        if let Some(rest) = path.strip_prefix(r"\\?\") {
+            return rest.to_string();
+        }
+    }
+    path.to_string()
+}
+
+fn resolve_workspace_root_display(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::from(".");
+    }
+    let candidate = PathBuf::from(trimmed);
+    let resolved = if candidate.is_absolute() {
+        candidate.clone()
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(&candidate))
+            .unwrap_or(candidate.clone())
+    };
+    let final_path = match fs::canonicalize(&resolved) {
+        Ok(absolute) => absolute,
+        Err(_) => resolved,
+    };
+    strip_extended_path_prefix(&final_path.display().to_string())
+}
+
+/// Returns true when a session title is a placeholder we should overwrite
+/// with a prompt-derived title on the first user turn.
+fn is_placeholder_session_title(title: &str, session_id: &str) -> bool {
+    let trimmed = title.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    if trimmed.eq_ignore_ascii_case("new session") {
+        return true;
+    }
+    // Legacy auto-titles like "Session session-12345" produced by older
+    // ensure_session_exists implementations.
+    if trimmed == format!("Session {session_id}") {
+        return true;
+    }
+    if trimmed.starts_with("Session session-") || trimmed.starts_with("Session demo")
+        || trimmed.starts_with("Session webui-")
+    {
+        return true;
+    }
+    false
+}
+
+/// Build a short, human-friendly title from a raw prompt string.
+fn derive_session_title(prompt: &str) -> String {
+    // Take the first non-empty line, collapse whitespace, and clip to a
+    // reasonable display length (counted in chars, not bytes, so multi-byte
+    // CJK content stays intact).
+    let first_line = prompt
+        .lines()
+        .map(|line| line.trim())
+        .find(|line| !line.is_empty())
+        .unwrap_or("");
+    if first_line.is_empty() {
+        return String::new();
+    }
+    let collapsed: String = first_line.split_whitespace().collect::<Vec<_>>().join(" ");
+    const MAX_CHARS: usize = 40;
+    let mut iter = collapsed.chars();
+    let head: String = iter.by_ref().take(MAX_CHARS).collect();
+    if iter.next().is_some() {
+        format!("{head}…")
+    } else {
+        head
     }
 }
 
@@ -1356,6 +1444,7 @@ Shell: {:?}\n\n",
         };
 
         self.ensure_session_exists(session_id)?;
+        self.maybe_auto_title_session(session_id, text);
         self.clear_session_stop(session_id);
         self.start_turn(session_id, 1)?;
 
@@ -1911,7 +2000,7 @@ Shell: {:?}\n\n",
         if !exists {
             self.sessions.save_session(SessionSummary {
                 id: String::from(session_id),
-                title: format!("Session {session_id}"),
+                title: String::from("New Session"),
                 model: self.config.default_model.clone(),
                 parent_id: None,
                 branch_name: None,
@@ -1921,6 +2010,31 @@ Shell: {:?}\n\n",
             self.plugin_host.dispatch(PluginHook::SessionStart { session_id });
         }
         self.bootstrap_session_context(session_id)
+    }
+
+    /// When the current session title is still a placeholder ("New Session",
+    /// empty, or the legacy `Session <id>` form), derive a short title from
+    /// the user's prompt so historical sidebar entries stop showing as
+    /// generic "New Session".
+    fn maybe_auto_title_session(&self, session_id: &str, prompt: &str) {
+        let Ok(sessions) = self.sessions.list_sessions() else {
+            return;
+        };
+        let Some(summary) = sessions.into_iter().find(|s| s.id == session_id) else {
+            return;
+        };
+        if !is_placeholder_session_title(&summary.title, session_id) {
+            return;
+        }
+        let derived = derive_session_title(prompt);
+        if derived.is_empty() {
+            return;
+        }
+        let updated = SessionSummary {
+            title: derived,
+            ..summary
+        };
+        let _ = self.sessions.save_session(updated);
     }
 
     fn bootstrap_session_context(&self, session_id: &str) -> Result<(), OctoError> {

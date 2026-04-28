@@ -156,8 +156,7 @@ pub fn load_provider_profiles(config_home: &Path) -> Result<Vec<ProviderProfile>
     if !path.is_file() {
         return Ok(Vec::new());
     }
-    let raw = fs::read_to_string(&path)
-        .map_err(|error| OctoError::Runtime(format!("failed to read {}: {error}", path.display())))?;
+    let raw = read_text_no_bom(&path)?;
     let mut document: ProviderProfilesDocument = serde_json::from_str(&raw)
         .map_err(|error| OctoError::Runtime(format!("failed to parse {}: {error}", path.display())))?;
     document.profiles.sort_by(|left, right| left.id.cmp(&right.id));
@@ -566,10 +565,20 @@ fn load_external_actions_document(path: &Path) -> Result<ExternalActionsDocument
     if !path.is_file() {
         return Ok(ExternalActionsDocument::default());
     }
-    let raw = fs::read_to_string(path)
-        .map_err(|error| OctoError::Runtime(format!("failed to read {}: {error}", path.display())))?;
+    let raw = read_text_no_bom(path)?;
     serde_json::from_str(&raw)
         .map_err(|error| OctoError::Runtime(format!("failed to parse {}: {error}", path.display())))
+}
+
+/// Read a UTF-8 text file and transparently strip a leading byte-order mark.
+/// Several Octocode config files (provider-profiles.json, hooks.json, etc.)
+/// can be authored or saved by Windows tooling that prepends a UTF-8 BOM,
+/// which serde_json refuses to parse. Returning the BOM-stripped content here
+/// means every JSON loader in this module is tolerant of that case.
+fn read_text_no_bom(path: &Path) -> Result<String, OctoError> {
+    let raw = fs::read_to_string(path)
+        .map_err(|error| OctoError::Runtime(format!("failed to read {}: {error}", path.display())))?;
+    Ok(raw.strip_prefix('\u{feff}').map(str::to_string).unwrap_or(raw))
 }
 
 fn save_external_actions_document(path: &Path, document: &ExternalActionsDocument) -> Result<(), OctoError> {
@@ -587,8 +596,7 @@ fn load_hook_document(path: &Path) -> Result<BTreeMap<String, Vec<HookFileDef>>,
     if !path.is_file() {
         return Ok(BTreeMap::new());
     }
-    let raw = fs::read_to_string(path)
-        .map_err(|error| OctoError::Runtime(format!("failed to read {}: {error}", path.display())))?;
+    let raw = read_text_no_bom(path)?;
     let value: Value = serde_json::from_str(&raw)
         .map_err(|error| OctoError::Runtime(format!("failed to parse {}: {error}", path.display())))?;
     let hooks = value
