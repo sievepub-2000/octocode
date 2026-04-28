@@ -132,11 +132,62 @@ where
 
     pub fn routing_statuses(&self) -> Vec<ProviderRouteStatus> {
         let active_provider_id = self.active_provider_id();
+        // P0-fix (2026-04-30): probe provider healths in parallel rather
+        // than serially. With a 17-provider catalog and a 5 s per-probe
+        // read timeout, the previous serial loop could block the WebUI
+        // /api/state and /api/tool snapshot path for ~25-30 s whenever
+        // the in-process health cache (TTL 5 s) expired between calls,
+        // which manifested as a hard deadlock. The same scoped-threads
+        // approach is already used by `health_catalog`; sharing it here
+        // collapses wall time to max(probe) instead of sum(probe).
+        if self.providers.len() <= 1 {
+            return self
+                .providers
+                .iter()
+                .map(|provider| {
+                    let descriptor = provider.descriptor();
+                    let health = provider.health();
+                    ProviderRouteStatus {
+                        provider_id: descriptor.id.clone(),
+                        display_name: descriptor.display_name.clone(),
+                        kind: descriptor.kind,
+                        healthy: health.healthy,
+                        circuit_state: health.circuit_state,
+                        detail: health.detail,
+                        latency_ms: health.latency_ms,
+                        is_primary: descriptor.id == self.primary_provider_id,
+                        is_active: descriptor.id == active_provider_id,
+                    }
+                })
+                .collect();
+        }
+        let mut healths: Vec<Option<ProviderHealth>> =
+            (0..self.providers.len()).map(|_| None).collect();
+        std::thread::scope(|scope| {
+            let mut handles = Vec::with_capacity(self.providers.len());
+            for provider in &self.providers {
+                handles.push(scope.spawn(move || provider.health()));
+            }
+            for (idx, handle) in handles.into_iter().enumerate() {
+                healths[idx] = handle.join().ok();
+            }
+        });
         self.providers
             .iter()
-            .map(|provider| {
+            .enumerate()
+            .map(|(idx, provider)| {
                 let descriptor = provider.descriptor();
-                let health = provider.health();
+                let health = healths[idx].take().unwrap_or_else(|| ProviderHealth {
+                    provider_id: descriptor.id.clone(),
+                    display_name: descriptor.display_name.clone(),
+                    healthy: false,
+                    detail: String::from("provider health probe panicked"),
+                    model: None,
+                    latency_ms: None,
+                    circuit_state: ProviderCircuitState::Open,
+                    failure_count: 0,
+                    cooldown_remaining_ms: None,
+                });
                 ProviderRouteStatus {
                     provider_id: descriptor.id.clone(),
                     display_name: descriptor.display_name.clone(),
