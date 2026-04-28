@@ -44,6 +44,43 @@ pub trait AgentLoopSessionRuntime {
         session_id: &str,
         call: ToolCall,
     ) -> Result<ToolResult, OctoError>;
+
+    /// Optional hook fired once per agent-loop run. The default
+    /// implementation is a no-op so existing implementors compile
+    /// unchanged. The runtime calls this with `success=true` only when
+    /// every step in the loop returned `Ok`; otherwise it is invoked
+    /// with `success=false` so the skill ledger reflects the failure.
+    fn record_skill_outcome(
+        &self,
+        _session_id: &str,
+        _slug: &str,
+        _success: bool,
+    ) -> Result<(), OctoError> {
+        Ok(())
+    }
+}
+
+/// Pull a `[skill:<slug>]` prefix out of a goal string. The slug must
+/// be plain `[a-zA-Z0-9_-]+`. Returns the slug and the remaining goal
+/// text. When no prefix is present, the goal is returned unchanged.
+pub fn parse_skill_attribution(goal: &str) -> (Option<String>, String) {
+    let trimmed = goal.trim_start();
+    let Some(rest) = trimmed.strip_prefix("[skill:") else {
+        return (None, goal.to_string());
+    };
+    let Some(end) = rest.find(']') else {
+        return (None, goal.to_string());
+    };
+    let slug = rest[..end].trim();
+    if slug.is_empty()
+        || !slug
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return (None, goal.to_string());
+    }
+    let remaining = rest[end + 1..].trim().to_string();
+    (Some(slug.to_string()), remaining)
 }
 
 pub fn build_bounded_agent_loop(goal: &str) -> Vec<AgentLoopStep> {
@@ -82,6 +119,7 @@ pub fn execute_bounded_agent_loop<R: AgentLoopSessionRuntime>(
     goal: &str,
 ) -> Result<AgentLoopReport, OctoError> {
     let goal = normalize_goal(goal);
+    let (skill_slug, _stripped_goal) = parse_skill_attribution(&goal);
     runtime.append_agent_loop_message(
         session_id,
         ConversationRole::System,
@@ -152,6 +190,10 @@ pub fn execute_bounded_agent_loop<R: AgentLoopSessionRuntime>(
         steps: reports,
         stopped_reason,
     };
+    if let Some(slug) = skill_slug.as_deref() {
+        let success = report.steps.iter().all(|s| s.ok) && !report.steps.is_empty();
+        runtime.record_skill_outcome(session_id, slug, success)?;
+    }
     runtime.append_agent_loop_message(
         session_id,
         ConversationRole::Assistant,
@@ -203,6 +245,8 @@ mod tests {
 
     struct FakeRuntime {
         messages: RefCell<Vec<String>>,
+        skill_calls: RefCell<Vec<(String, bool)>>,
+        fail_on: Option<&'static str>,
     }
 
     impl AgentLoopSessionRuntime for FakeRuntime {
@@ -221,9 +265,32 @@ mod tests {
             _session_id: &str,
             call: ToolCall,
         ) -> Result<ToolResult, OctoError> {
+            if let Some(fail) = self.fail_on {
+                if call.name == fail {
+                    return Err(OctoError::Runtime(format!("forced failure on {}", fail)));
+                }
+            }
             Ok(ToolResult {
                 output: format!("{}:{}", call.name, call.input),
             })
+        }
+
+        fn record_skill_outcome(
+            &self,
+            _session_id: &str,
+            slug: &str,
+            success: bool,
+        ) -> Result<(), OctoError> {
+            self.skill_calls.borrow_mut().push((slug.to_string(), success));
+            Ok(())
+        }
+    }
+
+    fn fake() -> FakeRuntime {
+        FakeRuntime {
+            messages: RefCell::new(Vec::new()),
+            skill_calls: RefCell::new(Vec::new()),
+            fail_on: None,
         }
     }
 
@@ -237,9 +304,41 @@ mod tests {
 
     #[test]
     fn executes_loop_and_appends_summary() {
-        let runtime = FakeRuntime { messages: RefCell::new(Vec::new()) };
+        let runtime = fake();
         let report = execute_bounded_agent_loop(&runtime, "demo", "ship it").expect("loop ok");
         assert_eq!(report.steps.len(), 4);
         assert!(runtime.messages.borrow().iter().any(|m| m.contains("agent-loop completed")));
+        // No skill prefix => no skill outcome recorded.
+        assert!(runtime.skill_calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn parse_skill_attribution_extracts_slug_and_remainder() {
+        let (slug, body) = parse_skill_attribution("[skill:auto-research] explore X");
+        assert_eq!(slug.as_deref(), Some("auto-research"));
+        assert_eq!(body, "explore X");
+        let (slug, _) = parse_skill_attribution("plain goal");
+        assert!(slug.is_none());
+        let (slug, _) = parse_skill_attribution("[skill:bad slug] hi");
+        assert!(slug.is_none(), "spaces in slug must be rejected");
+    }
+
+    #[test]
+    fn skill_outcome_recorded_on_success() {
+        let runtime = fake();
+        let _ = execute_bounded_agent_loop(&runtime, "demo", "[skill:demo-skill] do thing")
+            .expect("loop ok");
+        let calls = runtime.skill_calls.borrow().clone();
+        assert_eq!(calls, vec![(String::from("demo-skill"), true)]);
+    }
+
+    #[test]
+    fn skill_outcome_recorded_as_failure_when_step_errors() {
+        let mut runtime = fake();
+        runtime.fail_on = Some("file-tree");
+        let _ = execute_bounded_agent_loop(&runtime, "demo", "[skill:flaky] try")
+            .expect("loop ok");
+        let calls = runtime.skill_calls.borrow().clone();
+        assert_eq!(calls, vec![(String::from("flaky"), false)]);
     }
 }

@@ -1688,6 +1688,7 @@ name = "octocode-runtime"
 version = "2026.4.24"
 dependencies = [
  "octocode-core",
+ "octocode-gateway",
  "octocode-mcp",
  "octocode-mock-provider",
  "octocode-plugins",

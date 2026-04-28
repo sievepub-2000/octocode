@@ -51,7 +51,8 @@ impl SqliteStore {
             );
             CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
             CREATE INDEX IF NOT EXISTS idx_cost_session ON cost_records(session_id);
-            CREATE VIRTUAL TABLE IF NOT EXISTS session_search USING fts5(session_id UNINDEXED, segment);",
+            CREATE VIRTUAL TABLE IF NOT EXISTS session_search USING fts5(session_id UNINDEXED, segment);
+            CREATE VIRTUAL TABLE IF NOT EXISTS user_search USING fts5(user_id UNINDEXED, session_id UNINDEXED, segment);",
         )
         .map_err(|e| OctoError::Runtime(format!("sqlite migrate: {e}")))?;
         Ok(())
@@ -226,6 +227,86 @@ impl SqliteStore {
             .map_err(|e| OctoError::Runtime(format!("sqlite fts query: {e}")))?;
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
+
+    // ── Cross-session user model (FTS5 user_search) ─────────────────
+    //
+    // The same per-message segments are also indexed under a parallel
+    // FTS5 corpus keyed by `user_id` so the runtime can answer
+    // "everything <user> has ever said across every session". This is
+    // the data plane behind the `@mention` router and the planned
+    // user-level memory feature.
+
+    /// Index a free-text segment under a `(user_id, session_id)` pair.
+    /// Empty values are silently ignored so callers can pipe through
+    /// optional ids without conditional logic.
+    pub fn index_user_segment(
+        &self,
+        user_id: &str,
+        session_id: &str,
+        segment: &str,
+    ) -> Result<(), OctoError> {
+        if user_id.trim().is_empty()
+            || session_id.trim().is_empty()
+            || segment.trim().is_empty()
+        {
+            return Ok(());
+        }
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO user_search (user_id, session_id, segment) VALUES (?1, ?2, ?3)",
+            params![user_id, session_id, segment],
+        )
+        .map_err(|e| OctoError::Runtime(format!("sqlite user fts insert: {e}")))?;
+        Ok(())
+    }
+
+    /// Full-text search restricted to the segments owned by `user_id`.
+    /// Returns `(session_id, snippet)` tuples ordered by FTS5 rank.
+    pub fn search_user_segments(
+        &self,
+        user_id: &str,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<(String, String)>, OctoError> {
+        let q = query.trim();
+        if user_id.trim().is_empty() || q.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT session_id, snippet(user_search, 2, '[', ']', '…', 12) AS snip \
+                 FROM user_search WHERE user_id = ?1 AND user_search MATCH ?2 \
+                 ORDER BY rank LIMIT ?3",
+            )
+            .map_err(|e| OctoError::Runtime(format!("sqlite user fts prepare: {e}")))?;
+        let rows = stmt
+            .query_map(params![user_id, q, limit as i64], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| OctoError::Runtime(format!("sqlite user fts query: {e}")))?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    /// Aggregate every distinct session id ever seen for `user_id`.
+    /// Used by the mention router as the "latest session" lookup
+    /// fallback.
+    pub fn sessions_for_user(&self, user_id: &str) -> Result<Vec<String>, OctoError> {
+        if user_id.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT DISTINCT session_id FROM user_search WHERE user_id = ?1 \
+                 ORDER BY rowid DESC",
+            )
+            .map_err(|e| OctoError::Runtime(format!("sqlite user fts prepare: {e}")))?;
+        let rows = stmt
+            .query_map(params![user_id], |row| row.get::<_, String>(0))
+            .map_err(|e| OctoError::Runtime(format!("sqlite user fts query: {e}")))?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
 }
 
 fn row_to_task(row: &rusqlite::Row) -> rusqlite::Result<TaskRecord> {
@@ -361,4 +442,44 @@ mod tests {
         store.index_session_segment("s-1", "alpha beta").unwrap();
         assert!(store.search_sessions("   ", 10).unwrap().is_empty());
     }
+
+    #[test]
+    fn user_search_isolates_by_user_id() {
+        let store = temp_store("fts_user_iso");
+        store
+            .index_user_segment("u-alice", "s-1", "alice prefers cargo nextest")
+            .unwrap();
+        store
+            .index_user_segment("u-bob", "s-2", "bob prefers cargo nextest")
+            .unwrap();
+        let alice_hits = store.search_user_segments("u-alice", "nextest", 10).unwrap();
+        assert_eq!(alice_hits.len(), 1);
+        assert_eq!(alice_hits[0].0, "s-1");
+        let bob_hits = store.search_user_segments("u-bob", "nextest", 10).unwrap();
+        assert_eq!(bob_hits.len(), 1);
+        assert_eq!(bob_hits[0].0, "s-2");
+        let none = store.search_user_segments("u-charlie", "nextest", 10).unwrap();
+        assert!(none.is_empty());
+    }
+
+    #[test]
+    fn sessions_for_user_returns_distinct_recent_first() {
+        let store = temp_store("fts_user_sessions");
+        store.index_user_segment("u-1", "s-old", "first").unwrap();
+        store.index_user_segment("u-1", "s-new", "second").unwrap();
+        store.index_user_segment("u-1", "s-new", "third").unwrap();
+        let sessions = store.sessions_for_user("u-1").unwrap();
+        assert_eq!(sessions, vec![String::from("s-new"), String::from("s-old")]);
+        assert!(store.sessions_for_user("").unwrap().is_empty());
+    }
+
+    #[test]
+    fn user_search_empty_inputs_are_silently_ignored() {
+        let store = temp_store("fts_user_empty");
+        store.index_user_segment("", "s-1", "x").unwrap();
+        store.index_user_segment("u-1", "", "x").unwrap();
+        store.index_user_segment("u-1", "s-1", "   ").unwrap();
+        assert!(store.search_user_segments("u-1", "x", 10).unwrap().is_empty());
+    }
 }
+

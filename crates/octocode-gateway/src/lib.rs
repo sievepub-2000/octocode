@@ -10,6 +10,9 @@
 
 use octocode_core::OctoError;
 
+pub mod webhook;
+pub use webhook::{parse_mention, InboundEvent, WebhookPlatform, WebhookRouter};
+
 /// Minimal outbound message envelope.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutboundMessage {
@@ -280,6 +283,10 @@ fn escape_json(s: &str) -> String {
 /// is absent. Intentionally minimal — the gateway does not own a JSON
 /// parser dependency.
 fn extract_string_field(body: &str, field: &str) -> Option<String> {
+    extract_string_field_inner(body, field)
+}
+
+pub(crate) fn extract_string_field_inner(body: &str, field: &str) -> Option<String> {
     let needle = format!("\"{field}\"");
     let idx = body.find(&needle)?;
     let rest = &body[idx + needle.len()..];

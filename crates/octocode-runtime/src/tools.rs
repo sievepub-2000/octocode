@@ -542,6 +542,26 @@ const TOOLS: &[ToolDescriptor] = &[
         summary: "List recorded skills under skills/auto/ ranked by success score (highest first). No input.",
         minimum_permission: PermissionMode::ReadOnly,
     },
+    ToolDescriptor {
+        name: "modal-command",
+        summary: "Execute a shell command inside a Modal serverless app. Input: 'app|<remote command>'. Subject to the same approval gate as shell-command.",
+        minimum_permission: PermissionMode::WorkspaceWrite,
+    },
+    ToolDescriptor {
+        name: "daytona-command",
+        summary: "Execute a shell command inside a Daytona managed workspace. Input: 'workspace|<remote command>'. Subject to the same approval gate as shell-command.",
+        minimum_permission: PermissionMode::WorkspaceWrite,
+    },
+    ToolDescriptor {
+        name: "fly-command",
+        summary: "Execute a shell command on a Fly.io machine. Input: 'app[/machine]|<remote command>'. The optional '/machine' suffix pins the run to a specific machine id.",
+        minimum_permission: PermissionMode::WorkspaceWrite,
+    },
+    ToolDescriptor {
+        name: "skills-hub-render",
+        summary: "Re-render docs/skills-hub/index.md from the current contents of skills/auto/. No input.",
+        minimum_permission: PermissionMode::WorkspaceWrite,
+    },
 ];
 
 /// Pluggable shell backend used by `shell-command` / `ssh-command`. The
@@ -555,6 +575,16 @@ pub enum ShellBackend {
     Local,
     Ssh { host: String },
     Docker { container: String },
+    /// Modal serverless container. `app` is the registered Modal app
+    /// name; the remote command is forwarded via `modal run <app>::run -- <cmd>`.
+    Modal { app: String },
+    /// Daytona managed dev workspace. The remote command is run via
+    /// `daytona ssh <workspace> -- <cmd>` against the workspace shell.
+    Daytona { workspace: String },
+    /// Fly.io machine. The remote command is run via
+    /// `fly ssh console -a <app> -C "<cmd>"`, optionally pinned to a
+    /// machine id with `-s <machine>`.
+    Fly { app: String, machine: Option<String> },
 }
 
 impl ShellBackend {
@@ -565,6 +595,12 @@ impl ShellBackend {
             ShellBackend::Local => String::from("local"),
             ShellBackend::Ssh { host } => format!("ssh:{host}"),
             ShellBackend::Docker { container } => format!("docker:{container}"),
+            ShellBackend::Modal { app } => format!("modal:{app}"),
+            ShellBackend::Daytona { workspace } => format!("daytona:{workspace}"),
+            ShellBackend::Fly { app, machine } => match machine {
+                Some(m) => format!("fly:{app}/{m}"),
+                None => format!("fly:{app}"),
+            },
         }
     }
 
@@ -587,6 +623,21 @@ impl ShellBackend {
             ShellBackend::Docker { container } => {
                 let escaped = remote_cmd.replace('\\', "\\\\").replace('"', "\\\"");
                 format!("docker exec {container} sh -c \"{escaped}\"")
+            }
+            ShellBackend::Modal { app } => {
+                let escaped = remote_cmd.replace('\\', "\\\\").replace('"', "\\\"");
+                format!("modal run {app}::run -- \"{escaped}\"")
+            }
+            ShellBackend::Daytona { workspace } => {
+                let escaped = remote_cmd.replace('\\', "\\\\").replace('"', "\\\"");
+                format!("daytona ssh {workspace} -- \"{escaped}\"")
+            }
+            ShellBackend::Fly { app, machine } => {
+                let escaped = remote_cmd.replace('\\', "\\\\").replace('"', "\\\"");
+                match machine {
+                    Some(m) => format!("fly ssh console -a {app} -s {m} -C \"{escaped}\""),
+                    None => format!("fly ssh console -a {app} -C \"{escaped}\""),
+                }
             }
         }
     }
@@ -864,6 +915,132 @@ impl WorkspaceToolExecutor {
         }
         let backend = ShellBackend::Docker { container: container.to_string() };
         self.run_shell(&backend.wrap(remote_cmd))
+    }
+
+    /// Execute a remote command inside a Modal serverless app. Input
+    /// shape: `app|<remote command>`. Same approval gate as the rest of
+    /// the cloud-backed shells; the wire command becomes
+    /// `modal run <app>::run -- "<cmd>"`.
+    pub(crate) fn execute_modal_command(
+        &self,
+        raw_input: &str,
+        session_mode: &PermissionMode,
+    ) -> Result<ToolResult, OctoError> {
+        let approved = self.enforce_approval(
+            "modal-command",
+            raw_input,
+            session_mode,
+            |payload| {
+                let app = payload
+                    .split_once('|')
+                    .map(|(left, _)| left.trim())
+                    .unwrap_or(payload.trim());
+                format!("modal '{}'", preview_for_audit(app, 80))
+            },
+        )?;
+        let (app, remote_cmd) = approved.split_once('|').ok_or_else(|| {
+            OctoError::Runtime(String::from(
+                "modal-command expects input in the form 'app|<remote command>'",
+            ))
+        })?;
+        let app = app.trim();
+        let remote_cmd = remote_cmd.trim();
+        if app.is_empty() || remote_cmd.is_empty() {
+            return Err(OctoError::Runtime(String::from(
+                "modal-command requires non-empty app and remote command",
+            )));
+        }
+        let backend = ShellBackend::Modal { app: app.to_string() };
+        self.run_shell(&backend.wrap(remote_cmd))
+    }
+
+    /// Execute a remote command inside a Daytona managed workspace.
+    /// Input shape: `workspace|<remote command>`. The wire command
+    /// becomes `daytona ssh <workspace> -- "<cmd>"`.
+    pub(crate) fn execute_daytona_command(
+        &self,
+        raw_input: &str,
+        session_mode: &PermissionMode,
+    ) -> Result<ToolResult, OctoError> {
+        let approved = self.enforce_approval(
+            "daytona-command",
+            raw_input,
+            session_mode,
+            |payload| {
+                let workspace = payload
+                    .split_once('|')
+                    .map(|(left, _)| left.trim())
+                    .unwrap_or(payload.trim());
+                format!("daytona '{}'", preview_for_audit(workspace, 80))
+            },
+        )?;
+        let (workspace, remote_cmd) = approved.split_once('|').ok_or_else(|| {
+            OctoError::Runtime(String::from(
+                "daytona-command expects input in the form 'workspace|<remote command>'",
+            ))
+        })?;
+        let workspace = workspace.trim();
+        let remote_cmd = remote_cmd.trim();
+        if workspace.is_empty() || remote_cmd.is_empty() {
+            return Err(OctoError::Runtime(String::from(
+                "daytona-command requires non-empty workspace and remote command",
+            )));
+        }
+        let backend = ShellBackend::Daytona { workspace: workspace.to_string() };
+        self.run_shell(&backend.wrap(remote_cmd))
+    }
+
+    /// Execute a remote command on a Fly.io machine. Input shape:
+    /// `app[/machine]|<remote command>`. When `/machine` is present the
+    /// command is pinned with `fly ssh console -s <machine>`; otherwise
+    /// the platform routes to any healthy machine.
+    pub(crate) fn execute_fly_command(
+        &self,
+        raw_input: &str,
+        session_mode: &PermissionMode,
+    ) -> Result<ToolResult, OctoError> {
+        let approved = self.enforce_approval(
+            "fly-command",
+            raw_input,
+            session_mode,
+            |payload| {
+                let target = payload
+                    .split_once('|')
+                    .map(|(left, _)| left.trim())
+                    .unwrap_or(payload.trim());
+                format!("fly '{}'", preview_for_audit(target, 80))
+            },
+        )?;
+        let (target, remote_cmd) = approved.split_once('|').ok_or_else(|| {
+            OctoError::Runtime(String::from(
+                "fly-command expects input in the form 'app[/machine]|<remote command>'",
+            ))
+        })?;
+        let remote_cmd = remote_cmd.trim();
+        if target.trim().is_empty() || remote_cmd.is_empty() {
+            return Err(OctoError::Runtime(String::from(
+                "fly-command requires non-empty app and remote command",
+            )));
+        }
+        let (app, machine) = match target.trim().split_once('/') {
+            Some((a, m)) => (a.trim().to_string(), Some(m.trim().to_string())),
+            None => (target.trim().to_string(), None),
+        };
+        let backend = ShellBackend::Fly { app, machine };
+        self.run_shell(&backend.wrap(remote_cmd))
+    }
+
+    /// Re-render `docs/skills-hub/index.md` so the static-site listing
+    /// always reflects the current `skills/auto/` directory + score
+    /// files. The number of skills written is reported back to the
+    /// caller for audit.
+    pub(crate) fn execute_skills_hub_render(&self) -> Result<ToolResult, OctoError> {
+        let count = crate::skills_hub::render_to_workspace(&self.workspace_root)?;
+        Ok(ToolResult {
+            output: format!(
+                "rendered docs/skills-hub/index.md with {count} skill(s)"
+            ),
+        })
     }
 
     /// Cron-flavoured sibling of [`execute_schedule_add`]. Input shape:
@@ -3389,6 +3566,10 @@ impl ToolExecutor for WorkspaceToolExecutor {
             "session-search" => self.execute_session_search(&call.input),
             "schedule-add-cron" => self.execute_schedule_add_cron(&call.input),
             "docker-command" => self.execute_docker_command(&call.input, &call.permission),
+            "modal-command" => self.execute_modal_command(&call.input, &call.permission),
+            "daytona-command" => self.execute_daytona_command(&call.input, &call.permission),
+            "fly-command" => self.execute_fly_command(&call.input, &call.permission),
+            "skills-hub-render" => self.execute_skills_hub_render(),
             "skill-score" => self.execute_skill_score(&call.input),
             "skill-list" => self.execute_skill_list(),
             "search-text" => self.search_text(&call.input),
@@ -3919,7 +4100,7 @@ mod tests {
     fn tool_catalog_has_expected_tools() {
         let catalog = RuntimeToolCatalog;
         let descriptors = catalog.descriptors();
-        assert_eq!(descriptors.len(), 77, "expected 77 tool descriptors, got {}", descriptors.len());
+        assert_eq!(descriptors.len(), 81, "expected 81 tool descriptors, got {}", descriptors.len());
     }
 
     #[test]
@@ -4119,6 +4300,43 @@ mod tests {
         assert!(wrapped.starts_with("docker exec octo-build sh -c "), "wrapped={wrapped}");
         assert!(wrapped.ends_with("\"ls /app\""));
         assert_eq!(backend.label(), "docker:octo-build");
+    }
+
+    #[test]
+    fn modal_backend_wraps_remote_command_via_modal_run() {
+        let backend = ShellBackend::Modal { app: String::from("octo-app") };
+        let wrapped = backend.wrap("python -V");
+        assert!(wrapped.starts_with("modal run octo-app::run -- "), "wrapped={wrapped}");
+        assert!(wrapped.ends_with("\"python -V\""));
+        assert_eq!(backend.label(), "modal:octo-app");
+    }
+
+    #[test]
+    fn daytona_backend_wraps_remote_command_via_daytona_ssh() {
+        let backend = ShellBackend::Daytona { workspace: String::from("ws-7") };
+        let wrapped = backend.wrap("ls /workspace");
+        assert!(wrapped.starts_with("daytona ssh ws-7 -- "), "wrapped={wrapped}");
+        assert!(wrapped.ends_with("\"ls /workspace\""));
+        assert_eq!(backend.label(), "daytona:ws-7");
+    }
+
+    #[test]
+    fn fly_backend_wraps_remote_command_with_optional_machine() {
+        let backend = ShellBackend::Fly { app: String::from("octo-fly"), machine: None };
+        let wrapped = backend.wrap("uptime");
+        assert!(wrapped.starts_with("fly ssh console -a octo-fly -C "), "wrapped={wrapped}");
+        assert_eq!(backend.label(), "fly:octo-fly");
+
+        let pinned = ShellBackend::Fly {
+            app: String::from("octo-fly"),
+            machine: Some(String::from("d8e9")),
+        };
+        let wrapped_pinned = pinned.wrap("uptime");
+        assert!(
+            wrapped_pinned.starts_with("fly ssh console -a octo-fly -s d8e9 -C "),
+            "wrapped_pinned={wrapped_pinned}"
+        );
+        assert_eq!(pinned.label(), "fly:octo-fly/d8e9");
     }
 
     #[test]
