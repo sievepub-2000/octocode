@@ -3574,6 +3574,30 @@ if (sidebarActionsButton) {
     event.stopPropagation();
     openContextMenu(sidebarActionsButton, [
       {
+        // The previously pinned "+ 新对话" button was removed because it
+        // duplicated the top session row visually. Surface the action
+        // here so the operator can still spawn a fresh conversation.
+        label: t('session.new', '+ 新对话'),
+        action: async () => {
+          try {
+            const viewedSessionId = currentSessionId;
+            if (viewedSessionId) {
+              await sessionController.closeSessionContext(viewedSessionId, {
+                detachOwnedSession: sessionController.getOwnedSessionId() === viewedSessionId,
+                closeTerminals: true,
+              });
+            }
+            const { state, sessionId } = await sessionController.createBrowserSession({ applyState: false });
+            sessionController.claimOwnedSession(sessionId);
+            applyState(state, sessionId);
+            await refreshEventFeed(sessionId);
+            showToast(t('session.newOk', '已创建新对话'), 'success');
+          } catch (error) {
+            showToast(`${t('session.newFailed', '创建新对话失败')}: ${error.message}`, 'error');
+          }
+        },
+      },
+      {
         label: t('session.deleteAll', '删除全部会话'),
         action: async () => deleteAllSessions(),
       },

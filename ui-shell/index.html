@@ -120,15 +120,9 @@
           </div>
         </div>
         <div class="sidebar-summary-row">
-          <span class="sidebar-summary-label" data-i18n="sidebar.sessions">会话</span>
+          <span class="sidebar-summary-label" data-i18n="sidebar.history">历史会话记录</span>
           <span class="sidebar-summary-count" id="session-count-inline">0</span>
         </div>
-        <!-- Pinned [新对话] button. Always sits above the historical
-             session list so the operator can spawn a fresh conversation
-             without scrolling. The hairline divider below visually
-             separates the action from the history list. -->
-        <button id="new-session-btn" class="sidebar-new-session-btn" type="button" data-i18n="session.new" data-i18n-title="session.newHint" title="开启一个全新对话">+ 新对话</button>
-        <div class="sidebar-pinned-divider" aria-hidden="true"></div>
         <div id="sidebar-list" class="sidebar-list" role="listbox"></div>
       </aside>
 
@@ -461,6 +455,6 @@
     <button class="activity-button active" data-view="sessions" type="button">EX</button>
   </div>
   <script src="./session-controller.js?v=2"></script>
-  <script src="./app.js?v=18"></script>
+  <script src="./app.js?v=19"></script>
 </body>
 </html>

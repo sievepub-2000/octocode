@@ -277,11 +277,9 @@ button { cursor: pointer; }
 /* ─── Left panel: Sidebar ─── */
 .panel-left {
   display: grid;
-  /* 5 children in order: .panel-head, .sidebar-summary-row,
-     #new-session-btn, .sidebar-pinned-divider, #sidebar-list.
-     Only the last row (the scrollable history list) should grow; all
-     fixed-height affordances above it must stay at content size. */
-  grid-template-rows: auto auto auto auto minmax(0, 1fr);
+  /* 3 children in order: .panel-head, .sidebar-summary-row, #sidebar-list.
+     Only the last row (the scrollable history list) should grow. */
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 6px;
   padding: 8px 4px 8px 0;
   background: var(--bg-1);
