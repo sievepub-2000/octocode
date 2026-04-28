@@ -1016,8 +1016,11 @@ where
         let descriptor = self
             .tool_descriptor(&call.name)
             .ok_or_else(|| OctoError::Runtime(format!("unknown tool: {}", call.name)))?;
-        call.permission = descriptor.minimum_permission.clone();
-        self.ensure_permission(&call.permission, descriptor.name)?;
+        self.ensure_permission(&descriptor.minimum_permission, descriptor.name)?;
+        // After the permission check the executor receives the session's
+        // effective mode so DangerFullAccess can auto-approve every gated
+        // tool while WorkspaceWrite still requires the operator to confirm.
+        call.permission = self.config.permission_mode.clone();
         self.plugin_host.dispatch(PluginHook::BeforeTool {
             session_id,
             call: &call,
@@ -1059,8 +1062,8 @@ where
         let descriptor = self
             .tool_descriptor(&call.name)
             .ok_or_else(|| OctoError::Runtime(format!("unknown tool: {}", call.name)))?;
-        call.permission = descriptor.minimum_permission.clone();
-        self.ensure_permission(&call.permission, descriptor.name)?;
+        self.ensure_permission(&descriptor.minimum_permission, descriptor.name)?;
+        call.permission = self.config.permission_mode.clone();
         if call.name != "shell-command" {
             // No streaming hook for this tool yet — fall back to blocking
             // execution so we still respect the plugin host contract.
@@ -1142,8 +1145,8 @@ where
         let descriptor = self
             .tool_descriptor(&call.name)
             .ok_or_else(|| OctoError::Runtime(format!("unknown tool: {}", call.name)))?;
-        call.permission = descriptor.minimum_permission.clone();
-        self.ensure_permission(&call.permission, descriptor.name)?;
+        self.ensure_permission(&descriptor.minimum_permission, descriptor.name)?;
+        call.permission = self.config.permission_mode.clone();
         self.plugin_host.dispatch(PluginHook::BeforeTool {
             session_id,
             call: &call,
@@ -1223,8 +1226,8 @@ where
         let descriptor = self
             .tool_descriptor(&call.name)
             .ok_or_else(|| OctoError::Runtime(format!("unknown tool: {}", call.name)))?;
-        call.permission = descriptor.minimum_permission.clone();
-        self.ensure_permission(&call.permission, descriptor.name)?;
+        self.ensure_permission(&descriptor.minimum_permission, descriptor.name)?;
+        call.permission = self.config.permission_mode.clone();
         self.tools.execute(call)
     }
 

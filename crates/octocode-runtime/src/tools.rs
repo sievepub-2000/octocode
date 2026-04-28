@@ -165,8 +165,8 @@ const TOOLS: &[ToolDescriptor] = &[
     },
     ToolDescriptor {
         name: "shell-command",
-        summary: "Run one shell command in the workspace",
-        minimum_permission: PermissionMode::DangerFullAccess,
+        summary: "Run one shell command in the workspace (approval-gated)",
+        minimum_permission: PermissionMode::WorkspaceWrite,
     },
     ToolDescriptor {
         name: "search-text",
@@ -232,8 +232,8 @@ const TOOLS: &[ToolDescriptor] = &[
     },
     ToolDescriptor {
         name: "empty-recycle-bin",
-        summary: "Empty the OS recycle bin / trash (approval-gated, DangerFullAccess)",
-        minimum_permission: PermissionMode::DangerFullAccess,
+        summary: "Empty the OS recycle bin / trash (approval-gated)",
+        minimum_permission: PermissionMode::WorkspaceWrite,
     },
     ToolDescriptor {
         name: "move-file",
@@ -258,8 +258,8 @@ const TOOLS: &[ToolDescriptor] = &[
     },
     ToolDescriptor {
         name: "cli-pipe",
-        summary: "Run a structured CLI pipeline (cmd1 | cmd2 | ...)",
-        minimum_permission: PermissionMode::DangerFullAccess,
+        summary: "Run a structured CLI pipeline (cmd1 | cmd2 | ...) (approval-gated)",
+        minimum_permission: PermissionMode::WorkspaceWrite,
     },
     ToolDescriptor {
         name: "cargo-eval",
@@ -534,12 +534,14 @@ impl WorkspaceToolExecutor {
     pub(crate) fn execute_shell_command_streaming(
         &self,
         command_line: &str,
+        session_mode: &PermissionMode,
         on_chunk: &mut dyn FnMut(&str),
     ) -> Result<ToolResult, OctoError> {
         // Mirror the approval-token gate that `execute()` applies to the
         // blocking shell-command path so streaming callers stay subject to
-        // the exact same human-in-the-loop policy.
-        let approved = self.enforce_approval("shell-command", command_line, |payload| {
+        // the exact same human-in-the-loop policy. Sessions running in
+        // DangerFullAccess auto-approve and skip the round-trip entirely.
+        let approved = self.enforce_approval("shell-command", command_line, session_mode, |payload| {
             format!("command '{}'", preview_for_audit(payload, 120))
         })?;
         self.run_shell_with_timeout_inner(&approved, SHELL_TIMEOUT, Some(on_chunk))
@@ -594,12 +596,22 @@ impl WorkspaceToolExecutor {
         &self,
         tool_name: &str,
         raw_input: &str,
+        session_mode: &PermissionMode,
         target_builder: F,
     ) -> Result<String, OctoError>
     where
         F: Fn(&str) -> String,
     {
         let (provided_token, payload) = split_approval_input(raw_input);
+
+        // DangerFullAccess sessions explicitly opt out of human-in-the-loop
+        // approval: every approval-gated tool runs immediately. We still
+        // strip a leading approval token if the caller happens to send one
+        // so the same input shape works in both modes.
+        if matches!(session_mode, PermissionMode::DangerFullAccess) {
+            return Ok(String::from(payload));
+        }
+
         let key = approval_key(tool_name, payload);
         let target = target_builder(payload);
 
@@ -2829,7 +2841,8 @@ impl ToolExecutor for WorkspaceToolExecutor {
         // Everything else returns its full result in a single call so the
         // default trait fallback is fine.
         if call.name == "shell-command" {
-            return self.execute_shell_command_streaming(&call.input, on_chunk);
+            let session_mode = call.permission.clone();
+            return self.execute_shell_command_streaming(&call.input, &session_mode, on_chunk);
         }
         self.execute(call)
     }
@@ -2888,7 +2901,7 @@ impl ToolExecutor for WorkspaceToolExecutor {
                 })?;
                 let path_probe = self.resolve_workspace_path(path_text.trim());
                 let effective_input = if is_high_risk_write_target(&path_probe) {
-                    self.enforce_approval("write-file", &call.input, |candidate| {
+                    self.enforce_approval("write-file", &call.input, &call.permission, |candidate| {
                         let write_path = candidate
                             .split_once('|')
                             .map(|(value, _)| value.trim())
@@ -2924,7 +2937,7 @@ impl ToolExecutor for WorkspaceToolExecutor {
                 })
             }
             "shell-command" => {
-                let approved = self.enforce_approval("shell-command", &call.input, |payload| {
+                let approved = self.enforce_approval("shell-command", &call.input, &call.permission, |payload| {
                     format!("command '{}'", preview_for_audit(payload, 120))
                 })?;
                 self.run_shell(&approved)
@@ -2944,7 +2957,7 @@ impl ToolExecutor for WorkspaceToolExecutor {
                 })?;
                 let path = self.resolve_workspace_path(path_text.trim());
                 let effective_input = if is_high_risk_write_target(&path) {
-                    self.enforce_approval("append-file", &call.input, |candidate| {
+                    self.enforce_approval("append-file", &call.input, &call.permission, |candidate| {
                         let append_path = candidate
                             .split_once('|')
                             .map(|(value, _)| value.trim())
@@ -2965,7 +2978,7 @@ impl ToolExecutor for WorkspaceToolExecutor {
                     // and derails small models, so we pre-approve them.
                     String::from(raw_payload)
                 } else {
-                    self.enforce_approval("http-get", &call.input, |payload| {
+                    self.enforce_approval("http-get", &call.input, &call.permission, |payload| {
                         format!("network GET '{}'", preview_for_audit(payload, 160))
                     })?
                 };
@@ -2978,7 +2991,7 @@ impl ToolExecutor for WorkspaceToolExecutor {
                 let (path_text, _) = raw_payload.split_once('|').unwrap_or((raw_payload, ""));
                 let path_probe = self.resolve_workspace_path(path_text.trim());
                 let effective_input = if is_high_risk_write_target(&path_probe) {
-                    self.enforce_approval("create-file", &call.input, |candidate| {
+                    self.enforce_approval("create-file", &call.input, &call.permission, |candidate| {
                         let create_path = candidate
                             .split_once('|')
                             .map(|(value, _)| value.trim())
@@ -3003,7 +3016,7 @@ impl ToolExecutor for WorkspaceToolExecutor {
                 Ok(ToolResult { output: format!("created {}", path.display()) })
             }
             "delete-file" => {
-                let approved = self.enforce_approval("delete-file", &call.input, |payload| {
+                let approved = self.enforce_approval("delete-file", &call.input, &call.permission, |payload| {
                     let resolved = self.resolve_workspace_path(payload.trim());
                     format!("delete {}", resolved.display())
                 })?;
@@ -3013,13 +3026,13 @@ impl ToolExecutor for WorkspaceToolExecutor {
                 Ok(ToolResult { output: format!("deleted {}", path.display()) })
             }
             "empty-recycle-bin" => {
-                let approved = self.enforce_approval("empty-recycle-bin", &call.input, |_payload| {
+                let approved = self.enforce_approval("empty-recycle-bin", &call.input, &call.permission, |_payload| {
                     String::from("OS recycle bin / trash empty")
                 })?;
                 self.empty_recycle_bin(&approved)
             }
             "move-file" => {
-                let approved = self.enforce_approval("move-file", &call.input, |payload| {
+                let approved = self.enforce_approval("move-file", &call.input, &call.permission, |payload| {
                     if let Some((src_text, dst_text)) = payload.split_once('|') {
                         let src = self.resolve_workspace_path(src_text.trim());
                         let dst = self.resolve_workspace_path(dst_text.trim());
@@ -3052,19 +3065,19 @@ impl ToolExecutor for WorkspaceToolExecutor {
             }
             // iteration-3 tool integrations
             "web-browse" => {
-                let approved = self.enforce_approval("web-browse", &call.input, |payload| {
+                let approved = self.enforce_approval("web-browse", &call.input, &call.permission, |payload| {
                     format!("network browse '{}'", preview_for_audit(payload, 160))
                 })?;
                 self.web_browse(&approved)
             }
             "cli-pipe" => {
-                let approved = self.enforce_approval("cli-pipe", &call.input, |payload| {
+                let approved = self.enforce_approval("cli-pipe", &call.input, &call.permission, |payload| {
                     format!("pipeline '{}'", preview_for_audit(payload, 120))
                 })?;
                 self.cli_pipe(&approved)
             }
             "cargo-eval" => {
-                let approved = self.enforce_approval("cargo-eval", &call.input, |payload| {
+                let approved = self.enforce_approval("cargo-eval", &call.input, &call.permission, |payload| {
                     format!("cargo eval '{}'", preview_for_audit(payload, 120))
                 })?;
                 self.cargo_eval(&approved)
@@ -3075,7 +3088,7 @@ impl ToolExecutor for WorkspaceToolExecutor {
                 let effective_input = if segments.len() >= 3 {
                     let path_probe = self.resolve_workspace_path(segments[2].trim());
                     if is_high_risk_write_target(&path_probe) {
-                        self.enforce_approval("patch-file", &call.input, |candidate| {
+                        self.enforce_approval("patch-file", &call.input, &call.permission, |candidate| {
                             let parts: Vec<&str> = candidate.splitn(3, '|').collect();
                             if parts.len() >= 3 {
                                 let resolved = self.resolve_workspace_path(parts[2].trim());
@@ -3095,7 +3108,7 @@ impl ToolExecutor for WorkspaceToolExecutor {
             "diagnostics" => self.diagnostics(),
             // iteration-4 utility tools
             "http-post" => {
-                let approved = self.enforce_approval("http-post", &call.input, |payload| {
+                let approved = self.enforce_approval("http-post", &call.input, &call.permission, |payload| {
                     format!("network POST '{}'", preview_for_audit(payload, 160))
                 })?;
                 self.http_post(&approved)
@@ -3106,13 +3119,13 @@ impl ToolExecutor for WorkspaceToolExecutor {
             "base64" => self.base64_tool(&call.input),
             // LinkMind integration tools
             "vector-search" => {
-                let approved = self.enforce_approval("vector-search", &call.input, |payload| {
+                let approved = self.enforce_approval("vector-search", &call.input, &call.permission, |payload| {
                     format!("network vector-search '{}'", preview_for_audit(payload, 120))
                 })?;
                 self.vector_search(&approved)
             }
             "vector-upsert" => {
-                let approved = self.enforce_approval("vector-upsert", &call.input, |payload| {
+                let approved = self.enforce_approval("vector-upsert", &call.input, &call.permission, |payload| {
                     format!("network vector-upsert '{}'", preview_for_audit(payload, 120))
                 })?;
                 self.vector_upsert(&approved)
@@ -3131,7 +3144,7 @@ impl ToolExecutor for WorkspaceToolExecutor {
             "task-get" => self.task_get(&call.input),
             // web search
             "web-search" => {
-                let approved = self.enforce_approval("web-search", &call.input, |payload| {
+                let approved = self.enforce_approval("web-search", &call.input, &call.permission, |payload| {
                     format!("network web-search '{}'", preview_for_audit(payload, 120))
                 })?;
                 self.web_search(&approved)
@@ -3274,7 +3287,7 @@ impl ToolExecutor for WorkspaceToolExecutor {
                     .unwrap_or("");
                 let path_probe = self.resolve_workspace_path(path_text);
                 let effective_input = if is_high_risk_write_target(&path_probe) {
-                    self.enforce_approval("multi-edit", &call.input, |candidate| {
+                    self.enforce_approval("multi-edit", &call.input, &call.permission, |candidate| {
                         let p = candidate
                             .split_once('|')
                             .map(|(v, _)| v.trim())
@@ -3287,32 +3300,32 @@ impl ToolExecutor for WorkspaceToolExecutor {
                 self.multi_edit(&effective_input)
             }
             "get-errors" => {
-                let approved = self.enforce_approval("get-errors", &call.input, |payload| {
+                let approved = self.enforce_approval("get-errors", &call.input, &call.permission, |payload| {
                     format!("diagnostics '{}'", preview_for_audit(payload, 60))
                 })?;
                 self.get_errors(&approved)
             }
             "git-commit" => {
-                let approved = self.enforce_approval("git-commit", &call.input, |payload| {
+                let approved = self.enforce_approval("git-commit", &call.input, &call.permission, |payload| {
                     format!("git commit '{}'", preview_for_audit(payload, 120))
                 })?;
                 self.git_commit(&approved)
             }
             "git-branch" => {
-                let approved = self.enforce_approval("git-branch", &call.input, |payload| {
+                let approved = self.enforce_approval("git-branch", &call.input, &call.permission, |payload| {
                     format!("git branch '{}'", preview_for_audit(payload, 120))
                 })?;
                 self.git_branch(&approved)
             }
             "fetch-readable" => {
-                let approved = self.enforce_approval("fetch-readable", &call.input, |payload| {
+                let approved = self.enforce_approval("fetch-readable", &call.input, &call.permission, |payload| {
                     format!("network fetch-readable '{}'", preview_for_audit(payload, 160))
                 })?;
                 self.fetch_readable(&approved)
             }
             "html-to-markdown" => self.html_to_markdown_tool(&call.input),
             "run-task" => {
-                let approved = self.enforce_approval("run-task", &call.input, |payload| {
+                let approved = self.enforce_approval("run-task", &call.input, &call.permission, |payload| {
                     format!("run-task '{}'", preview_for_audit(payload, 120))
                 })?;
                 self.run_task(&approved)
@@ -3559,7 +3572,7 @@ mod tests {
         let denied = exec.execute(ToolCall {
             name: String::from("shell-command"),
             input: String::from("echo approval-check"),
-            permission: PermissionMode::DangerFullAccess,
+            permission: PermissionMode::WorkspaceWrite,
         });
 
         assert!(denied.is_err());
@@ -3571,10 +3584,26 @@ mod tests {
             .execute(ToolCall {
                 name: String::from("shell-command"),
                 input: format!("__approve:{token}|echo approval-check"),
-                permission: PermissionMode::DangerFullAccess,
+                permission: PermissionMode::WorkspaceWrite,
             })
             .expect("shell command with approval token should run");
         assert!(approved.output.to_ascii_lowercase().contains("approval-check"));
+    }
+
+    #[test]
+    fn shell_command_auto_approves_under_danger_full_access() {
+        // Sessions running in DangerFullAccess explicitly opt out of the
+        // approval round-trip. The very first call should execute without
+        // requesting a token.
+        let exec = test_executor();
+        let result = exec
+            .execute(ToolCall {
+                name: String::from("shell-command"),
+                input: String::from("echo bypass-check"),
+                permission: PermissionMode::DangerFullAccess,
+            })
+            .expect("DangerFullAccess should auto-approve shell-command");
+        assert!(result.output.to_ascii_lowercase().contains("bypass-check"));
     }
 
     #[test]
@@ -3584,7 +3613,7 @@ mod tests {
         let denied = exec.execute(ToolCall {
             name: String::from("shell-command"),
             input: String::from("echo stream-check"),
-            permission: PermissionMode::DangerFullAccess,
+            permission: PermissionMode::WorkspaceWrite,
         });
         let err_text = denied.unwrap_err().to_string();
         let token = extract_approval_token(&err_text).expect("approval token");
@@ -3594,6 +3623,7 @@ mod tests {
             let mut on_chunk = |s: &str| chunks.push(s.to_string());
             exec.execute_shell_command_streaming(
                 &format!("__approve:{token}|echo stream-check"),
+                &PermissionMode::WorkspaceWrite,
                 &mut on_chunk,
             )
             .expect("streaming shell-command should succeed")
