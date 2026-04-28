@@ -526,6 +526,11 @@ pub struct OctocodeRuntime<P, S, T> {
     pub task_store: TaskStore,
     pub coordinator: CoordinatorEngine,
     pub cost_tracker: CostTracker,
+    /// Set whenever the most recent prompt response came from the StubProvider
+    /// (i.e. the entire fallback chain failed and only the deterministic stub
+    /// answered). Surfaced into the UI snapshot so the operator knows the
+    /// model is not actually working.
+    stub_fallback_active: std::sync::atomic::AtomicBool,
 }
 
 impl<P, S, T> OctocodeRuntime<P, S, T>
@@ -558,6 +563,7 @@ where
             task_store: TaskStore::new(),
             coordinator: CoordinatorEngine::new(),
             cost_tracker: CostTracker::new(),
+            stub_fallback_active: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -840,7 +846,13 @@ where
 
         match self.prompt(PromptRequest {
             text: prompt,
-            model: self.config.default_model.clone(),
+            model: self
+                .sessions
+                .load_session(session_id)
+                .ok()
+                .and_then(|s| s.summary.model.clone())
+                .filter(|m: &String| !m.trim().is_empty())
+                .or_else(|| self.config.default_model.clone()),
             system_prompt: Some(self.build_agent_system_prompt()),
             history: self.build_prompt_history(session_id, false),
         }) {
@@ -952,7 +964,13 @@ where
             // Re-prompt the LLM
             match self.prompt(PromptRequest {
                 text: follow_up,
-                model: self.config.default_model.clone(),
+                model: self
+                    .sessions
+                    .load_session(session_id)
+                    .ok()
+                    .and_then(|s| s.summary.model.clone())
+                    .filter(|m: &String| !m.trim().is_empty())
+                    .or_else(|| self.config.default_model.clone()),
                 system_prompt: Some(self.build_agent_system_prompt()),
                 history: self.build_prompt_history(session_id, true),
             }) {
@@ -1509,9 +1527,18 @@ Shell: {:?}\n\n",
         let stop_flag = session_stop_flag(session_id);
 
         let history = self.build_prompt_history(session_id, false);
+        // Resolve per-session model override; fall back to config default.
+        // Without this the UI model picker is decorative because every prompt
+        // would always send config.default_model regardless of selection.
+        let session_model = self
+            .sessions
+            .load_session(session_id)
+            .ok()
+            .and_then(|s| s.summary.model.clone())
+            .filter(|m: &String| !m.trim().is_empty());
         let request = PromptRequest {
             text: String::from(text),
-            model: self.config.default_model.clone(),
+            model: session_model.or_else(|| self.config.default_model.clone()),
             system_prompt: Some(self.build_agent_system_prompt()),
             history,
         };
@@ -1545,6 +1572,27 @@ Shell: {:?}\n\n",
             // return a normalized/cleaned version). Otherwise keep what we streamed.
             if !response.output.is_empty() {
                 current_output = response.output.clone();
+            }
+            // Stub-fallback detection: when the entire fallback chain has
+            // exhausted upstream candidates the trailing StubProvider answers
+            // with `[stub:<model>] <echoed text>`. Surface this so the UI does
+            // not silently pretend the model worked.
+            if current_output.starts_with("[stub:") {
+                self.stub_fallback_active
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                let _ = self.append_session_message(
+                    session_id,
+                    ConversationRole::System,
+                    String::from(
+                        "\u{26A0}\u{FE0F} provider chain exhausted \u{2014} response served by StubProvider. \
+                         Real model is NOT working. Likely cause: missing or invalid API key, \
+                         or unreachable upstream. Check /api/events for circuit failures and set the \
+                         appropriate API key environment variable for your provider.",
+                    ),
+                );
+            } else {
+                self.stub_fallback_active
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
             }
             let mut total_tokens = response.tokens;
             let mut interrupted_error = None;
@@ -1667,10 +1715,17 @@ Shell: {:?}\n\n",
 
                 current_output.clear();
                 let follow_history = self.build_prompt_history(session_id, true);
+                let follow_model = self
+                    .sessions
+                    .load_session(session_id)
+                    .ok()
+                    .and_then(|s| s.summary.model.clone())
+                    .filter(|m: &String| !m.trim().is_empty())
+                    .or_else(|| self.config.default_model.clone());
                 match self.provider.prompt_stream(
                     PromptRequest {
                         text: follow_up,
-                        model: self.config.default_model.clone(),
+                        model: follow_model,
                         system_prompt: Some(self.build_agent_system_prompt()),
                         history: follow_history,
                     },
@@ -1923,6 +1978,20 @@ Shell: {:?}\n\n",
             _ => self.resume_session(None).ok(),
         };
         let event_feed = self.build_event_feed(resolved_session.as_ref());
+        // Derive stub-fallback flag from the active session's last assistant
+        // message. We use derived state (rather than the per-request
+        // AtomicBool) because `build_runtime` is invoked fresh per HTTP
+        // request, so any in-memory atomic from the prompt call is gone by
+        // the time the next snapshot is built. Scanning the persisted
+        // transcript is correct and stateless.
+        let stub_fallback_active = resolved_session
+            .as_ref()
+            .and_then(|s| s.messages.iter().rev().find(|m| m.role == ConversationRole::Assistant))
+            .map(|m| m.content.starts_with("[stub:"))
+            .unwrap_or(false)
+            || self
+                .stub_fallback_active
+                .load(std::sync::atomic::Ordering::Relaxed);
         Ok(UiSnapshot {
             status: self.status()?,
             workspace: self.workspace().clone(),
@@ -1936,6 +2005,7 @@ Shell: {:?}\n\n",
             sessions: self.sessions()?,
             active_session: resolved_session,
             event_feed,
+            stub_fallback_active,
         })
     }
 

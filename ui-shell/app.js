@@ -925,6 +925,9 @@ function render(state) {
   renderTerminalUi();
   updateClock();
   updateSetDefaultModelButtonState();
+  // Surface stub-fallback warning whenever the runtime flags it.
+  const stubBanner = document.getElementById('stub-fallback-banner');
+  if (stubBanner) stubBanner.hidden = !state?.stubFallbackActive;
 }
 
 // Reflect provider health into the [设为默认模型] CTA inside the

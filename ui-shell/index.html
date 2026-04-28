@@ -164,6 +164,14 @@
           <span id="model-info-provider" class="model-info-provider">-</span>
         </div>
 
+        <!-- Provider stub-fallback warning. Surfaced when the runtime
+             reports stubFallbackActive=true (entire fallback chain failed,
+             responses are deterministic stub echo). -->
+        <div id="stub-fallback-banner" class="stub-fallback-banner" hidden role="alert">
+          <span class="stub-fallback-icon" aria-hidden="true">⚠️</span>
+          <span class="stub-fallback-text" data-i18n="provider.stubFallback">模型未真正工作：所有 Provider 均不可用，当前响应为本地占位回声。请检查 API Key 与 /api/events 中的故障详情。</span>
+        </div>
+
         <!-- DOM-based message list -->
         <div id="message-list" class="message-list"></div>
 
@@ -455,6 +463,6 @@
     <button class="activity-button active" data-view="sessions" type="button">EX</button>
   </div>
   <script src="./session-controller.js?v=2"></script>
-  <script src="./app.js?v=20"></script>
+  <script src="./app.js?v=21"></script>
 </body>
 </html>

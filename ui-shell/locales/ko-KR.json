@@ -27,6 +27,7 @@
   "help.about": "정보",
   "sidebar.sessions": "세션",
   "sidebar.history": "대화 기록",
+  "provider.stubFallback": "⚠️ 모델이 실제로 작동하지 않음: 모든 Provider가 사용 불가능하여 현재 응답은 로컬 스터브 에코입니다. API Key와 /api/events의 장애 세부 정보를 확인하세요.",
   "sidebar.providers": "프로바이더",
   "sidebar.tools": "도구",
   "sidebar.commands": "명령",

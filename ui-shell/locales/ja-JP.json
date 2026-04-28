@@ -27,6 +27,7 @@
   "help.about": "この製品について",
   "sidebar.sessions": "セッション",
   "sidebar.history": "会話履歴",
+  "provider.stubFallback": "⚠️ モデルが実際に動作していません：全ての Provider が使用不可で、現在の応答はローカルスタブのエコーです。API Key と /api/events の障害詳細を確認してください。",
   "sidebar.providers": "プロバイダー",
   "sidebar.tools": "ツール",
   "sidebar.commands": "コマンド",

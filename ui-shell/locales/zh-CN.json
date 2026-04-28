@@ -27,6 +27,7 @@
   "help.about": "关于",
   "sidebar.sessions": "会话",
   "sidebar.history": "历史会话记录",
+  "provider.stubFallback": "⚠️ 模型未真正工作：所有 Provider 均不可用，当前响应为本地占位回声。请检查 API Key 与 /api/events 中的故障详情。",
   "sidebar.providers": "提供者",
   "sidebar.tools": "工具",
   "sidebar.commands": "命令",

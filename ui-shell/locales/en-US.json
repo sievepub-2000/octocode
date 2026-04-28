@@ -27,6 +27,7 @@
   "help.about": "About",
   "sidebar.sessions": "Sessions",
   "sidebar.history": "Conversation History",
+  "provider.stubFallback": "⚠️ Model not actually working: every provider failed and the response is a local stub echo. Check API keys and circuit failures in /api/events.",
   "sidebar.providers": "Providers",
   "sidebar.tools": "Tools",
   "sidebar.commands": "Commands",

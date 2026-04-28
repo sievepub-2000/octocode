@@ -593,6 +593,12 @@ pub struct UiSnapshot {
     pub sessions: Vec<SessionSummary>,
     pub active_session: Option<ConversationSession>,
     pub event_feed: Vec<RuntimeEvent>,
+    /// True when the most recent prompt was answered by the deterministic
+    /// StubProvider because the entire fallback chain failed. The UI uses
+    /// this flag to render a banner so the operator knows the model is not
+    /// actually working.
+    #[serde(default)]
+    pub stub_fallback_active: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

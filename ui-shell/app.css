@@ -987,6 +987,23 @@ button { cursor: pointer; }
   font-family: var(--mono);
   color: var(--ink-faint, var(--ink-dim));
 }
+/* Stub-fallback warning banner: shown when runtime reports the response
+   was served by the deterministic StubProvider (fallback chain exhausted). */
+.stub-fallback-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(220, 80, 60, 0.12);
+  border-bottom: 1px solid rgba(220, 80, 60, 0.45);
+  color: #c0392b;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+.stub-fallback-banner[hidden] { display: none; }
+.stub-fallback-icon { font-size: 14px; line-height: 1; }
+.stub-fallback-text { flex: 1; }
 /* Red "Set as default model" CTA inside the model-info bar */
 .set-default-model-btn {
   margin-right: 8px;
