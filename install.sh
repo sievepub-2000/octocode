@@ -4,7 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/sievepub-2000/octocode/master/install.sh | bash
 #
 # Environment overrides:
-#   OCTOCODE_REF     git ref to install (default: v2026.4.29). Use 'master' for HEAD.
+#   OCTOCODE_REF     git ref to install (default: v2026.4.30). Use 'master' for HEAD.
 #   OCTOCODE_FORCE   if set to 1, do not prompt before installing rustup.
 #
 # What this does:
@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-REF="${OCTOCODE_REF:-v2026.4.29}"
+REF="${OCTOCODE_REF:-v2026.4.30}"
 FORCE="${OCTOCODE_FORCE:-0}"
 
 step() { printf '\033[36m[octocode-install]\033[0m %s\n' "$*"; }

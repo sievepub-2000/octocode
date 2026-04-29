@@ -12,7 +12,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$Ref = 'v2026.4.29',
+    [string]$Ref = 'v2026.4.30',
     [switch]$Master,
     [switch]$NonInteractive
 )

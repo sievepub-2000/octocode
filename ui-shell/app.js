@@ -201,8 +201,8 @@ let currentEventFeed = [];
 // Last signature of the rendered transcript + view-mode + model. Used to
 // short-circuit `renderMessages` when nothing visible has changed, so the
 // 15-second snapshot refresh does not visibly tear down and rebuild the
-// entire conversation pane (which manifested to operators as a "对话栏不停
-// 刷新" flicker).
+// entire conversation pane (which manifested to operators as a "conversation pane keeps
+// refreshing" flicker).
 let lastRenderedMessagesSignature = '';
 let lastRenderedSidebarSignature = '';
 let activeLocale = 'en-US';
@@ -247,15 +247,15 @@ let forkDialogState = {
 let manageEditorState = null;
 
 const managePanelMeta = {
-  overview: { titleKey: 'manage.overview', titleFallback: '概览', subtitleKey: 'manage.overviewHint', subtitleFallback: '查看系统状态、安装配置和工具接入情况。' },
-  providers: { titleKey: 'manage.providers', titleFallback: 'Providers', subtitleKey: 'manage.providersHint', subtitleFallback: '查看 Provider 路由、健康状态和当前激活情况。' },
-  mcp: { titleKey: 'manage.mcp', titleFallback: 'MCP', subtitleKey: 'manage.mcpHint', subtitleFallback: '查看当前已发现的 MCP 服务、传输方式和可信状态。' },
-  skills: { titleKey: 'manage.skills', titleFallback: 'Skills', subtitleKey: 'manage.skillsHint', subtitleFallback: '查看工作区与用户级 Skill 的来源与描述。' },
-  hooks: { titleKey: 'manage.hooks', titleFallback: 'Hooks', subtitleKey: 'manage.hooksHint', subtitleFallback: '查看全局与按工具生效的 Hook 配置。' },
-  tools: { titleKey: 'manage.tools', titleFallback: 'Tools', subtitleKey: 'manage.toolsHint', subtitleFallback: '查看当前工具能力与权限要求。' },
-  commands: { titleKey: 'manage.commands', titleFallback: 'Commands', subtitleKey: 'manage.commandsHint', subtitleFallback: '查看斜杠命令入口并快速插入对话框。' },
-  settings: { titleKey: 'manage.settings', titleFallback: 'Settings', subtitleKey: 'manage.settingsHint', subtitleFallback: '修改 Provider、模型和权限等运行设置。' },
-  github: { titleKey: 'manage.github', titleFallback: 'GitHub 连接', subtitleKey: 'manage.githubHint', subtitleFallback: '管理用户名/密码、项目接入 Key、管理 Token 等 GitHub 主流接入方式。凭据仅保存在本浏览器。' },
+  overview: { titleKey: 'manage.overview', titleFallback: 'Overview', subtitleKey: 'manage.overviewHint', subtitleFallback: 'Review runtime status, installation state, and integration readiness.' },
+  providers: { titleKey: 'manage.providers', titleFallback: 'Providers', subtitleKey: 'manage.providersHint', subtitleFallback: 'Inspect provider routes, health, and the active endpoint.' },
+  mcp: { titleKey: 'manage.mcp', titleFallback: 'MCP', subtitleKey: 'manage.mcpHint', subtitleFallback: 'Inspect discovered MCP servers, transport types, and trust state.' },
+  skills: { titleKey: 'manage.skills', titleFallback: 'Skills', subtitleKey: 'manage.skillsHint', subtitleFallback: 'Review workspace and user skills along with their source paths.' },
+  hooks: { titleKey: 'manage.hooks', titleFallback: 'Hooks', subtitleKey: 'manage.hooksHint', subtitleFallback: 'Inspect global and per-tool hook configuration.' },
+  tools: { titleKey: 'manage.tools', titleFallback: 'Tools', subtitleKey: 'manage.toolsHint', subtitleFallback: 'Review installed tools and their minimum permission levels.' },
+  commands: { titleKey: 'manage.commands', titleFallback: 'Commands', subtitleKey: 'manage.commandsHint', subtitleFallback: 'Browse slash commands and insert them into the composer.' },
+  settings: { titleKey: 'manage.settings', titleFallback: 'Settings', subtitleKey: 'manage.settingsHint', subtitleFallback: 'Adjust provider, model, and permission settings.' },
+  github: { titleKey: 'manage.github', titleFallback: 'GitHub', subtitleKey: 'manage.githubHint', subtitleFallback: 'Manage username/password, access tokens, and other GitHub auth methods. Credentials are stored only in this browser.' },
   'help-license': { titleKey: 'help.license', titleFallback: 'License', subtitleKey: 'help.license.subtitle', subtitleFallback: 'Apache License, Version 2.0 — the full license text governing Octocode.' },
   'help-release-notes': { titleKey: 'help.releaseNotes', titleFallback: 'Release Notes', subtitleKey: 'help.releaseNotes.subtitle', subtitleFallback: 'What changed in the current Octocode build.' },
   'help-privacy': { titleKey: 'help.privacy', titleFallback: 'Privacy Statement', subtitleKey: 'help.privacy.subtitle', subtitleFallback: 'How Octocode handles your data on this machine.' },
@@ -602,7 +602,7 @@ function setButtonLoading(button, loading) {
 
 function syncSubmitButtonLabel() {
   if (!submitBtnLabel || !submitBtn) return;
-  const label = isSubmitting ? t('composer.stop', '停止') : t('composer.send', '发送');
+  const label = isSubmitting ? t('composer.stop', 'Stop') : t('composer.send', 'Send');
   submitBtnLabel.textContent = label;
   submitBtn.setAttribute('aria-label', label);
   submitBtn.title = label;
@@ -959,10 +959,10 @@ function render(state) {
   if (stubBanner) stubBanner.hidden = !state?.stubFallbackActive;
 }
 
-// Reflect provider health into the [设为默认模型] CTA inside the
+// Reflect provider health into the [Set as Default Model] CTA inside the
 // provider-profile editor. When the active provider's circuit breaker
 // is "Open" the model is unusable; we grey out the button and label
-// the editor with a 不可用 hint so the operator can't bind a known-bad
+// the editor with a unavailable hint so the operator can't bind a known-bad
 // model as the global default. Also greys the button when the editor
 // model field is empty.
 function updateSetDefaultModelButtonState() {
@@ -982,17 +982,17 @@ function updateSetDefaultModelButtonState() {
   if (providerUnhealthy) {
     manageEditorSetDefaultModel.title = t(
       'action.setDefaultModelUnhealthy',
-      '当前 Provider 不可用（熔断 Open），无法设为默认模型',
+      'Provider unavailable (circuit Open); cannot set as default model',
     );
   } else if (!hasModel) {
     manageEditorSetDefaultModel.title = t(
       'action.setDefaultModelEmpty',
-      '请先填写 Default Model 后再设为默认模型',
+      'Fill in Default Model first before setting as default',
     );
   } else {
     manageEditorSetDefaultModel.title = t(
       'action.setDefaultModelHint',
-      '将当前编辑的模型设为默认对话模型',
+      'Set the currently edited model as the default chat model',
     );
   }
 }
@@ -1004,7 +1004,7 @@ function renderHeader(state, activeSession) {
     sessionTitle.textContent = activeSession?.summary?.title
       || activeSession?.summary?.label
       || activeSession?.summary?.id
-      || t('session.interactive', '交互式会话');
+      || t('session.interactive', 'Interactive Session');
   }
   if (composerSession) composerSession.textContent = `${t('session.label', 'session')}: ${sessionId}`;
   if (platformPill) platformPill.textContent = state.workspace?.platform || state.config?.platform || '-';
@@ -1033,9 +1033,9 @@ function renderInfoCards(state) {
     // colour the badge so an unhealthy provider is visually obvious.
     let label = circuit;
     let cls = '';
-    if (circuit === 'closed' || circuit === 'Closed') { label = t('circuit.closed', '正常'); cls = 'circuit-ok'; }
-    else if (circuit === 'open' || circuit === 'Open') { label = t('circuit.open', '不可用'); cls = 'circuit-bad'; }
-    else if (circuit === 'halfOpen' || circuit === 'HalfOpen') { label = t('circuit.halfOpen', '探测中'); cls = 'circuit-warn'; }
+    if (circuit === 'closed' || circuit === 'Closed') { label = t('circuit.closed', 'Healthy'); cls = 'circuit-ok'; }
+    else if (circuit === 'open' || circuit === 'Open') { label = t('circuit.open', 'Unavailable'); cls = 'circuit-bad'; }
+    else if (circuit === 'halfOpen' || circuit === 'HalfOpen') { label = t('circuit.halfOpen', 'Probing'); cls = 'circuit-warn'; }
     circuitStateEl.textContent = label;
     circuitStateEl.classList.remove('circuit-ok', 'circuit-bad', 'circuit-warn');
     if (cls) circuitStateEl.classList.add(cls);
@@ -1150,7 +1150,7 @@ function renderStatusBar(state) {
     // is on. We prioritize **client-observed** streaming state over the
     // server's turn phase, because the SSE stream begins before the phase
     // snapshot rolls forward. That race previously left the label stuck at
-    // "AI 正在响应..." during the model's think phase even while the backend
+    // "AI is responding..." during the model's think phase even while the backend
     // was still awaiting the first token.
     const rt = conversationRuntime;
     const now = Date.now();
@@ -1161,20 +1161,20 @@ function renderStatusBar(state) {
     // when the client has not yet observed a token timestamp.
     const isAwaitingFirstToken = rt && !rt.stopped && rt.tokenCount === 0;
     if (isStreamingOutput) {
-      streamIndicatorLabel.textContent = t('stream.outputting', '输出中...');
+      streamIndicatorLabel.textContent = t('stream.outputting', 'Streaming...');
     } else if (isAwaitingFirstToken) {
-      streamIndicatorLabel.textContent = t('stream.thinking', 'AI 思考中...');
+      streamIndicatorLabel.textContent = t('stream.thinking', 'AI is thinking...');
     } else if (phase === 'running') {
       streamIndicatorLabel.textContent = (turn?.activeSseClients > 0)
         ? (rt && rt.tokenCount > 0
-          ? t('stream.toolOrThink', '工具调用 / 思考中...')
-          : t('stream.thinking', 'AI 思考中...'))
-        : t('stream.recovering', '后端 turn 运行中，等待流恢复...');
+          ? t('stream.toolOrThink', 'Tool call / thinking...')
+          : t('stream.thinking', 'AI is thinking...'))
+        : t('stream.recovering', 'Backend turn running, waiting for stream...');
     } else if (isSubmitting) {
       // Submit in progress but no runtime attached yet (ensureWritableSession
       // / SSE open pending). Show "thinking" rather than the generic
       // "responding" fallback so operators see truthful state.
-      streamIndicatorLabel.textContent = t('stream.thinking', 'AI 思考中...');
+      streamIndicatorLabel.textContent = t('stream.thinking', 'AI is thinking...');
     } else {
       streamIndicatorLabel.textContent = t('stream.responding', 'AI is responding...');
     }
@@ -1216,7 +1216,7 @@ function buildSessionDescription(session) {
   const parts = [
     summary?.model
       || currentState?.config?.defaultModel
-      || t('session.noModel', '未绑定模型'),
+      || t('session.noModel', 'no model'),
   ];
   const lineage = describeSessionLineage(summary);
   if (lineage) parts.push(lineage);
@@ -1343,7 +1343,7 @@ function buildSidebarItems(state, activeSessionId) {
 function isFreshSessionTitle(title) {
   if (!title) return false;
   const normalized = String(title).trim().toLowerCase();
-  return normalized === 'new session' || normalized === '新会话' || normalized === '新对话';
+  return normalized === 'new session' || normalized === 'New session' || normalized === 'New chat';
 }
 
 function renderSidebar(state, activeSessionId) {
@@ -1363,7 +1363,7 @@ function renderSidebar(state, activeSessionId) {
   if (!items.length) {
     const empty = document.createElement('div');
     empty.className = 'sidebar-item';
-    empty.innerHTML = `<div class="sidebar-item-desc">${escapeHtml(t('sidebar.noData', '当前没有可以显示的数据'))}</div>`;
+    empty.innerHTML = `<div class="sidebar-item-desc">${escapeHtml(t('sidebar.noData', 'No data to display'))}</div>`;
     sidebarList.appendChild(empty);
     return;
   }
@@ -1386,7 +1386,7 @@ function renderSidebar(state, activeSessionId) {
     element.type = 'button';
     element.className = `sidebar-item${item.active ? ' active' : ''}`;
     const toggleMarkup = item.hasChildren
-      ? `<span class="session-tree-toggle" role="button" aria-label="${escapeHtml(item.collapsed ? t('session.expandBranch', '展开分支') : t('session.collapseBranch', '折叠分支'))}" data-expanded="${item.collapsed ? 'false' : 'true'}">${item.collapsed ? '▸' : '▾'}</span>`
+      ? `<span class="session-tree-toggle" role="button" aria-label="${escapeHtml(item.collapsed ? t('session.expandBranch', 'Expand branch') : t('session.collapseBranch', 'Collapse branch'))}" data-expanded="${item.collapsed ? 'false' : 'true'}">${item.collapsed ? '▸' : '▾'}</span>`
       : '<span class="session-tree-spacer"></span>';
     element.innerHTML = `
       <div class="sidebar-item-row">
@@ -1413,22 +1413,22 @@ function renderSidebar(state, activeSessionId) {
     actions.type = 'button';
     actions.className = 'session-menu-btn';
     actions.textContent = '⋯';
-    actions.setAttribute('aria-label', t('session.actions', '会话菜单'));
+    actions.setAttribute('aria-label', t('session.actions', 'Session menu'));
     actions.addEventListener('click', (event) => {
       event.stopPropagation();
       openContextMenu(actions, [
         {
-          label: t('session.open', '打开会话'),
+          label: t('session.open', 'Open session'),
           action: async () => item.onSelect(),
         },
         {
-          label: t('session.copyId', '复制会话 ID'),
+          label: t('session.copyId', 'Copy session ID'),
           action: async () => {
             try {
               if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(item.id || '');
-              showToast(t('session.copyIdDone', '会话 ID 已复制'), 'success');
+              showToast(t('session.copyIdDone', 'Session ID copied'), 'success');
             } catch (_) {
-              showToast(t('session.copyIdFailed', '无法复制会话 ID'), 'error');
+              showToast(t('session.copyIdFailed', 'Failed to copy session ID'), 'error');
             }
           },
         },
@@ -1440,7 +1440,7 @@ function renderSidebar(state, activeSessionId) {
           }),
         },
         {
-          label: t('session.delete', '删除会话'),
+          label: t('session.delete', 'Delete session'),
           action: async () => deleteSessionById(item.id),
         },
       ]);
@@ -1508,7 +1508,7 @@ function renderMessages(messages) {
   if (!messagesToRender.length) {
     const empty = document.createElement('div');
     empty.className = 'message-empty';
-    empty.textContent = t('message.empty', '当前没有消息。通过下方输入框发送消息开始对话。');
+    empty.textContent = t('message.empty', 'No messages yet. Send a message below to start a conversation.');
     messageList.appendChild(empty);
     return;
   }
@@ -1545,8 +1545,8 @@ function renderMessages(messages) {
     const copyBtn = document.createElement('button');
     copyBtn.type = 'button';
     copyBtn.className = 'msg-copy-btn';
-    copyBtn.setAttribute('aria-label', t('message.copy', '复制消息内容'));
-    copyBtn.title = t('message.copy', '复制消息内容');
+    copyBtn.setAttribute('aria-label', t('message.copy', 'Copy message content'));
+    copyBtn.title = t('message.copy', 'Copy message content');
     copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
     copyBtn.addEventListener('click', async (event) => {
       event.stopPropagation();
@@ -1593,7 +1593,7 @@ function renderMessages(messages) {
 function renderError(error) {
   resetStreamingUiState();
   if (providerId) providerId.textContent = 'offline';
-  if (sessionTitle) sessionTitle.textContent = t('error.loadFailed', '交互状态加载失败');
+  if (sessionTitle) sessionTitle.textContent = t('error.loadFailed', 'Failed to load interactive state');
   if (composerSession) composerSession.textContent = `${t('session.label', 'session')}: offline`;
   if (platformPill) platformPill.textContent = '-';
   if (permissionPill) permissionPill.textContent = '-';
@@ -1605,8 +1605,8 @@ function renderError(error) {
   if (menuPlatform) menuPlatform.textContent = '-';
   if (sidebarTitle) sidebarTitle.textContent = t('status.offline', 'Offline');
   renderWorkObject();
-  sidebarList.innerHTML = `<div class="sidebar-item"><div class="sidebar-item-desc">${escapeHtml(t('error.cannotConnect', '无法连接到服务器'))}</div></div>`;
-  messageList.innerHTML = `<div class="msg-bubble role-system"><div class="msg-role">SYSTEM</div><div class="msg-content">${escapeHtml(t('error.recoverHint', '请运行 octocode-cli serve --port 999 --session demo 后刷新页面。'))}\n\n${escapeHtml(error.message || String(error))}</div></div>`;
+  sidebarList.innerHTML = `<div class="sidebar-item"><div class="sidebar-item-desc">${escapeHtml(t('error.cannotConnect', 'Cannot connect to server'))}</div></div>`;
+  messageList.innerHTML = `<div class="msg-bubble role-system"><div class="msg-role">SYSTEM</div><div class="msg-content">${escapeHtml(t('error.recoverHint', 'Run octocode-cli serve --port 999 --session demo and refresh the page.'))}\n\n${escapeHtml(error.message || String(error))}</div></div>`;
   terminalVisible = false;
   renderTerminalUi();
 }
@@ -1634,7 +1634,7 @@ function renderManageCards(host, items, buildMeta) {
   if (!items || !items.length) {
     const empty = document.createElement('div');
     empty.className = 'manage-empty';
-    empty.textContent = t('manage.empty', '当前面板没有可展示的数据。');
+    empty.textContent = t('manage.empty', 'No data is available for this panel.');
     host.appendChild(empty);
     return;
   }
@@ -1654,7 +1654,7 @@ function renderManageCards(host, items, buildMeta) {
       </div>
       <div class="manage-card-desc">${escapeHtml(meta.description || '-')}</div>
       ${detailHtml}
-      ${meta.free ? `<span class="manage-card-free" title="${escapeHtml(t('manage.free.hint', '本地或免费模型'))}">free</span>` : ''}
+      ${meta.free ? `<span class="manage-card-free" title="${escapeHtml(t('manage.free.hint', 'Local or free model'))}">free</span>` : ''}
     `;
     if (typeof meta.onAction === 'function') {
       card.addEventListener('click', meta.onAction);
@@ -1733,10 +1733,10 @@ function openManageEditor(kind, item = null) {
   const sourcePath = item?.sourcePath || item?.path || item?.descriptor?.manifestPath || '';
 
   if (manageEditorTitle) {
-    manageEditorTitle.textContent = `${creating ? t('action.add', '新增') : t('action.edit', '编辑')} ${kind}`;
+    manageEditorTitle.textContent = `${creating ? t('action.add', 'Add') : t('action.edit', 'Edit')} ${kind}`;
   }
   if (manageEditorSubtitle) {
-    manageEditorSubtitle.textContent = sourcePath || t('manage.overviewHint', '查看系统状态、安装配置和工具接入情况。');
+    manageEditorSubtitle.textContent = sourcePath || t('manage.overviewHint', 'Review runtime status, installation state, and integration readiness.');
   }
   if (manageEditorDelete) manageEditorDelete.hidden = creating;
   if (manageEditorApply) manageEditorApply.hidden = kind !== 'providerProfile' || creating;
@@ -1804,7 +1804,7 @@ function openManageEditor(kind, item = null) {
         datalist.innerHTML = knownModelOptionsMarkup(providerSelect.value);
       });
     }
-    // Live-update the [设为默认模型] disabled state as the operator
+    // Live-update the [Set as Default Model] disabled state as the operator
     // types into the Default Model input.
     const modelInput = manageEditorFields.querySelector('input[name="defaultModel"]');
     if (modelInput) {
@@ -1843,12 +1843,12 @@ async function saveManageEditor() {
   manageCatalog = await postForm('/api/manage/upsert', payload);
   if (currentState) renderManagePanel(currentState);
   closeManageEditor();
-  showToast(t('settings.saved', '设置已保存'), 'success');
+  showToast(t('settings.saved', 'Settings saved'), 'success');
 }
 
 async function deleteManageEditor() {
   if (!manageEditorState?.item) return;
-  if (!window.confirm(t('session.confirmDelete', '确定删除这个会话吗？'))) return;
+  if (!window.confirm(t('session.confirmDelete', 'Delete this session?'))) return;
   const item = manageEditorState.item;
   const payload = { kind: manageEditorState.kind };
   if (item.id) payload.id = item.id;
@@ -1865,7 +1865,7 @@ async function deleteManageEditor() {
   manageCatalog = await postForm('/api/manage/delete', payload);
   if (currentState) renderManagePanel(currentState);
   closeManageEditor();
-  showToast(t('session.deleted', '会话已删除'), 'success');
+  showToast(t('session.deleted', 'Session deleted'), 'success');
 }
 
 async function applyProviderProfile() {
@@ -1883,7 +1883,7 @@ async function applyProviderProfile() {
   applyState(state, sessionId);
   await refreshEventFeed(sessionId);
   closeManageEditor();
-  showToast(t('settings.saved', '设置已保存'), 'success');
+  showToast(t('settings.saved', 'Settings saved'), 'success');
 }
 
 function renderHooksPanel() {
@@ -1892,10 +1892,10 @@ function renderHooksPanel() {
   const hooks = manageCatalog?.hooks?.items || [];
   const actions = document.createElement('div');
   actions.className = 'manage-list';
-  renderManageCards(actions, [manageCreateCard(t('action.add', '新增 Hook'), '新增全局或按工具的 Hook 配置。', () => openManageEditor('hook'))], (entry) => ({
+  renderManageCards(actions, [manageCreateCard(t('action.add', 'New Hook'), 'Add a global or per-tool hook configuration.', () => openManageEditor('hook'))], (entry) => ({
     title: entry.label,
     description: entry.description,
-    badge: t('action.add', '新增'),
+    badge: t('action.add', 'Add'),
     badgeClass: 'accent',
     onAction: entry.action,
     cardClass: 'manage-card-add',
@@ -1905,7 +1905,7 @@ function renderHooksPanel() {
   const globalHooks = hooks.filter((hook) => !hook.tool);
   if (globalHooks.length) {
     groups.push({
-      title: t('manage.hooksGlobal', '全局 Hooks'),
+      title: t('manage.hooksGlobal', 'Global Hooks'),
       items: globalHooks,
     });
   }
@@ -1918,7 +1918,7 @@ function renderHooksPanel() {
   if (!groups.length) {
     const empty = document.createElement('div');
     empty.className = 'manage-empty';
-    empty.textContent = t('manage.hooksEmpty', '当前没有检测到 Hook 配置。');
+    empty.textContent = t('manage.hooksEmpty', 'No hook configuration was detected.');
     manageHooksList.appendChild(empty);
     return;
   }
@@ -1934,7 +1934,7 @@ function renderHooksPanel() {
     section.appendChild(list);
     renderManageCards(list, group.items, (hook) => ({
       title: hook.command,
-      description: `${hook.timing || '-'} · ${hook.blocking ? t('manage.blocking', '阻断') : t('manage.nonBlocking', '非阻断')}`,
+      description: `${hook.timing || '-'} · ${hook.blocking ? t('manage.blocking', 'blocking') : t('manage.nonBlocking', 'non-blocking')}`,
       details: [`timeout=${hook.timeoutMs || hook.timeout_ms || 0}ms`, hook.sourcePath || '-'],
       onAction: () => openManageEditor('hook', hook),
     }));
@@ -1945,7 +1945,7 @@ function renderHooksPanel() {
 function renderManagePanel(state) {
   syncManagePanelControls(currentManagePanel);
   const providers = [
-    manageCreateCard(t('action.add', '新增 Provider'), '保存 providerId / baseUrl / model 组合供后续快速应用。', () => openManageEditor('providerProfile')),
+    manageCreateCard(t('action.add', 'New Provider'), 'Save providerId / baseUrl / model combinations for quick application.', () => openManageEditor('providerProfile')),
     ...(manageCatalog?.providerProfiles || []),
   ];
   renderManageCards(manageProvidersList, providers, (provider) => {
@@ -1953,7 +1953,7 @@ function renderManagePanel(state) {
       return {
         title: provider.label,
         description: provider.description,
-        badge: t('action.add', '新增'),
+        badge: t('action.add', 'Add'),
         badgeClass: 'accent',
         onAction: provider.action,
         cardClass: 'manage-card-add',
@@ -1970,7 +1970,7 @@ function renderManagePanel(state) {
   });
 
   const tools = [
-    manageCreateCard(t('action.add', '新增 Tool'), '新增一个外部命令包装工具，运行时转发到 shell-command。', () => openManageEditor('externalTool')),
+    manageCreateCard(t('action.add', 'New Tool'), 'Add an external command tool that the runtime forwards to shell-command.', () => openManageEditor('externalTool')),
     ...(manageCatalog?.tools || state?.tools || []),
   ];
   renderManageCards(manageToolsList, tools, (tool) => {
@@ -1978,7 +1978,7 @@ function renderManagePanel(state) {
       return {
         title: tool.label,
         description: tool.description,
-        badge: t('action.add', '新增'),
+        badge: t('action.add', 'Add'),
         badgeClass: 'accent',
         onAction: tool.action,
         cardClass: 'manage-card-add',
@@ -1995,7 +1995,7 @@ function renderManagePanel(state) {
   });
 
   const commands = [
-    manageCreateCard(t('action.add', '新增 Command'), '新增一个斜杠命令模板，支持 {args} 或自动追加参数。', () => openManageEditor('externalCommand')),
+    manageCreateCard(t('action.add', 'New Command'), 'Add a slash-command template; supports {args} or auto-appends.', () => openManageEditor('externalCommand')),
     ...(manageCatalog?.commands || state?.commands || []),
   ];
   renderManageCards(manageCommandsList, commands, (command) => {
@@ -2003,7 +2003,7 @@ function renderManagePanel(state) {
       return {
         title: command.label,
         description: command.description,
-        badge: t('action.add', '新增'),
+        badge: t('action.add', 'Add'),
         badgeClass: 'accent',
         onAction: command.action,
         cardClass: 'manage-card-add',
@@ -2012,7 +2012,7 @@ function renderManagePanel(state) {
     return {
       title: `/${command.name}`,
       description: command.summary || '-',
-      badge: command.isCustom ? (command.scope || 'custom') : t('manage.insert', '插入'),
+      badge: command.isCustom ? (command.scope || 'custom') : t('manage.insert', 'Insert'),
       badgeClass: command.isCustom ? 'accent' : 'accent',
       details: command.isCustom ? [command.template || '-', command.sourcePath || '-'] : [],
       onAction: command.isCustom
@@ -2026,12 +2026,12 @@ function renderManagePanel(state) {
   });
 
   if (manageCatalog) {
-    renderManageCards(manageMcpList, [manageCreateCard(t('action.add', '新增 MCP'), '新增或维护 MCP manifest。', () => openManageEditor('mcp')), ...(manageCatalog.mcpServers || [])], (server) => {
+    renderManageCards(manageMcpList, [manageCreateCard(t('action.add', 'New MCP'), 'Add or maintain MCP manifests.', () => openManageEditor('mcp')), ...(manageCatalog.mcpServers || [])], (server) => {
       if (server.__manageAction) {
         return {
           title: server.label,
           description: server.description,
-          badge: t('action.add', '新增'),
+          badge: t('action.add', 'Add'),
           badgeClass: 'accent',
           onAction: server.action,
           cardClass: 'manage-card-add',
@@ -2043,19 +2043,19 @@ function renderManagePanel(state) {
         badge: server.state || '-',
         badgeClass: server.state === 'running' || server.state === 'ready-for-prompt' ? 'success' : '',
         details: [
-          `${t('manage.transport', '传输')}: ${server.descriptor?.transport || '-'}`,
-          `${t('manage.manifest', '清单')}: ${server.descriptor?.manifestPath || '-'}`,
+          `${t('manage.transport', 'Transport')}: ${server.descriptor?.transport || '-'}`,
+          `${t('manage.manifest', 'Manifest')}: ${server.descriptor?.manifestPath || '-'}`,
         ],
         onAction: () => openManageEditor('mcp', server),
       };
     });
 
-    renderManageCards(manageSkillsList, [manageCreateCard(t('action.add', '新增 Skill'), '新增或修改本地 skill。', () => openManageEditor('skill')), ...(manageCatalog.skills || [])], (skill) => {
+    renderManageCards(manageSkillsList, [manageCreateCard(t('action.add', 'New Skill'), 'Add or modify a local skill.', () => openManageEditor('skill')), ...(manageCatalog.skills || [])], (skill) => {
       if (skill.__manageAction) {
         return {
           title: skill.label,
           description: skill.description,
-          badge: t('action.add', '新增'),
+          badge: t('action.add', 'Add'),
           badgeClass: 'accent',
           onAction: skill.action,
           cardClass: 'manage-card-add',
@@ -2072,7 +2072,7 @@ function renderManagePanel(state) {
 
     renderHooksPanel();
   } else if (['mcp', 'skills', 'hooks'].includes(currentManagePanel)) {
-    const loadingText = t('manage.loading', '正在加载管理目录...');
+    const loadingText = t('manage.loading', 'Loading manage catalog...');
     [manageMcpList, manageSkillsList, manageHooksList].forEach((host) => {
       if (!host) return;
       host.innerHTML = `<div class="manage-empty">${escapeHtml(loadingText)}</div>`;
@@ -2096,7 +2096,7 @@ async function ensureManageCatalog(force = false) {
     })
     .catch((error) => {
       manageCatalogPromise = null;
-      showToast(`${t('error.loadManageFailed', '管理目录加载失败')}: ${error.message || String(error)}`, 'error');
+      showToast(`${t('error.loadManageFailed', 'Failed to load manage catalog')}: ${error.message || String(error)}`, 'error');
       throw error;
     });
   return manageCatalogPromise;
@@ -2116,30 +2116,30 @@ function setManagePanel(panel) {
 
 async function deleteSessionById(sessionId) {
   if (!sessionId) return;
-  if (!window.confirm(t('session.confirmDelete', '确定删除这个会话吗？'))) return;
+  if (!window.confirm(t('session.confirmDelete', 'Delete this session?'))) return;
   try {
     const state = await postForm('/api/sessions/delete', { sessionId });
     const nextSessionId = state.activeSession?.summary?.id || state.activeSession?.sessionId || undefined;
     sessionController.handleDeletedSession(sessionId, nextSessionId);
     applyState(state, nextSessionId);
     await refreshEventFeed(nextSessionId);
-    showToast(t('session.deleted', '会话已删除'), 'success');
+    showToast(t('session.deleted', 'Session deleted'), 'success');
   } catch (error) {
-    showToast(`${t('error.sessionDeleteFailed', '删除会话失败')}: ${error.message}`, 'error');
+    showToast(`${t('error.sessionDeleteFailed', 'Failed to delete session')}: ${error.message}`, 'error');
   }
 }
 
 async function deleteAllSessions() {
-  if (!window.confirm(t('session.confirmDeleteAll', '确定删除全部会话吗？此操作不可撤销。'))) return;
+  if (!window.confirm(t('session.confirmDeleteAll', 'Delete all sessions? This action cannot be undone.'))) return;
   try {
     const state = await postForm('/api/sessions/delete-all', {});
     const nextSessionId = state.activeSession?.summary?.id || state.activeSession?.sessionId || undefined;
     sessionController.claimOwnedSession(nextSessionId || '');
     applyState(state, nextSessionId);
     await refreshEventFeed(nextSessionId);
-    showToast(t('session.deletedAll', '全部会话已删除'), 'success');
+    showToast(t('session.deletedAll', 'All sessions deleted'), 'success');
   } catch (error) {
-    showToast(`${t('error.sessionDeleteFailed', '删除会话失败')}: ${error.message}`, 'error');
+    showToast(`${t('error.sessionDeleteFailed', 'Failed to delete session')}: ${error.message}`, 'error');
   }
 }
 
@@ -2162,7 +2162,7 @@ function renderSearchResults(payload) {
   if (!items.length) {
     const empty = document.createElement('div');
     empty.className = 'search-empty';
-    empty.textContent = t('edit.find.none', '未找到匹配');
+    empty.textContent = t('edit.find.none', 'No matches found');
     searchResults.appendChild(empty);
     return;
   }
@@ -2172,7 +2172,7 @@ function renderSearchResults(payload) {
     button.type = 'button';
     button.className = 'search-result-item';
     const lineInfo = item.line ? `:${item.line}${item.column ? `:${item.column}` : ''}` : '';
-    const snippet = item.snippet || `${t('edit.replace.done', '替换已完成')} (${item.replacements || 0})`;
+    const snippet = item.snippet || `${t('edit.replace.done', 'Replace completed')} (${item.replacements || 0})`;
     button.innerHTML = `
       <div class="search-result-path">${escapeHtml(item.path || '-')}<span>${escapeHtml(lineInfo)}</span></div>
       <div class="search-result-snippet">${escapeHtml(snippet)}</div>
@@ -2212,7 +2212,7 @@ function openSearchLayer(mode = 'find') {
 async function runSearchLayerAction(replace = false) {
   const query = searchQueryInput?.value.trim() || '';
   if (!query) {
-    showToast(t('edit.prompt.find', '请输入查找文本'), 'error');
+    showToast(t('edit.prompt.find', 'Enter the text to find'), 'error');
     return;
   }
   const scopePath = resolveSearchScopePath();
@@ -2224,14 +2224,14 @@ async function runSearchLayerAction(replace = false) {
         newText: searchReplaceInput?.value || '',
       });
       renderSearchResults(payload);
-      showToast(t('edit.replace.done', '替换已完成'), 'success');
+      showToast(t('edit.replace.done', 'Replace completed'), 'success');
       return;
     }
     const payload = await postForm('/api/fs/search', { path: scopePath, query });
     renderSearchResults(payload);
-    showToast(t('edit.find.done', '查找已完成'), 'success');
+    showToast(t('edit.find.done', 'Find completed'), 'success');
   } catch (error) {
-    showToast(`${t('error.editFailed', '编辑操作失败')}: ${error.message}`, 'error');
+    showToast(`${t('error.editFailed', 'Edit action failed')}: ${error.message}`, 'error');
   }
 }
 
@@ -2243,9 +2243,9 @@ function closeFileDialog() {
 
 function validateForkBranchName(value) {
   const normalized = normalizeForkBranchName(value);
-  if (!normalized) return t('session.forkNameRequired', '分支名称不能为空');
-  if (normalized.length > 80) return t('session.forkNameTooLong', '分支名称不能超过 80 个字符');
-  if (/\r|\n/.test(normalized)) return t('session.forkNameInvalid', '分支名称不能包含换行');
+  if (!normalized) return t('session.forkNameRequired', 'Branch name is required');
+  if (normalized.length > 80) return t('session.forkNameTooLong', 'Branch name cannot exceed 80 characters');
+  if (/\r|\n/.test(normalized)) return t('session.forkNameInvalid', 'Branch name cannot contain newlines');
   return '';
 }
 
@@ -2260,12 +2260,12 @@ function closeForkDialog() {
 function renderForkDialog() {
   if (!forkDialog) return;
   const labelText = forkDialogState.messageIndex === null
-    ? t('session.forkAllHistory', '完整会话历史')
-    : `${t('session.forkUntilMessage', '到消息')} #${forkDialogState.messageIndex + 1}`;
+    ? t('session.forkAllHistory', 'Full session history')
+    : `${t('session.forkUntilMessage', 'Up to message')} #${forkDialogState.messageIndex + 1}`;
   const previewName = forkDialogState.normalizedBranchName || normalizeForkBranchName(forkDialogState.branchName);
   const errorText = forkDialogState.error || validateForkBranchName(forkDialogState.branchName);
   if (forkDialogTitle) forkDialogTitle.textContent = t('session.forkDialogTitle', 'Fork into new session');
-  if (forkDialogSubtitle) forkDialogSubtitle.textContent = t('session.forkDialogSubtitle', '从当前会话历史创建一个新的分支会话。');
+  if (forkDialogSubtitle) forkDialogSubtitle.textContent = t('session.forkDialogSubtitle', 'Create a new branch session from the current session history.');
   if (forkParentSessionInput) forkParentSessionInput.value = `${forkDialogState.parentSessionTitle || '-'} · ${forkDialogState.parentSessionId || '-'}`;
   if (forkMessageIndexInput) forkMessageIndexInput.value = labelText;
   if (forkBranchNameInput && forkBranchNameInput.value !== forkDialogState.branchName) {
@@ -2279,8 +2279,8 @@ function renderForkDialog() {
   if (forkDialogConfirm) {
     forkDialogConfirm.disabled = Boolean(errorText) || forkDialogState.pending;
     forkDialogConfirm.textContent = forkDialogState.pending
-      ? t('session.forking', '创建中...')
-      : t('session.forkConfirm', '创建分支');
+      ? t('session.forking', 'Creating...')
+      : t('session.forkConfirm', 'Create branch');
   }
 }
 
@@ -2316,10 +2316,10 @@ async function confirmForkDialog() {
     applyState(state, forkSessionId);
     await refreshEventFeed(forkSessionId);
     closeForkDialog();
-    showToast(t('session.forked', '已创建分支会话'), 'success');
+    showToast(t('session.forked', 'Branch session created'), 'success');
   } catch (error) {
     forkDialogState.pending = false;
-    forkDialogState.error = `${t('error.sessionForkFailed', '创建分支会话失败')}: ${error.message}`;
+    forkDialogState.error = `${t('error.sessionForkFailed', 'Failed to create branch session')}: ${error.message}`;
     renderForkDialog();
   }
 }
@@ -2362,13 +2362,13 @@ function renderFileDialog() {
   if (!fileDialog) return;
   const modeKey = `${fileDialogState.create ? 'create' : 'open'}${fileDialogState.kind === 'folder' ? 'Folder' : 'File'}`;
   const titles = {
-    openFile: t('file.dialog.openFile', '打开文件对象'),
-    openFolder: t('file.dialog.openFolder', '打开文件夹对象'),
-    createFile: t('file.dialog.createFile', '新建文件对象'),
-    createFolder: t('file.dialog.createFolder', '新建文件夹对象'),
+    openFile: t('file.dialog.openFile', 'Open File Work Object'),
+    openFolder: t('file.dialog.openFolder', 'Open Folder Work Object'),
+    createFile: t('file.dialog.createFile', 'Create File Work Object'),
+    createFolder: t('file.dialog.createFolder', 'Create Folder Work Object'),
   };
-  if (fileDialogTitle) fileDialogTitle.textContent = titles[modeKey] || t('file.dialog.title', '打开工作对象');
-  if (fileDialogSubtitle) fileDialogSubtitle.textContent = t('file.dialog.subtitle', '使用类似 Windows 资源管理器的方式浏览和选择路径。');
+  if (fileDialogTitle) fileDialogTitle.textContent = titles[modeKey] || t('file.dialog.title', 'Open Work Object');
+  if (fileDialogSubtitle) fileDialogSubtitle.textContent = t('file.dialog.subtitle', 'Browse and choose a path with a Windows-style explorer workflow.');
   if (pathCurrentInput) pathCurrentInput.value = fileDialogState.currentPath || '';
   if (pathSelectedInput) pathSelectedInput.value = fileDialogState.selectedPath || fileDialogState.currentPath || '';
   if (pathNameInput) {
@@ -2379,9 +2379,9 @@ function renderFileDialog() {
   if (pathQuickLinks) {
     pathQuickLinks.replaceChildren();
     [
-      { label: t('file.dialog.workspaceRoot', '工作区根目录'), path: fileDialogState.workspaceRoot || currentWorkspaceRoot() },
-      { label: t('file.dialog.currentFolder', '当前目录'), path: fileDialogState.currentPath },
-      { label: t('file.dialog.parentFolder', '上一级目录'), path: pathDirName(fileDialogState.currentPath) },
+      { label: t('file.dialog.workspaceRoot', 'Workspace Root'), path: fileDialogState.workspaceRoot || currentWorkspaceRoot() },
+      { label: t('file.dialog.currentFolder', 'Current Folder'), path: fileDialogState.currentPath },
+      { label: t('file.dialog.parentFolder', 'Parent Folder'), path: pathDirName(fileDialogState.currentPath) },
     ].filter((item) => item.path).forEach((item) => {
       const button = document.createElement('button');
       button.type = 'button';
@@ -2401,7 +2401,7 @@ function renderFileDialog() {
     if (!fileDialogState.entries.length) {
       const empty = document.createElement('div');
       empty.className = 'manage-empty';
-      empty.textContent = t('file.dialog.emptyFolder', '当前目录没有可显示的项目。');
+      empty.textContent = t('file.dialog.emptyFolder', 'There are no items to display in this folder.');
       pathEntryList.appendChild(empty);
     }
     fileDialogState.entries.forEach((entry) => {
@@ -2411,7 +2411,7 @@ function renderFileDialog() {
       button.innerHTML = `
         <span class="path-entry-kind">${entry.kind === 'directory' ? 'DIR' : 'FILE'}</span>
         <span class="path-entry-name">${escapeHtml(entry.name || '-')}</span>
-        <span class="path-entry-meta">${escapeHtml(entry.kind === 'directory' ? t('file.dialog.folder', '文件夹') : t('file.dialog.file', '文件'))}</span>
+        <span class="path-entry-meta">${escapeHtml(entry.kind === 'directory' ? t('file.dialog.folder', 'Folder') : t('file.dialog.file', 'File'))}</span>
       `;
       button.addEventListener('click', () => {
         fileDialogState.selectedPath = entry.path;
@@ -2444,7 +2444,7 @@ async function loadFileDialogPath(path) {
     fileDialogState.selectedKind = '';
     renderFileDialog();
   } catch (error) {
-    showToast(`${t('error.fileActionFailed', '文件操作失败')}: ${error.message}`, 'error');
+    showToast(`${t('error.fileActionFailed', 'File action failed')}: ${error.message}`, 'error');
   }
 }
 
@@ -2472,7 +2472,7 @@ async function confirmFileDialogSelection() {
   if (fileDialogState.create) {
     const name = pathNameInput?.value.trim() || '';
     if (!name) {
-      showToast(t('file.dialog.nameRequired', '请输入名称后再继续。'), 'error');
+      showToast(t('file.dialog.nameRequired', 'Enter a name before continuing.'), 'error');
       return;
     }
     finalPath = joinPath(fileDialogState.currentPath, name);
@@ -2485,7 +2485,7 @@ async function confirmFileDialogSelection() {
   } else if (fileDialogState.kind === 'folder') {
     finalPath = finalPath || fileDialogState.currentPath;
   } else if (!finalPath) {
-    showToast(t('file.dialog.selectFile', '请先选择一个文件。'), 'error');
+    showToast(t('file.dialog.selectFile', 'Select a file first.'), 'error');
     return;
   }
 
@@ -2497,8 +2497,8 @@ async function confirmFileDialogSelection() {
   closeFileDialog();
   showToast(
     fileDialogState.create
-      ? t(resolvedType === 'folder' ? 'folder.created' : 'file.created', resolvedType === 'folder' ? '文件夹对象已创建' : '文件对象已创建')
-      : t(resolvedType === 'folder' ? 'folder.opened' : 'file.opened', resolvedType === 'folder' ? '文件夹对象已打开' : '文件对象已打开'),
+      ? t(resolvedType === 'folder' ? 'folder.created' : 'file.created', resolvedType === 'folder' ? 'Folder created' : 'File created')
+      : t(resolvedType === 'folder' ? 'folder.opened' : 'file.opened', resolvedType === 'folder' ? 'Folder opened' : 'File opened'),
     'success',
   );
 }
@@ -2562,7 +2562,7 @@ async function runTool(name, input, options = {}) {
             ? `${previewArgs.slice(0, 200)}…`
             : previewArgs;
           showToast(
-            t('approval.preview', '已自动批准工具调用')
+            t('approval.preview', 'Tool call auto-approved')
               + `: ${name}(${trimmed})`,
             'info',
           );
@@ -2676,7 +2676,7 @@ async function sendTerminalResize(session, cols, rows) {
       session.cols = cols;
       session.rows = rows;
     } catch (error) {
-      showToast(`${t('error.terminalFailed', '终端命令执行失败')}: ${error.message}`, 'error');
+      showToast(`${t('error.terminalFailed', 'Terminal command failed')}: ${error.message}`, 'error');
     }
   }, 80);
 }
@@ -2712,7 +2712,7 @@ function attachTerminalSessionSocket(session) {
     }
     if (payload.type === 'error') {
       session.term.write(data);
-      showToast(`${t('error.terminalFailed', '终端命令执行失败')}: ${data}`, 'error');
+      showToast(`${t('error.terminalFailed', 'Terminal command failed')}: ${data}`, 'error');
       return;
     }
     if (payload.type === 'exit') {
@@ -2734,7 +2734,7 @@ function attachTerminalSessionSocket(session) {
 
 async function createTerminalSession(label) {
   if (typeof window.Terminal !== 'function') {
-    showToast(t('terminal.unavailable', '真实终端依赖未加载，无法创建终端会话。'), 'error');
+    showToast(t('terminal.unavailable', 'Real terminal dependency not loaded; cannot create terminal session.'), 'error');
     return null;
   }
   const writableSessionId = await sessionController.ensureWritableSession();
@@ -2996,8 +2996,8 @@ async function bindWorkObjectFromPath(type, path, shouldCreate = false) {
       ? (shouldCreate ? 'folder.created' : 'folder.opened')
       : (shouldCreate ? 'file.created' : 'file.opened'),
     shouldCreate
-      ? (resolvedType === 'folder' ? '文件夹对象已创建' : '文件对象已创建')
-      : (resolvedType === 'folder' ? '文件夹对象已打开' : '文件对象已打开')),
+      ? (resolvedType === 'folder' ? 'Folder created' : 'File created')
+      : (resolvedType === 'folder' ? 'Folder opened' : 'File opened')),
     'success',
   );
 }
@@ -3100,7 +3100,7 @@ async function streamChat(text, sessionId) {
     if (!response.ok || !response.body) {
       currentMessages.pop();
       currentMessages.pop();
-      showToast(`${t('error.chatFailed', '操作失败')}: ${t('stream.unavailable', '流式响应不可用')}`, 'error');
+      showToast(`${t('error.chatFailed', 'Operation failed')}: ${t('stream.unavailable', 'Streaming response unavailable')}`, 'error');
       return 'failed';
     }
     streamEstablished = true;
@@ -3135,7 +3135,7 @@ async function streamChat(text, sessionId) {
             // first real token arrives, independent of renderStatusBar's
             // next tick.
             if (streamIndicatorLabel && runtime.tokenCount === 1) {
-              streamIndicatorLabel.textContent = t('stream.outputting', '输出中...');
+              streamIndicatorLabel.textContent = t('stream.outputting', 'Streaming...');
             }
             assistantMessage.content += parsed.token;
             updated = true;
@@ -3146,7 +3146,7 @@ async function streamChat(text, sessionId) {
           runtime.tokenCount += 1;
           runtime.lastTokenAt = Date.now();
           if (streamIndicatorLabel && runtime.tokenCount === 1) {
-            streamIndicatorLabel.textContent = t('stream.outputting', '输出中...');
+            streamIndicatorLabel.textContent = t('stream.outputting', 'Streaming...');
           }
           updated = true;
         }
@@ -3205,12 +3205,12 @@ async function streamChat(text, sessionId) {
     } else if (sawToken) {
       assistantMessage.content += `\n${t('stream.failed', '[stream failed]')} ${error.message || String(error)}`;
       renderMessages(currentMessages);
-      showToast(`${t('error.chatFailed', '操作失败')}: ${error.message || String(error)}`, 'error');
+      showToast(`${t('error.chatFailed', 'Operation failed')}: ${error.message || String(error)}`, 'error');
       return 'failed';
     } else if (streamEstablished) {
       currentMessages.pop();
       currentMessages.pop();
-      showToast(`${t('error.chatFailed', '操作失败')}: ${error.message || String(error)}`, 'error');
+      showToast(`${t('error.chatFailed', 'Operation failed')}: ${error.message || String(error)}`, 'error');
       return 'failed';
     }
   } finally {
@@ -3241,7 +3241,7 @@ chatForm.addEventListener('submit', async (event) => {
       const verb = slashCommandVerb(text);
       if (verb === 'events') {
         await refreshEventFeed(currentSessionId);
-        showTerminalResult(t('terminal.title', '终端'), currentEventFeed.map((item) => item.message || JSON.stringify(item)).join('\n') || t('terminal.noOutput', '(no output)'));
+        showTerminalResult(t('terminal.title', 'Terminal'), currentEventFeed.map((item) => item.message || JSON.stringify(item)).join('\n') || t('terminal.noOutput', '(no output)'));
         chatInput.value = '';
         charCount.textContent = '0';
         setConnectionState('connected');
@@ -3263,15 +3263,15 @@ chatForm.addEventListener('submit', async (event) => {
         // BugFix-2 (live P13): set the label directly here. renderStatusBar
         // only runs when a new state snapshot arrives; between submit and
         // the first applyState, the label would otherwise retain its
-        // previous (often stale "AI 正在响应...") text.
+        // previous (often stale "AI is responding...") text.
         if (streamIndicatorLabel) {
-          streamIndicatorLabel.textContent = t('stream.thinking', 'AI 思考中...');
+          streamIndicatorLabel.textContent = t('stream.thinking', 'AI is thinking...');
         }
       }
       // BugFix-2 (live P13): establish the conversation runtime BEFORE any
       // async session work so renderStatusBar sees `tokenCount === 0` and
-      // labels the indicator as "AI 思考中..." instead of falling through
-      // to the generic "AI 正在响应..." while ensureWritableSession awaits.
+      // labels the indicator as "AI is thinking..." instead of falling through
+      // to the generic "AI is responding..." while ensureWritableSession awaits.
       const preflightRuntime = beginConversationRuntime(text);
       const writableSessionId = await sessionController.ensureWritableSession();
       preflightRuntime.sessionId = writableSessionId;
@@ -3301,7 +3301,7 @@ chatForm.addEventListener('submit', async (event) => {
     await refreshEventFeed(activeMutationSessionId);
   } catch (error) {
     setConnectionState('disconnected');
-    showToast(`${t('error.chatFailed', '操作失败')}: ${error.message}`, 'error');
+    showToast(`${t('error.chatFailed', 'Operation failed')}: ${error.message}`, 'error');
   } finally {
     isSubmitting = false;
     if (streamIndicator) streamIndicator.hidden = true;
@@ -3342,17 +3342,17 @@ settingsForm.addEventListener('submit', async (event) => {
     lastSettingsSaveAt = new Date();
     applyState(state, sessionId);
     await refreshEventFeed(sessionId);
-    showToast(t('settings.saved', '设置已保存'), 'success');
+    showToast(t('settings.saved', 'Settings saved'), 'success');
   } catch (error) {
-    showToast(`${t('error.settingsFailed', '保存设置失败')}: ${error.message}`, 'error');
+    showToast(`${t('error.settingsFailed', 'Failed to save settings')}: ${error.message}`, 'error');
   }
 });
 
-// [设为默认模型] CTA inside the provider-profile editor (red
-// button placed before the existing [应用] button). Reads the current
+// [Set as Default Model] CTA inside the provider-profile editor (red
+// button placed before the existing [Apply] button). Reads the current
 // `Default Model` input from the editor form and POSTs it to
 // `/api/settings` so the conversation header model immediately switches
-// to the edited value. Differs from [应用] which also persists
+// to the edited value. Differs from [Apply] which also persists
 // providerId / baseUrl — this one only flips the default model so the
 // operator can quickly bind the model being edited without overwriting
 // the active provider routing.
@@ -3363,7 +3363,7 @@ async function setEditorDefaultModelAsActive() {
   const circuit = currentState?.status?.providerCircuit?.circuitState || '';
   if (circuit === 'open' || circuit === 'Open') {
     showToast(
-      t('action.setDefaultModelUnhealthy', '当前 Provider 不可用（熔断 Open），无法设为默认模型'),
+      t('action.setDefaultModelUnhealthy', 'Provider is unavailable (circuit Open); cannot set as default'),
       'error',
     );
     return;
@@ -3372,7 +3372,7 @@ async function setEditorDefaultModelAsActive() {
   const candidate = String(formData.get('defaultModel') || '').trim();
   if (!candidate) {
     showToast(
-      t('action.setDefaultModelEmpty', '请先填入 Default Model 后再设为默认模型'),
+      t('action.setDefaultModelEmpty', 'Fill in Default Model first, then set as default'),
       'error',
     );
     return;
@@ -3387,9 +3387,9 @@ async function setEditorDefaultModelAsActive() {
     applyState(state, sessionId);
     await refreshEventFeed(sessionId);
     closeManageEditor();
-    showToast(`${t('action.setDefaultModelOk', '默认模型已设为')} ${candidate}`, 'success');
+    showToast(`${t('action.setDefaultModelOk', 'Default model set to')} ${candidate}`, 'success');
   } catch (error) {
-    showToast(`${t('error.settingsFailed', '保存设置失败')}: ${error.message}`, 'error');
+    showToast(`${t('error.settingsFailed', 'Failed to save settings')}: ${error.message}`, 'error');
   }
 }
 
@@ -3420,9 +3420,9 @@ if (toolForm) {
         durationMs,
       };
       await showTerminalResult(`${toolName.value} (${durationMs}ms)`, lastToolRun.output);
-      showToast(t('tool.completed', '工具执行完成'), 'success');
+      showToast(t('tool.completed', 'Tool completed'), 'success');
     } catch (error) {
-      showToast(`${t('error.toolFailed', '工具执行失败')}: ${error.message}`, 'error');
+      showToast(`${t('error.toolFailed', 'Tool execution failed')}: ${error.message}`, 'error');
     }
   });
 }
@@ -3737,10 +3737,10 @@ if (sidebarActionsButton) {
     event.stopPropagation();
     openContextMenu(sidebarActionsButton, [
       {
-        // The previously pinned "+ 新对话" button was removed because it
+        // The previously pinned "+ New Chat" button was removed because it
         // duplicated the top session row visually. Surface the action
         // here so the operator can still spawn a fresh conversation.
-        label: t('session.new', '+ 新对话'),
+        label: t('session.new', '+ New chat'),
         action: async () => {
           try {
             const viewedSessionId = currentSessionId;
@@ -3754,21 +3754,21 @@ if (sidebarActionsButton) {
             sessionController.claimOwnedSession(sessionId);
             applyState(state, sessionId);
             await refreshEventFeed(sessionId);
-            showToast(t('session.newOk', '已创建新对话'), 'success');
+            showToast(t('session.newOk', 'New chat created'), 'success');
           } catch (error) {
-            showToast(`${t('session.newFailed', '创建新对话失败')}: ${error.message}`, 'error');
+            showToast(`${t('session.newFailed', 'Failed to create new chat')}: ${error.message}`, 'error');
           }
         },
       },
       {
-        label: t('session.deleteAll', '删除全部会话'),
+        label: t('session.deleteAll', 'Delete all sessions'),
         action: async () => deleteAllSessions(),
       },
     ]);
   });
 }
 
-// [+ 新对话] pinned CTA in the left sidebar. Always spawns a brand-new
+// [+ New Chat] pinned CTA in the left sidebar. Always spawns a brand-new
 // browser session so the operator can start a clean conversation
 // without polluting the currently viewed session.
 if (newSessionButton) {
@@ -3787,9 +3787,9 @@ if (newSessionButton) {
       sessionController.claimOwnedSession(sessionId);
       applyState(state, sessionId);
       await refreshEventFeed(sessionId);
-      showToast(t('session.newOk', '已创建新对话'), 'success');
+      showToast(t('session.newOk', 'New chat created'), 'success');
     } catch (error) {
-      showToast(`${t('session.newFailed', '创建新对话失败')}: ${error.message}`, 'error');
+      showToast(`${t('session.newFailed', 'Failed to create new chat')}: ${error.message}`, 'error');
     }
   });
 }
@@ -3986,7 +3986,7 @@ init();
 // =====================================================================
 // P8-B: GitHub connection management.
 // Stored ONLY in localStorage under `octocode-github-connection`. The
-// backend never sees these credentials unless the user clicks "测试连通"
+// backend never sees these credentials unless the user clicks "Test connection"
 // which performs a direct request from the browser to api.github.com.
 // =====================================================================
 const GITHUB_CONN_STORAGE_KEY = 'octocode-github-connection';
@@ -4037,21 +4037,21 @@ function initGithubConnectionPanel() {
     event.preventDefault();
     const data = readForm();
     if (saveGithubConnection(data)) {
-      if (statusEl) statusEl.textContent = t('github.saved', '已保存到本地浏览器。');
-      showToast(t('github.saved', '已保存到本地浏览器。'), 'success');
+      if (statusEl) statusEl.textContent = t('github.saved', 'Saved to local browser.');
+      showToast(t('github.saved', 'Saved to local browser.'), 'success');
     } else {
-      showToast(t('github.saveFailed', '保存失败，请检查浏览器存储权限。'), 'error');
+      showToast(t('github.saveFailed', 'Save failed; check browser storage permissions.'), 'error');
     }
   });
 
   const clearBtn = document.getElementById('github-clear-button');
   if (clearBtn) {
     clearBtn.addEventListener('click', () => {
-      if (!window.confirm(t('github.confirmClear', '确定清除本地保存的 GitHub 凭据吗？'))) return;
+      if (!window.confirm(t('github.confirmClear', 'Clear locally saved GitHub credentials?'))) return;
       try { localStorage.removeItem(GITHUB_CONN_STORAGE_KEY); } catch (_) {}
       writeForm({ authMethod: 'pat', username: '', password: '', token: '', appId: '', installationId: '', privateKey: '', apiBase: '', scopes: '' });
-      if (statusEl) statusEl.textContent = t('github.cleared', '本地凭据已清除。');
-      showToast(t('github.cleared', '本地凭据已清除。'), 'success');
+      if (statusEl) statusEl.textContent = t('github.cleared', 'Local credentials cleared.');
+      showToast(t('github.cleared', 'Local credentials cleared.'), 'success');
     });
   }
 
@@ -4066,20 +4066,20 @@ function initGithubConnectionPanel() {
       } else if (data.token) {
         headers['Authorization'] = `Bearer ${data.token}`;
       }
-      if (statusEl) statusEl.textContent = t('github.testing', '正在测试连通...');
+      if (statusEl) statusEl.textContent = t('github.testing', 'Testing connection...');
       try {
         const res = await fetch(`${base}/user`, { headers, credentials: 'omit' });
         const body = await res.text();
         const text = `HTTP ${res.status}\n${body.slice(0, 800)}`;
         if (statusEl) statusEl.textContent = text;
         if (res.ok) {
-          showToast(t('github.testOk', '连通成功 ✓'), 'success');
+          showToast(t('github.testOk', 'Connection succeeded'), 'success');
         } else {
-          showToast(t('github.testFail', `连通失败：HTTP ${res.status}`), 'error');
+          showToast(t('github.testFail', `Connection failed: HTTP ${res.status}`), 'error');
         }
       } catch (error) {
         if (statusEl) statusEl.textContent = `error: ${error.message || String(error)}`;
-        showToast(`${t('github.testFail', '连通失败')}: ${error.message || String(error)}`, 'error');
+        showToast(`${t('github.testFail', 'Connection failed')}: ${error.message || String(error)}`, 'error');
       }
     });
   }

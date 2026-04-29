@@ -7,7 +7,7 @@ Octocode is a ground-up Rust workspace providing a local AI coding assistant wit
 ## One-line install
 
 The installers detect your toolchain, install [`rustup`](https://rustup.rs)
-if needed, then run `cargo install --git https://github.com/sievepub-2000/octocode --tag v2026.4.29 --locked octocode-cli`.
+if needed, then run `cargo install --git https://github.com/sievepub-2000/octocode --tag v2026.4.30 --locked octocode-cli`.
 The result is the `octocode-cli` binary in `~/.cargo/bin` (or `%USERPROFILE%\.cargo\bin` on Windows).
 
 **Windows (PowerShell 5.1+ or 7+):**
@@ -25,7 +25,7 @@ curl -fsSL https://raw.githubusercontent.com/sievepub-2000/octocode/master/insta
 **Direct (any platform with cargo already installed):**
 
 ```bash
-cargo install --git https://github.com/sievepub-2000/octocode --tag v2026.4.29 --locked octocode-cli
+cargo install --git https://github.com/sievepub-2000/octocode --tag v2026.4.30 --locked octocode-cli
 ```
 
 After installation:

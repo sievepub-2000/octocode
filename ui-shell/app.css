@@ -335,7 +335,7 @@ button { cursor: pointer; }
   font-size: 11px;
   color: var(--ink-dim);
 }
-/* Pinned [+ 新对话] button — sits above the session history list
+/* Pinned [+ New Chat] button — sits above the session history list
    inside the left sidebar. Uses the accent palette so it reads as a
    primary CTA without being noisy. */
 .sidebar-new-session-btn {

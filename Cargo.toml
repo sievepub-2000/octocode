@@ -16,8 +16,8 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 license = "Apache-2.0"
-version = "2026.4.29"
-authors = ["周浩"]
+version = "2026.4.30"
+authors = ["Sievepub <sievepub@outlook.com>"]
 
 [workspace.dependencies]
 tao = "0.34"

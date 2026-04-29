@@ -7,6 +7,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once
 
 ## [Unreleased]
 
+## [2026.4.30] - 2026-04-29
+
 ### Fixed
 
 - Provider health snapshot no longer reports duplicate `local-openai`
@@ -26,6 +28,23 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once
   Japanese (`docs/modules/octocode-modules.{en,ja}.md`,
   `docs/PRIVACY.md`, `docs/THIRD_PARTY_NOTICES.md`,
   `docs/release-notes-2026-04-29.md`, `docs/modules/index.md`).
+- Replaced all Chinese fallback strings in `ui-shell/index.html` and
+  `ui-shell/app.js` with English defaults; runtime locale JSONs
+  continue to provide CN/JA/KO translations at runtime.
+- Workspace `Cargo.toml` author updated to a romanized identifier and
+  version bumped to `2026.4.30`.
+
+### Added
+
+- One-line installers for Windows / macOS / Linux: `install.ps1` and
+  `install.sh` at the repository root, documented in `README.md`.
+- `.gitattributes` to enforce LF for shell scripts and CRLF for
+  PowerShell scripts.
+- GitHub Actions CI workflow (`.github/workflows/ci.yml`) running
+  `cargo fmt --check`, `cargo clippy`, and `cargo check --workspace`
+  on Windows + Ubuntu.
+- Bilingual architecture overview (`docs/architecture.en.md`,
+  `docs/architecture.ja.md`).
 
 ## [2026.4.29] - 2026-04-29
 
