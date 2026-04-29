@@ -113,6 +113,48 @@ pub fn render_metrics_body() -> String {
     )
 }
 
+/// L10: structured JSON twin of `/metrics` for the WebUI dashboard.
+/// Same counters as `render_metrics_body` but in a single JSON object so
+/// the operator UI can render charts without parsing Prometheus text.
+pub fn render_metrics_json() -> String {
+    let requests = METRICS_REQUESTS_TOTAL.load(Ordering::Relaxed);
+    let errors = METRICS_ERRORS_TOTAL.load(Ordering::Relaxed);
+    let chat_requests = METRICS_CHAT_REQUESTS_TOTAL.load(Ordering::Relaxed);
+    let tool_invocations = METRICS_TOOL_INVOCATIONS_TOTAL.load(Ordering::Relaxed);
+    let sessions_created = METRICS_SESSIONS_CREATED_TOTAL.load(Ordering::Relaxed);
+    let memory_notes = METRICS_MEMORY_NOTES_TOTAL.load(Ordering::Relaxed);
+    let agent_tasks_active = agent_tasks::active_count();
+    let agent_iterations = METRICS_AGENT_ITERATIONS_TOTAL.load(Ordering::Relaxed);
+    let circuit_open = METRICS_CIRCUIT_OPEN_TOTAL.load(Ordering::Relaxed);
+    let version = env!("CARGO_PKG_VERSION");
+    format!(
+        concat!(
+            "{{",
+            "\"version\":\"{version}\",",
+            "\"requestsTotal\":{requests},",
+            "\"errorsTotal\":{errors},",
+            "\"chatRequestsTotal\":{chat_requests},",
+            "\"toolInvocationsTotal\":{tool_invocations},",
+            "\"sessionsCreatedTotal\":{sessions_created},",
+            "\"memoryNotesTotal\":{memory_notes},",
+            "\"agentTasksActive\":{agent_tasks_active},",
+            "\"agentIterationsTotal\":{agent_iterations},",
+            "\"circuitOpenTotal\":{circuit_open}",
+            "}}"
+        ),
+        version = version,
+        requests = requests,
+        errors = errors,
+        chat_requests = chat_requests,
+        tool_invocations = tool_invocations,
+        sessions_created = sessions_created,
+        memory_notes = memory_notes,
+        agent_tasks_active = agent_tasks_active,
+        agent_iterations = agent_iterations,
+        circuit_open = circuit_open,
+    )
+}
+
 /// 2026.4.24-B1: operational counters for permanent memory + agent supervision.
 static METRICS_MEMORY_NOTES_TOTAL: AtomicU64 = AtomicU64::new(0);
 
@@ -3088,6 +3130,7 @@ fn route_request(
                 body,
             ))
         }
+        ("GET", "/api/metrics") => json_response(render_metrics_json()),
         _ => serve_static(request),
     }
 }

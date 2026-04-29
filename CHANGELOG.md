@@ -7,6 +7,44 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once
 
 ## [Unreleased]
 
+### Security
+
+- Bumped `rustls-webpki` to 0.103.13 (CVE: DoS via malformed CRL BIT
+  STRING).
+- Bumped `wry` 0.53 → 0.55 and `tao` 0.34 → 0.35, eliminating the
+  unsound `rand 0.7.3` (RUSTSEC-2026-0097) build-time dependency
+  pulled by `selectors 0.24` / `phf_codegen 0.8`.
+- Linux desktop-shell still transitively pulls `glib 0.18.5`
+  (RUSTSEC-2024-0429) via `webkit2gtk 2.0`; tracked in `deny.toml`
+  pending an upstream `wry` migration to gtk-rs 0.20.
+
+### Added
+
+- `/api/metrics` JSON endpoint mirroring `/metrics` Prometheus
+  counters for in-WebUI dashboards (L10).
+- `cliff.toml` for git-cliff CHANGELOG generation (M5).
+- `deny.toml` + `.github/workflows/audit.yml` running `cargo audit`
+  and `cargo deny check` on push, PR and a weekly schedule (L8).
+- `.github/workflows/release-binaries.yml` building per-OS artifacts
+  on `v*` tags and uploading them to the matching GitHub release
+  (N4).
+- Integration regression test
+  `crates/octocode-api/tests/provider_health_dedup.rs` locking the
+  parent-id projection invariant (M2).
+
+### Changed
+
+- Bilingual EN+JA reading for the four fallback provider display
+  names in `ProviderRegistry` (Tongyi Qwen, Zhipu GLM, Moonshot Kimi,
+  Xiaomi MiMo) so non-CJK operators can identify them.
+- `clippy --fix` cleanup: collapsed double `replace`, simplified
+  `slack_challenge` lifetime, removed redundant `as_deref_mut` in
+  streaming tool callback.
+- Added 5 status badges (CI / License / Release / Rust / Platform)
+  to `README.md` (N5).
+- `CONTRIBUTING.md` now documents Conventional Commits expectations
+  used by `git cliff`.
+
 ## [2026.4.30] - 2026-04-29
 
 ### Fixed

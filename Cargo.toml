@@ -20,8 +20,8 @@ version = "2026.4.30"
 authors = ["Sievepub <sievepub@outlook.com>"]
 
 [workspace.dependencies]
-tao = "0.34"
-wry = "0.53"
+tao = "0.35"
+wry = "0.55"
 ureq = "2.12"
 tungstenite = "0.24"
 portable-pty = "0.8"
