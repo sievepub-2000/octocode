@@ -704,8 +704,7 @@ function linkifyWorkspacePaths(html) {
 
 function renderMarkdown(text) {
   if (!text) return '';
-  if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
-    try {
+  if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {    try {
       marked.setOptions({
         highlight(code, lang) {
           if (typeof hljs !== 'undefined' && lang && hljs.getLanguage(lang)) {
@@ -731,6 +730,30 @@ function renderMarkdown(text) {
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
   html = linkifyWorkspacePaths(html);
   return html;
+}
+
+// Render LaTeX math (KaTeX) inside an element previously populated by
+// `renderMarkdown`. KaTeX's auto-render plugin walks text nodes only, so
+// this is safe to call on any container — it will leave non-math text and
+// already-rendered HTML untouched. Delimiters cover both inline (`$...$`,
+// `\(...\)`) and display (`$$...$$`, `\[...\]`) forms commonly produced by
+// LLMs (Claude, GPT-4, Gemini).
+function renderKatexIn(element) {
+  if (!element) return;
+  if (typeof window.renderMathInElement !== 'function') return;
+  try {
+    window.renderMathInElement(element, {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\[', right: '\\]', display: true },
+        { left: '$', right: '$', display: false },
+        { left: '\\(', right: '\\)', display: false },
+      ],
+      throwOnError: false,
+      // Preserve fenced code blocks: never replace inside <code>/<pre>.
+      ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
+    });
+  } catch (_) {}
 }
 
 function syncHighlightTheme(theme) {
@@ -1506,6 +1529,7 @@ function renderMessages(messages) {
     const contentEl = document.createElement('div');
     contentEl.className = 'msg-content';
     contentEl.innerHTML = contentHtml;
+    renderKatexIn(contentEl);
     const footer = document.createElement('div');
     footer.className = 'msg-footer';
     const timeEl = document.createElement('div');
@@ -3131,6 +3155,7 @@ async function streamChat(text, sessionId) {
           const contentEl = lastBubble ? lastBubble.querySelector('.msg-content') : null;
           if (contentEl && lastBubble.classList.contains('role-assistant')) {
             contentEl.innerHTML = renderMarkdown(assistantMessage.content);
+            renderKatexIn(contentEl);
             const nearBottom = messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight < 80;
             if (nearBottom) messageList.scrollTop = messageList.scrollHeight;
           } else {
