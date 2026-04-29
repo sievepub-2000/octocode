@@ -5,6 +5,52 @@ All notable changes to this project are recorded here. The format follows
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once
 `v0.1.0` is tagged.
 
+## [2026.4.29] - 2026-04-29
+
+First public release under the Apache License, Version 2.0.
+
+### Added
+
+- `LICENSE` and `NOTICE` at the repository root containing the full
+  Apache 2.0 license text and product notice.
+- `docs/release-notes-2026-04-29.md`, `docs/PRIVACY.md`,
+  `docs/THIRD_PARTY_NOTICES.md`, and English + Japanese module guides
+  under `docs/modules/`.
+- `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, and
+  `.github/` issue / pull-request templates.
+- WebUI Help menu now opens License, Release Notes, Privacy
+  Statement, About, and Contact panels rendered from
+  `ui-shell/help/*.{en,ja}.md` directly in the right management
+  panel.
+- WebUI Help → Check for Updates queries the public GitHub Releases
+  API for `sievepub-2000/octocode` and reports whether the running
+  build matches the latest tag.
+- WebUI Markdown rendering now supports KaTeX for `$...$`, `$$...$$`,
+  `\(...\)`, and `\[...\]` math delimiters via `marked` +
+  `katex-auto-render` (existing code-fence / highlight.js path is
+  unchanged).
+- Anthropic transport reads `ANTHROPIC_AUTH_TOKEN` as a third
+  fallback (after `ANTHROPIC_API_KEY` and
+  `OCTOCODE_ANTHROPIC_API_KEY`) and now sends both `x-api-key` and
+  `Authorization: Bearer` headers to support gateway-style proxies
+  such as `ai.jiexi6.cn`.
+- Per-turn `session.model` resolution: each turn pins the exact model
+  recorded on the session even when the global default is changed
+  elsewhere.
+- New `stub_fallback_active` flag on the runtime snapshot so the CLI,
+  WebUI, and Canvas shell can clearly surface the case where every
+  configured provider has failed and the local stub is echoing.
+- `scripts/octocode-up.ps1` and `scripts/octocode-down.ps1` for
+  one-key WebUI start/stop with zombie-process cleanup before bind.
+
+### Changed
+
+- Workspace `license` is now `Apache-2.0` (was `MIT`) and version
+  bumped to `2026.4.29`.
+- WebUI default UI locale is now `en-US` (was `zh-CN`); the four
+  bundled locales `en-US`, `ja-JP`, `ko-KR`, `zh-CN` are still all
+  fully selectable from View → Language.
+
 ## [Unreleased]
 
 ### Added — Phase 7 release-hardening (Windows-first)

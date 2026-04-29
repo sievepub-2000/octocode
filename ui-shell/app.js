@@ -205,7 +205,7 @@ let currentEventFeed = [];
 // 刷新" flicker).
 let lastRenderedMessagesSignature = '';
 let lastRenderedSidebarSignature = '';
-let activeLocale = 'zh-CN';
+let activeLocale = 'en-US';
 let localeMessages = {};
 let activeViewMode = 'normal';
 let isSubmitting = false;
@@ -256,6 +256,12 @@ const managePanelMeta = {
   commands: { titleKey: 'manage.commands', titleFallback: 'Commands', subtitleKey: 'manage.commandsHint', subtitleFallback: '查看斜杠命令入口并快速插入对话框。' },
   settings: { titleKey: 'manage.settings', titleFallback: 'Settings', subtitleKey: 'manage.settingsHint', subtitleFallback: '修改 Provider、模型和权限等运行设置。' },
   github: { titleKey: 'manage.github', titleFallback: 'GitHub 连接', subtitleKey: 'manage.githubHint', subtitleFallback: '管理用户名/密码、项目接入 Key、管理 Token 等 GitHub 主流接入方式。凭据仅保存在本浏览器。' },
+  'help-license': { titleKey: 'help.license', titleFallback: 'License', subtitleKey: 'help.license.subtitle', subtitleFallback: 'Apache License, Version 2.0 — the full license text governing Octocode.' },
+  'help-release-notes': { titleKey: 'help.releaseNotes', titleFallback: 'Release Notes', subtitleKey: 'help.releaseNotes.subtitle', subtitleFallback: 'What changed in the current Octocode build.' },
+  'help-privacy': { titleKey: 'help.privacy', titleFallback: 'Privacy Statement', subtitleKey: 'help.privacy.subtitle', subtitleFallback: 'How Octocode handles your data on this machine.' },
+  'help-contact': { titleKey: 'help.contact', titleFallback: 'Contact Us', subtitleKey: 'help.contact.subtitle', subtitleFallback: 'How to reach the Octocode maintainers.' },
+  'help-about': { titleKey: 'help.about', titleFallback: 'About', subtitleKey: 'help.about.subtitle', subtitleFallback: 'Project information, third-party acknowledgements, and documentation links.' },
+  'help-updates': { titleKey: 'help.checkUpdates', titleFallback: 'Check for Updates', subtitleKey: 'help.checkUpdates.subtitle', subtitleFallback: 'Compares your build against the latest GitHub release.' },
 };
 
 const SESSION_TREE_COLLAPSE_STORAGE_KEY = 'octocode-session-tree-collapsed';
@@ -783,7 +789,7 @@ function applyTheme(theme) {
 
 async function loadLocalePlugin() {
   const pluginUrl = urlState.searchParams.get('localePlugin');
-  activeLocale = resolveSupportedLocale(urlState.searchParams.get('locale') || navigator.language || 'zh-CN');
+  activeLocale = resolveSupportedLocale(urlState.searchParams.get('locale') || navigator.language || 'en-US');
   const candidates = pluginUrl
     ? [pluginUrl]
     : [`/ui-shell/locales/${activeLocale}.json`, '/ui-shell/locales/en-US.json'];
@@ -1427,7 +1433,7 @@ function renderSidebar(state, activeSessionId) {
           },
         },
         {
-          label: t('session.fork', 'Fork 新会话'),
+          label: t('session.fork', 'Fork into new session'),
           action: async () => forkSessionFromHistory({
             parentSessionId: item.id,
             defaultBranchName: `${String(item.branchName || item.id || 'session').trim() || 'session'}-fork`,
@@ -2258,7 +2264,7 @@ function renderForkDialog() {
     : `${t('session.forkUntilMessage', '到消息')} #${forkDialogState.messageIndex + 1}`;
   const previewName = forkDialogState.normalizedBranchName || normalizeForkBranchName(forkDialogState.branchName);
   const errorText = forkDialogState.error || validateForkBranchName(forkDialogState.branchName);
-  if (forkDialogTitle) forkDialogTitle.textContent = t('session.forkDialogTitle', 'Fork 新会话');
+  if (forkDialogTitle) forkDialogTitle.textContent = t('session.forkDialogTitle', 'Fork into new session');
   if (forkDialogSubtitle) forkDialogSubtitle.textContent = t('session.forkDialogSubtitle', '从当前会话历史创建一个新的分支会话。');
   if (forkParentSessionInput) forkParentSessionInput.value = `${forkDialogState.parentSessionTitle || '-'} · ${forkDialogState.parentSessionId || '-'}`;
   if (forkMessageIndexInput) forkMessageIndexInput.value = labelText;
@@ -3550,22 +3556,126 @@ managePanelButtons.forEach((button) => {
 document.querySelectorAll('[data-help-action]').forEach((button) => {
   button.addEventListener('click', async () => {
     const action = button.dataset.helpAction;
-    const helpPlaceholders = {
-      license: t('help.placeholder.license', '许可信息入口已预留，稍后可接入许可证文档。'),
-      'release-notes': t('help.placeholder.releaseNotes', '发行说明入口已预留，稍后可接入版本说明。'),
-      privacy: t('help.placeholder.privacy', '隐私声明入口已预留，稍后可接入隐私文档。'),
-      contact: t('help.placeholder.contact', '联系我们入口已预留，稍后可接入联系信息。'),
-      about: t('help.placeholder.about', '关于入口已预留，稍后可接入产品说明。'),
-    };
-    if (action === 'check-updates') {
-      await loadState(currentSessionId);
-      showToast(t('help.placeholder.checkUpdates', '已完成更新检查，当前为本地开发构建。'), 'info');
-    } else {
-      showToast(helpPlaceholders[action] || t('help.placeholder.default', '帮助入口已预留。'), 'info');
-    }
     closeDropdown(helpMenuButton, helpMenuPanel);
+    if (action === 'check-updates') {
+      await openHelpUpdatesPanel();
+    } else if (action === 'license' || action === 'release-notes' || action === 'privacy' || action === 'contact' || action === 'about') {
+      await openHelpContentPanel(action);
+    } else {
+      showToast(t('help.placeholder.default', 'Help entry reserved.'), 'info');
+    }
   });
 });
+
+// Pick a locale-specific help document (`license.<locale>.md`) and fall
+// back to the English copy if the localized variant is missing. The
+// catalog only ships English and Japanese for repository-tracked docs;
+// ko-KR / zh-CN viewers see the English version with localized chrome.
+async function fetchHelpMarkdown(name) {
+  const lang = (activeLocale || 'en-US').toLowerCase().startsWith('ja') ? 'ja' : 'en';
+  const candidates = [
+    `/ui-shell/help/${name}.${lang}.md`,
+    `/ui-shell/help/${name}.en.md`,
+  ];
+  for (const url of candidates) {
+    try {
+      const response = await fetch(url, { cache: 'no-store' });
+      if (!response.ok) continue;
+      return await response.text();
+    } catch (_) {}
+  }
+  return '';
+}
+
+function ensureHelpPanelMounted(panel) {
+  setManagePanel(panel);
+  const scroll = document.getElementById('manage-panel-scroll');
+  if (scroll) scroll.scrollTop = 0;
+}
+
+async function openHelpContentPanel(action) {
+  const panelMap = {
+    license: 'help-license',
+    'release-notes': 'help-release-notes',
+    privacy: 'help-privacy',
+    contact: 'help-contact',
+    about: 'help-about',
+  };
+  const targetId = panelMap[action];
+  if (!targetId) return;
+  ensureHelpPanelMounted(targetId);
+  const targetEl = document.getElementById(`help-content-${action}`);
+  if (!targetEl) return;
+  if (!targetEl.dataset.loadedFor || targetEl.dataset.loadedFor !== `${action}:${activeLocale}`) {
+    targetEl.innerHTML = `<p class="help-loading">${escapeHtml(t('help.loading', 'Loading...'))}</p>`;
+    const md = await fetchHelpMarkdown(action);
+    if (md) {
+      targetEl.innerHTML = renderMarkdown(md);
+      renderKatexIn(targetEl);
+      targetEl.dataset.loadedFor = `${action}:${activeLocale}`;
+    } else {
+      targetEl.innerHTML = `<p class="help-error">${escapeHtml(t('help.loadFailed', 'Failed to load help content.'))}</p>`;
+    }
+  }
+}
+
+// Hits the public GitHub Releases API for the upstream Octocode
+// repository and reports whether the running build matches the latest
+// tag. This is purely informational — Octocode never auto-updates.
+async function openHelpUpdatesPanel() {
+  ensureHelpPanelMounted('help-updates');
+  const targetEl = document.getElementById('help-content-updates');
+  if (!targetEl) return;
+  const currentVersion = (window.__OCTOCODE_VERSION__ || '').trim() || 'dev';
+  const repoUrl = 'https://github.com/sievepub-2000/octocode';
+  const apiUrl = 'https://api.github.com/repos/sievepub-2000/octocode/releases/latest';
+  targetEl.innerHTML = `<p class="help-loading">${escapeHtml(t('help.checkUpdates.loading', 'Checking GitHub Releases...'))}</p>`;
+  let latestTag = '';
+  let publishedAt = '';
+  let bodyMd = '';
+  let errorMsg = '';
+  try {
+    const response = await fetch(apiUrl, { cache: 'no-store', headers: { Accept: 'application/vnd.github+json' } });
+    if (response.status === 404) {
+      errorMsg = t('help.checkUpdates.noRelease', 'No GitHub release has been published yet for this repository.');
+    } else if (!response.ok) {
+      errorMsg = `${t('help.checkUpdates.failed', 'Update check failed')}: HTTP ${response.status}`;
+    } else {
+      const data = await response.json();
+      latestTag = String(data.tag_name || data.name || '').trim();
+      publishedAt = String(data.published_at || '').trim();
+      bodyMd = String(data.body || '').trim();
+    }
+  } catch (e) {
+    errorMsg = `${t('help.checkUpdates.failed', 'Update check failed')}: ${e.message}`;
+  }
+  const lines = [];
+  lines.push(`# ${t('help.checkUpdates', 'Check for Updates')}`);
+  lines.push('');
+  lines.push(`- ${t('help.updates.currentBuild', 'Current build')}: \`${currentVersion}\``);
+  lines.push(`- ${t('help.updates.repository', 'Repository')}: <${repoUrl}>`);
+  if (latestTag) {
+    lines.push(`- ${t('help.updates.latestTag', 'Latest GitHub release')}: **${latestTag}**${publishedAt ? ` (${publishedAt.slice(0, 10)})` : ''}`);
+    const matches = currentVersion && (latestTag.endsWith(currentVersion) || latestTag === currentVersion || latestTag === `v${currentVersion}`);
+    lines.push('');
+    lines.push(matches
+      ? `> ${t('help.updates.upToDate', 'You are running the latest released build.')}`
+      : `> ${t('help.updates.newAvailable', 'A newer release is available. See the repository for upgrade instructions.')}`);
+    if (bodyMd) {
+      lines.push('');
+      lines.push(`## ${t('help.updates.releaseNotes', 'Latest release notes')}`);
+      lines.push('');
+      lines.push(bodyMd);
+    }
+  } else if (errorMsg) {
+    lines.push('');
+    lines.push(`> ${errorMsg}`);
+    lines.push('');
+    lines.push(t('help.updates.manualHint', 'Visit the repository releases page to compare manually.'));
+  }
+  targetEl.innerHTML = renderMarkdown(lines.join('\n'));
+  renderKatexIn(targetEl);
+}
 
 if (fileNewFileBtn) {
   fileNewFileBtn.addEventListener('click', async () => {

@@ -2196,3 +2196,20 @@ button.is-loading {
     scroll-behavior: auto !important;
   }
 }
+
+/* v2026.4.29 help panel content */
+.help-panel-section .help-content{font-size:13px;line-height:1.55;padding:8px 4px;color:var(--text);}
+.help-panel-section .help-content h1{font-size:18px;margin:0 0 12px 0;border-bottom:1px solid var(--border);padding-bottom:6px;}
+.help-panel-section .help-content h2{font-size:15px;margin:18px 0 8px;}
+.help-panel-section .help-content h3{font-size:13px;margin:14px 0 6px;}
+.help-panel-section .help-content p{margin:8px 0;}
+.help-panel-section .help-content ul,.help-panel-section .help-content ol{padding-left:20px;margin:6px 0;}
+.help-panel-section .help-content code{background:var(--bg-soft);padding:1px 4px;border-radius:3px;font-family:'IBM Plex Mono',monospace;font-size:12px;}
+.help-panel-section .help-content pre{background:var(--bg-soft);padding:10px;border-radius:6px;overflow-x:auto;font-size:12px;}
+.help-panel-section .help-content pre code{background:transparent;padding:0;}
+.help-panel-section .help-content a{color:var(--accent);text-decoration:underline;}
+.help-panel-section .help-content blockquote{border-left:3px solid var(--accent);padding-left:10px;margin:8px 0;color:var(--text-soft);}
+.help-panel-section .help-content table{border-collapse:collapse;margin:8px 0;}
+.help-panel-section .help-content th,.help-panel-section .help-content td{border:1px solid var(--border);padding:4px 8px;font-size:12px;}
+.help-loading,.help-error{color:var(--text-soft);font-style:italic;}
+

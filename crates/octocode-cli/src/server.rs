@@ -3546,7 +3546,11 @@ fn serve_static(request: &HttpRequest) -> Result<String, Box<dyn std::error::Err
     // Inject auth token into index.html so the WebUI can authenticate API calls
     if relative == "ui-shell/index.html" {
         let token = get_server_token();
-        let inject = format!(r#"<script>window.__OCTOCODE_AUTH_TOKEN__="{}";</script>"#, token);
+        let version = env!("CARGO_PKG_VERSION");
+        let inject = format!(
+            r#"<script>window.__OCTOCODE_AUTH_TOKEN__="{}";window.__OCTOCODE_VERSION__="{}";</script>"#,
+            token, version
+        );
         body = body.replacen("</head>", &format!("{inject}\n</head>"), 1);
     }
     let content_type = content_type_for(&file_path);
