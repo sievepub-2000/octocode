@@ -49,6 +49,24 @@ welcome but are not required for a release.
   existing brace and indentation style.
 - Markdown: hard-wrap at 80 columns where possible.
 
+## Commit messages
+
+The repository follows [Conventional Commits](https://www.conventionalcommits.org/).
+`CHANGELOG.md` is generated from history via `git cliff` (see
+`cliff.toml`). Use one of the following prefixes so the changelog
+groups your change correctly:
+
+- `feat:` — new user-visible capability
+- `fix:` — bug fix
+- `perf:` — measurable performance improvement
+- `refactor:` — internal restructuring with no behavior change
+- `docs:` — documentation only
+- `test:` — tests only
+- `chore:` / `ci:` / `build:` — tooling, CI, or build system
+
+Optional scope: `feat(cli): ...`, `fix(runtime): ...`. Keep the subject
+in the imperative mood and under 72 characters.
+
 ## Validation gates
 
 The following must pass locally before a PR is merged:

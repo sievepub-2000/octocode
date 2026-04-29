@@ -70,7 +70,7 @@ impl WebhookRouter {
 
     /// Slack URL-verification challenge extraction. The host should
     /// reply with the challenge token verbatim when this returns Some.
-    pub fn slack_challenge<'a>(&self, body: &'a str) -> Option<String> {
+    pub fn slack_challenge(&self, body: &str) -> Option<String> {
         if !body.contains("\"type\"") || !body.contains("url_verification") {
             return None;
         }

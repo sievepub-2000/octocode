@@ -1415,7 +1415,7 @@ impl WorkspaceToolExecutor {
                 }
             }
         }
-        if let Some(cb) = on_chunk.as_deref_mut() {
+        if let Some(cb) = on_chunk {
             if !carry.is_empty() {
                 let s = String::from_utf8_lossy(&carry).into_owned();
                 cb(&s);

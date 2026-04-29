@@ -1,0 +1,53 @@
+# git-cliff configuration — Octocode
+#
+# Generates CHANGELOG.md from conventional commits. Run:
+#   git cliff --tag v2026.4.30 --output CHANGELOG.md
+#
+# See https://git-cliff.org/docs/configuration
+
+[changelog]
+header = """
+# Changelog
+
+All notable changes to this project are recorded here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
+follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once
+`v0.1.0` is tagged.\n
+"""
+body = """
+{% if version %}\
+    ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+    ## [Unreleased]
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+    ### {{ group | upper_first }}
+    {% for commit in commits %}
+        - {% if commit.scope %}*({{ commit.scope }})* {% endif %}{{ commit.message | upper_first }}\
+    {% endfor %}
+{% endfor %}\n
+"""
+trim = true
+footer = ""
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+commit_parsers = [
+    { message = "^feat",     group = "Added" },
+    { message = "^add",      group = "Added" },
+    { message = "^fix",      group = "Fixed" },
+    { message = "^perf",     group = "Performance" },
+    { message = "^refactor", group = "Changed" },
+    { message = "^style",    group = "Changed" },
+    { message = "^docs",     group = "Documentation" },
+    { message = "^test",     group = "Tests" },
+    { message = "^chore",    group = "Chore" },
+    { message = "^ci",       group = "CI" },
+    { message = "^build",    group = "Build" },
+    { body    = ".*security",group = "Security" },
+]
+filter_commits = false
+tag_pattern = "v[0-9]*"
+sort_commits = "newest"

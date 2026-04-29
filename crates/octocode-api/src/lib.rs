@@ -609,7 +609,7 @@ impl ProviderRegistry {
                 },
                 ProviderDescriptor {
                     id: String::from("qwen"),
-                    display_name: String::from("阿里通义 Qwen (DashScope)"),
+                    display_name: String::from("Alibaba Tongyi Qwen (DashScope)"),
                     kind: ProviderKind::Qwen,
                     supports_tools: true,
                     supports_streaming: true,
@@ -617,7 +617,7 @@ impl ProviderRegistry {
                 },
                 ProviderDescriptor {
                     id: String::from("glm"),
-                    display_name: String::from("智谱 GLM (BigModel)"),
+                    display_name: String::from("Zhipu GLM (BigModel)"),
                     kind: ProviderKind::Glm,
                     supports_tools: true,
                     supports_streaming: true,
@@ -625,7 +625,7 @@ impl ProviderRegistry {
                 },
                 ProviderDescriptor {
                     id: String::from("kimi"),
-                    display_name: String::from("月之暗面 Kimi (Moonshot)"),
+                    display_name: String::from("Moonshot Kimi"),
                     kind: ProviderKind::Kimi,
                     supports_tools: true,
                     supports_streaming: true,
@@ -633,7 +633,7 @@ impl ProviderRegistry {
                 },
                 ProviderDescriptor {
                     id: String::from("xiaomi"),
-                    display_name: String::from("小米 MiMo"),
+                    display_name: String::from("Xiaomi MiMo"),
                     kind: ProviderKind::Xiaomi,
                     supports_tools: false,
                     supports_streaming: true,

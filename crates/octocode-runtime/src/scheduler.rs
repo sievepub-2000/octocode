@@ -250,8 +250,7 @@ pub fn now_unix() -> u64 {
 
 fn sanitize(value: &str) -> String {
     value
-        .replace('\n', " ")
-        .replace('\r', " ")
+        .replace(['\n', '\r'], " ")
         .replace('|', "/")
 }
 

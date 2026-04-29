@@ -1,5 +1,11 @@
 # Octocode
 
+[![CI](https://github.com/sievepub-2000/octocode/actions/workflows/ci.yml/badge.svg)](https://github.com/sievepub-2000/octocode/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Latest release](https://img.shields.io/github/v/release/sievepub-2000/octocode?label=release)](https://github.com/sievepub-2000/octocode/releases)
+[![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
+[![Platform: Windows | macOS | Linux](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](#one-line-install)
+
 > AI-powered coding assistant runtime — local-first, multi-provider, extensible.
 
 Octocode is a ground-up Rust workspace providing a local AI coding assistant with multi-provider support, session management, tool execution, MCP integration, and both CLI/Desktop/WebUI surfaces.
