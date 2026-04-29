@@ -33,8 +33,6 @@ public spaces when an individual is representing the project.
 Reports may be sent privately to:
 
 - `sievepub@outlook.com`
-- `3925447879@qq.com`
-
 Maintainers will review reports and take action that, in their
 judgment, restores a healthy collaboration environment. Possible
 actions range from a warning, to a temporary ban, to a permanent ban

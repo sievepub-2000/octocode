@@ -215,7 +215,7 @@ Markdown は `marked` 12、コードハイライトは `highlight.js` 11、数�
 - Release Notes — `docs/release-notes-2026-04-29.md`
 - Privacy Statement — `docs/PRIVACY.md`
 - Check for Updates — `sievepub-2000/octocode` の GitHub Releases API
-- Contact Author — `sievepub@outlook.com`、`3925447879@qq.com`
+- Contact Author — `sievepub@outlook.com`
 - About — モジュール一覧、サードパーティ謝辞、`docs/modules/index.md`
   へのリンク
 

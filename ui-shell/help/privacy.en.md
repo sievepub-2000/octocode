@@ -100,8 +100,6 @@ content changes.
 For privacy-related questions, contact the author at:
 
 - sievepub@outlook.com
-- 3925447879@qq.com
-
 The repository's public issue tracker is also acceptable for
 non-confidential privacy questions:
 <https://github.com/sievepub-2000/octocode/issues>.

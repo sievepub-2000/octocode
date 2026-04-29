@@ -6,8 +6,6 @@ maintained by a single author; please use any of the channels below.
 ## Email
 
 - General questions: **sievepub@outlook.com**
-- Alternate channel: **3925447879@qq.com**
-
 ## Public repository
 
 <https://github.com/sievepub-2000/octocode>

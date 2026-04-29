@@ -97,8 +97,6 @@ Octocode は開発ツールであり、13 歳未満を対象とした製品で�
 プライバシーに関するお問い合わせは下記まで:
 
 - sievepub@outlook.com
-- 3925447879@qq.com
-
 機密性のないプライバシー質問であれば、リポジトリの公開 Issue Tracker
 もご利用いただけます:
 <https://github.com/sievepub-2000/octocode/issues>。

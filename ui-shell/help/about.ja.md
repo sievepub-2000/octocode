@@ -72,5 +72,5 @@ penpot · andrej-karpathy-skills ほか — 各フォルダの `SKILL.md` に
 
 ## 作者へ連絡
 
-`sievepub@outlook.com` · `3925447879@qq.com` または Issue Tracker
+`sievepub@outlook.com` または Issue Tracker
 へ。詳細は Help → 作者へ連絡。

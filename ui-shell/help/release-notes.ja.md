@@ -52,8 +52,7 @@ Octocode v2026.4.29 は、Apache License Version 2.0 のもとで初めて公開
   パネルに完全な内容を表示します。
 - Help → Check for Updates が GitHub Releases API へ実際に問い合わせ、
   実行中ビルドが最新かどうかを報告するようになりました。
-- Help → Contact Us が公式メールアドレス（`sievepub@outlook.com`,
-  `3925447879@qq.com`）と公開リポジトリ URL を表示します。
+- Help → Contact Us が公式メールアドレス（`sievepub@outlook.com`）と公開リポジトリ URL を表示します。
 - 既定 UI 言語は英語です。日本語・韓国語・中国語（簡体）も完全に
   サポートされ、View → Language から実行時に切替可能です。
 

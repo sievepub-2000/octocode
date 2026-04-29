@@ -50,7 +50,7 @@ Windows, macOS, and Linux from the GitHub source tree.
 - Help → Check for Updates now actually queries the GitHub Releases API for
   the upstream repository and reports whether the running build is current.
 - Help → Contact Author shows the official email addresses
-  (`sievepub@outlook.com`, `3925447879@qq.com`) and the public repo URL.
+  (`sievepub@outlook.com`) and the public repo URL.
 - Default UI language is English. Japanese, Korean, and Simplified Chinese
   remain fully supported and switchable at runtime via View → Language.
 

@@ -79,4 +79,4 @@ pull requests are open to anyone with a GitHub account.
 
 For private or security-related concerns that should not be filed
 publicly, see `SECURITY.md` and the contact addresses in the WebUI
-(Help → Contact Us): `sievepub@outlook.com`, `3925447879@qq.com`.
+(Help → Contact Us): `sievepub@outlook.com`.

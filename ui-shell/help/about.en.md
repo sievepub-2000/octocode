@@ -71,5 +71,5 @@ The full third-party list and licenses are tracked in
 
 ## Contact
 
-`sievepub@outlook.com` · `3925447879@qq.com` · or via the issue
+`sievepub@outlook.com` · or via the issue
 tracker. See Help → Contact Author for direct links.

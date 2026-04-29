@@ -7,8 +7,6 @@ Octocode に関心をお寄せいただきありがとうございます。本�
 ## メール
 
 - 一般のお問い合わせ: **sievepub@outlook.com**
-- 代替連絡先: **3925447879@qq.com**
-
 ## 公開リポジトリ
 
 <https://github.com/sievepub-2000/octocode>

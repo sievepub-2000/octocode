@@ -18,8 +18,6 @@ Please report suspected vulnerabilities privately, **not** through the
 public issue tracker, to either of the following addresses:
 
 - `sievepub@outlook.com`
-- `3925447879@qq.com`
-
 If you prefer GitHub's private vulnerability reporting flow, open a
 private advisory at
 <https://github.com/sievepub-2000/octocode/security/advisories/new>.
