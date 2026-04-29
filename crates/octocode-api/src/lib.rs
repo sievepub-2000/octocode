@@ -717,7 +717,14 @@ impl ProviderRegistry {
                     .unwrap_or_else(|| String::from(DEFAULT_ANTHROPIC_BASE_URL)),
                 std::env::var("ANTHROPIC_API_KEY")
                     .ok()
-                    .or_else(|| std::env::var("OCTOCODE_ANTHROPIC_API_KEY").ok()),
+                    .or_else(|| std::env::var("OCTOCODE_ANTHROPIC_API_KEY").ok())
+                    // Claude Code / claw-code style: many users set
+                    // ANTHROPIC_AUTH_TOKEN (often pointing at a proxy or
+                    // gateway) instead of the canonical ANTHROPIC_API_KEY.
+                    // Accept it as an additional fallback so the chain does
+                    // not collapse to the StubProvider when only the
+                    // auth-token form is present.
+                    .or_else(|| std::env::var("ANTHROPIC_AUTH_TOKEN").ok()),
                 config
                     .default_model
                     .clone()
@@ -1438,7 +1445,7 @@ impl ModelProvider for AnthropicProvider {
             detail: if healthy {
                 format!("configured {}", self.base_url)
             } else {
-                String::from("ANTHROPIC_API_KEY not set")
+                String::from("ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN not set")
             },
             model: self.default_model.clone(),
             latency_ms: None,
@@ -1685,6 +1692,11 @@ fn run_anthropic_request(
         .post(url)
         .set("Content-Type", "application/json")
         .set("x-api-key", api_key)
+        // Many third-party proxies (Claude Code / ANTHROPIC_AUTH_TOKEN
+        // ecosystem, e.g. ai.jiexi6.cn) expect a Bearer token. Sending
+        // both headers is harmless against the canonical Anthropic API
+        // (which ignores Authorization) and unblocks proxy gateways.
+        .set("Authorization", &format!("Bearer {api_key}"))
         .set("anthropic-version", ANTHROPIC_API_VERSION)
         .send_string(body);
 
@@ -1732,6 +1744,7 @@ fn run_anthropic_stream(
         .set("Content-Type", "application/json")
         .set("Accept", "text/event-stream")
         .set("x-api-key", api_key)
+        .set("Authorization", &format!("Bearer {api_key}"))
         .set("anthropic-version", ANTHROPIC_API_VERSION)
         .send_string(body)
         .map_err(|e| OctoError::Provider(format!("anthropic stream transport error: {e}")))?;
