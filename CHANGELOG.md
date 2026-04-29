@@ -5,6 +5,28 @@ All notable changes to this project are recorded here. The format follows
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once
 `v0.1.0` is tagged.
 
+## [Unreleased]
+
+### Fixed
+
+- Provider health snapshot no longer reports duplicate `local-openai`
+  rows for fallback providers (`ollama`, `linkmind`, `remote-openai`,
+  `nvidia-free`). `FallbackProvider::health()` now projects the parent
+  descriptor id while preserving the active candidate's circuit state
+  and latency, prefixing the detail string with `via <inner>:` for
+  transparency.
+
+### Changed
+
+- Renamed user-facing **Contact Us** to **Contact Author** across the
+  WebUI menu, runtime locales (en-US / ja-JP / ko-KR / zh-CN) and the
+  bundled `ui-shell/help/contact.{en,ja}.md` panels.
+- Pruned internal Chinese-only design / evaluation documents from
+  `docs/`. The published documentation set is now English plus
+  Japanese (`docs/modules/octocode-modules.{en,ja}.md`,
+  `docs/PRIVACY.md`, `docs/THIRD_PARTY_NOTICES.md`,
+  `docs/release-notes-2026-04-29.md`, `docs/modules/index.md`).
+
 ## [2026.4.29] - 2026-04-29
 
 First public release under the Apache License, Version 2.0.

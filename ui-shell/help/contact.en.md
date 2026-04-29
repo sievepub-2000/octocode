@@ -1,6 +1,7 @@
-# Contact Us — Octocode
+# Contact Author — Octocode
 
-Thank you for your interest in Octocode.
+Thank you for your interest in Octocode. The project is currently
+maintained by a single author; please use any of the channels below.
 
 ## Email
 

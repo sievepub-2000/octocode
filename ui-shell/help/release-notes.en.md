@@ -45,11 +45,11 @@ Windows, macOS, and Linux from the GitHub source tree.
   `\(...\)`, or `\[...\]` are now rendered as proper formulas. Code fences
   remain literal.
 - Localized Help menu: License, Release Notes, Privacy Statement, Check for
-  Updates, Contact Us, About — each entry shows full content in the right
+  Updates, Contact Author, About — each entry shows full content in the right
   panel.
 - Help → Check for Updates now actually queries the GitHub Releases API for
   the upstream repository and reports whether the running build is current.
-- Help → Contact Us shows the official email addresses
+- Help → Contact Author shows the official email addresses
   (`sievepub@outlook.com`, `3925447879@qq.com`) and the public repo URL.
 - Default UI language is English. Japanese, Korean, and Simplified Chinese
   remain fully supported and switchable at runtime via View → Language.

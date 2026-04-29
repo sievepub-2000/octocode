@@ -1521,7 +1521,13 @@ impl ModelProvider for FallbackProvider {
     }
 
     fn health(&self) -> ProviderHealth {
-        self.pick_active().unwrap_or_else(|| ProviderHealth {
+        // Report the *parent* fallback id (e.g. `ollama`, `linkmind`,
+        // `remote-openai`, `nvidia-free`) instead of whichever inner
+        // candidate happens to be active. Without this rewrite, every
+        // fallback whose middle candidate is `local-openai` reported as
+        // a duplicate `local-openai` row in the runtime snapshot, even
+        // though it represents a distinct top-level provider entry.
+        let active = self.pick_active().unwrap_or_else(|| ProviderHealth {
             provider_id: self.descriptor.id.clone(),
             display_name: self.descriptor.display_name.clone(),
             healthy: false,
@@ -1531,7 +1537,22 @@ impl ModelProvider for FallbackProvider {
             circuit_state: ProviderCircuitState::Open,
             failure_count: 0,
             cooldown_remaining_ms: None,
-        })
+        });
+        let mut detail = active.detail;
+        if active.provider_id != self.descriptor.id {
+            detail = format!("via {}: {}", active.provider_id, detail);
+        }
+        ProviderHealth {
+            provider_id: self.descriptor.id.clone(),
+            display_name: self.descriptor.display_name.clone(),
+            healthy: active.healthy,
+            detail,
+            model: active.model,
+            latency_ms: active.latency_ms,
+            circuit_state: active.circuit_state,
+            failure_count: active.failure_count,
+            cooldown_remaining_ms: active.cooldown_remaining_ms,
+        }
     }
 
     fn health_catalog(&self) -> Vec<ProviderHealth> {

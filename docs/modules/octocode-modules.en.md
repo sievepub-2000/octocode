@@ -222,7 +222,7 @@ The Help menu maps to dedicated right-panel sections:
 - Privacy Statement — `docs/PRIVACY.md`.
 - Check for Updates — queries the GitHub Releases API for
   `sievepub-2000/octocode`.
-- Contact Us — `sievepub@outlook.com`, `3925447879@qq.com`.
+- Contact Author — `sievepub@outlook.com`, `3925447879@qq.com`.
 - About — module list, third-party acknowledgements, link to
   `docs/modules/index.md`.
 

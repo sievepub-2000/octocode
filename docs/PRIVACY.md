@@ -97,7 +97,7 @@ content changes.
 
 ## 8. Contact
 
-For privacy-related questions, contact the maintainers at:
+For privacy-related questions, contact the author at:
 
 - sievepub@outlook.com
 - 3925447879@qq.com

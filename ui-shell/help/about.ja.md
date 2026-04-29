@@ -70,7 +70,7 @@ penpot · andrej-karpathy-skills ほか — 各フォルダの `SKILL.md` に
 | 行動規範 | [CODE_OF_CONDUCT.md](https://github.com/sievepub-2000/octocode/blob/master/CODE_OF_CONDUCT.md) |
 | アーキテクチャ | [docs/architecture.md](https://github.com/sievepub-2000/octocode/blob/master/docs/architecture.md) |
 
-## お問い合わせ
+## 作者へ連絡
 
 `sievepub@outlook.com` · `3925447879@qq.com` または Issue Tracker
-へ。詳細は Help → Contact Us。
+へ。詳細は Help → 作者へ連絡。
