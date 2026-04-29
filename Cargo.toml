@@ -18,6 +18,12 @@ edition = "2021"
 license = "Apache-2.0"
 version = "2026.4.30"
 authors = ["Sievepub <sievepub@outlook.com>"]
+description = "Multi-agent open-source programming and task-execution toolkit. Rust workspace with a permission-aware runtime, pluggable provider routing, built-in tool catalog, session persistence, and a zero-build WebUI + wry desktop shell."
+homepage = "https://github.com/sievepub-2000/octocode"
+repository = "https://github.com/sievepub-2000/octocode"
+readme = "README.md"
+keywords = ["agent", "llm", "ai", "coding-assistant", "multi-agent"]
+categories = ["command-line-utilities", "development-tools"]
 
 [workspace.dependencies]
 tao = "0.35"

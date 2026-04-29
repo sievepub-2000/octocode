@@ -131,8 +131,10 @@ impl Scheduler {
 
     /// Return entries that are due relative to `now_unix`. Each entry's
     /// trigger decides "due":
-    ///   * `Interval { secs }` — fires when `now >= last_fired + secs`.
-    ///   * `Cron { expr }` — fires when `now >= next_after(last_fired)`.
+    ///
+    /// * `Interval { secs }` — fires when `now >= last_fired + secs`.
+    /// * `Cron { expr }` — fires when `now >= next_after(last_fired)`.
+    ///
     /// Updates persistence so each entry only fires once per call.
     #[allow(dead_code)]
     pub fn tick(&self, now_unix: u64) -> Result<Vec<ScheduleEntry>, OctoError> {

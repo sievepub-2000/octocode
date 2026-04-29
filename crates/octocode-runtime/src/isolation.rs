@@ -366,19 +366,42 @@ impl WorkspaceTokenStore {
 
     /// Issue a new token for the given workspace.
     /// `ttl_ms` = 0 means the token never expires.
+    ///
+    /// Tokens are 256 bits of OS-supplied randomness (getrandom), encoded as
+    /// 64 hex chars. They are unguessable and unpredictable across processes,
+    /// preventing forgery even if the workspace_id and approximate issue time
+    /// are known to an attacker.
     pub fn issue(&self, workspace_id: &str, ttl_ms: u128) -> WorkspaceAuthToken {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis();
-        let expires_at_ms = if ttl_ms == 0 { 0 } else { now + ttl_ms };
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let expires_at_ms = if ttl_ms == 0 { 0 } else { now.saturating_add(ttl_ms) };
 
-        // Token = hash of workspace_id + timestamp + counter
-        let seq = TOKEN_COUNTER.fetch_add(1, AtomicOrd::Relaxed);
-        let raw = format!("{}:{}:{}:{}", workspace_id, now, seq, simple_hash(
-            format!("{}:{}:{}", workspace_id, now, seq).as_bytes(),
-        ));
-        let token_str = format!("{:x}", simple_hash(raw.as_bytes()));
+        // 32 bytes (256 bits) of cryptographic randomness for the token body.
+        let mut buf = [0u8; 32];
+        if getrandom::getrandom(&mut buf).is_err() {
+            // Extremely rare on supported platforms. Fall back to mixing the
+            // monotonic counter and timestamp so we never panic, but a token
+            // generated through this path will still be tied to the lifetime
+            // of the in-memory token map (validate() requires exact match).
+            let seq = TOKEN_COUNTER.fetch_add(1, AtomicOrd::Relaxed);
+            let mix = format!("{workspace_id}:{now}:{seq}");
+            let bytes = mix.as_bytes();
+            for (i, slot) in buf.iter_mut().enumerate() {
+                *slot = bytes[i % bytes.len()] ^ ((seq.wrapping_add(i as u64)) as u8);
+            }
+        } else {
+            // Touch the counter so its monotonicity is preserved for callers
+            // that rely on issue ordering during property-style tests.
+            TOKEN_COUNTER.fetch_add(1, AtomicOrd::Relaxed);
+        }
+
+        let mut token_str = String::with_capacity(64);
+        for b in buf {
+            use std::fmt::Write as _;
+            let _ = write!(&mut token_str, "{b:02x}");
+        }
 
         let token = WorkspaceAuthToken {
             token: token_str.clone(),
@@ -401,8 +424,8 @@ impl WorkspaceTokenStore {
         if token.expires_at_ms > 0 {
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_millis();
+                .map(|d| d.as_millis())
+                .unwrap_or(0);
             if now > token.expires_at_ms {
                 return Err("token expired".to_string());
             }

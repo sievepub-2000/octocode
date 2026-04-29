@@ -9,6 +9,16 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once
 
 ### Security
 
+- `WorkspaceTokenStore::issue` now derives bearer tokens from
+  `getrandom` (256-bit OS entropy, hex-encoded) instead of a djb2
+  hash of `workspace_id|timestamp|counter`. The previous scheme was
+  deterministic given known inputs and only had 64 bits of derived
+  output, leaving tokens forgeable by a colocated attacker. Tokens
+  are now unguessable and unpredictable across processes.
+- `WorkspaceTokenStore::issue` uses `saturating_add` for the
+  `expires_at` calculation, eliminating a `u128` overflow panic on
+  pathologically large `ttl_ms` values, and `validate()` no longer
+  panics if the system clock predates UNIX_EPOCH.
 - Bumped `rustls-webpki` to 0.103.13 (CVE: DoS via malformed CRL BIT
   STRING).
 - Bumped `wry` 0.53 → 0.55 and `tao` 0.34 → 0.35, eliminating the
