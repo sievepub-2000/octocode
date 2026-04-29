@@ -4,7 +4,43 @@
 
 Octocode is a ground-up Rust workspace providing a local AI coding assistant with multi-provider support, session management, tool execution, MCP integration, and both CLI/Desktop/WebUI surfaces.
 
-## Quick Start
+## One-line install
+
+The installers detect your toolchain, install [`rustup`](https://rustup.rs)
+if needed, then run `cargo install --git https://github.com/sievepub-2000/octocode --tag v2026.4.29 --locked octocode-cli`.
+The result is the `octocode-cli` binary in `~/.cargo/bin` (or `%USERPROFILE%\.cargo\bin` on Windows).
+
+**Windows (PowerShell 5.1+ or 7+):**
+
+```powershell
+iex (iwr -UseBasicParsing https://raw.githubusercontent.com/sievepub-2000/octocode/master/install.ps1).Content
+```
+
+**macOS / Linux (bash / zsh):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sievepub-2000/octocode/master/install.sh | bash
+```
+
+**Direct (any platform with cargo already installed):**
+
+```bash
+cargo install --git https://github.com/sievepub-2000/octocode --tag v2026.4.29 --locked octocode-cli
+```
+
+After installation:
+
+```bash
+octocode-cli doctor                 # verify environment
+octocode-cli serve 999 demo         # start WebUI at http://127.0.0.1:999/ui-shell/?session=demo
+octocode-cli chat demo "hello"      # one-shot CLI chat
+```
+
+To install the latest `master` instead of the tagged release, append
+`-Master` to the PowerShell command, set `OCTOCODE_REF=master` for the
+shell installer, or pass `--branch master` to the direct cargo command.
+
+## Quick Start (build from source)
 
 ```bash
 # 1. Build the workspace

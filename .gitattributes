@@ -1,0 +1,13 @@
+# Default: normalize text on commit, native checkout.
+* text=auto
+
+# Shell scripts must keep LF endings even on Windows checkouts so that
+# `bash` (Git Bash, WSL, macOS, Linux) executes them correctly.
+*.sh        text eol=lf
+install.sh  text eol=lf
+
+# PowerShell prefers CRLF on Windows.
+*.ps1       text eol=crlf
+
+# Treat lockfile / generated text as text but never auto-merge.
+Cargo.lock  text -merge
