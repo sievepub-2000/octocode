@@ -8,7 +8,7 @@ and **Japanese**.
 | Document | Language |
 | --- | --- |
 | [octocode-modules.en.md](./octocode-modules.en.md) | English |
-| [octocode-modules.ja.md](./octocode-modules.ja.md) | 日本語 |
+| [octocode-modules.ja.md](./octocode-modules.ja.md) | Japanese |
 
 The runtime does not depend on these documents at compile time; they
 are reference material only. The authoritative source of truth remains

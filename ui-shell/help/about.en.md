@@ -10,7 +10,7 @@ OpenAI-compatible local server). The project is licensed under the
 - Version: **2026.4.29**
 - Repository: <https://github.com/sievepub-2000/octocode>
 - License: Apache 2.0 (Help → License for the full text)
-- Default language: English. Switchable to 日本語 / 한국어 / 中文 from
+- Default language: English. Switchable to Japanese / Korean / Chinese from
   View → Language.
 
 ## Architecture in one paragraph
