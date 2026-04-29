@@ -8,6 +8,8 @@
 
 > Multi-agent open-source programming and task-execution toolkit.
 
+> 🇯🇵 **日本語の説明** → [README.ja.md](README.ja.md)
+
 Octocode is a Rust workspace (10 crates) that ships a permission-aware
 runtime, pluggable provider routing (OpenAI, Gemini, DeepSeek, Qwen, Kimi,
 GLM, MiMo, Ollama and any OpenAI-compatible gateway), a built-in tool
