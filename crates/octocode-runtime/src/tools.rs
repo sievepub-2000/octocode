@@ -1290,12 +1290,18 @@ impl WorkspaceToolExecutor {
         let args = invocation.args.clone();
         let cwd = self.workspace_root.clone();
 
-        let mut child = Command::new(&program)
+        let mut command = Command::new(&program);
+        command
             .args(&args)
             .current_dir(&cwd)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        if let Some(path) = augmented_path_for_workspace(&cwd) {
+            command.env("PATH", path);
+        }
+
+        let mut child = command
             .spawn()
             .map_err(|e| OctoError::Runtime(format!("failed to spawn shell: {e}")))?;
 
@@ -2944,6 +2950,41 @@ fn command_exists(program: &str) -> bool {
     }
 }
 
+fn augmented_path_for_workspace(workspace_root: &Path) -> Option<std::ffi::OsString> {
+    let current_path = std::env::var_os("PATH").unwrap_or_default();
+    let mut entries = std::env::split_paths(&current_path).collect::<Vec<_>>();
+    let mut candidates = Vec::new();
+
+    if let Ok(cargo_home) = std::env::var("CARGO_HOME") {
+        candidates.push(PathBuf::from(cargo_home).join("bin"));
+    }
+    if let Ok(user_profile) = std::env::var("USERPROFILE") {
+        candidates.push(PathBuf::from(user_profile).join(".cargo").join("bin"));
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        candidates.push(PathBuf::from(home).join(".cargo").join("bin"));
+    }
+    candidates.push(workspace_root.join(".cargo").join("bin"));
+    if let Some(parent) = workspace_root.parent() {
+        candidates.push(parent.join(".cargo").join("bin"));
+    }
+
+    let mut changed = false;
+    for candidate in candidates.into_iter().filter(|path| path.is_dir()).rev() {
+        if entries.iter().any(|entry| entry == &candidate) {
+            continue;
+        }
+        entries.insert(0, candidate);
+        changed = true;
+    }
+
+    if changed {
+        std::env::join_paths(entries).ok()
+    } else {
+        None
+    }
+}
+
 // ── base64 helpers (no external dep) ────────────────────────────────────────
 
 const B64_CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -4034,6 +4075,23 @@ mod tests {
 
     fn test_executor_for(root: &Path) -> WorkspaceToolExecutor {
         WorkspaceToolExecutor::new(root)
+    }
+
+    #[test]
+    fn augmented_path_includes_parent_workspace_cargo_bin() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let workspace = temp.path().join("project");
+        let cargo_bin = temp.path().join(".cargo").join("bin");
+        fs::create_dir_all(&workspace).expect("workspace dir");
+        fs::create_dir_all(&cargo_bin).expect("cargo bin dir");
+
+        let path = augmented_path_for_workspace(&workspace).expect("augmented PATH");
+        let entries = std::env::split_paths(&path).collect::<Vec<_>>();
+        assert!(
+            entries.iter().any(|entry| entry == &cargo_bin),
+            "expected PATH to include {}",
+            cargo_bin.display()
+        );
     }
 
     #[test]

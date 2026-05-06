@@ -267,6 +267,7 @@ pub(crate) fn is_registered_tool(canonical: &str) -> bool {
     argspec_for(canonical).is_some()
 }
 
+#[allow(dead_code)]
 pub(crate) fn parse_embedded_tool_calls(output: &str) -> Vec<EmbeddedToolCall> {
     parse_embedded_tool_calls_ext(output).0
 }
@@ -347,6 +348,7 @@ pub(crate) fn strip_embedded_tool_calls(output: &str) -> String {
     stripped
 }
 
+#[allow(dead_code)]
 pub(crate) fn summarize_tool_execution_response(output: &str, reports: &[String]) -> String {
     let visible = strip_embedded_tool_calls(output).trim().to_string();
     let headline = if visible.is_empty() {

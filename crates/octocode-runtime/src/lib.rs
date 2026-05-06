@@ -20,6 +20,7 @@ use octocode_skills::SkillRegistry;
 mod compaction;
 mod config;
 mod coordinator;
+mod agent_loop;
 mod cost_tracker;
 mod file_guard;
 mod health_guardian;
@@ -733,162 +734,17 @@ where
             normalized.lines().next().unwrap_or(normalized).trim()
         };
 
-        self.append_session_message(
-            session_id,
-            ConversationRole::System,
-            format!("agent-action requested: {goal}"),
-        )?;
-
-        let workspace_plan = self.build_session_workspace_plan(session_id, goal)?;
-        self.append_session_message(
-            session_id,
-            ConversationRole::Tool,
-            format!("session-plan => {workspace_plan}"),
-        )?;
-
-        let workflow = self.run_tool(ToolCall {
-            name: String::from("workflow-plan"),
-            input: String::from(goal),
-            permission: PermissionMode::ReadOnly,
-        })?;
-        self.append_session_message(
-            session_id,
-            ConversationRole::Tool,
-            format!("workflow-plan => {}", workflow.output),
-        )?;
-
-        let observations = self.collect_agent_observations(session_id, normalized)?;
-        for (label, output) in &observations {
-            self.append_session_message(
-                session_id,
-                ConversationRole::Tool,
-                format!("{label} => {output}"),
-            )?;
-        }
-
-        let (provider_strategy, use_local_fallback) = self.build_agent_provider_strategy()?;
-        self.append_session_message(
-            session_id,
-            ConversationRole::Tool,
-            format!("provider-strategy => {provider_strategy}"),
-        )?;
-
-        let session = self.session(session_id)?;
-        let context_tail = session
-            .messages
-            .iter()
-            .rev()
-            .take(6)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .map(|message| format!("{}: {}", message.role.as_str(), message.content))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let provider = self.provider.health();
-        let observation_block = if observations.is_empty() {
-            String::from("(no additional local observations)")
-        } else {
-            observations
-                .iter()
-                .map(|(label, output)| format!("[{label}]\n{output}"))
-                .collect::<Vec<_>>()
-                .join("\n\n")
-        };
-        let prompt = format!(
-            concat!(
-                "You are the Octocode runtime agent.\n",
-                "Goal: {}\n",
-                "Active provider: {} ({:?})\n",
-                "Permission mode: {:?}\n\n",
-                "Session-aware workspace plan:\n{}\n\n",
-                "Workflow scaffold:\n{}\n\n",
-                "Provider strategy:\n{}\n\n",
-                "Recent session context:\n{}\n\n",
-                "Local observations:\n{}\n\n",
-                "Return the next concrete implementation actions, expected validation, and any immediate risks."
-            ),
-            goal,
-            provider.provider_id,
-            provider.circuit_state,
-            self.config.permission_mode,
-            workspace_plan,
-            workflow.output,
-            provider_strategy,
-            if context_tail.is_empty() {
-                String::from("(empty)")
-            } else {
-                context_tail
-            },
-            observation_block,
-        );
-
-        if use_local_fallback {
-            let fallback = PromptResponse {
-                output: self.build_agent_fallback(
-                    goal,
-                    &workspace_plan,
-                    &workflow.output,
-                    &provider_strategy,
-                    &observations,
-                    Some("all providers unavailable or circuit-open; skipped provider dispatch"),
-                ),
-                tokens: None,
-            };
-            self.append_session_message(
-                session_id,
-                ConversationRole::Assistant,
-                fallback.output.clone(),
-            )?;
-            self.apply_history_limit(session_id)?;
-            return Ok(fallback);
-        }
-
-        match self.prompt(PromptRequest {
-            text: prompt,
-            model: self
-                .sessions
-                .load_session(session_id)
-                .ok()
-                .and_then(|s| s.summary.model.clone())
-                .filter(|m: &String| !m.trim().is_empty())
-                .or_else(|| self.config.default_model.clone()),
-            system_prompt: Some(self.build_agent_system_prompt()),
-            history: self.build_prompt_history(session_id, false),
-        }) {
-            Ok(response) => {
-                self.run_agent_tool_loop(session_id, response)
-            }
-            Err(error) => {
-                self.append_session_message(
-                    session_id,
-                    ConversationRole::System,
-                    format!("agent provider-error: {error}"),
-                )?;
-                let fallback = PromptResponse {
-                    output: self.build_agent_fallback(
-                        goal,
-                        &workspace_plan,
-                        &workflow.output,
-                        &provider_strategy,
-                        &observations,
-                        Some(&format!("provider dispatch failed: {error}")),
-                    ),
-                    tokens: None,
-                };
-                self.append_session_message(
-                    session_id,
-                    ConversationRole::Assistant,
-                    fallback.output.clone(),
-                )?;
-                self.apply_history_limit(session_id)?;
-                Ok(fallback)
-            }
-        }
+        let report = agent_loop::execute_bounded_agent_loop(self, session_id, goal)?;
+        self.apply_history_limit(session_id)?;
+        Ok(PromptResponse {
+            output: agent_loop::render_agent_loop_report(&report),
+            tokens: None,
+        })
     }
 
     /// Agentic tool-call loop: parse embedded tool calls from LLM response,
     /// execute them, feed results back, repeat until no more calls or max iterations.
+    #[allow(dead_code)]
     fn run_agent_tool_loop(
         &self,
         session_id: &str,
@@ -2353,6 +2209,7 @@ Shell: {:?}\n\n",
         events
     }
 
+    #[allow(dead_code)]
     fn collect_agent_observations(
         &self,
         session_id: &str,
@@ -2383,6 +2240,7 @@ Shell: {:?}\n\n",
         Ok(observations)
     }
 
+    #[allow(dead_code)]
     fn execute_agent_chain(
         &self,
         session_id: &str,
@@ -2414,6 +2272,7 @@ Shell: {:?}\n\n",
         ))
     }
 
+    #[allow(dead_code)]
     fn execute_agent_directive(
         &self,
         session_id: &str,
@@ -2461,6 +2320,7 @@ Shell: {:?}\n\n",
         Ok(observation)
     }
 
+    #[allow(dead_code)]
     fn build_session_workspace_plan(&self, session_id: &str, goal: &str) -> Result<String, OctoError> {
         let session = self.session(session_id)?;
         let recent = session
@@ -2494,6 +2354,7 @@ Shell: {:?}\n\n",
         .join("\n"))
     }
 
+    #[allow(dead_code)]
     fn build_agent_provider_strategy(&self) -> Result<(String, bool), OctoError> {
         let status = self.status()?;
         let healths = self.provider_healths();
@@ -2544,6 +2405,7 @@ Shell: {:?}\n\n",
         Ok((strategy, healthy.is_empty()))
     }
 
+    #[allow(dead_code)]
     fn build_agent_fallback(
         &self,
         goal: &str,
@@ -2794,6 +2656,30 @@ fn annotate_tool_result(tool_name: &str, output: &str) -> String {
         );
     }
     output.to_string()
+}
+
+impl<P, S, T> agent_loop::AgentLoopSessionRuntime for OctocodeRuntime<P, S, T>
+where
+    P: ModelProvider,
+    S: ConversationStore + TurnStateStore,
+    T: ToolExecutor,
+{
+    fn append_agent_loop_message(
+        &self,
+        session_id: &str,
+        role: ConversationRole,
+        content: String,
+    ) -> Result<(), OctoError> {
+        self.append_session_message(session_id, role, content)
+    }
+
+    fn run_agent_loop_tool(
+        &self,
+        session_id: &str,
+        call: ToolCall,
+    ) -> Result<ToolResult, OctoError> {
+        self.run_tool_in_session(session_id, call)
+    }
 }
 
 #[cfg(test)]
