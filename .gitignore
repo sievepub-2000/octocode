@@ -59,6 +59,9 @@ test_output.log
 
 /target-*/
 
+# local remote-edit staging directories
+/.remote-octoagent-edit/
+
 /node_modules/
 
 package-lock.json
