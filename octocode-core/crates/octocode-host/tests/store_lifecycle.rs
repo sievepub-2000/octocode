@@ -3,6 +3,36 @@ use octocode_host::store::{DEFAULT_LOG_RETENTION_DAYS, Store};
 use serde_json::json;
 
 #[test]
+fn newer_schema_is_rejected_without_changing_database_bytes_or_marker() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("newer.db");
+    {
+        let store = Store::open(&path).unwrap();
+        store.create_session("future-session", "Keep data", None).unwrap();
+        store.create_workflow("future-workflow", "future-session", "Keep state", &json!({"keep":true})).unwrap();
+    }
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "PRAGMA journal_mode=DELETE;
+             CREATE TABLE future_only(value TEXT NOT NULL);
+             INSERT INTO future_only VALUES('preserve future data');
+             UPDATE sessions SET status='running' WHERE id='future-session';
+             PRAGMA user_version=7;",
+        ).unwrap();
+    }
+    let before = std::fs::read(&path).unwrap();
+    let rejected = Store::open(&path).err().expect("newer schema must be rejected");
+    assert!(rejected.to_string().contains("schema version 7"));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    assert_eq!(conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0)).unwrap(), 7);
+    assert_eq!(conn.query_row("SELECT status FROM sessions WHERE id='future-session'", [], |row| row.get::<_, String>(0)).unwrap(), "running");
+    assert_eq!(conn.query_row("SELECT status FROM workflow_runs WHERE id='future-workflow'", [], |row| row.get::<_, String>(0)).unwrap(), "running");
+    assert_eq!(conn.query_row("SELECT value FROM future_only", [], |row| row.get::<_, String>(0)).unwrap(), "preserve future data");
+}
+
+#[test]
 fn legacy_logs_migrate_to_the_developer_category() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("legacy.db");

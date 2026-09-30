@@ -126,6 +126,7 @@ export class ClineProvider
 	public static readonly artifactPanelId = `${Package.name}.TabPanelProvider.artifacts`
 	private static activeInstances: Set<ClineProvider> = new Set()
 	private disposables: vscode.Disposable[] = []
+	private readonly logChannels = new Map<"system" | "developer", vscode.OutputChannel>()
 	private webviewDisposables: vscode.Disposable[] = []
 	private view?: vscode.WebviewView | vscode.WebviewPanel
 	private codeIndexStatusSubscription?: vscode.Disposable
@@ -2446,15 +2447,16 @@ export class ClineProvider
 		if (this.currentArtifact) await this.postMessageToWebview(this.currentArtifact)
 	}
 
-	public async showLogsInInspector(records: unknown[], category: "system" | "developer"): Promise<boolean> {
-		const inspector = ClineProvider.getArtifactInstance()
-		if (!inspector) return false
-		if (inspector.view && "reveal" in inspector.view) inspector.view.reveal(vscode.ViewColumn.Two, true)
-		inspector.currentArtifact = {
-			type: "artifactSelected",
-			payload: { kind: "logs", category, path: category === "system" ? "系统日志" : "开发日志", records },
+	public async showLogsInTerminal(records: unknown[], category: "system" | "developer"): Promise<boolean> {
+		let channel = this.logChannels.get(category)
+		if (!channel) {
+			channel = vscode.window.createOutputChannel(category === "system" ? "OctoCode 系统日志" : "OctoCode 开发日志")
+			this.logChannels.set(category, channel)
+			this.disposables.push(channel)
 		}
-		await inspector.postMessageToWebview(inspector.currentArtifact)
+		channel.clear()
+		for (const record of records) channel.appendLine(JSON.stringify(record))
+		channel.show(true)
 		return true
 	}
 

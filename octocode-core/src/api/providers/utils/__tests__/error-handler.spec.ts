@@ -1,7 +1,50 @@
 import { handleProviderError, handleOpenAIError } from "../error-handler"
+import { APIUserAbortError as OpenAIUserAbortError } from "openai"
+import { APIUserAbortError as AnthropicUserAbortError } from "@octocode/sdk"
 
 describe("handleProviderError", () => {
 	const providerName = "TestProvider"
+
+	it("preserves explicit cancellation without emitting a provider error", () => {
+		class APIUserAbortError extends Error {}
+		const log = vi.spyOn(console, "error").mockImplementation(() => {})
+		try {
+			const sdkAbort = new APIUserAbortError("Request was aborted.")
+			expect(handleProviderError(sdkAbort, providerName)).toBe(sdkAbort)
+			const nativeAbort = new Error("Cancelled")
+			nativeAbort.name = "AbortError"
+			expect(handleProviderError(nativeAbort, providerName)).toBe(nativeAbort)
+			expect(log).not.toHaveBeenCalled()
+		} finally {
+			log.mockRestore()
+		}
+	})
+
+	it("continues reporting genuine request timeouts", () => {
+		const timeout = new Error("Request timed out")
+		timeout.name = "TimeoutError"
+		const log = vi.spyOn(console, "error").mockImplementation(() => {})
+		try {
+			expect(handleProviderError(timeout, providerName).message).toContain("Request timed out")
+			expect(log).toHaveBeenCalled()
+		} finally {
+			log.mockRestore()
+		}
+	})
+
+	it("recognizes real SDK cancellation even when class names change", () => {
+		class RenamedOpenAIAbort extends OpenAIUserAbortError {}
+		class RenamedAnthropicAbort extends AnthropicUserAbortError {}
+		const log = vi.spyOn(console, "error").mockImplementation(() => {})
+		try {
+			for (const abort of [new RenamedOpenAIAbort(), new RenamedAnthropicAbort()]) {
+				expect(handleProviderError(abort, providerName)).toBe(abort)
+			}
+			expect(log).not.toHaveBeenCalled()
+		} finally {
+			log.mockRestore()
+		}
+	})
 
 	describe("HTTP status preservation", () => {
 		it("should preserve status code from Error with status field", () => {

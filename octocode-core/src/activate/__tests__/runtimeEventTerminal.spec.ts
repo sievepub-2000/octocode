@@ -18,6 +18,13 @@ const event = (kind: string, payload: unknown): RuntimeAgentEvent => ({
 describe("runtime event terminal", () => {
 	beforeEach(() => vi.restoreAllMocks())
 
+	it("renders runtime errors in the fixed execution terminal", () => {
+		expect(terminalEventText(event("agent.error", { message: "Provider unavailable\nRetry later" }), new Map())).toBe(
+			"\x1b[31m[OctoCode error] Provider unavailable\r\nRetry later\x1b[0m\r\n",
+		)
+		expect(terminalEventText(event("agent.error", { error: "Authentication failed" }), new Map())).toContain("Authentication failed")
+	})
+
 	it("shows supervisor interventions and hides attempt bookkeeping", () => {
 		const executions = new Map()
 		expect(terminalEventText(event("agent.supervisor", { action: "fallback", detail: "a -> b" }), executions)).toBe(

@@ -206,6 +206,9 @@ async fn run_agent(
     mut cancel: oneshot::Receiver<()>,
     mut inputs: mpsc::UnboundedReceiver<Value>,
 ) -> anyhow::Result<()> {
+    if let Some(advisor) = &run.supervision.advisor {
+        supervisor::validate_advisor(advisor)?;
+    }
     let rule_specs = run.supervision.stream_rules.clone().unwrap_or_else(supervisor::default_rules);
     let rules = supervisor::compile_rules(&rule_specs)?;
     let mut fired = HashSet::new();

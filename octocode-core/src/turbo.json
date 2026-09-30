@@ -7,6 +7,7 @@
 			"outputs": ["dist/**"]
 		},
 		"vsix": {
+			"cache": false,
 			"dependsOn": ["bundle"],
 			"inputs": ["dist/**"],
 			"outputs": ["../bin/**"]

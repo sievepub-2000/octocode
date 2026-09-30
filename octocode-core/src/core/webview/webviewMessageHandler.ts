@@ -879,7 +879,7 @@ export const webviewMessageHandler = async (
 				}
 				if (request.method === "log.list" && Array.isArray(result)) {
 					const category = (request.params as { category?: unknown })?.category
-					await provider.showLogsInInspector(result, category === "developer" ? "developer" : "system")
+					await provider.showLogsInTerminal(result, category === "developer" ? "developer" : "system")
 				}
 				await provider.postMessageToWebview({
 					type: "runtimeResponse",

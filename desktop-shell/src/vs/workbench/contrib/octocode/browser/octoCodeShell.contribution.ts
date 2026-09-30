@@ -18,14 +18,16 @@ import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js'
 import { IEditorGroupsService, GroupsOrder } from '../../../services/editor/common/editorGroupsService.js';
 import { IWorkbenchLayoutService, OCTOCODE_SHELL_ENABLED, Parts } from '../../../services/layout/browser/layoutService.js';
 import { TerminalEditorInput } from '../../terminal/browser/terminalEditorInput.js';
+import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { Schemas } from '../../../../base/common/network.js';
 
 import './media/octoCodeShell.css';
 
 CommandsRegistry.registerCommand('workbench.action.octocode.placeRuntimeTerminal', (accessor, name: unknown) => {
 	if (typeof name !== 'string' || !name) { return; }
 	const groups = accessor.get(IEditorGroupsService).getGroups(GroupsOrder.GRID_APPEARANCE);
-	const target = groups[2];
-	if (!target) { return; }
+	const target = groups.at(-1);
+	if (groups.length < 3 || !target) { return; }
 	for (const group of groups) {
 		const editor = group.editors.find(editor => editor instanceof TerminalEditorInput && editor.getName() === name);
 		if (editor) {
@@ -130,17 +132,20 @@ export class OctoCodeShellContribution extends Disposable implements IWorkbenchC
 
 	static readonly ID = 'workbench.contrib.octoCodeShell';
 
-	/** Chrome-only parts. The panel is absent on purpose: it renders a terminal. */
+	/** OctoCode hosts its terminals and logs in the lower-right editor group. */
 	private static readonly CHROME_PARTS: readonly Parts[] = [
 		Parts.ACTIVITYBAR_PART,
 		Parts.SIDEBAR_PART,
 		Parts.AUXILIARYBAR_PART,
 		Parts.STATUSBAR_PART,
+		Parts.PANEL_PART,
 	];
 
 	constructor(
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@IEditorGroupsService editorGroupsService: IEditorGroupsService,
+		@IEditorService editorService: IEditorService,
 	) {
 		super();
 
@@ -148,6 +153,26 @@ export class OctoCodeShellContribution extends Disposable implements IWorkbenchC
 		// can read configuration that early. Correct it once for a user who has
 		// turned it off; `layout.ts` does the same for the chrome parts.
 		setEditorTabsDefault(this.configurationService.getValue<boolean>(OCTOCODE_SHELL_ENABLED) !== false);
+		const routeTerminals = () => {
+			if (this.configurationService.getValue<boolean>(OCTOCODE_SHELL_ENABLED) === false) { return; }
+			const groups = editorGroupsService.getGroups(GroupsOrder.GRID_APPEARANCE);
+			const target = groups.at(-1);
+			if (groups.length < 3 || !target) { return; }
+			for (const group of groups) {
+				for (const editor of [...group.editors]) {
+					if (editor instanceof TerminalEditorInput) {
+						if (group !== target) { group.moveEditor(editor, target, { preserveFocus: true }); }
+					} else if (editor.resource?.scheme === Schemas.vscodeTerminal) {
+						// A migrated text-editor reference cannot reconnect a terminal process.
+						// Close only that dead virtual resource; file editors and backups stay intact.
+						void group.closeEditor(editor);
+					}
+				}
+			}
+		};
+		this._register(editorService.onDidVisibleEditorsChange(routeTerminals));
+		this._register(editorGroupsService.onDidAddGroup(routeTerminals));
+		routeTerminals();
 
 		this._register(this.configurationService.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration(OCTOCODE_SHELL_ENABLED)) {

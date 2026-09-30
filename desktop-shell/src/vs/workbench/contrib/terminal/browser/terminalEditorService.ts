@@ -10,13 +10,16 @@ import { IContextKey, IContextKeyService } from '../../../../platform/contextkey
 import { EditorActivation } from '../../../../platform/editor/common/editor.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IShellLaunchConfig, TerminalLocation } from '../../../../platform/terminal/common/terminal.js';
-import { IEditorPane } from '../../../common/editor.js';
+import { EditorCloseContext, IEditorPane } from '../../../common/editor.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
 import { IDeserializedTerminalEditorInput, ITerminalEditorService, ITerminalInstance, ITerminalInstanceService, TerminalEditorLocation } from './terminal.js';
 import { TerminalEditorInput } from './terminalEditorInput.js';
 import { getInstanceFromResource } from './terminalUri.js';
 import { TerminalContextKeys } from '../common/terminalContextKey.js';
 import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
+import { getOctoCodeTerminalGroup } from '../../octocode/browser/octoCodeEditorGroups.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { OCTOCODE_SHELL_ENABLED } from '../../../services/layout/browser/layoutService.js';
 import { IEditorService, ACTIVE_GROUP, SIDE_GROUP } from '../../../services/editor/common/editorService.js';
 import { ILifecycleService } from '../../../services/lifecycle/common/lifecycle.js';
 
@@ -50,7 +53,8 @@ export class TerminalEditorService extends Disposable implements ITerminalEditor
 		@ITerminalInstanceService private readonly _terminalInstanceService: ITerminalInstanceService,
 		@IInstantiationService private readonly _instantiationService: IInstantiationService,
 		@ILifecycleService lifecycleService: ILifecycleService,
-		@IContextKeyService contextKeyService: IContextKeyService
+		@IContextKeyService contextKeyService: IContextKeyService,
+		@IConfigurationService private readonly _configurationService: IConfigurationService
 	) {
 		super();
 		this._terminalEditorActive = TerminalContextKeys.terminalEditorActive.bindTo(contextKeyService);
@@ -94,6 +98,9 @@ export class TerminalEditorService extends Disposable implements ITerminalEditor
 		// Remove the terminal from the managed instances when the editor closes. This fires when
 		// dragging and dropping to another editor or closing the editor via cmd/ctrl+w.
 		this._register(this._editorService.onDidCloseEditor(e => {
+			// Moving an editor closes its old group but leaves the same terminal alive.
+			// Removing its resource here breaks the next reveal after pane placement.
+			if (e.context === EditorCloseContext.MOVE) { return; }
 			const instance = e.editor instanceof TerminalEditorInput ? e.editor.terminalInstance : undefined;
 			if (instance) {
 				const instanceIndex = this.instances.findIndex(e => e === instance);
@@ -152,7 +159,9 @@ export class TerminalEditorService extends Disposable implements ITerminalEditor
 						preserveFocus: editorOptions?.preserveFocus,
 						auxiliary: editorOptions?.auxiliary,
 					}
-				}, editorOptions?.viewColumn ?? ACTIVE_GROUP)
+				}, this._configurationService.getValue<boolean>(OCTOCODE_SHELL_ENABLED) !== false
+					? getOctoCodeTerminalGroup(this._editorGroupsService).id
+					: editorOptions?.viewColumn ?? ACTIVE_GROUP)
 			};
 			await this._activeOpenEditorRequest?.promise;
 			this._activeOpenEditorRequest = undefined;

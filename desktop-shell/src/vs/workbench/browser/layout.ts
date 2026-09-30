@@ -810,14 +810,15 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 		 * no container to resolve, so the window never briefly opens on whatever
 		 * view the host considers its default.
 		 *
-		 * The panel is left alone. It renders a live terminal rather than chrome,
-		 * and stays until the shell hosts a terminal of its own.
+		 * Terminals and logs use the shell's lower-right editor group. Hide the
+		 * separate panel before the first frame so it cannot duplicate that area.
 		 */
 		if (this.configurationService.getValue<boolean>(OCTOCODE_SHELL_ENABLED) !== false) {
 			this.stateModel.setRuntimeValue(LayoutStateKeys.ACTIVITYBAR_HIDDEN, true);
 			this.stateModel.setRuntimeValue(LayoutStateKeys.SIDEBAR_HIDDEN, true);
 			this.stateModel.setRuntimeValue(LayoutStateKeys.AUXILIARYBAR_HIDDEN, true);
 			this.stateModel.setRuntimeValue(LayoutStateKeys.STATUSBAR_HIDDEN, true);
+			this.stateModel.setRuntimeValue(LayoutStateKeys.PANEL_HIDDEN, true);
 
 			// Marks the window for octoCodeShell.css, which removes the editor's own
 			// framing so the shell reaches the window edges.

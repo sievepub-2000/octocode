@@ -73,9 +73,8 @@ export class TerminalMainContribution extends Disposable implements IWorkbenchCo
 			await terminalService.revealActiveTerminal();
 		}));
 
-		await lifecycleService.when(LifecyclePhase.Restored);
-
-		// Register terminal editors
+		// Register before editors restore: terminal URIs must never fall back to
+		// the text editor, which has no text model for a terminal resource.
 		this._register(editorResolverService.registerEditor(
 			`${Schemas.vscodeTerminal}:/**`,
 			{
@@ -127,6 +126,7 @@ export class TerminalMainContribution extends Disposable implements IWorkbenchCo
 		));
 
 		// Register a resource formatter for terminal URIs
+		await lifecycleService.when(LifecyclePhase.Restored);
 		this._register(labelService.registerFormatter({
 			scheme: Schemas.vscodeTerminal,
 			formatting: {

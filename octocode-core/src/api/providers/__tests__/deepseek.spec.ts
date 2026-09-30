@@ -3,8 +3,10 @@ import { asyncStreamFrom, collectStream } from "../../../test-utils/stream"
 import { clearAllMocks } from "../../../test-utils/reset"
 
 const mockCreate = vi.fn()
-vi.mock("openai", () => {
+vi.mock("openai", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("openai")>()
 	return {
+		...actual,
 		__esModule: true,
 		default: vi.fn().mockImplementation(function () {
 			return {

@@ -12,9 +12,10 @@ vitest.mock("@roo-code/telemetry", () => ({
 
 const mockResponsesCreate = vitest.hoisted(() => vitest.fn())
 
-vitest.mock("openai", async () => {
+vitest.mock("openai", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("openai")>()
 	const { mockOpenAiResponsesClient } = await import("../../../test-utils/api")
-	return mockOpenAiResponsesClient(mockResponsesCreate)
+	return { ...actual, ...mockOpenAiResponsesClient(mockResponsesCreate) }
 })
 
 import OpenAI from "openai"

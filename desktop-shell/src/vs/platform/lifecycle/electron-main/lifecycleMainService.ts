@@ -13,7 +13,7 @@ import { Emitter, Event } from '../../../base/common/event.js';
 import { Disposable, DisposableStore } from '../../../base/common/lifecycle.js';
 import { isMacintosh, isWindows } from '../../../base/common/platform.js';
 import { cwd } from '../../../base/common/process.js';
-import { join } from '../../../base/common/path.js';
+import { join, normalize } from '../../../base/common/path.js';
 import { assertReturnsDefined } from '../../../base/common/types.js';
 import { NativeParsedArgs } from '../../environment/common/argv.js';
 import { createDecorator } from '../../instantiation/common/instantiation.js';
@@ -248,6 +248,7 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 	private tray: electron.Tray | undefined;
 	private trayWindow: electron.BrowserWindow | undefined;
 	private daemon: ChildProcess | undefined;
+	private daemonEnsurePromise: Promise<void> | undefined;
 	private daemonTokenPath: string | undefined;
 	private daemonExitTimes: number[] = [];
 	private daemonStopping = false;
@@ -309,36 +310,62 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 		}
 	}
 
-	private async ensureDaemon(): Promise<void> {
-		if (!isWindows || this.productService.nameShort !== 'OctoCode') {
+	private ensureDaemon(): Promise<void> {
+		if (!this.daemonEnsurePromise) {
+			this.daemonEnsurePromise = this.doEnsureDaemon().finally(() => { this.daemonEnsurePromise = undefined; });
+		}
+		return this.daemonEnsurePromise;
+	}
+
+	private async doEnsureDaemon(): Promise<void> {
+		if (!isWindows || this.productService.nameShort !== 'OctoCode' || this.daemonStopping || this.daemon) {
 			return;
 		}
 		const root = join(electron.app.getAppPath(), '..', '..');
 		const tokenPath = join(root, 'data', 'user-data', 'User', 'globalStorage', 'octocode.octocode', 'daemon', 'api-token');
-		if (existsSync(tokenPath)) {
-			for (let attempt = 0; attempt < 5; attempt++) {
+		try {
+			const attempts = existsSync(tokenPath) ? 5 : 1;
+			let unavailable = true;
+			let lastError: unknown;
+			for (let attempt = 0; attempt < attempts && !this.daemonStopping; attempt++) {
+				let response: Response;
 				try {
-					const response = await fetch('http://127.0.0.1:8765/health', { signal: AbortSignal.timeout(1000) });
-					const health = await response.json() as { ok: boolean; pid: number; store: string; problems: string[] };
-					if (health.pid && health.store.toLowerCase().startsWith(root.toLowerCase())) {
-						this.daemonTokenPath = tokenPath;
-						try {
-							await this.attachDaemon(readFileSync(tokenPath, 'utf8'));
-						} catch (error) {
-							this.logService.error(`OctoCode daemon attachment rejected: ${error}`);
-							return;
-						}
-						if (!health.ok) this.logService.error(`OctoCode daemon needs attention: ${health.problems.join(', ')}`);
-						this.logService.info('OctoCode daemon reattached after desktop restart');
-						return;
-					}
+					response = await fetch('http://127.0.0.1:8765/health', { signal: AbortSignal.timeout(1000) });
 				} catch (error) {
-					if (attempt === 4) this.logService.error(`OctoCode daemon reattachment failed: ${error}`);
+					lastError = error;
+					// A stale token is normal after an interrupted shutdown. Only a refused
+					// connection indicates no listener; a timeout must not rotate credentials.
+					unavailable &&= (error as { cause?: { code?: string } })?.cause?.code === 'ECONNREFUSED';
+					if (attempt + 1 < attempts) await timeout(1000);
+					continue;
 				}
-				await timeout(1000);
+				const health = await this.readDaemonHealth(response, root);
+				if (this.daemonStopping) return;
+				await this.attachDaemon(readFileSync(tokenPath, 'utf8'));
+				// Shutdown may have begun while the authenticated attachment was pending.
+				this.daemonTokenPath = tokenPath;
+				if (!health.ok) this.logService.error(`OctoCode daemon needs attention: ${health.problems.join(', ')}`);
+				this.logService.info('OctoCode daemon reattached after desktop restart');
+				return;
 			}
+			if (this.daemonStopping) return;
+			if (!unavailable) throw lastError;
+			this.startDaemon();
+		} catch (error) {
+			this.logService.error(`OctoCode daemon attachment failed: ${error}`);
 		}
-		this.startDaemon();
+	}
+
+	private async readDaemonHealth(response: Response, root: string): Promise<{ ok: boolean; pid: number; problems: string[] }> {
+		if (!response.ok) throw new Error(`Health check failed: HTTP ${response.status}`);
+		const health = await response.json() as { ok: boolean; pid: number; store: string; problems: string[] };
+		const store = join(root, 'data', 'user-data', 'User', 'globalStorage', 'octocode.octocode', 'harness-runtime');
+		if (typeof health?.ok !== 'boolean' || !Number.isInteger(health.pid) || health.pid <= 0 ||
+			typeof health.store !== 'string' || normalize(health.store).toLowerCase() !== normalize(store).toLowerCase() ||
+			!Array.isArray(health.problems) || !health.problems.every(problem => typeof problem === 'string')) {
+			throw new Error('Health check returned an invalid or foreign daemon identity');
+		}
+		return health;
 	}
 
 	private async attachDaemon(token: string): Promise<void> {
@@ -380,6 +407,9 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 				child = spawn(python, [script, '--port', '8765'], {
 					cwd: root,
 					windowsHide: true,
+					// A Windows child otherwise exits with the Electron parent even
+					// after the restart path closes stdin without sending "stop".
+					detached: isWindows,
 					stdio: ['pipe', 'ignore', daemonLog],
 					env: { ...process.env, OCTOCODE_ROOT: root, OCTOCODE_API_TOKEN: token, OCTOCODE_DAEMON_PARENT_PIPE: '1', OCTOCODE_DESKTOP_PID: String(process.pid) }
 				});
@@ -399,7 +429,7 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 					? Math.max(3000, 600_000 - (now - this.daemonExitTimes[0]))
 					: this.daemonExitTimes.length * 3000;
 				this.logService.error(`OctoCode daemon exited (${code ?? signal}); restarting in ${Math.ceil(delay / 1000)}s`);
-				setTimeout(() => this.startDaemon(), delay);
+				setTimeout(() => void this.ensureDaemon(), delay);
 			});
 			void this.checkDaemon(child, root);
 		} catch (error) {
@@ -408,30 +438,36 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 	}
 
 	private async checkDaemon(child: ChildProcess, root: string): Promise<void> {
+		let lastError: unknown;
 		for (let attempt = 0; attempt < 30 && this.daemon === child && !this.daemonStopping; attempt++) {
 			try {
 				const response = await fetch('http://127.0.0.1:8765/health', { signal: AbortSignal.timeout(1000) });
-				const health = await response.json() as { ok: boolean; pid: number; store: string; problems: string[] };
-				if (health.ok && health.pid === child.pid && health.store.toLowerCase().startsWith(root.toLowerCase())) {
+				const health = await this.readDaemonHealth(response, root);
+				if (health.pid !== child.pid) throw new Error('Health check returned a different daemon PID');
+				if (this.daemon !== child || this.daemonStopping) return;
+				if (health.ok) {
 					await this.attachDaemon(readFileSync(this.daemonTokenPath!, 'utf8'));
 					this.logService.info(`OctoCode daemon ready (pid ${child.pid})`);
 					return;
 				}
-			} catch {
-				// The Python runtime may still be importing its dependencies.
+				lastError = new Error(`Daemon needs attention: ${health.problems.join(', ')}`);
+			} catch (error) {
+				lastError = error;
 			}
 			await timeout(1000);
 		}
 		if (this.daemon === child && !this.daemonStopping) {
-			this.logService.error('OctoCode daemon did not become ready within 30 seconds');
+			this.logService.error(`OctoCode daemon did not become ready within 30 attempts: ${lastError}`);
 		}
 	}
 
 	private async stopDaemon(): Promise<void> {
 		this.daemonStopping = true;
+		await this.daemonEnsurePromise;
 		const child = this.daemon;
 		if (this.daemonPreserveForRestart) {
 			child?.stdin?.end();
+			child?.unref();
 			return;
 		}
 		let stopped = !child && !this.daemonTokenPath;
@@ -462,6 +498,7 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 						break;
 					}
 				}
+				if (!stopped) this.logService.error('OctoCode daemon did not stop after authenticated shutdown');
 			} catch (error) {
 				this.logService.error(`OctoCode daemon shutdown failed: ${error}`);
 			}
@@ -859,6 +896,8 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 	}
 
 	quit(willRestart?: boolean): Promise<boolean /* veto */> {
+		const preserveDaemon = this.daemonPreserveForRestart;
+		if (willRestart) this.daemonPreserveForRestart = true;
 		return this.doQuit(willRestart).then(veto => {
 			if (!veto && willRestart) {
 				// Windows: we are about to restart and as such we need to restore the original
@@ -878,7 +917,7 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 			}
 
 			return veto;
-		});
+		}).finally(() => { this.daemonPreserveForRestart = preserveDaemon; });
 	}
 
 	private doQuit(willRestart?: boolean): Promise<boolean /* veto */> {

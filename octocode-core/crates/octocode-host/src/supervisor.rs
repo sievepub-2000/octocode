@@ -35,7 +35,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::provider::ModelProfile;
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Supervision {
     /// Models tried in order when the current one fails at the endpoint or
     /// overflows its context.
@@ -53,6 +53,18 @@ pub struct Supervision {
     /// server (the agent may even have restarted it itself) comes back in that time.
     #[serde(default = "default_endpoint_retry_secs")]
     pub endpoint_retry_secs: u64,
+}
+
+impl Default for Supervision {
+    fn default() -> Self {
+        Self {
+            fallbacks: Vec::new(),
+            stream_rules: None,
+            advisor: None,
+            max_interventions: default_max_interventions(),
+            endpoint_retry_secs: default_endpoint_retry_secs(),
+        }
+    }
 }
 
 fn default_max_interventions() -> u32 {
@@ -310,6 +322,7 @@ const ADVISOR_SYSTEM: &str = "You review a coding agent's finished task. Reply w
 
 /// The advisor's verdict: `None` for OK (or no usable answer), `Some(note)` to revise.
 pub async fn review(advisor: &Advisor, request: &str, tool_log: &[String], final_text: &str) -> anyhow::Result<Option<String>> {
+    validate_advisor(advisor)?;
     let calls = tool_log.iter().rev().take(30).rev().cloned().collect::<Vec<_>>().join("\n");
     let user = format!(
         "Request:\n{}\n\nTool calls, in order (last 30):\n{}\n\nFinal answer:\n{}",
@@ -340,6 +353,18 @@ pub async fn review(advisor: &Advisor, request: &str, tool_log: &[String], final
     let response = post_json(&base_url, "chat/completions", advisor.model.api_key.as_deref(), &body).await?;
     let content = response["choices"][0]["message"]["content"].as_str().unwrap_or_default().trim().to_owned();
     Ok(parse_verdict(&content))
+}
+
+pub fn validate_advisor(advisor: &Advisor) -> anyhow::Result<()> {
+    if let Some(Value::Object(extra)) = &advisor.model.extra_body {
+        if let Some(template) = extra.get("chat_template_kwargs") {
+            anyhow::ensure!(
+                template.is_object() || template.is_null(),
+                "advisor chat_template_kwargs must be an object or null"
+            );
+        }
+    }
+    Ok(())
 }
 
 pub fn parse_verdict(content: &str) -> Option<String> {

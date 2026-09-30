@@ -45,16 +45,24 @@ impl Store {
             ensure!(fs::canonicalize(s.workspace.as_deref().context("会话没有工作区")?)? == root, "只能归集同一工作区的会话");
         }
         let id = uuid::Uuid::now_v7().to_string();
-        let directory = root.join(".octocode").join("projects").join(format!("{}-{}", Utc::now().format("%Y%m%d-%H%M%S"), id));
+        let directory_name = format!("{}-{}", Utc::now().format("%Y%m%d-%H%M%S"), id);
+        let directory = root.join(".octocode").join("projects").join(&directory_name);
         ensure_owned_path(&root, &directory)?;
-        fs::create_dir_all(&directory)?;
+        let parent = directory.parent().context("项目索引目录无效")?;
+        fs::create_dir_all(parent)?;
+        // This guard owns only the newly created UUID directory. Any index or
+        // database failure removes it; existing project/session files are untouched.
+        let directory_guard = tempfile::Builder::new()
+            .prefix(&directory_name).rand_bytes(0).tempdir_in(parent)?;
         let p = Project { id, name:name.to_owned(),workspace:workspace.to_owned(),directory:directory.to_string_lossy().into_owned(),created_at:Utc::now().timestamp_millis() };
-        // The index is derived data. No session files are moved or copied.
-        write_index(&p, &json!({"project":p,"sessions":[],"schema_version":1}))?;
         let tx = self.conn.unchecked_transaction()?;
         tx.execute("INSERT INTO projects(id,name,workspace,directory,created_at) VALUES(?1,?2,?3,?4,?5)", params![p.id,p.name,p.workspace,p.directory,p.created_at])?;
         for s in sessions { tx.execute("UPDATE sessions SET project_id=?2 WHERE id=?1", params![s.id,p.id])?; }
+        // Read back the pending transaction so the initial derived index already
+        // reflects its assignments. Commit only after the index is written.
+        write_index(&p, &self.project_index(&p.id)?)?;
         tx.commit()?;
+        let _ = directory_guard.keep();
         Ok(p)
     }
 

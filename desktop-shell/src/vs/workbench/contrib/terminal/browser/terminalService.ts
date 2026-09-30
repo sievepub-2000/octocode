@@ -57,6 +57,7 @@ import { isAuxiliaryWindow, mainWindow } from '../../../../base/browser/window.j
 import { GroupIdentifier } from '../../../common/editor.js';
 import { getActiveWindow } from '../../../../base/browser/dom.js';
 import { hasKey, isString } from '../../../../base/common/types.js';
+import { OCTOCODE_SHELL_ENABLED } from '../../../services/layout/browser/layoutService.js';
 
 interface IBackgroundTerminal {
 	instance: ITerminalInstance;
@@ -973,6 +974,9 @@ export class TerminalService extends Disposable implements ITerminalService {
 	}
 
 	async createTerminal(options?: ICreateTerminalOptions): Promise<ITerminalInstance> {
+		if (this._configurationService.getValue<boolean>(OCTOCODE_SHELL_ENABLED) !== false) {
+			options = { ...options, location: TerminalLocation.Editor };
+		}
 		// Await the initialization of available profiles as long as this is not a pty terminal or a
 		// local terminal in a remote workspace as profile won't be used in those cases and these
 		// terminals need to be launched before remote connections are established.
