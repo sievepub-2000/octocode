@@ -649,7 +649,7 @@
 		"strip-bom": "^5.0.0",
 		"tiktoken": "^1.0.21",
 		"tree-sitter-wasms": "^0.1.13",
-		"undici": "^6.21.3",
+		"undici": "^6.28.1",
 		"uuid": "^11.1.0",
 		"web-tree-sitter": "^0.25.6",
 		"workerpool": "^9.2.0",
