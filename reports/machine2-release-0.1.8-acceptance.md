@@ -25,9 +25,9 @@ Evidence: `native-upgrade-0.1.8.json`, `live-production-identity.json`, `product
 | Core full test suite | 6,051 passed, 23 skipped; 386 files passed, 6 skipped |
 | Core workspace type and lint checks | 11 packages passed each |
 | Desktop terminal/layout browser regressions | 13 passed |
-| Daemon lifecycle tests | 18 passed |
+| Daemon lifecycle and real Windows Electron tests | 22 passed after the detached-child repair |
 | HTTP API tests | 22 passed |
-| Native Host offline release tests | 82 tests and 8 supervision scenarios passed |
+| Native Host offline release tests | Latest run: 90 tests and 9 supervision scenarios passed |
 | Bundled MCP smoke | Three installed services passed |
 | Installed API/native supported lifecycle | Routine create/read/restart/delete/post-delete; goal create/read/exhaust/restart/resume/met/restart passed in isolated stores using real installed Host/harness and a controlled HTTP model |
 | Native permission probes | Six write cases and 16 read cases passed against the declared permission contract |
@@ -45,7 +45,7 @@ Latest-only build inputs and extension dependency trees were restored from machi
 
 Installer SHA-256: `D5165AEC6C9CAFFFAE8086DAB81D2FF79385DF30E3455D409805C032FFF06481`.
 
-VSIX SHA-256: `9dd16f284cee161461c67089203827c0dccb46ae1aaf16ff2c785e12e3c5c562`.
+Latest VSIX SHA-256: `20a1650c66c5a888e3e5c4dd90f36921551e79d16a77ed0aa72fe8ac2c7338a7`. It contains Host SHA-256 `436df1e94637aaee9bddd599eca89f1071bbf1c11e5f0a532649839dc1b58c72`; the earlier installer above is being rebuilt with this package.
 
 The small documentation GIF is an ordinary Git object, eliminating the missing LFS-object dependency for new checkouts. Production data, credentials, native build outputs and dependency caches are excluded from aggregate source publication.
 
@@ -56,3 +56,12 @@ The official `alibaba/open-code-review` CLI 1.12.11 was installed and used for c
 Full CLI inventories and selected-file counts are not completed review counts. Large scans encountered provider timeout, empty output and budget exhaustion. The coverage ledger records actual completed paths and failed/interrupted attempts. No whole-repository AI all-clear is claimed.
 
 Production restart/cold-start acceptance, clean installation/removal lifecycle, and final remote publication verification are being recorded separately and must be appended before being declared passed. Windows is the documented desktop distribution. No Linux/macOS deployment or real Docker Engine execution was performed. Installed self-test reports optional toolchains/WSL as on-demand and not provisioned, and online shell updates currently use a placeholder endpoint; successful local installation does not certify automatic online updates.
+
+## Follow-up acceptance and investigation
+
+- Normal application quit through the native host service stopped desktop and daemon processes. A genuine cold start created a new daemon, retained the disabled test routine, and allowed its safe deletion with post-delete read-back. The production UI then returned `OCTOCODE_MACHINE2_COLDSTART_OK` using the existing profile; five pane checks passed again. Evidence: `production-normal-quit-proof.json`, `production-api-cold-start-recovery.json`, and the cold-start UI/model reports. An earlier orchestration wait expired while the app was down; its retained fixture was recovered and cleaned, not ignored.
+- Real native application relaunch exposed a separate defect: non-detached Windows children died with Electron. Production PID/token preservation failed before the fix. The source repair now detaches the Windows child and unrefs it during restart. Actual Electron 42.7.1 regressions independently reproduced non-detached death and detached survival. Rebuilt-installer production relaunch acceptance remains pending.
+- A publication-time HTTP test once exceeded its 15-second shutdown deadline. Subsequent bounded diagnosis could not reproduce it; full 22-test suites passed for the export, installed API bytes and an actual network clone. The original intermittent failure remains documented; no speculative API retry or timeout change was made. Evidence: `http-persistence-shutdown-diagnosis.md`, `final-api-shutdown-validation.json`.
+- Additional native review found four concrete defects, repaired with red/green tests: malformed advisor settings lacked a terminal error, real HEAD-named remote branches were hidden, relative worktree removal used the wrong directory, and failed project insertion left an index. Omitted supervision defaults were also aligned with the declared 3/30 defaults. The new release build passed with 90 tests and 9 supervision scenarios.
+- Clash was rechecked without editing subscriptions: effective TUN enabled, active Meta adapter/default route, service running, all nine subscription/companion hashes matched their source manifest, Google HTTPS 204, GitHub HTTPS 200, expected unauthenticated OpenAI HTTPS 401, and explicit mixed-port GitHub proxy 200. Evidence: `C:\Users\FPP\Downloads\clash-verification.json`.
+- The older installer and latest alias were discovered to share a hard link. The old 1.132.1 artifact was recovered read-only from machine 3 and verified at 736,842,327 bytes, SHA-256 `7EB061762F6A08CA018829F23DC62732641918BF93FDA08EBDF660AA0FDB5FD9`. It is now an independent file. Local promotion stages and verifies a new file before replacing its name, so future publication cannot truncate older hard-linked releases.
