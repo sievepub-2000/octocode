@@ -73,3 +73,26 @@ or fixture contents are printed on successful runs.
 
 Edits are confined to `maintenance/verification/read-only-probe.py`, the new
 `maintenance/verification/permission-read-probe.py`, and this report.
+
+## Superseding fresh native verification — 2026-10-01 05:30
+
+The preceding `2C468E62...` host hash records the earlier run. After the native
+run_agent/Supervision follow-up, all six existing write cases and sixteen
+existing executed native read cases passed again against staged Host SHA256
+`436DF1E94637AAEE9BDDD599ECA89F1071BBF1C11E5F0A532649839DC1B58C72`.
+Harness SHA256 remained
+`954656605D696B06D506EF767B76B244D2E8A71979172D34AAE1639F41DB382E`.
+VSIX SHA256 was
+`20A1650C66C5A888E3E5C4DD90F36921551E79D16A77ED0AA72FE8AC2C7338A7`;
+its embedded host/harness matched the tested binaries. Hashes were unchanged
+after the run. No implementation edits were made for this verification.
+
+Fresh evidence is in
+`D:\gpt-workspace\machine2-migration\native-permissions-followup.json` and
+`permission-0.1.8-native-followup.md`; earlier JSON/logs were preserved with
+`before-nativefollowup-20261001-052947` names. The existing write suite completed
+in 12.616 seconds and read suite in 58.660 seconds using glob-discovered Python
+3.14.7. Task-owned temporary roots were removed after probe shutdown, with no
+production database or job used. Contract findings and scope limits above still
+apply; this supplemental run does not claim the ongoing product build,
+installer, deployment, or whole-system audit is complete.

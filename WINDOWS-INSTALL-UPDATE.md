@@ -16,7 +16,16 @@ $process = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT /SUPPRE
 if ($process.ExitCode -ne 0) { throw "安装未通过，退出码：$($process.ExitCode)" }
 ```
 
-安装器使用 Windows Restart Manager 请求正常关闭程序，不强制丢弃未保存内容。3 号机使用 `maintenance/install-current.ps1` 维护项目专属布局：原生卸载后验证安装目录不存在，再建立 data、workspace、environments 到项目 runtime 的联接，最后调用同一原生安装包。联接由该部署脚本建立，不应误称为通用安装器在所有电脑上的默认行为。普通自选路径使用本地目录；不要把已有数据根目录选为程序安装目录。
+安装器使用 Windows Restart Manager 请求正常关闭程序，不强制丢弃未保存内容。本版本在安装目录恰为 `D:\Program Files\OctoCode` 时，由原生安装器运行 `octocode-storage-layout.ps1`，校验并建立 data、workspace、environments 到 `D:\gpt-workspace\octocode\runtime` 的联接。2、3 号机遵循该项目布局；其他自选路径使用本地目录，不能将这一行为泛化为所有安装路径。已有数据与目标目录冲突时安装器拒绝覆盖；不要把已有数据根目录选为程序安装目录。
+
+Windows 检出仓库前启用 Git 长路径支持，避免深层测试文件在下载对象后仍无法写入工作区：
+
+```powershell
+git config --global core.longpaths true
+git clone https://github.com/sievepub-2000/octocode.git
+```
+
+在新的空目录执行检出，不覆盖现有开发工作区。文档示例图以普通 Git 文件保存，新检出不再依赖缺失的 Git LFS 对象。
 
 ## 卸载
 
