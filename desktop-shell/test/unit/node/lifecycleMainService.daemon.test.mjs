@@ -122,14 +122,17 @@ test('actual startDaemon sets the token path before spawn and authenticated read
 	const f = fixture({ fetch: async url => response(url.endsWith('/health') ? health() : {}) });
 	const child = Object.assign(new EventEmitter(), { pid: 42 });
 	const expectedTokenPath = path.join(root, 'data', 'user-data', 'User', 'globalStorage', 'octocode.octocode', 'daemon', 'api-token');
-	let writtenPath, readPath, readiness;
+	let writtenPath, readPath, readiness, spawnOptions;
 	Object.assign(f.context, {
 		mkdirSync: () => {}, execFileSync: () => 'S-1-5-21-123',
 		randomBytes: () => ({ toString: () => 'test-token' }),
 		writeFileSync: tokenPath => { writtenPath = tokenPath; },
 		openSync: () => 1, closeSync: () => {},
 		readFileSync: tokenPath => { readPath = tokenPath; assert.equal(tokenPath, expectedTokenPath); return 'test-token'; },
-		spawn: () => {
+		spawn: (executable, args, options) => {
+			spawnOptions = options;
+			assert.equal(executable, path.join(root, 'environments', 'python', 'python.exe'));
+			assert.equal(args[0], path.join(root, 'environments', 'scripts', 'octocode_api.py'));
 			assert.equal(writtenPath, expectedTokenPath);
 			assert.equal(f.service.daemonTokenPath, expectedTokenPath);
 			return child;
@@ -139,6 +142,9 @@ test('actual startDaemon sets the token path before spawn and authenticated read
 	f.service.checkDaemon = (...args) => readiness = checkDaemon.apply(f.service, args);
 	delete f.service.startDaemon;
 	f.service.startDaemon();
+	assert.equal(spawnOptions.detached, true, 'Windows daemon must survive the Electron parent');
+	assert.equal(spawnOptions.windowsHide, true);
+	assert.deepEqual(Array.from(spawnOptions.stdio), ['pipe', 'ignore', 1]);
 	await readiness;
 	assert.equal(readPath, expectedTokenPath);
 	assert.equal(f.calls.find(c => Array.isArray(c) && c[0].includes('/attach?'))[1].headers.authorization, 'Bearer test-token');
@@ -188,17 +194,29 @@ test('readiness reports the underlying authentication failure', async () => {
 
 test('restart preserves the child and token; a veto restores normal shutdown', async () => {
 	const f = fixture();
-	let ended = 0;
-	f.service.daemon = { stdin: { end: value => { assert.equal(value, undefined); ended++; } } };
+	let ended = 0, unreferenced = 0;
+	f.service.daemon = { stdin: { end: value => { assert.equal(value, undefined); ended++; } }, unref: () => { unreferenced++; } };
 	f.service.daemonTokenPath = 'test-token-path';
 	f.service.trace = () => {};
 	f.service.doQuit = async () => { await f.service.stopDaemon(); return false; };
 	assert.equal(await f.service.quit(true), false);
 	assert.equal(ended, 1);
+	assert.equal(unreferenced, 1);
 	assert.deepEqual(f.calls, []);
 	assert.equal(f.service.daemonPreserveForRestart, false);
 	f.service.daemonStopping = false;
 	f.service.doQuit = async () => true;
 	assert.equal(await f.service.quit(true), true);
 	assert.equal(f.service.daemonPreserveForRestart, false);
+});
+
+test('normal stop sends stop rather than preserving the child', async () => {
+	const f = fixture();
+	let ended, unreferenced = 0;
+	const child = Object.assign(new EventEmitter(), { exitCode: null, signalCode: null, unref: () => { unreferenced++; } });
+	child.stdin = { end: value => { ended = value; child.exitCode = 0; child.emit('exit', 0); } };
+	f.service.daemon = child;
+	await f.service.stopDaemon();
+	assert.equal(ended, 'stop\n');
+	assert.equal(unreferenced, 0);
 });

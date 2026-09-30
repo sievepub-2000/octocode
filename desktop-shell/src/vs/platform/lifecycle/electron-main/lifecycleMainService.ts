@@ -407,6 +407,9 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 				child = spawn(python, [script, '--port', '8765'], {
 					cwd: root,
 					windowsHide: true,
+					// A Windows child otherwise exits with the Electron parent even
+					// after the restart path closes stdin without sending "stop".
+					detached: isWindows,
 					stdio: ['pipe', 'ignore', daemonLog],
 					env: { ...process.env, OCTOCODE_ROOT: root, OCTOCODE_API_TOKEN: token, OCTOCODE_DAEMON_PARENT_PIPE: '1', OCTOCODE_DESKTOP_PID: String(process.pid) }
 				});
@@ -464,6 +467,7 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 		const child = this.daemon;
 		if (this.daemonPreserveForRestart) {
 			child?.stdin?.end();
+			child?.unref();
 			return;
 		}
 		let stopped = !child && !this.daemonTokenPath;
