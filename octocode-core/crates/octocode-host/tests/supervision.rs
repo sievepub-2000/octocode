@@ -26,6 +26,7 @@ fn main() {
         ("endpoint_failure_without_fallback_is_retried_once_on_the_same_model", endpoint_failure_without_fallback_is_retried_once_on_the_same_model),
         ("resumed_task_receives_plan_reminder", resumed_task_receives_plan_reminder),
         ("cancel_during_endpoint_backoff_does_not_restart", cancel_during_endpoint_backoff_does_not_restart),
+        ("malformed_advisor_ends_with_terminal_error", malformed_advisor_ends_with_terminal_error),
     ] {
         let scenario = test();
         match std::panic::catch_unwind(|| runtime.block_on(scenario.run())) {
@@ -103,15 +104,20 @@ impl Scenario {
         let cwd = tempfile::tempdir().unwrap();
         // Safety: the runner is single-threaded between scenarios; children inherit this.
         unsafe { std::env::set_var("FAKE_HARNESS_MODE", self.mode) };
-        let run: AgentRun = serde_json::from_value(json!({
+        let mut input = json!({
             "task_id": format!("task-{}", self.mode), "session_id": format!("session-{}", self.mode),
             "executable": std::env::current_exe().unwrap(), "harness_home": home.path(), "cwd": cwd.path(),
             "prompt": "do the task",
             "resume": self.mode == "plan-resume",
             "model": model("primary"),
             "supervision": {"fallbacks": self.fallbacks, "max_interventions": self.max_interventions, "endpoint_retry_secs": if self.mode == "cancel-backoff" { 30 } else { 0 }},
-        }))
-        .unwrap();
+        });
+        if self.mode == "malformed-advisor" {
+            let mut advisor_model = model("judge");
+            advisor_model["extra_body"] = json!({"chat_template_kwargs":"malformed fixture"});
+            input["supervision"]["advisor"] = json!({"model":advisor_model, "min_tool_calls":0});
+        }
+        let run: AgentRun = serde_json::from_value(input).unwrap();
         let (events_tx, mut events) = tokio::sync::mpsc::unbounded_channel();
         let manager = AgentManager::default();
         let task_id = manager.start(run, events_tx).unwrap();
@@ -122,7 +128,7 @@ impl Scenario {
                     tokio::time::sleep(Duration::from_millis(200)).await;
                     assert!(manager.cancel(&task_id));
                 }
-                let done = event.kind == "agent.finished";
+                let done = event.kind == "agent.finished" || event.kind == "agent.error";
                 seen.push(event);
                 if done {
                     break;
@@ -139,6 +145,17 @@ impl Scenario {
 fn model(name: &str) -> Value {
     json!({"model": name, "base_url": "http://127.0.0.1:9/v1", "api_key": "k", "api_backend": "chat_completions",
         "context_window": 65536, "max_completion_tokens": 1000})
+}
+
+fn malformed_advisor_ends_with_terminal_error() -> Scenario {
+    Scenario {
+        mode: "malformed-advisor", fallbacks: vec![], max_interventions: 3,
+        check: |home, events| {
+            assert_eq!(events.last().map(|event| event.kind.as_str()), Some("agent.error"));
+            assert!(events.last().unwrap().payload["message"].as_str().unwrap().contains("chat_template_kwargs"));
+            assert!(!home.join("attempt-1.json").exists(), "invalid advisor must be rejected before a harness starts");
+        },
+    }
 }
 
 fn cancel_during_endpoint_backoff_does_not_restart() -> Scenario {

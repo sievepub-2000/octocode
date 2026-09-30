@@ -97,18 +97,20 @@ pub fn create(
 }
 
 pub fn remove(cwd: &Path, target: &Path, force: bool) -> anyhow::Result<WorktreeResult> {
-    let registered = list(cwd)?
+    let cwd = cwd.canonicalize()?;
+    let target = if target.is_absolute() { target.to_path_buf() } else { cwd.join(target) };
+    let registered = list(&cwd)?
         .into_iter()
-        .any(|row| same_path(Path::new(&row.path), target));
-    if !registered {
-        anyhow::bail!("path is not a registered worktree: {}", target.display());
-    }
+        .find(|row| same_path(Path::new(&row.path), &target))
+        .ok_or_else(|| anyhow::anyhow!("path is not a registered worktree: {}", target.display()))?;
     let mut args = vec!["worktree".to_owned(), "remove".to_owned()];
     if force {
         args.push("--force".to_owned());
     }
-    args.push(target.to_string_lossy().into_owned());
-    run_git_owned(cwd, &args)?;
+    // Remove the registered identity we checked, not a caller-relative spelling
+    // that Git could resolve differently from the membership check.
+    args.push(registered.path);
+    run_git_owned(&cwd, &args)?;
     Ok(WorktreeResult {
         success: true,
         message: format!("Worktree removed from {}", target.display()),
@@ -128,13 +130,15 @@ pub fn checkout(cwd: &Path, branch: &str) -> anyhow::Result<WorktreeResult> {
 
 pub fn branches(cwd: &Path) -> anyhow::Result<BranchInfo> {
     let local = run_git(cwd, &["branch", "--format=%(refname:short)"])?;
-    let remote = run_git(cwd, &["branch", "-r", "--format=%(refname:short)"])?;
+    let remote = run_git(cwd, &["for-each-ref", "--format=%(refname:lstrip=2)%09%(symref)", "refs/remotes/"])?;
     let current = run_git(cwd, &["branch", "--show-current"])?;
     Ok(BranchInfo {
         local_branches: lines(&local),
-        remote_branches: lines(&remote)
-            .into_iter()
-            .filter(|value| !value.contains("HEAD"))
+        remote_branches: remote.lines()
+            .filter_map(|line| {
+                let (name, symbolic_target) = line.split_once('\t')?;
+                symbolic_target.trim().is_empty().then(|| name.to_owned())
+            })
             .collect(),
         current_branch: current.trim().to_owned(),
     })
