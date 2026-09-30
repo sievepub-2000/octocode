@@ -858,3 +858,96 @@ fn capabilities_list_is_the_complete_runtime_interface_registry() {
         assert!(!methods.iter().any(|m| m.starts_with(prefix)), "{prefix}* must be gone");
     }
 }
+
+#[test]
+fn checkpoint_write_failure_rolls_back_new_workflow_and_preserves_existing_state() {
+    let dir = tempfile::tempdir().unwrap();
+    let database = dir.path().join("checkpoint.db");
+    let host = Host::open(&database).unwrap();
+    call(&host, "session.create", json!({"id":"checkpoint-session","title":"Checkpoint"}));
+    let existing = call(&host, "supervisor.checkpoint", json!({
+        "id":"existing", "session_id":"checkpoint-session", "objective":"keep evidence",
+        "phase":"verify", "attempt":1, "max_attempts":3, "verdict":"reject",
+        "evidence":["original evidence"], "pending":["retry"]
+    }));
+    let conn = rusqlite::Connection::open(&database).unwrap();
+    conn.execute_batch(
+        "CREATE TRIGGER reject_checkpoint_update BEFORE UPDATE ON workflow_runs
+         WHEN NEW.phase='rejected-write' BEGIN
+         SELECT RAISE(ABORT,'injected checkpoint update failure'); END;",
+    ).unwrap();
+
+    let checkpoint = json!({
+        "id":"new", "session_id":"checkpoint-session", "objective":"finish safely",
+        "phase":"rejected-write", "attempt":1, "max_attempts":2, "verdict":"accept",
+        "evidence":["new evidence"], "pending":[]
+    });
+    assert!(error(&host, "supervisor.checkpoint", checkpoint.clone()).contains("injected checkpoint"));
+    assert!(call(&host, "supervisor.resume", json!({"id":"new"})).is_null());
+
+    let mut update = checkpoint.clone();
+    update["id"] = json!("existing");
+    assert!(error(&host, "supervisor.checkpoint", update).contains("injected checkpoint"));
+    assert_eq!(call(&host, "supervisor.resume", json!({"id":"existing"})), existing);
+
+    conn.execute_batch("DROP TRIGGER reject_checkpoint_update;").unwrap();
+    let saved = call(&host, "supervisor.checkpoint", checkpoint);
+    assert_eq!(saved["phase"], "rejected-write");
+    assert_eq!(saved["status"], "completed");
+    assert_eq!(saved["state"]["verdict"], "accept");
+    drop(conn);
+    drop(host);
+    let restarted = Host::open(&database).unwrap();
+    assert_eq!(call(&restarted, "supervisor.resume", json!({"id":"new"})), saved);
+}
+
+#[test]
+fn detached_worktree_rpc_honors_base_and_defaults_to_head() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init"]);
+    git(&repo, &["config", "user.email", "octocode@example.invalid"]);
+    git(&repo, &["config", "user.name", "OctoCode Test"]);
+    std::fs::write(repo.join("fixture.txt"), "base\n").unwrap();
+    git(&repo, &["add", "fixture.txt"]);
+    git(&repo, &["commit", "-m", "base"]);
+    git(&repo, &["branch", "older-base"]);
+    std::fs::write(repo.join("fixture.txt"), "head\n").unwrap();
+    git(&repo, &["commit", "-am", "head"]);
+    let revision = |name: &str| {
+        let output = std::process::Command::new("git")
+            .args(["rev-parse", name]).current_dir(&repo).output().unwrap();
+        assert!(output.status.success());
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    };
+    let base = revision("older-base");
+    let head = revision("HEAD");
+    assert_ne!(base, head);
+    let host = Host::open(dir.path().join("worktree.db")).unwrap();
+    for (name, base_branch, expected) in [
+        ("explicit-base", Some("older-base"), &base),
+        ("default-head", None, &head),
+    ] {
+        let target = dir.path().join(name);
+        let created = call(&host, "worktree.create", json!({
+            "cwd":repo,"path":target,"baseBranch":base_branch,"createNewBranch":false
+        }));
+        assert_eq!(created["success"], true);
+        assert_eq!(created["worktree"]["commitHash"].as_str(), Some(expected.as_str()));
+        assert_eq!(created["worktree"]["isDetached"], true);
+        let listed = call(&host, "worktree.list", json!({"cwd":repo}));
+        assert!(listed.as_array().unwrap().iter().any(|row|
+            row["isDetached"] == true && row["commitHash"].as_str() == Some(expected.as_str())
+        ));
+        assert_eq!(call(&host, "worktree.delete", json!({"cwd":repo,"path":target,"force":false}))["success"], true);
+        assert!(!target.exists());
+    }
+    let invalid = dir.path().join("invalid-base");
+    assert!(!error(&host, "worktree.create", json!({
+        "cwd":repo,"path":invalid,"baseBranch":"missing-base","createNewBranch":false
+    })).is_empty());
+    assert!(!invalid.exists());
+    assert_eq!(revision("HEAD"), head);
+    assert_eq!(call(&host, "worktree.list", json!({"cwd":repo})).as_array().unwrap().len(), 1);
+}

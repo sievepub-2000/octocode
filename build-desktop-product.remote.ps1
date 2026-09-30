@@ -36,6 +36,8 @@ Copy-Item -LiteralPath $vsixSource -Destination (Join-Path $environmentSource 'i
 foreach ($script in @('initialize', 'uninitialize')) {
 	Copy-Item -LiteralPath (Join-Path $root "build\win32\octocode-$script.ps1") -Destination (Join-Path $environmentSource "scripts\$script.ps1") -Force
 }
+New-Item -ItemType Directory -Force -Path (Join-Path $root '.build\test') | Out-Null
+Copy-Item -LiteralPath (Join-Path $root 'build\win32\mcp-stdio-smoke.mjs') -Destination (Join-Path $root '.build\test\mcp-stdio-smoke.mjs') -Force
 Copy-Item -LiteralPath (Join-Path $root 'build\win32\octocode-self-test.ps1') -Destination (Join-Path $root '.build\test\self-test.ps1') -Force
 Copy-Item -LiteralPath (Join-Path $root 'build\win32\octocode-mcp-self-test.ps1') -Destination (Join-Path $root '.build\test\mcp-self-test.ps1') -Force
 # The daemon (HTTP API, routines, goals) and the Scrapling MCP are versioned here;

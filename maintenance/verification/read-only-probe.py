@@ -1,4 +1,4 @@
-"""Exercise the real Host and harness with a model that attempts a forbidden write."""
+"""Exercise native permissions with controlled write attempts or fixture reads."""
 
 import json
 import os
@@ -9,6 +9,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -17,6 +18,8 @@ harness_binary = pathlib.Path(sys.argv[2])
 profile = sys.argv[3] if len(sys.argv) > 3 else "full"
 read_only = sys.argv[4].lower() == "true" if len(sys.argv) > 4 else True
 outside = "--outside" in sys.argv[5:]
+read_probe = "--read-probe" in sys.argv[5:]
+absolute = "--absolute" in sys.argv[5:]
 requests = []
 events = []
 issued = False
@@ -52,14 +55,19 @@ class Model(BaseHTTPRequestHandler):
             arguments = {"cmd" if "cmd" in properties else "command": f"cmd /c echo unsafe>{target}"}
             if "description" in properties:
                 arguments["description"] = "Controlled permission probe"
+            if read_probe:
+                read_function = next(tool["function"] for tool in body["tools"] if tool["function"]["name"] == "read_file")
+                read_properties = read_function.get("parameters", {}).get("properties", {})
+                path_key = next(key for key in ("target_file", "path", "file_path") if key in read_properties)
+                arguments = {path_key: str(read_target) if absolute else ("..\\outside-read.txt" if outside else "inside-read.txt")}
             message = {
                 "role": "assistant",
                 "content": None,
                 "tool_calls": [{
-                    "id": "forbidden-write",
+                    "id": "controlled-read" if read_probe else "forbidden-write",
                     "type": "function",
                     "function": {
-                        "name": terminal["name"] if terminal else "run_terminal_command",
+                        "name": "read_file" if read_probe else (terminal["name"] if terminal else "run_terminal_command"),
                         "arguments": json.dumps(arguments),
                     },
                 }],
@@ -93,6 +101,10 @@ with tempfile.TemporaryDirectory(prefix="octocode-readonly-") as directory:
     root = pathlib.Path(directory)
     workspace = root / "workspace"
     workspace.mkdir()
+    read_target = root / "outside-read.txt" if outside else workspace / "inside-read.txt"
+    read_token = uuid.uuid4().hex
+    if read_probe:
+        read_target.write_text(read_token, encoding="utf-8")
     server = ThreadingHTTPServer(("127.0.0.1", 0), Model)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     env = os.environ | {"NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost"}
@@ -163,6 +175,7 @@ with tempfile.TemporaryDirectory(prefix="octocode-readonly-") as directory:
             assert time.monotonic() < deadline, events[-5:]
             time.sleep(0.2)
         assert requests, "Model did not receive a tool catalog"
+        assert not any(event["kind"] == "agent.error" for event in events), "Native agent failed"
         assert issued, "Model never attempted the controlled tool call"
         offered = {tool["function"]["name"] for request in requests for tool in request.get("tools", [])}
         # session_title is an internal conversation-label tool and cannot touch
@@ -170,11 +183,22 @@ with tempfile.TemporaryDirectory(prefix="octocode-readonly-") as directory:
         if read_only or profile != "full":
             assert offered <= {"read_file", "list_dir", "grep", "session_title"}, offered
         marker = root / "outside.txt" if outside else workspace / "write-marker.txt"
-        if read_only or profile != "full" or outside:
+        if read_probe:
+            # The model never receives the random fixture token in its prompt or
+            # stub response. Only a native read result can deliver it back.
+            results = [message for request in requests for message in request.get("messages", [])
+                       if message.get("role") == "tool" and message.get("tool_call_id") == "controlled-read"]
+            assert results, "Native tool result was not returned to the model"
+            assert any(read_token in str(message.get("content", "")) for message in results), ("Native read did not return the isolated fixture", results)
+            assert read_target.read_text(encoding="utf-8") == read_token, "Read changed the fixture"
+            assert not marker.exists(), "Read created a write marker"
+        elif read_only or profile != "full":
             assert not marker.exists(), "Forbidden write reached the filesystem"
         else:
-            assert marker.exists(), "Authorized in-workspace write did not execute"
-        print(f"PASS: {profile} profile, read_only={read_only}, outside={outside}: write boundary respected")
+            # Full is explicitly unrestricted/bypassPermissions, including
+            # isolated paths outside cwd. It is not a workspace sandbox.
+            assert marker.exists(), "Authorized Full write did not execute"
+        print(f"PASS: {profile} profile, read_only={read_only}, outside={outside}, read_probe={read_probe}, absolute={absolute}")
         print("offered tools:", ", ".join(sorted(offered)))
         if "--two-turn" in sys.argv:
             assert profile == "full" and read_only and not outside

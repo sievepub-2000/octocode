@@ -1,10 +1,22 @@
-# This repository is an export of the three OctoCode component repositories.
-# Component-local .gitignore files cover their own build outputs.
-/runtime/
-/tools/
-/audit/
-/verification/
-/publish/
-/releases/
-/work/cache/
-/work/tmp/
+# Version orchestration, maintenance and reports; the three source trees have their own repositories.
+/*
+!/.gitignore
+!/.gitattributes
+!/README.md
+!/*.ps1
+!/WINDOWS-INSTALL-UPDATE.md
+!/reports/
+!/work/
+/work/*
+!/work/octo-env.ps1
+!/maintenance/
+!/docs/
+/docs/*
+!/docs/releases/
+/docs/releases/*
+!/docs/releases/0.1.8.md
+
+# Aggregate GitHub source trees
+!/desktop-shell/
+!/octocode-core/
+!/octo-harness/

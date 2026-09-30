@@ -327,9 +327,9 @@ impl Host {
                     let objective = p.objective.ok_or_else(|| {
                         HostError::new(-32602, "new supervisor checkpoint requires objective")
                     })?;
-                    self.store
-                        .create_workflow(&id, &session_id, &objective, &state)?;
-                    self.store.update_workflow(&id, &p.phase, status, &state)?;
+                    self.store.create_workflow_checkpoint(
+                        &id, &session_id, &objective, &p.phase, status, &state,
+                    )?;
                 }
                 let workflow = self.store.workflow(&id)?;
                 Ok(serde_json::to_value(workflow)?)

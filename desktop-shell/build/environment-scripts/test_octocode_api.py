@@ -36,6 +36,66 @@ class DaemonTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.api.RoutineRequest(name="bad", prompt="x", cwd=self.temp.name, daily_at="99:99")
 
+    def test_non_ascii_invalid_bearer_is_unauthorized(self):
+        request = SimpleNamespace(headers={"authorization": "Bearer \u00e9"})
+        with patch.dict(os.environ, {"OCTOCODE_API_TOKEN": "isolated"}):
+            with self.assertRaises(self.api.HTTPException) as denied:
+                self.api.authorize(request)
+        self.assertEqual(denied.exception.status_code, 401)
+
+    def test_routine_goal_schemas_ignore_undeclared_credential_names(self):
+        extras = {key: "undeclared-test-value" for key in ("apiKey", "token", "password", "secret")}
+        for schema, fields in (
+            (self.api.RoutineRequest, {"name": "isolated", "every_minutes": 60}),
+            (self.api.GoalRequest, {"check": "exit 0"}),
+        ):
+            with self.subTest(schema=schema.__name__):
+                record = schema(prompt="isolated", cwd=self.temp.name, **fields, **extras,
+                                model={"api_key": "declared-test-value", **extras}).model_dump()
+                self.assertEqual(record["model"]["api_key"], "declared-test-value")
+                for key in extras:
+                    self.assertNotIn(key, record)
+                    self.assertNotIn(key, record["model"])
+                public = self.api.public_record(record)
+                self.assertNotIn("api_key", public["model"])
+                self.assertEqual(record["model"]["api_key"], "declared-test-value")
+
+    def test_all_permission_profiles_are_forwarded_explicitly(self):
+        client = SimpleNamespace(listeners={}, call=Mock())
+        for mode in ("review", "directory", "full"):
+            with self.subTest(mode=mode):
+                client.call.reset_mock()
+                client.call.return_value = {"session_id": "isolated", "task_id": "isolated",
+                                            "route": {"model": {}}}
+                with patch.object(self.api, "host", return_value=client), \
+                     patch.object(self.api, "provider_input", return_value=({"openAiApiKey": ""}, "")), \
+                     patch.object(self.api, "extension_binary", return_value=Path(__file__)), \
+                     patch.object(self.api, "isolated_mcp_servers", return_value=({}, None)):
+                    run = self.api.start_run(self.api.RunRequest(prompt="isolated", cwd=self.temp.name,
+                                                                permission_mode=mode, review=False))
+                try:
+                    forwarded = next(call.args[1] for call in client.call.call_args_list
+                                     if call.args[0] == "agent.run")
+                    self.assertEqual(forwarded["permission_profile"], mode)
+                finally:
+                    self.api.RUNS.pop(run.id, None)
+                    (self.api.STATE / "runs" / f"{run.id}.json").unlink()
+        with self.assertRaises(ValueError):
+            self.api.RunRequest(prompt="isolated", cwd=self.temp.name, permission_mode="invalid")
+
+    def test_goal_resume_clears_previous_terminal_metadata(self):
+        goal = {"id": "g", "status": "failed", "iterations": [{"run_id": "previous", "check_exit": 1}], "max_iterations": 6,
+                "finished": 1, "error": "previous failure", "model": {"api_key": "private"}}
+        with patch.object(self.api, "load_json", return_value={"g": goal}), \
+             patch.object(self.api, "save_json") as save, patch.object(self.api.threading, "Thread"):
+            result = self.api.resume_goal("g")
+        self.assertEqual(result["status"], "running")
+        self.assertNotIn("finished", result)
+        self.assertNotIn("error", result)
+        self.assertEqual(result["iterations"], [{"run_id": "previous", "check_exit": 1}])
+        self.assertNotIn("api_key", result["model"])
+        self.assertEqual(save.call_args.args[1]["g"]["model"]["api_key"], "private")
+
     def test_health_is_not_ready_without_harness(self):
         self.assertFalse(self.api.health()["ok"])
 
@@ -286,6 +346,118 @@ class DaemonTests(unittest.TestCase):
         code, output = self.api.run_check(command, self.temp.name, 1)
         self.assertEqual(code, -1)
         self.assertIn("timed out", output)
+
+
+class HttpPersistenceTests(unittest.TestCase):
+    def test_authenticated_lifecycle_and_cold_restart(self):
+        with TemporaryDirectory() as root:
+            with socket.socket() as listener:
+                listener.bind(("127.0.0.1", 0))
+                port = listener.getsockname()[1]
+            env = {**os.environ, "OCTOCODE_ROOT": root,
+                   "OCTOCODE_DAEMON_STATE": str(Path(root) / "state"),
+                   "OCTOCODE_API_TOKEN": "isolated-test-token", "OCTOCODE_DESKTOP_PID": "0",
+                   "OCTOCODE_DAEMON_PARENT_PIPE": "0"}
+            process = None
+
+            def request(path, method="GET", body=None, authorized=True):
+                headers = {"Content-Type": "application/json"}
+                if authorized:
+                    headers["Authorization"] = "Bearer isolated-test-token"
+                data = json.dumps(body).encode() if body is not None else None
+                with urlopen(Request(f"http://127.0.0.1:{port}{path}", data=data,
+                                     method=method, headers=headers), timeout=5) as response:
+                    return json.load(response)
+
+            def launch():
+                child = subprocess.Popen([sys.executable, str(Path(__file__).with_name("octocode_api.py")),
+                                          "--port", str(port)], env=env,
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                for _ in range(100):
+                    try:
+                        request("/health")
+                        return child
+                    except OSError:
+                        if child.poll() is not None:
+                            self.fail("isolated daemon exited during startup")
+                        time.sleep(.1)
+                child.kill()
+                child.wait(timeout=5)
+                self.fail("isolated daemon startup timed out")
+
+            try:
+                process = launch()
+                routes = request("/openapi.json")["paths"]
+                for path, operations in routes.items():
+                    if not path.startswith("/v1/"):
+                        continue
+                    concrete = path
+                    for parameter in ("run_id", "routine_id", "goal_id"):
+                        concrete = concrete.replace("{" + parameter + "}", "missing")
+                    for method in operations:
+                        with self.subTest(path=path, method=method):
+                            with self.assertRaises(HTTPError) as denied:
+                                request(concrete, method.upper(), authorized=False)
+                            self.assertEqual(denied.exception.code, 401)
+                            denied.exception.close()
+                routine = request("/v1/routines", "POST", {
+                    "name": "isolated", "prompt": "x", "cwd": root,
+                    "every_minutes": 60, "enabled": False,
+                    "model": {"api_key": "private-test-model-key"}})
+                rid = routine["id"]
+                self.assertNotIn("private-test-model-key", json.dumps(routine))
+                self.assertNotIn("private-test-model-key", json.dumps(request("/v1/routines")))
+                self.assertEqual(request("/v1/routines")[rid]["enabled"], False)
+                created_goal = request("/v1/goals", "POST", {
+                    "prompt": "isolated", "cwd": root, "check": "exit 0",
+                    "model": {"api_key": "private-test-model-key"}})
+                gid = created_goal["id"]
+                self.assertNotIn("private-test-model-key", json.dumps(created_goal))
+                for _ in range(50):
+                    updated_goal = request(f"/v1/goals/{gid}")
+                    if updated_goal["status"] != "running":
+                        break
+                    time.sleep(.1)
+                self.assertEqual(updated_goal["status"], "failed")
+                request(f"/v1/goals/{gid}/resume", "POST")
+                for _ in range(50):
+                    if request(f"/v1/goals/{gid}")["status"] != "running":
+                        break
+                    time.sleep(.1)
+                self.assertEqual(request(f"/v1/goals/{gid}")["status"], "failed")
+                # Seed only isolated state to verify recovery without launching an agent.
+                state = Path(root) / "state"
+                goal = {"id": "isolated", "status": "running", "iterations": [],
+                        "model": {"api_key": "private-test-model-key"}}
+                goals = json.loads((state / "goals.json").read_text(encoding="utf-8"))
+                goals["isolated"] = goal
+                (state / "goals.json").write_text(json.dumps(goals), encoding="utf-8")
+                runs = state / "runs"
+                runs.mkdir(exist_ok=True)
+                (runs / "isolated.json").write_text(json.dumps({"run_id": "isolated", "status": "running"}), encoding="utf-8")
+                request("/v1/daemon/shutdown", "POST")
+                self.assertEqual(process.wait(timeout=15), 0)
+                process = launch()
+                self.assertIn(rid, request("/v1/routines"))
+                self.assertEqual(request(f"/v1/goals/{gid}")["status"], "failed")
+                self.assertEqual(request("/v1/goals/isolated")["status"], "interrupted")
+                self.assertNotIn("private-test-model-key", json.dumps(request("/v1/goals")))
+                self.assertNotIn("private-test-model-key", json.dumps(request("/v1/goals/isolated")))
+                self.assertEqual(request("/v1/runs/isolated")["status"], "interrupted")
+                request(f"/v1/routines/{rid}", "DELETE")
+                self.assertNotIn(rid, request("/v1/routines"))
+                with self.assertRaises(HTTPError) as missing:
+                    request(f"/v1/routines/{rid}", "DELETE")
+                self.assertEqual(missing.exception.code, 404)
+                missing.exception.close()
+                request("/v1/daemon/shutdown", "POST")
+                self.assertEqual(process.wait(timeout=15), 0)
+                process = launch()
+                self.assertNotIn(rid, request("/v1/routines"))
+            finally:
+                if process is not None and process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=5)
 
 
 if __name__ == "__main__":

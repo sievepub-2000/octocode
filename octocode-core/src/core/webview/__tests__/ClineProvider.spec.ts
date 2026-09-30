@@ -162,6 +162,7 @@ vi.mock("vscode", () => ({
 		executeCommand: vi.fn().mockResolvedValue(undefined),
 	},
 	window: {
+		createOutputChannel: vi.fn(),
 		showInformationMessage: vi.fn(),
 		showWarningMessage: vi.fn(),
 		showErrorMessage: vi.fn(),
@@ -716,24 +717,23 @@ describe("ClineProvider", () => {
 		})
 	})
 
-	test("publishes queried logs to the artifact inspector", async () => {
-		const artifactProvider = new ClineProvider(
-			mockContext,
-			mockOutputChannel,
-			"artifact",
-			new ContextProxy(mockContext),
-		)
-		await artifactProvider.resolveWebviewView(mockWebviewView)
+	test("publishes queried logs through a reusable output channel", async () => {
+		const channel = { clear: vi.fn(), appendLine: vi.fn(), show: vi.fn(), dispose: vi.fn() }
+		const createChannel = vi.spyOn(vscode.window, "createOutputChannel").mockReturnValue(channel as unknown as vscode.LogOutputChannel)
 		mockPostMessage.mockClear()
 		const records = [{ id: 7, level: "warn", subsystem: "browser", message: "retried", fields: {}, created_at: 1 }]
-
-		await provider.showLogsInInspector(records, "system")
-
-		expect(mockPostMessage).toHaveBeenCalledWith({
-			type: "artifactSelected",
-			payload: { kind: "logs", category: "system", path: "系统日志", records },
-		})
-		await artifactProvider.dispose()
+		try {
+			await provider.showLogsInTerminal(records, "system")
+			await provider.showLogsInTerminal(records, "system")
+			expect(createChannel).toHaveBeenCalledTimes(1)
+			expect(channel.appendLine).toHaveBeenCalledWith(JSON.stringify(records[0]))
+			expect(channel.show).toHaveBeenCalledWith(true)
+			expect(mockPostMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: "artifactSelected" }))
+			await provider.dispose()
+			expect(channel.dispose).toHaveBeenCalledTimes(1)
+		} finally {
+			createChannel.mockRestore()
+		}
 	})
 
 	test("ships no model configuration of its own", async () => {

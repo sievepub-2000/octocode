@@ -33,7 +33,10 @@ docs/_site/
 !.env.*.sample
 
 # Logging
+/target/
 logs
+!webview-ui/src/components/logs/
+!webview-ui/src/components/logs/*.tsx
 *.log
 
 # Vite development

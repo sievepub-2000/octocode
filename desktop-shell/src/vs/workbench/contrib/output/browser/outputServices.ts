@@ -30,6 +30,11 @@ import { telemetryLogId } from '../../../../platform/telemetry/common/telemetryU
 import { toLocalISOString } from '../../../../base/common/date.js';
 import { IWorkbenchEnvironmentService } from '../../../services/environment/common/environmentService.js';
 import { IDefaultLogLevelsService } from '../../../services/log/common/defaultLogLevels.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
+import { getOctoCodeTerminalGroup } from '../../octocode/browser/octoCodeEditorGroups.js';
+import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { IWorkbenchLayoutService, OCTOCODE_SHELL_ENABLED, Parts } from '../../../services/layout/browser/layoutService.js';
 
 const OUTPUT_ACTIVE_CHANNEL_KEY = 'output.activechannel';
 
@@ -333,7 +338,11 @@ export class OutputService extends Disposable implements IOutputService, ITextMo
 		@IDefaultLogLevelsService private readonly defaultLogLevelsService: IDefaultLogLevelsService,
 		@IFileDialogService private readonly fileDialogService: IFileDialogService,
 		@IFileService private readonly fileService: IFileService,
-		@IWorkbenchEnvironmentService environmentService: IWorkbenchEnvironmentService
+		@IWorkbenchEnvironmentService environmentService: IWorkbenchEnvironmentService,
+		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@IEditorGroupsService private readonly editorGroupsService: IEditorGroupsService,
+		@IEditorService private readonly editorService: IEditorService,
+		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService
 	) {
 		super();
 		this.activeChannelIdInStorage = this.storageService.get(OUTPUT_ACTIVE_CHANNEL_KEY, StorageScope.WORKSPACE, '');
@@ -408,6 +417,13 @@ export class OutputService extends Disposable implements IOutputService, ITextMo
 		if (this.activeChannel?.id !== channel?.id) {
 			this.setActiveChannel(channel);
 			this._onActiveOutputChannel.fire(id);
+		}
+		if (this.configurationService.getValue<boolean>(OCTOCODE_SHELL_ENABLED) !== false) {
+			this.layoutService.setPartHidden(true, Parts.PANEL_PART);
+			if (!channel) { return; }
+			const target = getOctoCodeTerminalGroup(this.editorGroupsService);
+			await this.editorService.openEditor({ resource: channel.uri, options: { pinned: true, preserveFocus, revealIfOpened: false } }, target.id);
+			return;
 		}
 		const outputView = await this.viewsService.openView<OutputViewPane>(OUTPUT_VIEW_ID, !preserveFocus);
 		if (outputView && channel) {

@@ -22,10 +22,12 @@ const MOCK_TIMEOUT_MS = 300_000
 
 const mockCreate = vitest.fn()
 
-vitest.mock("openai", () => {
+vitest.mock("openai", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("openai")>()
 	const mockConstructor = vitest.fn()
 	const mockAzureConstructor = vitest.fn()
 	return {
+		...actual,
 		__esModule: true,
 		default: mockConstructor.mockImplementation(function () {
 			return {

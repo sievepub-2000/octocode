@@ -81,6 +81,9 @@ pub fn create(
         args.extend([target.clone(), branch.to_owned()]);
     } else {
         args.extend(["--detach".to_owned(), target.clone()]);
+        if let Some(base) = base_branch {
+            args.push(base.to_owned());
+        }
     }
     run_git_owned(cwd, &args)?;
     let created = list(cwd)?

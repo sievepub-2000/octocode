@@ -15,7 +15,8 @@ import { clearAllMocks } from "../../../test-utils/reset"
 const mockCreate = vi.fn()
 
 // Mock OpenAI module
-vi.mock("openai", () => ({
+vi.mock("openai", async (importOriginal) => ({
+	...(await importOriginal<typeof import("openai")>()),
 	default: vi.fn(function () {
 		return {
 			chat: {

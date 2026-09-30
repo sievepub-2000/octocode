@@ -1,5 +1,20 @@
 use rusqlite::Connection;
 
+const SCHEMA_VERSION: i64 = 6;
+
+pub(super) fn validate_version(conn: &Connection) -> rusqlite::Result<()> {
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    if version > SCHEMA_VERSION {
+        return Err(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
+            Some(format!(
+                "database schema version {version} is newer than supported version {SCHEMA_VERSION}"
+            )),
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
         r#"
@@ -91,7 +106,7 @@ pub(super) fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute("ALTER TABLE sessions ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL", [])?;
     }
     conn.execute("CREATE INDEX IF NOT EXISTS sessions_project ON sessions(project_id)", [])?;
-    conn.pragma_update(None, "user_version", 6)
+    conn.pragma_update(None, "user_version", SCHEMA_VERSION)
 }
 
 fn has_column(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<bool> {

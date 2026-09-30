@@ -90,6 +90,10 @@ export function terminalEventText(
 ): string | undefined {
 	const payload = record(event.payload)
 	if (!payload) return undefined
+	if (event.kind === "agent.error") {
+		const message = typeof payload.message === "string" ? payload.message : typeof payload.error === "string" ? payload.error : "Runtime execution failed"
+		return `\x1b[31m[OctoCode error] ${message.replace(/\r?\n/g, "\r\n")}\x1b[0m\r\n`
+	}
 	if (event.kind === "agent.supervisor") return supervisorText(payload)
 	const id = typeof payload.toolCallId === "string" ? payload.toolCallId : ""
 	if (event.kind === "tool_call") {

@@ -10,6 +10,8 @@
  */
 
 import i18n from "../../../i18n/setup"
+import { APIUserAbortError as OpenAIUserAbortError } from "openai"
+import { APIUserAbortError as AnthropicUserAbortError } from "@octocode/sdk"
 
 /**
  * Handles API provider errors and transforms them into user-friendly messages
@@ -47,6 +49,16 @@ export function handleProviderError(
 	const messagePrefix = options?.messagePrefix || "completion"
 
 	if (error instanceof Error) {
+		// Explicit cancellation is control flow, not a failed provider request.
+		// Keep the original SDK error so callers can still recognize it.
+		if (
+			error instanceof OpenAIUserAbortError ||
+			error instanceof AnthropicUserAbortError ||
+			error.name === "AbortError" ||
+			error.constructor.name === "APIUserAbortError"
+		) {
+			return error
+		}
 		const anyErr = error as any
 		const msg = anyErr?.error?.metadata?.raw || error.message || ""
 

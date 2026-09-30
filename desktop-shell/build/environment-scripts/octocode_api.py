@@ -662,8 +662,17 @@ app = FastAPI(title="OctoCode Daemon", version="2.0", description="Run, schedule
 
 def authorize(request: Request) -> None:
     token = os.environ.get("OCTOCODE_API_TOKEN")
-    if token and not secrets.compare_digest(request.headers.get("authorization", ""), f"Bearer {token}"):
+    if token and not secrets.compare_digest(request.headers.get("authorization", "").encode("utf-8"), f"Bearer {token}".encode("utf-8")):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing or wrong bearer token")
+
+
+def public_record(value):
+    """Return detached API data without exposing persisted model credentials."""
+    if isinstance(value, dict):
+        return {key: public_record(item) for key, item in value.items() if key != "api_key"}
+    if isinstance(value, list):
+        return [public_record(item) for item in value]
+    return value
 
 
 def get_run(run_id: str) -> Run:
@@ -817,7 +826,7 @@ def list_extensions() -> list[dict]:
 
 @app.get("/v1/routines", dependencies=[Depends(authorize)])
 def list_routines() -> dict:
-    return load_json("routines.json")
+    return public_record(load_json("routines.json"))
 
 
 @app.post("/v1/routines", status_code=201, dependencies=[Depends(authorize)])
@@ -832,7 +841,7 @@ def create_routine(request: RoutineRequest) -> dict:
         routines = load_json("routines.json")
         routines[routine["id"]] = routine
         save_json("routines.json", routines)
-    return routine
+    return public_record(routine)
 
 
 @app.delete("/v1/routines/{routine_id}", dependencies=[Depends(authorize)])
@@ -857,12 +866,12 @@ def create_goal(request: GoalRequest) -> dict:
         goals[goal_id] = goal
         save_json("goals.json", goals)
     threading.Thread(target=goal_loop, args=(goal_id,), daemon=True).start()
-    return goal
+    return public_record(goal)
 
 
 @app.get("/v1/goals", dependencies=[Depends(authorize)])
 def list_goals() -> dict:
-    return load_json("goals.json")
+    return public_record(load_json("goals.json"))
 
 
 @app.get("/v1/goals/{goal_id}", dependencies=[Depends(authorize)])
@@ -870,7 +879,7 @@ def read_goal(goal_id: str) -> dict:
     goal = load_json("goals.json").get(goal_id)
     if not goal:
         raise HTTPException(404, f"Unknown goal {goal_id}")
-    return goal
+    return public_record(goal)
 
 
 @app.post("/v1/goals/{goal_id}/resume", status_code=202, dependencies=[Depends(authorize)])
@@ -884,10 +893,12 @@ def resume_goal(goal_id: str) -> dict:
         if goal["status"] == "running":
             raise HTTPException(409, f"Goal {goal_id} is already running")
         goal.update(status="running", created=time.time())
+        goal.pop("finished", None)
+        goal.pop("error", None)
         goal["max_iterations"] = len(goal["iterations"]) + max(1, goal["max_iterations"] - len(goal["iterations"]))
         save_json("goals.json", goals)
     threading.Thread(target=goal_loop, args=(goal_id,), daemon=True).start()
-    return goal
+    return public_record(goal)
 
 
 def export_product_environment() -> None:

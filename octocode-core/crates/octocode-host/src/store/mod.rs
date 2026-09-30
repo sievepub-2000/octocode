@@ -127,6 +127,7 @@ impl Store {
         };
         let conn = Connection::open(path)?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        schema::validate_version(&conn)?;
         conn.execute_batch(
             "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;",
         )?;
@@ -570,6 +571,23 @@ impl Store {
         )?;
         self.workflow(id)?
             .ok_or(rusqlite::Error::QueryReturnedNoRows)
+    }
+
+    pub fn create_workflow_checkpoint(
+        &self,
+        id: &str,
+        session_id: &str,
+        objective: &str,
+        phase: &str,
+        status: &str,
+        state: &Value,
+    ) -> rusqlite::Result<WorkflowRun> {
+        let transaction = self.conn.unchecked_transaction()?;
+        self.create_workflow(id, session_id, objective, state)?;
+        self.update_workflow(id, phase, status, state)?;
+        let workflow = self.workflow(id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        transaction.commit()?;
+        Ok(workflow)
     }
 
     pub fn workflow(&self, id: &str) -> rusqlite::Result<Option<WorkflowRun>> {

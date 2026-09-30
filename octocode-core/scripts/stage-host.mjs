@@ -11,6 +11,9 @@ const destination = path.join(root, "src", "bin", platform, executable)
 await stat(source)
 await mkdir(path.dirname(destination), { recursive: true })
 await copyFile(source, destination)
+if (process.platform === "win32") {
+	await copyFile(path.join(root, "scripts", "octocode-agent.cmd"), path.join(path.dirname(destination), "octocode-agent.cmd"))
+}
 
 // Keep the prompt preview identical to the template used by the bundled harness.
 const prompt = path.join(root, "..", "octo-harness", "crates", "codegen", "xai-grok-agent", "templates", "prompt.md")

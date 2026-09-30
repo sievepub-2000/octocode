@@ -18,9 +18,11 @@ import { ZAiHandler } from "../zai"
 import { asyncStreamFrom } from "../../../test-utils/stream"
 import { clearAllMocks } from "../../../test-utils/reset"
 
-vitest.mock("openai", () => {
+vitest.mock("openai", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("openai")>()
 	const createMock = vitest.fn()
 	return {
+		...actual,
 		default: vitest.fn(function () {
 			return { chat: { completions: { create: createMock } } }
 		}),

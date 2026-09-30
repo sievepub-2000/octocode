@@ -169,7 +169,7 @@ const mockClineProvider = {
 	getTaskWithId: vi.fn(),
 	createTaskWithHistoryItem: vi.fn(),
 	startRuntimeTask: vi.fn().mockResolvedValue({ sessionId: "session-1", taskId: "task-1" }),
-	showLogsInInspector: vi.fn(),
+	showLogsInTerminal: vi.fn(),
 	getSkillsManager: vi.fn(),
 	cwd: "/mock/workspace",
 } as unknown as ClineProvider
@@ -215,7 +215,7 @@ describe("Runtime prompt enhancement history", () => {
 })
 
 describe("webviewMessageHandler - log inspector", () => {
-	it("forwards queried logs to the right artifact inspector", async () => {
+	it("forwards queried logs to the fixed terminal region", async () => {
 		const records = [{ id: 7, level: "warn", subsystem: "browser", message: "retried", fields: {}, created_at: 1 }]
 		mockRuntimeCall.mockResolvedValueOnce(records)
 
@@ -224,7 +224,7 @@ describe("webviewMessageHandler - log inspector", () => {
 			payload: { requestId: "logs-1", method: "log.list", params: { category: "system", keyword: "browser" } },
 		})
 
-		expect(mockClineProvider.showLogsInInspector).toHaveBeenCalledWith(records, "system")
+		expect(mockClineProvider.showLogsInTerminal).toHaveBeenCalledWith(records, "system")
 	})
 })
 

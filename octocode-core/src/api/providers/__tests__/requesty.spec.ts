@@ -18,8 +18,10 @@ import { clearAllMocks } from "../../../test-utils/reset"
 
 const mockCreate = vitest.fn()
 
-vitest.mock("openai", () => {
+vitest.mock("openai", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("openai")>()
 	return {
+		...actual,
 		default: vitest.fn().mockImplementation(function () {
 			return {
 				chat: {

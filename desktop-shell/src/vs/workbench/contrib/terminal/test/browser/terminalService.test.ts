@@ -29,6 +29,7 @@ suite('Workbench - TerminalService', () => {
 	setup(async () => {
 		dialogService = new TestDialogService();
 		configurationService = new TestConfigurationService({
+			octocode: { shell: { ownWindowChrome: false } },
 			files: {},
 			terminal: {
 				integrated: {
@@ -48,6 +49,22 @@ suite('Workbench - TerminalService', () => {
 
 		terminalService = store.add(instantiationService.createInstance(TerminalService));
 		instantiationService.stub(ITerminalService, terminalService);
+	});
+
+	test('OctoCode routes an explicitly requested panel terminal to an editor', async () => {
+		await configurationService.setUserConfiguration('octocode.shell.ownWindowChrome', true);
+		const instance = { shellType: undefined } as ITerminalInstance;
+		instantiationService.stub(ITerminalInstanceService, 'convertProfileToShellLaunchConfig', (config: unknown) => config);
+		let actualLocation: TerminalLocation | undefined;
+		Reflect.set(terminalService, '_resolveCwd', async () => {});
+		Reflect.set(terminalService, '_getSplitParent', async () => undefined);
+		Reflect.set(terminalService, '_createTerminal', (_config: unknown, location: TerminalLocation) => {
+			actualLocation = location;
+			return instance;
+		});
+		terminalService.registerProcessSupport(true);
+		await terminalService.createTerminal({ config: { customPtyImplementation: () => { throw new Error('not used'); } }, location: TerminalLocation.Panel, skipContributedProfileCheck: true });
+		strictEqual(actualLocation, TerminalLocation.Editor);
 	});
 
 	suite('background terminals', () => {
