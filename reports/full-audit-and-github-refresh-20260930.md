@@ -48,7 +48,7 @@ Rust 全工作区 `cargo test --jobs 1 --workspace --all-targets` 曾对 97 个�
 
 用户已明确授权以本地最新源码替换废弃的 GitHub 仓库内容。本轮先从四个独立仓库的**已提交 Git 树**构建单一发布快照，而不是把工作目录、依赖缓存、运行数据或构建产物直接复制进仓库。发布索引逐文件比较原始 Git blob ID 和模式：根仓库 45 项、桌面 12,738 项、Rust harness 3,620 项、核心 2,573 项，共 **18,976 项**，缺失 0、内容或模式不符 0、额外文件 0。Windows `tar` 导出曾使换行和个别路径编码不匹配；最终改为从四个 Git 提交树直接组合索引，并通过完整 Git bundle 的独立克隆、可达性检查、树文件数与哈希验证。发布树中没有项目运行目录、Release 二进制或扫描出的真实访问凭据；少量密钥特征命中位于测试假凭据、扫描报告或检测器源码。保留合法许可证、依赖包名及技术标识。
 
-GitHub 私有仓库 `sievepub-2000/octocode` 的原 `master` 为 `5c7fa9587608`，已以精确旧提交为 lease 覆盖成发布快照 **`8461046c8e1b4c6f814c82fe60a27bfcc26e270e`**。首次推送后读回 `master` 与此值相同，递归树 API 未截断；本报告在发布后作为文档提交追加到 `master`，不修改三个组件的源码树。仅保留 `master` 分支。旧版 `v2026.4.29`、`v2026.4.30` Release 及标签已删除。GitHub 已创建并公开发布 [OctoCode v1.132.1](https://github.com/sievepub-2000/octocode/releases/tag/v1.132.1)，标签指向上述源码快照；版本说明含安装路径、修复、验证界限和报告链接。
+GitHub 私有仓库 `sievepub-2000/octocode` 的原 `master` 为 `5c7fa9587608`，已以精确旧提交为 lease 覆盖成发布快照 **`8461046c8e1b4c6f814c82fe60a27bfcc26e270e`**。首次推送后读回 `master` 与此值相同，递归树 API 未截断；本报告在发布后作为文档提交追加到 `master`，不修改三个组件的源码树。旧版 `v2026.4.29`、`v2026.4.30` Release 及标签、旧 Dependabot 分支已删除；发布后 GitHub 又基于新源码自动创建依赖升级 PR #12（Vitest）和 #13（undici）及对应分支，属于待审建议，未合并进 `master`。GitHub 已创建并公开发布 [OctoCode v1.132.1](https://github.com/sievepub-2000/octocode/releases/tag/v1.132.1)，标签指向上述源码快照；版本说明含安装路径、修复、验证界限和报告链接。
 
 Release 资产读回结果：`OctoCodeSetup-1.132.1.exe` 736,842,327 字节，GitHub digest `sha256:7eb061762f6a08ca018829f23dc62732641918bf93fda08ebdf660aa0fdb5fd9`；`octocode-0.1.7.vsix` 81,841,881 字节，digest `sha256:8c1d0a0ed9947f7a35fb0e10232727815a110875e576002a3786167760b42110`；另附 `release-manifest.json` 与 `SHA256SUMS`。两份主要资产的 GitHub 大小与哈希均和 3 号机正式发布文件及本地复制件一致，状态为 `uploaded`，Release 为非草稿。强制替换分支、删除旧标签只更新当前 Git 引用；GitHub 底层不可达对象的物理回收不由本轮控制，不能声称服务端历史字节已即时彻底清除。
 
@@ -58,5 +58,6 @@ Release 资产读回结果：`OctoCodeSetup-1.132.1.exe` 736,842,327 字节，Gi
 - 将桌面全仓 ESLint 和 Rust 工作区测试纳入资源可控的 Windows CI；实际未跑通的检查应明确保留为风险。
 - 补全真实桌面 UI 各管理入口、任务跨会话、压缩、权限生命周期的自动化交互；只有真实执行的操作才能标记通过。
 - 为正式安装器配置可信代码签名，并替换当前占位的在线更新 URL；上线之前核对签名、更新服务器和版本回退策略。
+- 评估 GitHub 自动生成的 Dependabot PR #12 和 #13，并分别完成 Windows 相关回归后决定是否合并；它们不属于 v1.132.1 发布内容。
 - 在维护窗口执行真实重启和冷启动，补验服务启动、配置与数据库持久化、交互权限以及重启后的 MCP/扩展健康。本轮未对共享的 3 号机重启。
 - 若计划跨平台发布，另行在 Linux、macOS 和 Docker Engine 实测安装、权限、冷启动与卸载；本次 Windows 验收不能替代这些平台。
