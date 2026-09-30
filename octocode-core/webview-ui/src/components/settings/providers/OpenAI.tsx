@@ -1,0 +1,178 @@
+import { useCallback, useState } from "react"
+import { Checkbox } from "@/components/ui/settings-checkbox"
+import { VSCodeTextField } from "@vscode/webview-ui-toolkit/react"
+
+import { OpenAiServiceTier, type ModelInfo, type ProviderSettings } from "@roo-code/types"
+
+import { useAppTranslation } from "@src/i18n/TranslationContext"
+import { VSCodeButtonLink } from "@src/components/common/VSCodeButtonLink"
+import {
+	Button,
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+	StandardTooltip,
+} from "@src/components/ui"
+
+import { inputEventTransform } from "../transforms"
+
+/**
+ * This entry is OpenAI's own service. A base URL on any other host is a
+ * self-hosted or third-party server, which belongs to "OpenAI Compatible".
+ */
+export const isOfficialOpenAiBaseUrl = (baseUrl: string | undefined) => {
+	if (!baseUrl?.trim()) {
+		return true
+	}
+
+	try {
+		const host = new URL(baseUrl.trim()).hostname.toLowerCase()
+		return host === "openai.com" || host.endsWith(".openai.com")
+	} catch {
+		return false
+	}
+}
+
+type OpenAIProps = {
+	apiConfiguration: ProviderSettings
+	setApiConfigurationField: (field: keyof ProviderSettings, value: ProviderSettings[keyof ProviderSettings]) => void
+	selectedModelInfo?: ModelInfo
+	simplifySettings?: boolean
+}
+
+export const OpenAI = ({ apiConfiguration, setApiConfigurationField, selectedModelInfo }: OpenAIProps) => {
+	const { t } = useAppTranslation()
+
+	const [openAiNativeBaseUrlSelected, setOpenAiNativeBaseUrlSelected] = useState(
+		!!apiConfiguration?.openAiNativeBaseUrl,
+	)
+
+	const handleInputChange = useCallback(
+		<K extends keyof ProviderSettings, E>(
+			field: K,
+			transform: (event: E) => ProviderSettings[K] = inputEventTransform,
+		) =>
+			(event: E | Event) => {
+				setApiConfigurationField(field, transform(event as E))
+			},
+		[setApiConfigurationField],
+	)
+
+	return (
+		<>
+			<Checkbox
+				checked={openAiNativeBaseUrlSelected}
+				onChange={(checked: boolean) => {
+					setOpenAiNativeBaseUrlSelected(checked)
+
+					if (!checked) {
+						setApiConfigurationField("openAiNativeBaseUrl", "")
+					}
+				}}>
+				{t("settings:providers.useCustomBaseUrl")}
+			</Checkbox>
+			{openAiNativeBaseUrlSelected && (
+				<>
+					<VSCodeTextField
+						value={apiConfiguration?.openAiNativeBaseUrl || ""}
+						type="url"
+						onInput={handleInputChange("openAiNativeBaseUrl")}
+						placeholder="https://api.openai.com/v1"
+						className="w-full mt-1"
+					/>
+				</>
+			)}
+			{openAiNativeBaseUrlSelected && !isOfficialOpenAiBaseUrl(apiConfiguration?.openAiNativeBaseUrl) && (
+				<div
+					className="flex flex-col gap-2 rounded-md border border-vscode-inputValidation-warningBorder bg-vscode-inputValidation-warningBackground px-3 py-2 text-sm"
+					data-testid="openai-native-non-official-url">
+					<span>{t("settings:providers.openAiNativeNonOfficialUrl")}</span>
+					<Button
+						variant="secondary"
+						size="sm"
+						className="w-fit"
+						data-testid="switch-to-openai-compatible"
+						onClick={() => {
+							const baseUrl = apiConfiguration.openAiNativeBaseUrl?.trim()
+							const apiKey = apiConfiguration.openAiNativeApiKey
+							const modelId = apiConfiguration.apiModelId
+							setApiConfigurationField("apiProvider", "openai")
+							setApiConfigurationField("openAiBaseUrl", baseUrl)
+							if (apiKey) {
+								setApiConfigurationField("openAiApiKey", apiKey)
+							}
+							if (modelId) {
+								setApiConfigurationField("openAiModelId", modelId)
+							}
+						}}>
+						{t("settings:providers.switchToOpenAiCompatible")}
+					</Button>
+				</div>
+			)}
+			<VSCodeTextField
+				value={apiConfiguration?.openAiNativeApiKey || ""}
+				type="password"
+				onInput={handleInputChange("openAiNativeApiKey")}
+				placeholder={t("settings:placeholders.apiKey")}
+				className="w-full">
+				<label className="block font-medium mb-1">{t("settings:providers.openAiApiKey")}</label>
+			</VSCodeTextField>
+			<div className="text-sm text-vscode-descriptionForeground -mt-2">
+				{t("settings:providers.apiKeyStorageNotice")}
+			</div>
+			{!apiConfiguration?.openAiNativeApiKey && (
+				<VSCodeButtonLink href="https://platform.openai.com/api-keys" appearance="secondary">
+					{t("settings:providers.getOpenAiApiKey")}
+				</VSCodeButtonLink>
+			)}
+
+			{(() => {
+				const allowedTiers = (selectedModelInfo?.tiers?.map((t) => t.name).filter(Boolean) || []).filter(
+					(t) => t === OpenAiServiceTier.Flex || t === OpenAiServiceTier.Priority,
+				)
+				if (allowedTiers.length === 0) return null
+
+				return (
+					<div className="flex flex-col gap-1 mt-2" data-testid="openai-service-tier">
+						<div className="flex items-center gap-1">
+							<label className="block font-medium mb-1">{t("settings:serviceTier.label")}</label>
+							<StandardTooltip content={t("settings:serviceTier.tooltip")}>
+								<i className="codicon codicon-info text-vscode-descriptionForeground text-xs" />
+							</StandardTooltip>
+						</div>
+
+						<Select
+							value={apiConfiguration.openAiNativeServiceTier || OpenAiServiceTier.Default}
+							onValueChange={(value) =>
+								setApiConfigurationField(
+									"openAiNativeServiceTier",
+									value as ProviderSettings["openAiNativeServiceTier"],
+								)
+							}>
+							<SelectTrigger className="w-full">
+								<SelectValue placeholder={t("settings:common.select")} />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value={OpenAiServiceTier.Default}>
+									{t("settings:serviceTier.standard")}
+								</SelectItem>
+								{allowedTiers.includes(OpenAiServiceTier.Flex) && (
+									<SelectItem value={OpenAiServiceTier.Flex}>
+										{t("settings:serviceTier.flex")}
+									</SelectItem>
+								)}
+								{allowedTiers.includes(OpenAiServiceTier.Priority) && (
+									<SelectItem value={OpenAiServiceTier.Priority}>
+										{t("settings:serviceTier.priority")}
+									</SelectItem>
+								)}
+							</SelectContent>
+						</Select>
+					</div>
+				)
+			})()}
+		</>
+	)
+}

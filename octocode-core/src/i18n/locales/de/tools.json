@@ -1,0 +1,41 @@
+{
+	"readFile": {
+		"linesRange": " (Zeilen {{start}}-{{end}})",
+		"definitionsOnly": " (nur Definitionen)",
+		"maxLines": " (maximal {{max}} Zeilen)",
+		"imageTooLarge": "Die Bilddatei ist zu groß ({{size}} MB). Die maximal erlaubte Größe beträgt {{max}} MB.",
+		"imageWithSize": "Bilddatei ({{size}} KB)"
+	},
+	"toolRepetitionLimitReached": "OctoCode scheint in einer Schleife festzustecken und versucht wiederholt dieselbe Aktion ({{toolName}}). Dies könnte auf ein Problem mit der aktuellen Strategie hindeuten. Überlege dir, die Aufgabe umzuformulieren, genauere Anweisungen zu geben oder OctoCode zu einem anderen Ansatz zu führen.",
+	"unknownToolError": "OctoCode hat versucht, ein unbekanntes Tool zu verwenden: \"{{toolName}}\". Wiederhole Versuch...",
+	"missingToolParameter": "OctoCode hat versucht, {{toolName}} ohne Wert für den erforderlichen Parameter '{{paramName}}' zu verwenden. Wiederhole Versuch...",
+	"missingToolParameterWithPath": "OctoCode hat versucht, {{toolName}} für '{{relPath}}' ohne Wert für den erforderlichen Parameter '{{paramName}}' zu verwenden. Wiederhole Versuch...",
+	"codebaseSearch": {
+		"approval": "Suche nach '{{query}}' im Codebase..."
+	},
+	"executeCommand": {
+		"destructiveCommandGuard": {
+			"blocked": "Destructive Command Guard hat diesen Befehl blockiert.",
+			"blockedWithReason": "Destructive Command Guard hat diesen Befehl blockiert. Nachricht von DCG: {{reason}}",
+			"blockedWithRule": "Destructive Command Guard hat diesen Befehl blockiert. (Regel: {{ruleId}})",
+			"blockedWithReasonAndRule": "Destructive Command Guard hat diesen Befehl blockiert. Nachricht von DCG: {{reason}} (Regel: {{ruleId}})"
+		}
+	},
+	"newTask": {
+		"errors": {
+			"policy_restriction": "Neue Aufgabe konnte aufgrund von Richtlinienbeschränkungen nicht erstellt werden."
+		}
+	},
+	"generateImage": {
+		"openRouterApiKeyRequired": "OpenRouter API-Schlüssel ist für die Bildgenerierung mit OpenRouter-Modellen erforderlich. Bitte konfiguriere ihn in den Experimentellen Einstellungen für Bildgenerierung.",
+		"failedWithStatus": "Bildgenerierung fehlgeschlagen: {{status}} {{statusText}}",
+		"failedWithMessage": "Bildgenerierung fehlgeschlagen: {{message}}",
+		"noImageGenerated": "In der Antwort wurde kein Bild generiert",
+		"invalidImageData": "Ungültige Bilddaten in der Antwort",
+		"invalidImageFormat": "Ungültiges Bildformat erhalten",
+		"unknownError": "Unbekannter Fehler aufgetreten",
+		"roo": {
+			"authRequired": "OctoCode Cloud-Authentifizierung ist für die Bildgenerierung erforderlich. Bitte melde dich bei OctoCode Cloud an."
+		}
+	}
+}

@@ -1,0 +1,10 @@
+# This repository is an export of the three OctoCode component repositories.
+# Component-local .gitignore files cover their own build outputs.
+/runtime/
+/tools/
+/audit/
+/verification/
+/publish/
+/releases/
+/work/cache/
+/work/tmp/

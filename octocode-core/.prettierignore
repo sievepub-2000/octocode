@@ -1,0 +1,11 @@
+node_modules
+dist
+build
+out
+.next
+.venv
+pnpm-lock.yaml
+target
+
+# Harness prompt template: template directives must keep their exact indentation.
+src/resources/harness/system-prompt.md

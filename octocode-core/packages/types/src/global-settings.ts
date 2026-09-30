@@ -1,0 +1,363 @@
+import { z } from "zod"
+
+import { codebaseIndexConfigSchema, codebaseIndexModelsSchema } from "./codebase-index.js"
+import { experimentsSchema } from "./experiment.js"
+import { historyItemSchema } from "./history.js"
+import { customModePromptsSchema, customSupportPromptsSchema, modeConfigSchema } from "./mode.js"
+import {
+	type ProviderSettings,
+	PROVIDER_SETTINGS_KEYS,
+	providerSettingsEntrySchema,
+	providerSettingsSchema,
+} from "./provider-settings.js"
+import { telemetrySettingsSchema } from "./telemetry.js"
+import { toolNamesSchema } from "./tool.js"
+import { type Keys } from "./type-fu.js"
+import { displayLanguagesSchema } from "./vscode.js"
+
+/**
+ * Default delay in milliseconds after writes to allow diagnostics to detect potential problems.
+ * This delay is particularly important for Go and other languages where tools like goimports
+ * need time to automatically clean up unused imports.
+ */
+export const DEFAULT_WRITE_DELAY_MS = 1000
+
+/**
+ * Default values for the "auto-close files OctoCode opened" settings.
+ *
+ * These are defined once here and consumed by every site that reads the setting
+ * (DiffViewProvider save/revert, ClineProvider state serialization, and the
+ * UISettings checkboxes) so there is a single source of truth for the default
+ * behavior. Auto-closing edited tabs is opt-in: by default, files OctoCode edits stay
+ * open in the editor (the long-standing behavior). Users who want to save
+ * context tokens by closing the edited tab after each edit can enable it.
+ */
+export const DEFAULT_AUTO_CLOSE_OCTOCODE_OPENED_FILES = false
+export const DEFAULT_AUTO_CLOSE_OCTOCODE_OPENED_FILES_AFTER_USER_EDITED = false
+export const DEFAULT_AUTO_CLOSE_OCTOCODE_OPENED_NEW_FILES = false
+
+/**
+ * Default fuzzy matching threshold for the multi-search-replace diff strategy.
+ * A value of 1.0 (exact match) is used by default for safety, especially when
+ * auto-approval for writes is enabled. This prevents unintended changes from
+ * being applied due to minor mismatches. Users can lower this threshold manually
+ * in settings to reduce "Edit Unsuccessful" errors caused by minor whitespace
+ * or formatting differences, accepting a higher risk of unintended edits.
+ */
+/**
+ * Share of the context window at which the conversation is condensed.
+ *
+ * Below 100 on purpose: at 100 the condense only begins once the window is
+ * already full, which is the moment there is no room left to summarise into. The
+ * margin is what lets the compaction run at all.
+ */
+export const DEFAULT_AUTO_CONDENSE_CONTEXT_PERCENT = 90
+
+export const DEFAULT_DIFF_FUZZY_THRESHOLD = 1.0
+
+export const DEFAULT_DESTRUCTIVE_COMMAND_GUARD_ENABLED = false
+
+/**
+ * Terminal output preview size options for persisted command output.
+ *
+ * Controls how much command output is kept in memory as a "preview" before
+ * the LLM decides to retrieve more via `read_command_output`. Larger previews
+ * mean more immediate context but consume more of the context window.
+ *
+ * - `small`: 5KB preview - Best for long-running commands with verbose output
+ * - `medium`: 10KB preview - Balanced default for most use cases
+ * - `large`: 20KB preview - Best when commands produce critical info early
+ *
+ * @see OutputInterceptor - Uses this setting to determine when to spill to disk
+ * @see PersistedCommandOutput - Contains the resulting preview and artifact reference
+ */
+export type TerminalOutputPreviewSize = "small" | "medium" | "large"
+
+/**
+ * Byte limits for each terminal output preview size.
+ *
+ * Maps preview size names to their corresponding byte thresholds.
+ * When command output exceeds these thresholds, the excess is persisted
+ * to disk and made available via the `read_command_output` tool.
+ */
+export const TERMINAL_PREVIEW_BYTES: Record<TerminalOutputPreviewSize, number> = {
+	small: 5 * 1024, // 5KB
+	medium: 10 * 1024, // 10KB
+	large: 20 * 1024, // 20KB
+}
+
+/**
+ * Default terminal output preview size.
+ * The "medium" (10KB) setting provides a good balance between immediate
+ * visibility and context window conservation for most use cases.
+ */
+export const DEFAULT_TERMINAL_OUTPUT_PREVIEW_SIZE: TerminalOutputPreviewSize = "medium"
+
+/**
+ * Minimum checkpoint timeout in seconds.
+ */
+export const MIN_CHECKPOINT_TIMEOUT_SECONDS = 10
+
+/**
+ * Maximum checkpoint timeout in seconds.
+ */
+export const MAX_CHECKPOINT_TIMEOUT_SECONDS = 60
+
+/**
+ * Default checkpoint timeout in seconds.
+ */
+export const DEFAULT_CHECKPOINT_TIMEOUT_SECONDS = 15
+
+/**
+ * GlobalSettings
+ */
+
+export const permissionProfileSchema = z.enum(["review", "directory", "full"])
+export type PermissionProfile = z.infer<typeof permissionProfileSchema>
+
+export const globalSettingsSchema = z.object({
+	currentApiConfigName: z.string().optional(),
+	listApiConfigMeta: z.array(providerSettingsEntrySchema).optional(),
+	pinnedApiConfigs: z.record(z.string(), z.boolean()).optional(),
+
+	lastShownAnnouncementId: z.string().optional(),
+	customInstructions: z.string().optional(),
+	taskHistory: z.array(historyItemSchema).optional(),
+	dismissedUpsells: z.array(z.string()).optional(),
+
+	// Image generation settings (experimental) - flattened for simplicity
+
+	customCondensingPrompt: z.string().optional(),
+
+	autoApprovalEnabled: z.boolean().optional(),
+	permissionProfile: permissionProfileSchema.optional(),
+	alwaysAllowReadOnly: z.boolean().optional(),
+	alwaysAllowReadOnlyOutsideWorkspace: z.boolean().optional(),
+	alwaysAllowWrite: z.boolean().optional(),
+	alwaysAllowWriteOutsideWorkspace: z.boolean().optional(),
+	alwaysAllowWriteProtected: z.boolean().optional(),
+	writeDelayMs: z.number().min(0).optional(),
+	/**
+	 * Fuzzy matching threshold for the multi-search-replace diff strategy.
+	 * Range: 0.5 (50% minimum similarity) to 1.0 (exact match only).
+	 * `@default` 1.0
+	 */
+	diffFuzzyThreshold: z.number().min(0.5).max(1).optional(),
+	requestDelaySeconds: z.number().optional(),
+	alwaysAllowMcp: z.boolean().optional(),
+	alwaysAllowModeSwitch: z.boolean().optional(),
+	alwaysAllowSubtasks: z.boolean().optional(),
+	alwaysAllowExecute: z.boolean().optional(),
+	destructiveCommandGuardEnabled: z.boolean().optional(),
+	alwaysAllowFollowupQuestions: z.boolean().optional(),
+	followupAutoApproveTimeoutMs: z.number().optional(),
+	allowedCommands: z.array(z.string()).optional(),
+	deniedCommands: z.array(z.string()).optional(),
+	commandExecutionTimeout: z.number().optional(),
+	commandTimeoutAllowlist: z.array(z.string()).optional(),
+	preventCompletionWithOpenTodos: z.boolean().optional(),
+	allowedMaxRequests: z.number().nullish(),
+	allowedMaxCost: z.number().nullish(),
+	autoCondenseContext: z.boolean().optional(),
+	autoCondenseContextPercent: z.number().optional(),
+
+	/**
+	 * Whether to include current time in the environment details
+	 * @default true
+	 */
+	includeCurrentTime: z.boolean().optional(),
+	/**
+	 * Whether to include current cost in the environment details
+	 * @default true
+	 */
+	includeCurrentCost: z.boolean().optional(),
+	/**
+	 * Maximum number of git status file entries to include in the environment details.
+	 * Set to 0 to disable git status. The header (branch, commits) is always included when > 0.
+	 * @default 0
+	 */
+	maxGitStatusFiles: z.number().optional(),
+
+	/**
+	 * Whether to include diagnostic messages (errors, warnings) in tool outputs
+	 * @default true
+	 */
+	includeDiagnosticMessages: z.boolean().optional(),
+	/**
+	 * Maximum number of diagnostic messages to include in tool outputs
+	 * @default 50
+	 */
+	maxDiagnosticMessages: z.number().optional(),
+
+	enableCheckpoints: z.boolean().optional(),
+	checkpointTimeout: z
+		.number()
+		.int()
+		.min(MIN_CHECKPOINT_TIMEOUT_SECONDS)
+		.max(MAX_CHECKPOINT_TIMEOUT_SECONDS)
+		.optional(),
+
+	ttsEnabled: z.boolean().optional(),
+	ttsSpeed: z.number().optional(),
+	soundEnabled: z.boolean().optional(),
+	soundVolume: z.number().optional(),
+
+	maxOpenTabsContext: z.number().optional(),
+	maxWorkspaceFiles: z.number().optional(),
+	showRooIgnoredFiles: z.boolean().optional(),
+	enableSubfolderRules: z.boolean().optional(),
+	maxImageFileSize: z.number().optional(),
+	maxTotalImageSize: z.number().optional(),
+
+	terminalOutputPreviewSize: z.enum(["small", "medium", "large"]).optional(),
+	terminalShellIntegrationTimeout: z.number().optional(),
+	terminalShellIntegrationDisabled: z.boolean().optional(),
+	terminalCommandDelay: z.number().optional(),
+	terminalPowershellCounter: z.boolean().optional(),
+	terminalZshClearEolMark: z.boolean().optional(),
+	terminalZshOhMy: z.boolean().optional(),
+	terminalZshP10k: z.boolean().optional(),
+	terminalZdotdir: z.boolean().optional(),
+	terminalProfile: z.string().optional(),
+	execaShellPath: z.string().optional(),
+
+	diagnosticsEnabled: z.boolean().optional(),
+	autoCloseOctoCodeOpenedFiles: z.boolean().optional(),
+	autoCloseOctoCodeOpenedFilesAfterUserEdited: z.boolean().optional(),
+	autoCloseOctoCodeOpenedNewFiles: z.boolean().optional(),
+
+	rateLimitSeconds: z.number().optional(),
+	experiments: experimentsSchema.optional(),
+
+	codebaseIndexModels: codebaseIndexModelsSchema.optional(),
+	codebaseIndexConfig: codebaseIndexConfigSchema.optional(),
+
+	language: displayLanguagesSchema.optional(),
+
+	telemetrySetting: telemetrySettingsSchema.optional(),
+
+	mcpEnabled: z.boolean().optional(),
+
+	mode: z.string().optional(),
+	modeApiConfigs: z.record(z.string(), z.string()).optional(),
+	customModes: z.array(modeConfigSchema).optional(),
+	customModePrompts: customModePromptsSchema.optional(),
+	customSupportPrompts: customSupportPromptsSchema.optional(),
+	enhancementApiConfigId: z.string().optional(),
+	includeTaskHistoryInEnhance: z.boolean().optional(),
+	historyPreviewCollapsed: z.boolean().optional(),
+	reasoningBlockCollapsed: z.boolean().optional(),
+	/**
+	 * Font size (in pixels) for the OctoCode chat/webview UI.
+	 * When unset (or `null`), the webview inherits VS Code's `--vscode-font-size`.
+	 */
+	chatFontSize: z.number().int().min(8).max(32).nullish(),
+	/**
+	 * Controls the keyboard behavior for sending messages in the chat input.
+	 * - "send": Enter sends message, Shift+Enter creates newline (default)
+	 * - "newline": Enter creates newline, Shift+Enter/Ctrl+Enter sends message
+	 * @default "send"
+	 */
+	enterBehavior: z.enum(["send", "newline"]).optional(),
+	profileThresholds: z.record(z.string(), z.number()).optional(),
+	hasOpenedModeSelector: z.boolean().optional(),
+	lastModeExportPath: z.string().optional(),
+	lastModeImportPath: z.string().optional(),
+	lastSettingsExportPath: z.string().optional(),
+	lastTaskExportPath: z.string().optional(),
+	lastImageSavePath: z.string().optional(),
+
+	/**
+	 * Path to worktree to auto-open after switching workspaces.
+	 * Used by the worktree feature to open the Roo Code sidebar in a new window.
+	 */
+	worktreeAutoOpenPath: z.string().optional(),
+	/**
+	 * Whether to show the worktree selector in the home screen.
+	 * @default true
+	 */
+	showWorktreesInHomeScreen: z.boolean().optional(),
+
+	/**
+	 * List of native tool names to globally disable.
+	 * Tools in this list will be excluded from prompt generation and rejected at execution time.
+	 */
+	disabledTools: z.array(toolNamesSchema).optional(),
+})
+
+export type GlobalSettings = z.infer<typeof globalSettingsSchema>
+
+export const GLOBAL_SETTINGS_KEYS = globalSettingsSchema.keyof().options
+
+/**
+ * RooCodeSettings
+ */
+
+export const rooCodeSettingsSchema = providerSettingsSchema.merge(globalSettingsSchema)
+
+export type RooCodeSettings = GlobalSettings & ProviderSettings
+
+/**
+ * SecretState
+ */
+export const SECRET_STATE_KEYS = [
+	"speechApiKey",
+	"apiKey",
+	"openRouterApiKey",
+	"awsAccessKey",
+	"awsApiKey",
+	"awsSecretKey",
+	"awsSessionToken",
+	"openAiApiKey",
+	"ollamaApiKey",
+	"geminiApiKey",
+	"openAiNativeApiKey",
+	"deepSeekApiKey",
+	"moonshotApiKey",
+	"kimiCodeApiKey",
+	"qwenCodeApiKey",
+	"mistralApiKey",
+	"minimaxApiKey",
+	"requestyApiKey",
+	"unboundApiKey",
+	"xaiApiKey",
+	"litellmApiKey",
+	"codeIndexOpenAiKey",
+	"codeIndexQdrantApiKey",
+	"codebaseIndexOpenAiCompatibleApiKey",
+	"codebaseIndexGeminiApiKey",
+	"codebaseIndexMistralApiKey",
+	"codebaseIndexVercelAiGatewayApiKey",
+	"codebaseIndexOpenRouterApiKey",
+	"sambaNovaApiKey",
+	"zaiApiKey",
+	"fireworksApiKey",
+	"friendliApiKey",
+	"vercelAiGatewayApiKey",
+	"opencodeGoApiKey",
+	"kenariApiKey",
+	"nanoGptApiKey",
+	"basetenApiKey",
+] as const
+
+// Type for the actual secret storage keys
+type ProviderSecretKey = (typeof SECRET_STATE_KEYS)[number]
+
+// Type representing all secrets that can be stored
+export type SecretState = Pick<ProviderSettings, Extract<ProviderSecretKey, keyof ProviderSettings>>
+
+export const isSecretStateKey = (key: string): key is Keys<SecretState> =>
+	SECRET_STATE_KEYS.includes(key as ProviderSecretKey)
+
+/**
+ * GlobalState
+ */
+
+export type GlobalState = Omit<RooCodeSettings, Keys<SecretState>>
+
+export const GLOBAL_STATE_KEYS = [...GLOBAL_SETTINGS_KEYS, ...PROVIDER_SETTINGS_KEYS].filter(
+	(key: Keys<RooCodeSettings>) => !isSecretStateKey(key),
+) as Keys<GlobalState>[]
+
+export const isGlobalStateKey = (key: string): key is Keys<GlobalState> =>
+	GLOBAL_STATE_KEYS.includes(key as Keys<GlobalState>)

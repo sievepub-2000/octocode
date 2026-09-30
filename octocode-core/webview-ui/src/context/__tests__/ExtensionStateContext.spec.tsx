@@ -1,0 +1,468 @@
+import { render, screen, act } from "@/utils/test-utils"
+import React from "react"
+
+import {
+	type ProviderSettings,
+	type ExperimentId,
+	type ExtensionState,
+	type MarketplaceItem,
+	type MarketplaceInstalledMetadata,
+	type RouterModels,
+	DEFAULT_CHECKPOINT_TIMEOUT_SECONDS,
+	DEFAULT_DIFF_FUZZY_THRESHOLD,
+} from "@roo-code/types"
+
+import { ExtensionStateContextProvider, useExtensionState, mergeExtensionState } from "../ExtensionStateContext"
+
+const TestComponent = () => {
+	const { allowedCommands, setAllowedCommands, soundEnabled, showRooIgnoredFiles, setShowRooIgnoredFiles } =
+		useExtensionState()
+
+	return (
+		<div>
+			<div data-testid="allowed-commands">{JSON.stringify(allowedCommands)}</div>
+			<div data-testid="sound-enabled">{JSON.stringify(soundEnabled)}</div>
+			<div data-testid="show-rooignored-files">{JSON.stringify(showRooIgnoredFiles)}</div>
+			<button data-testid="update-button" onClick={() => setAllowedCommands(["npm install", "git status"])}>
+				Update Commands
+			</button>
+			<button data-testid="toggle-rooignore-button" onClick={() => setShowRooIgnoredFiles(!showRooIgnoredFiles)}>
+				Update Commands
+			</button>
+		</div>
+	)
+}
+
+const RulesTestComponent = () => {
+	const { rules } = useExtensionState()
+
+	return <div data-testid="rules">{JSON.stringify(rules)}</div>
+}
+
+const ChatFontSizeTestComponent = () => {
+	const { chatFontSize, setChatFontSize } = useExtensionState()
+
+	return (
+		<div>
+			<div data-testid="chat-font-size">{JSON.stringify(chatFontSize ?? null)}</div>
+			<button data-testid="set-font-size-button" onClick={() => setChatFontSize(20)}>
+				Set Font Size
+			</button>
+			<button data-testid="reset-font-size-button" onClick={() => setChatFontSize(undefined)}>
+				Reset Font Size
+			</button>
+		</div>
+	)
+}
+
+const ApiConfigTestComponent = () => {
+	const { apiConfiguration, setApiConfiguration } = useExtensionState()
+
+	return (
+		<div>
+			<div data-testid="api-configuration">{JSON.stringify(apiConfiguration)}</div>
+			<button
+				data-testid="update-api-config-button"
+				onClick={() => setApiConfiguration({ apiModelId: "new-model", apiProvider: "anthropic" })}>
+				Update API Config
+			</button>
+			<button data-testid="partial-update-button" onClick={() => setApiConfiguration({ modelTemperature: 0.7 })}>
+				Partial Update
+			</button>
+		</div>
+	)
+}
+
+const InitialStateTestComponent = () => {
+	const {
+		alwaysAllowFollowupQuestions,
+		followupAutoApproveTimeoutMs,
+		includeTaskHistoryInEnhance,
+		includeCurrentTime,
+		includeCurrentCost,
+		routerModels,
+		marketplaceItems,
+		marketplaceInstalledMetadata,
+	} = useExtensionState()
+
+	return (
+		<div data-testid="initial-state">
+			{JSON.stringify({
+				alwaysAllowFollowupQuestions,
+				followupAutoApproveTimeoutMs,
+				includeTaskHistoryInEnhance,
+				includeCurrentTime,
+				includeCurrentCost,
+				routerModels,
+				marketplaceItems,
+				marketplaceInstalledMetadata,
+			})}
+		</div>
+	)
+}
+
+describe("ExtensionStateContext", () => {
+	it("initializes with empty allowedCommands array", () => {
+		render(
+			<ExtensionStateContextProvider>
+				<TestComponent />
+			</ExtensionStateContextProvider>,
+		)
+
+		expect(JSON.parse(screen.getByTestId("allowed-commands").textContent!)).toEqual([])
+	})
+
+	it("initializes with empty rules array", () => {
+		render(
+			<ExtensionStateContextProvider>
+				<RulesTestComponent />
+			</ExtensionStateContextProvider>,
+		)
+
+		expect(JSON.parse(screen.getByTestId("rules").textContent!)).toEqual([])
+	})
+
+	it("updates rules from incoming rules message", () => {
+		render(
+			<ExtensionStateContextProvider>
+				<RulesTestComponent />
+			</ExtensionStateContextProvider>,
+		)
+
+		act(() => {
+			window.dispatchEvent(
+				new MessageEvent("message", {
+					data: {
+						type: "rules",
+						rules: [
+							{
+								id: "global:generic:generic:rule.md",
+								name: "rule.md",
+								scope: "global",
+								kind: "generic",
+								filePath: "/home/.roo/rules/rule.md",
+								relativePath: "rule.md",
+								directoryPath: "/home/.roo/rules",
+							},
+						],
+					},
+				}),
+			)
+		})
+
+		expect(JSON.parse(screen.getByTestId("rules").textContent!)).toEqual([
+			expect.objectContaining({ id: "global:generic:generic:rule.md", name: "rule.md" }),
+		])
+	})
+
+	it("clears rules when incoming rules message omits rules", () => {
+		render(
+			<ExtensionStateContextProvider>
+				<RulesTestComponent />
+			</ExtensionStateContextProvider>,
+		)
+
+		act(() => {
+			window.dispatchEvent(
+				new MessageEvent("message", {
+					data: {
+						type: "rules",
+						rules: [
+							{
+								id: "global:generic:generic:rule.md",
+								name: "rule.md",
+								scope: "global",
+								kind: "generic",
+								filePath: "/home/.roo/rules/rule.md",
+								relativePath: "rule.md",
+								directoryPath: "/home/.roo/rules",
+							},
+						],
+					},
+				}),
+			)
+			window.dispatchEvent(
+				new MessageEvent("message", {
+					data: { type: "rules" },
+				}),
+			)
+		})
+
+		expect(JSON.parse(screen.getByTestId("rules").textContent!)).toEqual([])
+	})
+
+	it("initializes with soundEnabled set to false", () => {
+		render(
+			<ExtensionStateContextProvider>
+				<TestComponent />
+			</ExtensionStateContextProvider>,
+		)
+
+		expect(JSON.parse(screen.getByTestId("sound-enabled").textContent!)).toBe(false)
+	})
+
+	it("initializes with showRooIgnoredFiles set to true", () => {
+		render(
+			<ExtensionStateContextProvider>
+				<TestComponent />
+			</ExtensionStateContextProvider>,
+		)
+
+		expect(JSON.parse(screen.getByTestId("show-rooignored-files").textContent!)).toBe(true)
+	})
+
+	it("initializes shadowed context fields from initialState", () => {
+		const routerModels = {} as RouterModels
+		const marketplaceItems: MarketplaceItem[] = [
+			{
+				id: "mode-item",
+				name: "Test mode",
+				description: "A test mode",
+				type: "mode",
+				content: "custom mode content",
+			},
+		]
+		const marketplaceInstalledMetadata: MarketplaceInstalledMetadata = {
+			project: { "mode-item": { type: "mode" } },
+			global: {},
+		}
+
+		render(
+			<ExtensionStateContextProvider
+				initialState={{
+					alwaysAllowFollowupQuestions: true,
+					followupAutoApproveTimeoutMs: 1500,
+					includeTaskHistoryInEnhance: false,
+					includeCurrentTime: false,
+					includeCurrentCost: false,
+					routerModels,
+					marketplaceItems,
+					marketplaceInstalledMetadata,
+				}}>
+				<InitialStateTestComponent />
+			</ExtensionStateContextProvider>,
+		)
+
+		expect(JSON.parse(screen.getByTestId("initial-state").textContent!)).toEqual({
+			alwaysAllowFollowupQuestions: true,
+			followupAutoApproveTimeoutMs: 1500,
+			includeTaskHistoryInEnhance: false,
+			includeCurrentTime: false,
+			includeCurrentCost: false,
+			routerModels: {},
+			marketplaceItems,
+			marketplaceInstalledMetadata,
+		})
+	})
+
+	it("updates showRooIgnoredFiles through setShowRooIgnoredFiles", () => {
+		render(
+			<ExtensionStateContextProvider>
+				<TestComponent />
+			</ExtensionStateContextProvider>,
+		)
+
+		act(() => {
+			screen.getByTestId("toggle-rooignore-button").click()
+		})
+
+		expect(JSON.parse(screen.getByTestId("show-rooignored-files").textContent!)).toBe(false)
+	})
+
+	it("does not set the chat font-size CSS variable when unset (init)", () => {
+		document.documentElement.style.removeProperty("--octocode-chat-font-size")
+
+		render(
+			<ExtensionStateContextProvider>
+				<ChatFontSizeTestComponent />
+			</ExtensionStateContextProvider>,
+		)
+
+		expect(JSON.parse(screen.getByTestId("chat-font-size").textContent!)).toBe(null)
+		expect(document.documentElement.style.getPropertyValue("--octocode-chat-font-size")).toBe("")
+	})
+
+	it("applies the chat font-size CSS variable when set, and clears it on reset", () => {
+		document.documentElement.style.removeProperty("--octocode-chat-font-size")
+
+		render(
+			<ExtensionStateContextProvider>
+				<ChatFontSizeTestComponent />
+			</ExtensionStateContextProvider>,
+		)
+
+		act(() => {
+			screen.getByTestId("set-font-size-button").click()
+		})
+
+		expect(JSON.parse(screen.getByTestId("chat-font-size").textContent!)).toBe(20)
+		expect(document.documentElement.style.getPropertyValue("--octocode-chat-font-size")).toBe("20px")
+
+		act(() => {
+			screen.getByTestId("reset-font-size-button").click()
+		})
+
+		expect(JSON.parse(screen.getByTestId("chat-font-size").textContent!)).toBe(null)
+		expect(document.documentElement.style.getPropertyValue("--octocode-chat-font-size")).toBe("")
+	})
+
+	it("updates allowedCommands through setAllowedCommands", () => {
+		render(
+			<ExtensionStateContextProvider>
+				<TestComponent />
+			</ExtensionStateContextProvider>,
+		)
+
+		act(() => {
+			screen.getByTestId("update-button").click()
+		})
+
+		expect(JSON.parse(screen.getByTestId("allowed-commands").textContent!)).toEqual(["npm install", "git status"])
+	})
+
+	it("throws error when used outside provider", () => {
+		const useContextSpy = vi.spyOn(React, "useContext").mockReturnValue(undefined)
+
+		try {
+			expect(() => useExtensionState()).toThrow(
+				"useExtensionState must be used within an ExtensionStateContextProvider",
+			)
+		} finally {
+			useContextSpy.mockRestore()
+		}
+	})
+
+	it("updates apiConfiguration through setApiConfiguration", () => {
+		render(
+			<ExtensionStateContextProvider>
+				<ApiConfigTestComponent />
+			</ExtensionStateContextProvider>,
+		)
+
+		const initialContent = screen.getByTestId("api-configuration").textContent!
+		expect(initialContent).toBeDefined()
+
+		act(() => {
+			screen.getByTestId("update-api-config-button").click()
+		})
+
+		const updatedContent = screen.getByTestId("api-configuration").textContent!
+		const updatedConfig = JSON.parse(updatedContent || "{}")
+
+		expect(updatedConfig).toEqual(
+			expect.objectContaining({
+				apiModelId: "new-model",
+				apiProvider: "anthropic",
+			}),
+		)
+	})
+
+	it("correctly merges partial updates to apiConfiguration", () => {
+		render(
+			<ExtensionStateContextProvider>
+				<ApiConfigTestComponent />
+			</ExtensionStateContextProvider>,
+		)
+
+		// First set the initial configuration
+		act(() => {
+			screen.getByTestId("update-api-config-button").click()
+		})
+
+		// Verify initial update
+		const initialContent = screen.getByTestId("api-configuration").textContent!
+		const initialConfig = JSON.parse(initialContent || "{}")
+		expect(initialConfig).toEqual(
+			expect.objectContaining({
+				apiModelId: "new-model",
+				apiProvider: "anthropic",
+			}),
+		)
+
+		// Now perform a partial update
+		act(() => {
+			screen.getByTestId("partial-update-button").click()
+		})
+
+		// Verify that the partial update was merged with the existing configuration
+		const updatedContent = screen.getByTestId("api-configuration").textContent!
+		const updatedConfig = JSON.parse(updatedContent || "{}")
+		expect(updatedConfig).toEqual(
+			expect.objectContaining({
+				apiModelId: "new-model", // Should retain this from previous update
+				apiProvider: "anthropic", // Should retain this from previous update
+				modelTemperature: 0.7, // Should add this from partial update
+			}),
+		)
+	})
+})
+
+describe("mergeExtensionState", () => {
+	it("should correctly merge extension states", () => {
+		const baseState: ExtensionState = {
+			version: "",
+			mcpEnabled: false,
+			shouldShowAnnouncement: false,
+			enableCheckpoints: true,
+			writeDelayMs: 1000,
+			mode: "default",
+			experiments: {} as Record<ExperimentId, boolean>,
+			customModes: [],
+			maxOpenTabsContext: 20,
+			maxWorkspaceFiles: 100,
+			apiConfiguration: { providerId: "openrouter" } as ProviderSettings,
+			telemetrySetting: "unset",
+			showRooIgnoredFiles: true,
+			enableSubfolderRules: false,
+			renderContext: "sidebar",
+			cloudUserInfo: null,
+			organizationAllowList: { allowAll: true, providers: {} },
+			autoCondenseContext: true,
+			autoCondenseContextPercent: 100,
+			cloudIsAuthenticated: false,
+			sharingEnabled: false,
+			publicSharingEnabled: false,
+			profileThresholds: {},
+			hasOpenedModeSelector: false, // Add the new required property
+			maxImageFileSize: 5,
+			maxTotalImageSize: 20,
+			taskSyncEnabled: false,
+			checkpointTimeout: DEFAULT_CHECKPOINT_TIMEOUT_SECONDS, // Add the checkpoint timeout property
+			maxReadFileLine: -1,
+			diffFuzzyThreshold: DEFAULT_DIFF_FUZZY_THRESHOLD,
+		}
+
+		const prevState: ExtensionState = {
+			...baseState,
+			apiConfiguration: { modelMaxTokens: 1234, modelMaxThinkingTokens: 123 },
+			experiments: {} as Record<ExperimentId, boolean>,
+			checkpointTimeout: DEFAULT_CHECKPOINT_TIMEOUT_SECONDS - 5,
+		}
+
+		const newState: ExtensionState = {
+			...baseState,
+			apiConfiguration: { modelMaxThinkingTokens: 456, modelTemperature: 0.3 },
+			experiments: {
+				preventFocusDisruption: false,
+				parallelToolExecution: false,
+				runSlashCommand: false,
+				customTools: false,
+			} as Record<ExperimentId, boolean>,
+			checkpointTimeout: DEFAULT_CHECKPOINT_TIMEOUT_SECONDS + 5,
+		}
+
+		const result = mergeExtensionState(prevState, newState)
+
+		expect(result.apiConfiguration).toEqual({
+			modelMaxThinkingTokens: 456,
+			modelTemperature: 0.3,
+		})
+
+		expect(result.experiments).toEqual({
+			preventFocusDisruption: false,
+			parallelToolExecution: false,
+			runSlashCommand: false,
+			customTools: false,
+		})
+	})
+})

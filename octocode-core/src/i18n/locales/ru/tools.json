@@ -1,0 +1,41 @@
+{
+	"readFile": {
+		"linesRange": " (строки {{start}}-{{end}})",
+		"definitionsOnly": " (только определения)",
+		"maxLines": " (макс. {{max}} строк)",
+		"imageTooLarge": "Файл изображения слишком большой ({{size}} МБ). Максимально допустимый размер {{max}} МБ.",
+		"imageWithSize": "Файл изображения ({{size}} КБ)"
+	},
+	"toolRepetitionLimitReached": "Похоже, что OctoCode застрял в цикле, многократно пытаясь выполнить одно и то же действие ({{toolName}}). Это может указывать на проблему с его текущей стратегией. Попробуйте переформулировать задачу, предоставить более конкретные инструкции или направить его к другому подходу.",
+	"unknownToolError": "OctoCode попытался использовать неизвестный инструмент: \"{{toolName}}\". Повторная попытка...",
+	"missingToolParameter": "OctoCode попытался использовать {{toolName}} без значения для обязательного параметра '{{paramName}}'. Повторная попытка...",
+	"missingToolParameterWithPath": "OctoCode попытался использовать {{toolName}} для '{{relPath}}' без значения для обязательного параметра '{{paramName}}'. Повторная попытка...",
+	"codebaseSearch": {
+		"approval": "Поиск '{{query}}' в кодовой базе..."
+	},
+	"executeCommand": {
+		"destructiveCommandGuard": {
+			"blocked": "Destructive Command Guard заблокировал эту команду.",
+			"blockedWithReason": "Destructive Command Guard заблокировал эту команду. Сообщение от DCG: {{reason}}",
+			"blockedWithRule": "Destructive Command Guard заблокировал эту команду. (Правило: {{ruleId}})",
+			"blockedWithReasonAndRule": "Destructive Command Guard заблокировал эту команду. Сообщение от DCG: {{reason}} (Правило: {{ruleId}})"
+		}
+	},
+	"newTask": {
+		"errors": {
+			"policy_restriction": "Не удалось создать новую задачу из-за ограничений политики."
+		}
+	},
+	"generateImage": {
+		"openRouterApiKeyRequired": "Для генерации изображений с моделями OpenRouter требуется API-ключ OpenRouter. Настройте его в экспериментальных настройках генерации изображений.",
+		"failedWithStatus": "Не удалось сгенерировать изображение: {{status}} {{statusText}}",
+		"failedWithMessage": "Не удалось сгенерировать изображение: {{message}}",
+		"noImageGenerated": "В ответе не было сгенерировано изображение",
+		"invalidImageData": "Недопустимые данные изображения в ответе",
+		"invalidImageFormat": "Получен недопустимый формат изображения",
+		"unknownError": "Произошла неизвестная ошибка",
+		"roo": {
+			"authRequired": "Для генерации изображений требуется аутентификация OctoCode Cloud. Войдите в OctoCode Cloud."
+		}
+	}
+}

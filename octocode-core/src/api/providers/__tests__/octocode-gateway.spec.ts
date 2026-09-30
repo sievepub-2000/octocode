@@ -1,0 +1,715 @@
+// npx vitest run src/api/providers/__tests__/octocode-gateway.spec.ts
+
+vitest.mock("../utils/timeout-config", () => ({
+	getApiRequestTimeout: vitest.fn().mockReturnValue(300_000),
+}))
+
+const MOCK_TIMEOUT_MS = 300_000
+
+const { showErrorMessage, openExternal } = vitest.hoisted(() => ({
+	showErrorMessage: vitest.fn(async () => undefined as string | undefined),
+	openExternal: vitest.fn(async () => true),
+}))
+
+vitest.mock("vscode", () => ({
+	window: { showErrorMessage },
+	env: { openExternal, uriScheme: "vscode", appName: "VS Code" },
+	Uri: { parse: (value: string) => ({ toString: () => value }) },
+	workspace: {
+		getConfiguration: () => ({
+			get: (_key: string, defaultValue?: unknown) => defaultValue,
+		}),
+	},
+}))
+
+vitest.mock("../../../i18n", () => ({
+	t: (key: string) => key,
+}))
+
+import OpenAI from "openai"
+
+import { octoCodeGatewayDefaultModelId, OCTOCODE_GATEWAY_DEFAULT_TEMPERATURE } from "@roo-code/types"
+
+import { OctoCodeGatewayHandler, classifyGatewayApiError, toGatewayStreamError } from "../octocode-gateway"
+import { ApiHandlerOptions } from "../../../shared/api"
+import { Package } from "../../../shared/package"
+import { clearOctoCodeToken } from "../../../services/octocode-auth"
+import { asyncStreamFrom, collectStream } from "../../../test-utils/stream"
+import { clearAllMocks } from "../../../test-utils/reset"
+
+vitest.mock("openai")
+vitest.mock("delay", () => ({
+	default: vitest.fn(function () {
+		return Promise.resolve()
+	}),
+}))
+vitest.mock("../fetchers/modelCache", () => ({
+	getModels: vitest.fn().mockImplementation(function () {
+		return Promise.resolve({
+			"anthropic/claude-sonnet-4": {
+				maxTokens: 64000,
+				contextWindow: 200000,
+				supportsImages: true,
+				supportsPromptCache: true,
+				inputPrice: 3,
+				outputPrice: 15,
+				cacheWritesPrice: 3.75,
+				cacheReadsPrice: 0.3,
+				description: "Claude Sonnet 4",
+			},
+			"anthropic/claude-3.5-haiku": {
+				maxTokens: 32000,
+				contextWindow: 200000,
+				supportsImages: true,
+				supportsPromptCache: true,
+				inputPrice: 1,
+				outputPrice: 5,
+				cacheWritesPrice: 1.25,
+				cacheReadsPrice: 0.1,
+				description: "Claude 3.5 Haiku",
+			},
+		})
+	}),
+	getModelsFromCache: vitest.fn().mockReturnValue(undefined),
+}))
+
+const mockGetCachedOctoCodeToken = vitest.hoisted(() => vitest.fn<() => string | undefined>(() => undefined))
+const mockSessionCleared = vitest.hoisted(() => ({ value: false }))
+
+vitest.mock("../../../services/octocode-auth", () => ({
+	getOctoCodeBaseUrl: vitest.fn(function () {
+		return "https://www.octocode.dev"
+	}),
+	getCachedOctoCodeToken: () => mockGetCachedOctoCodeToken() ?? "",
+	resolveOctoCodeGatewaySessionToken: (profileToken?: string) => {
+		const cached = mockGetCachedOctoCodeToken()
+		if (cached) return cached
+		if (mockSessionCleared.value) return undefined
+		return profileToken
+	},
+	clearOctoCodeToken: vitest.fn(async () => {
+		mockSessionCleared.value = true
+		mockGetCachedOctoCodeToken.mockReturnValue(undefined)
+	}),
+}))
+
+vitest.mock("../../transform/caching/vercel-ai-gateway", () => ({
+	addCacheBreakpoints: vitest.fn(),
+}))
+
+const mockCreate = vitest.fn()
+
+function mockOpenAIClient() {
+	vitest.mocked(OpenAI).mockImplementation(function () {
+		return {
+			chat: {
+				completions: {
+					create: mockCreate,
+				},
+			},
+		} as unknown as OpenAI
+	})
+}
+
+mockOpenAIClient()
+
+describe("OctoCodeGatewayHandler", () => {
+	const mockOptions: ApiHandlerOptions = {
+		octoCodeSessionToken: "octo_ext_test_token",
+		octoCodeGatewayModelId: "anthropic/claude-sonnet-4",
+	}
+
+	beforeEach(() => {
+		clearAllMocks()
+		mockSessionCleared.value = false
+		mockGetCachedOctoCodeToken.mockReturnValue(undefined)
+		mockCreate.mockClear()
+		showErrorMessage.mockReset()
+		showErrorMessage.mockResolvedValue(undefined)
+		openExternal.mockReset()
+		openExternal.mockResolvedValue(true)
+		mockOpenAIClient()
+	})
+
+	function makeApiError(status: number, options: { code?: string; message?: string } = {}) {
+		const err = new Error(options.message ?? `HTTP ${status}`) as Error & {
+			status: number
+			code?: string
+		}
+		err.status = status
+		if (options.code) err.code = options.code
+		return err
+	}
+
+	async function drainCreateMessage(handler: OctoCodeGatewayHandler) {
+		return collectStream(handler.createMessage("system", [{ role: "user", content: "hi" }]))
+	}
+
+	describe("constructor", () => {
+		it("allows construction without a session token (auth is enforced at request time)", () => {
+			expect(() => new OctoCodeGatewayHandler({})).not.toThrow()
+			expect(OpenAI).toHaveBeenCalledWith(
+				expect.objectContaining({
+					apiKey: "not-provided",
+				}),
+			)
+		})
+
+		it("prefers the secret-storage cache over a persisted profile token", () => {
+			mockGetCachedOctoCodeToken.mockReturnValue("octo_ext_cached_token")
+
+			new OctoCodeGatewayHandler({
+				octoCodeSessionToken: "octo_ext_stale_profile_token",
+				octoCodeGatewayModelId: mockOptions.octoCodeGatewayModelId,
+			})
+
+			expect(OpenAI).toHaveBeenCalledWith(
+				expect.objectContaining({
+					apiKey: "octo_ext_cached_token",
+				}),
+			)
+		})
+
+		it("initializes OpenAI with OctoCode enrichment headers and session token", () => {
+			const handler = new OctoCodeGatewayHandler({
+				...mockOptions,
+				octoCodeGatewayBaseUrl: "https://staging.octocode.dev/api/gateway/v1",
+			})
+
+			expect(handler).toBeInstanceOf(OctoCodeGatewayHandler)
+			expect(OpenAI).toHaveBeenCalledWith({
+				baseURL: "https://staging.octocode.dev/api/gateway/v1",
+				apiKey: mockOptions.octoCodeSessionToken,
+				defaultHeaders: expect.objectContaining({
+					"HTTP-Referer": "https://github.com/OctoCode-Org/OctoCode",
+					"X-Title": "OctoCode",
+					"X-OctoCode-Editor": "vscode",
+					"X-OctoCode-Extension-Version": Package.version,
+				}),
+				timeout: MOCK_TIMEOUT_MS,
+			})
+		})
+
+		it("defaults the gateway base URL from getOctoCodeBaseUrl", () => {
+			new OctoCodeGatewayHandler(mockOptions)
+
+			expect(OpenAI).toHaveBeenCalledWith(
+				expect.objectContaining({
+					baseURL: "https://www.octocode.dev/api/gateway/v1",
+				}),
+			)
+		})
+	})
+
+	describe("fetchModel", () => {
+		it("returns configured model info", async () => {
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+			const result = await handler.fetchModel()
+
+			expect(result.id).toBe(mockOptions.octoCodeGatewayModelId)
+			expect(result.info.maxTokens).toBe(64000)
+			expect(result.info.supportsPromptCache).toBe(true)
+		})
+
+		it("falls back to the default model when none is configured", async () => {
+			const handler = new OctoCodeGatewayHandler({ octoCodeSessionToken: "octo_ext_test_token" })
+			const result = await handler.fetchModel()
+
+			expect(result.id).toBe(octoCodeGatewayDefaultModelId)
+		})
+	})
+
+	describe("createMessage", () => {
+		it("requires authentication at request time when no session token is available", async () => {
+			const handler = new OctoCodeGatewayHandler({})
+			await expect(drainCreateMessage(handler)).rejects.toThrow(
+				"OctoCode Gateway requires authentication. Please sign in to OctoCode first.",
+			)
+		})
+
+		beforeEach(() => {
+			mockCreate.mockImplementation(async () =>
+				asyncStreamFrom([
+					{
+						choices: [{ delta: { content: "Test response" }, index: 0 }],
+						usage: null,
+					},
+					{
+						choices: [{ delta: {}, index: 0 }],
+						usage: {
+							prompt_tokens: 10,
+							completion_tokens: 5,
+							total_tokens: 15,
+							cache_creation_input_tokens: 2,
+							prompt_tokens_details: { cached_tokens: 3 },
+							cost: 0.005,
+						},
+					},
+				]),
+			)
+		})
+
+		it("requires authentication at request time when no session token is available", async () => {
+			const handler = new OctoCodeGatewayHandler({})
+			const stream = handler.createMessage("You are helpful.", [{ role: "user", content: "Hello" }])
+
+			await expect(collectStream(stream)).rejects.toThrow(
+				"OctoCode Gateway requires authentication. Please sign in to OctoCode first.",
+			)
+		})
+
+		it("streams text and usage chunks", async () => {
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+			const stream = handler.createMessage("You are helpful.", [{ role: "user", content: "Hello" }])
+
+			const chunks = await collectStream(stream)
+
+			expect(chunks).toEqual([
+				{ type: "text", text: "Test response" },
+				{
+					type: "usage",
+					inputTokens: 10,
+					outputTokens: 5,
+					cacheWriteTokens: 2,
+					cacheReadTokens: 3,
+					totalCost: 0.005,
+				},
+			])
+		})
+
+		it("forwards task and mode metadata as request headers", async () => {
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+
+			await handler.createMessage("prompt", [], { taskId: "task-123", mode: "code" }).next()
+
+			expect(mockCreate).toHaveBeenCalledWith(
+				expect.any(Object),
+				expect.objectContaining({
+					headers: {
+						"X-OctoCode-Task-ID": "task-123",
+						"X-OctoCode-Mode": "code",
+					},
+				}),
+			)
+		})
+
+		it("uses custom temperature when provided", async () => {
+			const handler = new OctoCodeGatewayHandler({
+				...mockOptions,
+				modelTemperature: 0.5,
+			})
+
+			await handler.createMessage("prompt", [{ role: "user", content: "Hi" }]).next()
+
+			expect(mockCreate).toHaveBeenCalledWith(
+				expect.objectContaining({
+					temperature: 0.5,
+				}),
+				expect.any(Object),
+			)
+		})
+
+		it("uses the default temperature when none is provided", async () => {
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+
+			await handler.createMessage("prompt", [{ role: "user", content: "Hi" }]).next()
+
+			expect(mockCreate).toHaveBeenCalledWith(
+				expect.objectContaining({
+					temperature: OCTOCODE_GATEWAY_DEFAULT_TEMPERATURE,
+				}),
+				expect.any(Object),
+			)
+		})
+
+		it("adds cache breakpoints for supported models", async () => {
+			const { addCacheBreakpoints } = await import("../../transform/caching/vercel-ai-gateway")
+			const handler = new OctoCodeGatewayHandler({
+				...mockOptions,
+				octoCodeGatewayModelId: "anthropic/claude-3.5-haiku",
+			})
+
+			await handler.createMessage("prompt", [{ role: "user", content: "Hi" }]).next()
+
+			expect(addCacheBreakpoints).toHaveBeenCalled()
+		})
+
+		it("yields tool_call_partial chunks when streaming tool calls", async () => {
+			mockCreate.mockImplementation(async () =>
+				asyncStreamFrom([
+					{
+						choices: [
+							{
+								delta: {
+									tool_calls: [
+										{
+											index: 0,
+											id: "call_123",
+											function: { name: "test_tool", arguments: '{"arg1":' },
+										},
+									],
+								},
+								index: 0,
+							},
+						],
+					},
+				]),
+			)
+
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+			const chunks = await collectStream(handler.createMessage("prompt", []))
+
+			expect(chunks).toEqual([
+				{
+					type: "tool_call_partial",
+					index: 0,
+					id: "call_123",
+					name: "test_tool",
+					arguments: '{"arg1":',
+				},
+			])
+		})
+
+		it("throws the upstream reason when the gateway sends an in-stream error chunk", async () => {
+			mockCreate.mockImplementation(async () =>
+				asyncStreamFrom([
+					{
+						error: {
+							message: "Too many requests, please wait before trying again",
+							status: 429,
+							code: "rate_limited",
+						},
+					},
+				]),
+			)
+
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+
+			await expect(drainCreateMessage(handler)).rejects.toThrow(
+				"Too many requests, please wait before trying again",
+			)
+		})
+
+		it("surfaces the add-credits prompt when an in-stream error carries a budget code", async () => {
+			mockCreate.mockImplementation(async () =>
+				asyncStreamFrom([
+					{
+						error: {
+							message: "Monthly budget exceeded",
+							status: 429,
+							code: "monthly_budget_exceeded",
+						},
+					},
+				]),
+			)
+
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+
+			await expect(drainCreateMessage(handler)).rejects.toThrow()
+			expect(showErrorMessage).toHaveBeenCalledWith(
+				"common:octoCodeAuth.errors.budget_exceeded",
+				"common:octoCodeAuth.buttons.add_credits",
+			)
+		})
+	})
+
+	describe("completePrompt", () => {
+		beforeEach(() => {
+			mockCreate.mockImplementation(async () => ({
+				choices: [{ message: { role: "assistant", content: "Test completion response" } }],
+			}))
+		})
+
+		it("returns completion text from the gateway", async () => {
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+
+			const result = await handler.completePrompt("Complete this: Hello")
+
+			expect(result).toBe("Test completion response")
+			expect(mockCreate).toHaveBeenCalledWith(
+				expect.objectContaining({
+					model: "anthropic/claude-sonnet-4",
+					messages: [{ role: "user", content: "Complete this: Hello" }],
+					stream: false,
+					temperature: OCTOCODE_GATEWAY_DEFAULT_TEMPERATURE,
+					max_completion_tokens: 64000,
+				}),
+			)
+		})
+
+		it("wraps errors with a OctoCode Gateway prefix", async () => {
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+			mockCreate.mockImplementation(function () {
+				throw new Error("upstream failure")
+			})
+
+			await expect(handler.completePrompt("Test")).rejects.toThrow(
+				"OctoCode Gateway completion error: upstream failure",
+			)
+		})
+
+		it("returns an empty string when the model returns no content", async () => {
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+			mockCreate.mockImplementation(async () => ({
+				choices: [{ message: { role: "assistant", content: null } }],
+			}))
+
+			await expect(handler.completePrompt("Test")).resolves.toBe("")
+		})
+	})
+
+	describe("classifyGatewayApiError", () => {
+		it("returns sign_in on 401", () => {
+			expect(classifyGatewayApiError(makeApiError(401))).toEqual({ kind: "sign_in" })
+		})
+
+		it("returns add_credits (not budget) on 402", () => {
+			expect(classifyGatewayApiError(makeApiError(402))).toEqual({ kind: "add_credits", budgetExceeded: false })
+		})
+
+		it("returns add_credits with budgetExceeded on 429 budget codes", () => {
+			expect(classifyGatewayApiError(makeApiError(429, { code: "monthly_budget_exceeded" }))).toEqual({
+				kind: "add_credits",
+				budgetExceeded: true,
+			})
+			expect(classifyGatewayApiError(makeApiError(429, { code: "daily_budget_exceeded" }))).toEqual({
+				kind: "add_credits",
+				budgetExceeded: true,
+			})
+		})
+
+		it("returns none on 429 without a budget code", () => {
+			expect(classifyGatewayApiError(makeApiError(429, { code: "rate_limited" }))).toEqual({ kind: "none" })
+		})
+
+		it("returns contact_support on 403", () => {
+			expect(classifyGatewayApiError(makeApiError(403))).toEqual({ kind: "contact_support" })
+		})
+
+		it("returns none for errors without an HTTP status", () => {
+			expect(classifyGatewayApiError(new Error("network down"))).toEqual({ kind: "none" })
+		})
+	})
+
+	describe("toGatewayStreamError", () => {
+		it("preserves the message, status, and code from the chunk", () => {
+			const error = toGatewayStreamError({
+				message: "rate limited",
+				status: 429,
+				code: "rate_limited",
+			}) as Error & {
+				status?: number
+				code?: string
+			}
+
+			expect(error).toBeInstanceOf(Error)
+			expect(error.message).toBe("rate limited")
+			expect(error.status).toBe(429)
+			expect(error.code).toBe("rate_limited")
+		})
+
+		it("falls back to a default message and leaves status/code undefined", () => {
+			const error = toGatewayStreamError({}) as Error & { status?: number; code?: string }
+
+			expect(error.message).toBe("OctoCode Gateway stream error")
+			expect(error.status).toBeUndefined()
+			expect(error.code).toBeUndefined()
+		})
+	})
+
+	describe("surfaceGatewayApiError", () => {
+		it("clears the cached token and offers re-sign-in on 401", async () => {
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+			mockCreate.mockImplementation(function () {
+				throw makeApiError(401)
+			})
+			showErrorMessage.mockResolvedValueOnce("common:octoCodeAuth.buttons.sign_in")
+
+			await expect(drainCreateMessage(handler)).rejects.toThrow()
+			expect(clearOctoCodeToken).toHaveBeenCalledTimes(1)
+			expect(showErrorMessage).toHaveBeenCalledWith(
+				"common:octoCodeAuth.errors.session_expired",
+				"common:octoCodeAuth.buttons.sign_in",
+			)
+			expect(openExternal).toHaveBeenCalledTimes(1)
+		})
+
+		it("does not open a URL on 401 when the user dismisses the prompt", async () => {
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+			mockCreate.mockImplementation(function () {
+				throw makeApiError(401)
+			})
+			showErrorMessage.mockResolvedValueOnce(undefined)
+
+			await expect(drainCreateMessage(handler)).rejects.toThrow()
+			expect(clearOctoCodeToken).toHaveBeenCalledTimes(1)
+			expect(openExternal).not.toHaveBeenCalled()
+		})
+
+		it("prompts to add credits on 402", async () => {
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+			mockCreate.mockImplementation(function () {
+				throw makeApiError(402)
+			})
+			showErrorMessage.mockResolvedValueOnce("common:octoCodeAuth.buttons.add_credits")
+
+			await expect(drainCreateMessage(handler)).rejects.toThrow()
+			expect(clearOctoCodeToken).not.toHaveBeenCalled()
+			expect(showErrorMessage).toHaveBeenCalledWith(
+				"common:octoCodeAuth.errors.out_of_credits",
+				"common:octoCodeAuth.buttons.add_credits",
+			)
+			expect(openExternal).toHaveBeenCalledTimes(1)
+		})
+
+		it("shows the budget message on 429 with a budget code", async () => {
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+			mockCreate.mockImplementation(function () {
+				throw makeApiError(429, { code: "monthly_budget_exceeded" })
+			})
+
+			await expect(drainCreateMessage(handler)).rejects.toThrow()
+			expect(showErrorMessage).toHaveBeenCalledWith(
+				"common:octoCodeAuth.errors.budget_exceeded",
+				"common:octoCodeAuth.buttons.add_credits",
+			)
+		})
+
+		it("does not surface a notification on 429 without a budget code", async () => {
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+			mockCreate.mockImplementation(function () {
+				throw makeApiError(429, { code: "rate_limited" })
+			})
+
+			await expect(drainCreateMessage(handler)).rejects.toThrow()
+			expect(showErrorMessage).not.toHaveBeenCalled()
+		})
+
+		it("offers contact support on 403", async () => {
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+			mockCreate.mockImplementation(function () {
+				throw makeApiError(403)
+			})
+			showErrorMessage.mockResolvedValueOnce("common:octoCodeAuth.buttons.contact_support")
+
+			await expect(drainCreateMessage(handler)).rejects.toThrow()
+			expect(showErrorMessage).toHaveBeenCalledWith(
+				"common:octoCodeAuth.errors.account_unavailable",
+				"common:octoCodeAuth.buttons.contact_support",
+			)
+			expect(openExternal).toHaveBeenCalledTimes(1)
+		})
+
+		it("ignores errors without an HTTP status", async () => {
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+			mockCreate.mockImplementation(function () {
+				throw new Error("network down")
+			})
+
+			await expect(drainCreateMessage(handler)).rejects.toThrow("network down")
+			expect(showErrorMessage).not.toHaveBeenCalled()
+			expect(clearOctoCodeToken).not.toHaveBeenCalled()
+		})
+
+		it("surfaces the gateway error then wraps the message in completePrompt", async () => {
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+			mockCreate.mockImplementation(function () {
+				throw makeApiError(402, { message: "out of credits" })
+			})
+
+			await expect(handler.completePrompt("ping")).rejects.toThrow("OctoCode Gateway completion error: out of credits")
+			expect(showErrorMessage).toHaveBeenCalledWith(
+				"common:octoCodeAuth.errors.out_of_credits",
+				"common:octoCodeAuth.buttons.add_credits",
+			)
+		})
+	})
+
+	describe("ensureModelFetched", () => {
+		it("fetches models when instance models are empty", async () => {
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+			const { getModels } = await import("../fetchers/modelCache")
+
+			expect(handler.getModel().info.contextWindow).toBe(200000)
+
+			await handler.ensureModelFetched()
+
+			expect(getModels).toHaveBeenCalled()
+		})
+
+		it("skips the fetch when models are already populated", async () => {
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+			const { getModels } = await import("../fetchers/modelCache")
+
+			await handler.ensureModelFetched()
+			vitest.mocked(getModels).mockClear()
+
+			await handler.ensureModelFetched()
+			expect(getModels).not.toHaveBeenCalled()
+		})
+
+		it("short-circuits a subsequent fetchModel call after models are populated", async () => {
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+			const { getModels } = await import("../fetchers/modelCache")
+
+			await handler.ensureModelFetched()
+			vitest.mocked(getModels).mockClear()
+
+			await handler.fetchModel()
+			expect(getModels).not.toHaveBeenCalled()
+		})
+
+		it("deduplicates concurrent calls into a single fetch", async () => {
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+			const { getModels } = await import("../fetchers/modelCache")
+			vitest.mocked(getModels).mockClear()
+
+			await Promise.all([handler.ensureModelFetched(), handler.ensureModelFetched()])
+
+			expect(getModels).toHaveBeenCalledTimes(1)
+		})
+
+		it("recovers after a rejected fetch so later calls are not poisoned", async () => {
+			const handler = new OctoCodeGatewayHandler(mockOptions)
+			const { getModels } = await import("../fetchers/modelCache")
+
+			vitest.mocked(getModels).mockRejectedValueOnce(new Error("network down"))
+			await expect(handler.ensureModelFetched()).rejects.toThrow("network down")
+
+			vitest.mocked(getModels).mockResolvedValueOnce({
+				"anthropic/claude-sonnet-4": {
+					maxTokens: 64000,
+					contextWindow: 1000000,
+					supportsImages: true,
+					supportsPromptCache: true,
+				},
+			})
+			await handler.ensureModelFetched()
+
+			expect(handler.getModel().info.contextWindow).toBe(1000000)
+		})
+
+		it("makes getModel return the fetched context window instead of the default", async () => {
+			const { getModels } = await import("../fetchers/modelCache")
+			vitest.mocked(getModels).mockResolvedValueOnce({
+				"google/gemini-2.5-pro": {
+					maxTokens: 65536,
+					contextWindow: 1048576,
+					supportsImages: true,
+					supportsPromptCache: false,
+				},
+			})
+
+			const handler = new OctoCodeGatewayHandler({
+				...mockOptions,
+				octoCodeGatewayModelId: "google/gemini-2.5-pro",
+			})
+
+			expect(handler.getModel().info.contextWindow).toBe(200000)
+
+			await handler.ensureModelFetched()
+
+			expect(handler.getModel().info.contextWindow).toBe(1048576)
+		})
+	})
+})

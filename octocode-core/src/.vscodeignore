@@ -1,0 +1,46 @@
+# Exclude everything
+**
+
+# Include README.md, CHANGELOG.md and LICENSE
+!README.md
+!CHANGELOG.md
+!LICENSE
+
+# Include package.json
+!package.json
+!package.nls.*
+
+# Include the built extension
+!dist
+!bin/**
+!resources/funasr/*.py
+!resources/funasr/*.txt
+!resources/harness/system-prompt.md
+!resources/python/*.whl
+!services/knowledge-mcp/pyproject.toml
+!services/knowledge-mcp/requirements.lock.txt
+!services/knowledge-mcp/uv.lock
+!services/knowledge-mcp/octocode_knowledge/**
+services/knowledge-mcp/**/__pycache__/**
+
+# Include the built webview
+!webview-ui/audio
+!webview-ui/build/index.html
+!webview-ui/build/assets/*.js
+!webview-ui/build/assets/*.mjs
+!webview-ui/build/assets/*.ttf
+!webview-ui/build/assets/*.css
+!webview-ui/build/assets/fonts/*.woff
+!webview-ui/build/assets/fonts/*.woff2
+!webview-ui/build/assets/fonts/*.ttf
+
+# Include default themes JSON files used in getTheme
+!integrations/theme/default-themes/**
+
+# Include icons and images
+!assets/codicons/**
+!assets/icons/**
+!assets/images/**
+!assets/marketplace/**
+!assets/default-skills/**
+**/*.map

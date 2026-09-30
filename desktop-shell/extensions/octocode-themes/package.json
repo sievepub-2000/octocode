@@ -1,0 +1,42 @@
+{
+	"name": "octocode-themes",
+	"displayName": "OctoCode Themes",
+	"description": "The colour themes OctoCode ships. Generated from the product palette; see webview-ui/src/theme/vscodeTheme.ts.",
+	"categories": [
+		"Themes"
+	],
+	"version": "1.0.0",
+	"publisher": "octocode",
+	"license": "MIT",
+	"engines": {
+		"vscode": "*"
+	},
+	"contributes": {
+		"themes": [
+			{
+				"id": "OctoCode Light",
+				"label": "OctoCode Light",
+				"uiTheme": "vs",
+				"path": "./themes/octocode-light.json"
+			},
+			{
+				"id": "OctoCode Dark",
+				"label": "OctoCode Dark",
+				"uiTheme": "vs-dark",
+				"path": "./themes/octocode-dark.json"
+			},
+			{
+				"id": "OctoCode High Contrast Dark",
+				"label": "OctoCode High Contrast Dark",
+				"uiTheme": "hc-black",
+				"path": "./themes/octocode-hc-dark.json"
+			},
+			{
+				"id": "OctoCode High Contrast Light",
+				"label": "OctoCode High Contrast Light",
+				"uiTheme": "hc-light",
+				"path": "./themes/octocode-hc-light.json"
+			}
+		]
+	}
+}

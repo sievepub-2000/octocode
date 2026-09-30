@@ -1,0 +1,6 @@
+apps/cli/dist/
+packages/types/dist/
+src/bin/
+src/dist/
+src/webview-ui/build/
+webview-ui/build/

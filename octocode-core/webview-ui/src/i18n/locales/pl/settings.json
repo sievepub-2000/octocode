@@ -1,0 +1,1168 @@
+{
+	"back": "Wróć do widoku zadań",
+	"common": {
+		"save": "Zapisz",
+		"done": "Gotowe",
+		"cancel": "Anuluj",
+		"reset": "Resetuj",
+		"select": "Wybierz",
+		"add": "Dodaj nagłówek",
+		"remove": "Usuń",
+		"note": "Uwaga",
+		"title": "Ustawienia"
+	},
+	"search": {
+		"placeholder": "Szukaj ustawień...",
+		"noResults": "Nie znaleziono ustawień"
+	},
+	"header": {
+		"title": "Ustawienia",
+		"saveButtonTooltip": "Zapisz zmiany",
+		"nothingChangedTooltip": "Nic się nie zmieniło",
+		"doneButtonTooltip": "Odrzuć niezapisane zmiany i zamknij panel ustawień"
+	},
+	"unsavedChangesDialog": {
+		"title": "Niezapisane zmiany",
+		"description": "Czy chcesz odrzucić zmiany i kontynuować?",
+		"cancelButton": "Anuluj",
+		"discardButton": "Odrzuć zmiany"
+	},
+	"sections": {
+		"providers": "Dostawcy",
+		"modes": "Tryby",
+		"mcp": "Serwery MCP",
+		"worktrees": "Worktrees",
+		"autoApprove": "Auto-zatwierdzanie",
+		"notifications": "Powiadomienia",
+		"contextManagement": "Kontekst",
+		"terminal": "Terminal",
+		"slashCommands": "Polecenia Slash",
+		"prompts": "Podpowiedzi",
+		"ui": "UI",
+		"language": "Język",
+		"about": "O OctoCode",
+		"skills": "Skills",
+		"rules": "Reguły"
+	},
+	"about": {
+		"bugReport": {
+			"label": "Znalazłeś błąd?",
+			"link": "Zgłoś na GitHub"
+		},
+		"featureRequest": {
+			"label": "Masz pomysł?",
+			"link": "Podziel się nim z nami"
+		},
+		"securityIssue": {
+			"label": "Odkryłeś lukę w zabezpieczeniach?",
+			"link": "Postępuj zgodnie z naszym procesem ujawniania"
+		},
+		"community": "Chcesz wskazówek lub po prostu porozmawiać z innymi użytkownikami OctoCode? Dołącz do <redditLink>reddit.com/r/OctoCode</redditLink> lub <discordLink>discord.gg/VxfP4Vx3gX</discordLink>",
+		"contactAndCommunity": "Kontakt i Społeczność",
+		"manageSettings": "Zarządzaj Ustawieniami",
+		"debugMode": {
+			"label": "Włącz tryb debugowania",
+			"description": "Włącz tryb debugowania, aby wyświetlić dodatkowe przyciski w nagłówku zadania umożliwiające przeglądanie historii konwersacji API i komunikatów UI jako sformatowany JSON w plikach tymczasowych."
+		},
+		"rooHistoryImport": {
+			"settingLabel": "Importuj historię z Roo Code",
+			"cardTitle": "Historia Roo Code",
+			"cardDescription": "Skopiuj zapisane rozmowy Roo Code do OctoCode.",
+			"statusImporting": "Importowanie historii",
+			"statusFailed": "Import nie powiódł się",
+			"statusComplete": "Import zakończony",
+			"buttonImporting": "Importowanie z Roo Code...",
+			"buttonIdle": "Importuj historię z Roo Code",
+			"summaryFailedWithFiles": "Skopiowano {{copied}} z {{total}} plików przed zatrzymaniem importu.",
+			"summaryFailedNoFiles": "Import zatrzymał się przed skopiowaniem jakichkolwiek plików.",
+			"summaryCopied": "Skopiowano {{copied}} z {{total}} plików",
+			"detailFailed": "Rozpocznij nową próbę importu, aby spróbować ponownie.",
+			"detailTasksImported_one": "Zaimportowano {{count}} z {{total}} historię zadań.",
+			"detailTasksImported_other": "Zaimportowano {{count}} z {{total}} historii zadań.",
+			"detailPreparing": "Przygotowywanie importu historii Roo Code.",
+			"progressAriaLabel": "Postęp importu historii Roo Code"
+		},
+		"version": "Wersja: {{version}}",
+		"versionWithSha": "Wersja: {{version}} ({{sha}})"
+	},
+	"slashCommands": {
+		"description": "Zarządzaj poleceniami slash, aby szybko wykonywać niestandardowe przepływy pracy i akcje. <DocsLink>Dowiedz się więcej</DocsLink>",
+		"workspaceCommands": "Polecenia obszaru roboczego",
+		"globalCommands": "Polecenia globalne",
+		"noWorkspaceCommands": "Brak poleceń w tym projekcie.",
+		"noGlobalCommands": "Brak poleceń globalnych.",
+		"addCommand": "Dodaj polecenie Slash",
+		"editCommand": "Edytuj polecenie",
+		"deleteCommand": "Usuń polecenie",
+		"deleteDialog": {
+			"title": "Usuń polecenie",
+			"description": "Czy na pewno chcesz usunąć polecenie \"{{name}}\"? Tej czynności nie można cofnąć.",
+			"confirm": "Usuń",
+			"cancel": "Anuluj"
+		},
+		"createDialog": {
+			"title": "Utwórz nowe polecenie Slash",
+			"nameLabel": "Nazwa",
+			"namePlaceholder": "my-command-name",
+			"nameHint": "Tylko małe litery, cyfry, łączniki i podkreślenia",
+			"sourceLabel": "Lokalizacja",
+			"create": "Utwórz",
+			"cancel": "Anuluj"
+		},
+		"source": {
+			"global": "Globalne (dostępne we wszystkich obszarach roboczych)",
+			"project": "Obszar roboczy"
+		},
+		"validation": {
+			"nameRequired": "Nazwa jest wymagana",
+			"nameTooLong": "Nazwa musi mieć 64 znaki lub mniej",
+			"nameInvalid": "Nazwa może zawierać tylko litery, cyfry, łączniki i podkreślenia"
+		},
+		"footer": "Używaj poleceń slash do szybkiego dostępu do często używanych podpowiedzi i przepływów pracy."
+	},
+	"rules": {
+		"description": "Zarządzaj plikami reguł OctoCode z globalnych i workspace’owych katalogów .roo/rules. Twórz reguły ogólne lub specyficzne dla trybu bez ręcznego przeglądania folderów konfiguracji.",
+		"workspaceRules": "Reguły workspace",
+		"globalRules": "Reguły globalne",
+		"noWorkspaceRules": "W tym projekcie nie ma jeszcze reguł.",
+		"noGlobalRules": "Nie ma jeszcze reguł globalnych.",
+		"addRule": "Dodaj regułę",
+		"editRule": "Edytuj regułę",
+		"deleteRule": "Usuń regułę",
+		"modeLabel": "Tryb: {{mode}}",
+		"deleteDialog": {
+			"title": "Usuń regułę",
+			"description": "Czy na pewno chcesz usunąć regułę \"{{name}}\"? Tej akcji nie można cofnąć.",
+			"confirm": "Usuń",
+			"cancel": "Anuluj"
+		},
+		"createDialog": {
+			"title": "Utwórz nową regułę",
+			"nameLabel": "Nazwa",
+			"namePlaceholder": "moja-nazwa-reguly",
+			"nameHint": "Tylko małe litery, cyfry, myślniki i podkreślenia. .md jest dodawane automatycznie.",
+			"scopeLabel": "Lokalizacja",
+			"kindLabel": "Typ reguły",
+			"modeLabel": "Tryb",
+			"modePlaceholder": "Wybierz tryb",
+			"create": "Utwórz",
+			"cancel": "Anuluj"
+		},
+		"scope": {
+			"global": "Globalne (dostępne we wszystkich workspace’ach)",
+			"project": "Workspace"
+		},
+		"kind": {
+			"generic": "Reguły ogólne",
+			"mode": "Reguły specyficzne dla trybu",
+			"genericBadge": "Ogólne",
+			"modeBadge": "Tryb"
+		},
+		"validation": {
+			"nameRequired": "Nazwa jest wymagana",
+			"nameTooLong": "Nazwa musi mieć 64 znaki lub mniej",
+			"nameInvalid": "Nazwa może zawierać tylko małe litery, cyfry, myślniki i podkreślenia",
+			"modeRequired": "Tryb jest wymagany dla reguł specyficznych dla trybu"
+		},
+		"footer": "Reguły ładują wskazówki specyficzne dla trybu przed ogólnymi. Reguły globalne ładują się przed regułami workspace."
+	},
+	"prompts": {
+		"description": "Skonfiguruj podpowiedzi wsparcia używane do szybkich działań, takich jak ulepszanie podpowiedzi, wyjaśnianie kodu i rozwiązywanie problemów. Te podpowiedzi pomagają OctoCode zapewnić lepsze wsparcie dla typowych zadań programistycznych."
+	},
+	"codeIndex": {
+		"title": "Indeksowanie kodu",
+		"enableLabel": "Włącz indeksowanie kodu",
+		"enableDescription": "Włącz indeksowanie kodu, aby poprawić wyszukiwanie i zrozumienie kontekstu",
+		"providerLabel": "Dostawca osadzania",
+		"selectProviderPlaceholder": "Wybierz dostawcę",
+		"openaiProvider": "OpenAI",
+		"ollamaProvider": "Ollama",
+		"geminiProvider": "Gemini",
+		"geminiApiKeyLabel": "Klucz API:",
+		"geminiApiKeyPlaceholder": "Wprowadź swój klucz API Gemini",
+		"mistralProvider": "Mistral",
+		"mistralApiKeyLabel": "Klucz API:",
+		"mistralApiKeyPlaceholder": "Wprowadź swój klucz API Mistral",
+		"vercelAiGatewayProvider": "Vercel AI Gateway",
+		"vercelAiGatewayApiKeyLabel": "Klucz API",
+		"vercelAiGatewayApiKeyPlaceholder": "Wprowadź swój klucz API Vercel AI Gateway",
+		"bedrockProvider": "Amazon Bedrock",
+		"bedrockRegionLabel": "Region AWS",
+		"bedrockRegionPlaceholder": "us-east-1",
+		"bedrockProfileLabel": "Profil AWS",
+		"bedrockProfilePlaceholder": "default",
+		"bedrockProfileDescription": "Nazwa profilu AWS z ~/.aws/credentials (wymagane).",
+		"openRouterProvider": "OpenRouter",
+		"openRouterApiKeyLabel": "Klucz API OpenRouter",
+		"openRouterApiKeyPlaceholder": "Wprowadź swój klucz API OpenRouter",
+		"openRouterProviderRoutingLabel": "Routing dostawców OpenRouter",
+		"openRouterProviderRoutingDescription": "OpenRouter kieruje żądania do najlepszych dostępnych dostawców dla Twojego modelu osadzania. Domyślnie żądania są równoważone między najlepszymi dostawcami, aby zmaksymalizować czas działania. Możesz jednak wybrać konkretnego dostawcę do użycia z tym modelem.",
+		"openaiCompatibleProvider": "Kompatybilny z OpenAI",
+		"openAiKeyLabel": "Klucz API OpenAI",
+		"openAiKeyPlaceholder": "Wprowadź swój klucz API OpenAI",
+		"openAiCompatibleBaseUrlLabel": "Bazowy URL",
+		"openAiCompatibleApiKeyLabel": "Klucz API",
+		"openAiCompatibleApiKeyPlaceholder": "Wprowadź swój klucz API",
+		"openAiCompatibleModelDimensionLabel": "Wymiar Embeddingu:",
+		"modelDimensionLabel": "Wymiar modelu",
+		"openAiCompatibleModelDimensionPlaceholder": "np., 1536",
+		"openAiCompatibleModelDimensionDescription": "Wymiar embeddingu (rozmiar wyjściowy) dla twojego modelu. Sprawdź dokumentację swojego dostawcy, aby uzyskać tę wartość. Typowe wartości: 384, 768, 1536, 3072.",
+		"modelLabel": "Model",
+		"selectModelPlaceholder": "Wybierz model",
+		"ollamaUrlLabel": "URL Ollama:",
+		"qdrantUrlLabel": "URL Qdrant",
+		"qdrantKeyLabel": "Klucz Qdrant:",
+		"startIndexingButton": "Rozpocznij",
+		"clearIndexDataButton": "Wyczyść indeks",
+		"unsavedSettingsMessage": "Zapisz swoje ustawienia przed rozpoczęciem procesu indeksowania.",
+		"clearDataDialog": {
+			"title": "Czy jesteś pewien?",
+			"description": "Tej akcji nie można cofnąć. Spowoduje to trwałe usunięcie danych indeksu Twojego kodu.",
+			"cancelButton": "Anuluj",
+			"confirmButton": "Wyczyść dane"
+		},
+		"description": "Skonfiguruj ustawienia indeksowania bazy kodu, aby włączyć wyszukiwanie semantyczne w swoim projekcie. <0>Dowiedz się więcej</0>",
+		"statusTitle": "Status",
+		"settingsTitle": "Ustawienia indeksowania",
+		"disabledMessage": "Indeksowanie bazy kodu jest obecnie wyłączone. Włącz je w ustawieniach globalnych, aby skonfigurować opcje indeksowania.",
+		"embedderProviderLabel": "Dostawca Embeddera",
+		"modelPlaceholder": "Wprowadź nazwę modelu",
+		"selectModel": "Wybierz model",
+		"ollamaBaseUrlLabel": "Bazowy URL Ollama",
+		"qdrantApiKeyLabel": "Klucz API Qdrant",
+		"qdrantApiKeyPlaceholder": "Wprowadź swój klucz API Qdrant (opcjonalnie)",
+		"setupConfigLabel": "Konfiguracja",
+		"ollamaUrlPlaceholder": "http://localhost:11434",
+		"openAiCompatibleBaseUrlPlaceholder": "https://api.example.com",
+		"modelDimensionPlaceholder": "1536",
+		"qdrantUrlPlaceholder": "http://localhost:6333",
+		"saveError": "Nie udało się zapisać ustawień",
+		"modelDimensions": "({{dimension}} wymiarów)",
+		"saveSuccess": "Ustawienia zapisane pomyślnie",
+		"saving": "Zapisywanie...",
+		"saveSettings": "Zapisz",
+		"indexingStatuses": {
+			"standby": "Gotowość",
+			"indexing": "Indeksowanie",
+			"indexed": "Zaindeksowane",
+			"error": "Błąd"
+		},
+		"close": "Zamknij",
+		"validation": {
+			"invalidQdrantUrl": "Nieprawidłowy URL Qdrant",
+			"invalidOllamaUrl": "Nieprawidłowy URL Ollama",
+			"invalidBaseUrl": "Nieprawidłowy podstawowy URL",
+			"qdrantUrlRequired": "Wymagany jest URL Qdrant",
+			"openaiApiKeyRequired": "Wymagany jest klucz API OpenAI",
+			"modelSelectionRequired": "Wymagany jest wybór modelu",
+			"apiKeyRequired": "Wymagany jest klucz API",
+			"modelIdRequired": "Wymagane jest ID modelu",
+			"modelDimensionRequired": "Wymagany jest wymiar modelu",
+			"geminiApiKeyRequired": "Wymagany jest klucz API Gemini",
+			"mistralApiKeyRequired": "Klucz API Mistral jest wymagany",
+			"vercelAiGatewayApiKeyRequired": "Klucz API Vercel AI Gateway jest wymagany",
+			"bedrockRegionRequired": "Region AWS jest wymagany",
+			"bedrockProfileRequired": "Profil AWS jest wymagany",
+			"ollamaBaseUrlRequired": "Wymagany jest bazowy adres URL Ollama",
+			"baseUrlRequired": "Wymagany jest bazowy adres URL",
+			"modelDimensionMinValue": "Wymiar modelu musi być większy niż 0",
+			"openRouterApiKeyRequired": "Wymagany jest klucz API OpenRouter"
+		},
+		"optional": "opcjonalny",
+		"advancedConfigLabel": "Konfiguracja zaawansowana",
+		"searchMinScoreLabel": "Próg wyniku wyszukiwania",
+		"searchMinScoreDescription": "Minimalny wynik podobieństwa (0.0-1.0) wymagany dla wyników wyszukiwania. Niższe wartości zwracają więcej wyników, ale mogą być mniej trafne. Wyższe wartości zwracają mniej wyników, ale bardziej trafnych.",
+		"searchMinScoreResetTooltip": "Zresetuj do wartości domyślnej (0.4)",
+		"searchMaxResultsLabel": "Maksymalna liczba wyników wyszukiwania",
+		"searchMaxResultsDescription": "Maksymalna liczba wyników wyszukiwania zwracanych podczas zapytania do indeksu bazy kodu. Wyższe wartości zapewniają więcej kontekstu, ale mogą zawierać mniej istotne wyniki.",
+		"resetToDefault": "Przywróć domyślne",
+		"stopIndexingButton": "Zatrzymaj indeksowanie",
+		"stoppingButton": "Zatrzymywanie...",
+		"workspaceToggleLabel": "Włącz indeksowanie dla tego workspace'a",
+		"workspaceDisabledMessage": "Indeksowanie jest skonfigurowane, ale nie włączone dla tego workspace'a.",
+		"autoEnableDefaultLabel": "Automatycznie włączaj indeksowanie dla nowych workspace'ów",
+		"sembleProvider": "Semble - Lokalny",
+		"workspacePathHint": "Bieżący obszar roboczy: {{path}}. Jeśli nie wybrano żadnego, używany jest obszar roboczy katalogu instalacyjnego."
+	},
+	"autoApprove": {
+		"toggleShortcut": "Możesz skonfigurować globalny skrót dla tego ustawienia <SettingsLink>w preferencjach swojego IDE</SettingsLink>.",
+		"description": "Pozwól OctoCode na automatyczne wykonywanie operacji bez wymagania zatwierdzenia. Włącz te ustawienia tylko jeśli w pełni ufasz AI i rozumiesz związane z tym zagrożenia bezpieczeństwa.",
+		"enabled": "Auto-zatwierdzanie włączone",
+		"toggleAriaLabel": "Przełącz automatyczne zatwierdzanie",
+		"disabledAriaLabel": "Automatyczne zatwierdzanie wyłączone - najpierw wybierz opcje",
+		"readOnly": {
+			"label": "Odczyt",
+			"description": "Gdy włączone, OctoCode automatycznie będzie wyświetlać zawartość katalogów i czytać pliki bez konieczności klikania przycisku Zatwierdź.",
+			"outsideWorkspace": {
+				"label": "Uwzględnij pliki poza obszarem roboczym",
+				"description": "Pozwól OctoCode na odczyt plików poza bieżącym obszarem roboczym bez konieczności zatwierdzania."
+			}
+		},
+		"write": {
+			"label": "Zapis",
+			"description": "Automatycznie twórz i edytuj pliki bez konieczności zatwierdzania",
+			"delayLabel": "Opóźnienie po zapisach, aby umożliwić diagnostyce wykrycie potencjalnych problemów",
+			"outsideWorkspace": {
+				"label": "Uwzględnij pliki poza obszarem roboczym",
+				"description": "Pozwól OctoCode na tworzenie i edycję plików poza bieżącym obszarem roboczym bez konieczności zatwierdzania."
+			},
+			"protected": {
+				"label": "Uwzględnij pliki chronione",
+				"description": "Pozwól OctoCode na tworzenie i edycję plików chronionych (takich jak .rooignore i pliki konfiguracyjne .roo/) bez konieczności zatwierdzania."
+			}
+		},
+		"mcp": {
+			"label": "MCP",
+			"description": "Włącz automatyczne zatwierdzanie poszczególnych narzędzi MCP w widoku Serwerów MCP (wymaga zarówno tego ustawienia, jak i pola wyboru \"Zawsze zezwalaj\" narzędzia)"
+		},
+		"modeSwitch": {
+			"label": "Tryb",
+			"description": "Automatycznie przełączaj między różnymi trybami bez konieczności zatwierdzania"
+		},
+		"subtasks": {
+			"label": "Podzadania",
+			"description": "Zezwalaj na tworzenie i ukończenie podzadań bez konieczności zatwierdzania"
+		},
+		"followupQuestions": {
+			"label": "Pytanie",
+			"description": "Automatycznie wybierz pierwszą sugerowaną odpowiedź na pytania uzupełniające po skonfigurowanym limicie czasu",
+			"timeoutLabel": "Czas oczekiwania przed automatycznym wybraniem pierwszej odpowiedzi"
+		},
+		"execute": {
+			"label": "Wykonaj",
+			"description": "Automatycznie wykonuj dozwolone polecenia terminala bez konieczności zatwierdzania",
+			"destructiveCommandGuard": {
+				"label": "Włącz ochronę przed destrukcyjnymi poleceniami",
+				"description": "Pobiera i używa Destructive Command Guard (DCG) dla tej platformy. Polecenia dozwolone przez DCG są wykonywane automatycznie. Polecenia zablokowane przez DCG wymagają twojej zgody. Listy poleceń OctoCode są wyłączone, gdy ta opcja jest aktywna. Pobrany plik wykonywalny pozostaje na dysku po wyłączeniu opcji."
+			},
+			"allowedCommands": "Dozwolone polecenia auto-wykonania",
+			"allowedCommandsDescription": "Prefiksy poleceń, które mogą być automatycznie wykonywane, gdy \"Zawsze zatwierdzaj operacje wykonania\" jest włączone. Dodaj * aby zezwolić na wszystkie polecenia (używaj z ostrożnością).",
+			"deniedCommands": "Odrzucone polecenia",
+			"deniedCommandsDescription": "Prefiksy poleceń, które będą automatycznie odrzucane bez pytania o zatwierdzenie. W przypadku konfliktów z dozwolonymi poleceniami, najdłuższe dopasowanie prefiksu ma pierwszeństwo. Dodaj * aby odrzucić wszystkie polecenia.",
+			"commandPlaceholder": "Wprowadź prefiks polecenia (np. 'git ')",
+			"deniedCommandPlaceholder": "Wprowadź prefiks polecenia do odrzucenia (np. 'rm -rf')",
+			"addButton": "Dodaj",
+			"autoDenied": "Polecenia z prefiksem `{{prefix}}` zostały zabronione przez użytkownika. Nie obchodź tego ograniczenia uruchamiając inne polecenie."
+		},
+		"apiRequestLimit": {
+			"title": "Maksymalna liczba żądań",
+			"unlimited": "Bez limitu"
+		},
+		"selectOptionsFirst": "Wybierz co najmniej jedną opcję poniżej, aby włączyć automatyczne zatwierdzanie",
+		"apiCostLimit": {
+			"title": "Maksymalny koszt",
+			"unlimited": "Bez limitu"
+		},
+		"maxLimits": {
+			"description": "Automatycznie składaj zapytania do tych limitów przed poproszeniem o zgodę na kontynuowanie."
+		},
+		"profile": {
+			"label": "Profil uprawnień",
+			"review": "Przegląd — pytaj przed zmianami",
+			"directory": "Katalog — działaj w obrębie obszaru roboczego",
+			"full": "Pełny — nieograniczone automatyczne wykonywanie"
+		}
+	},
+	"providers": {
+		"providerDocumentation": "Dokumentacja {{provider}}",
+		"configProfile": "Profil konfiguracji",
+		"description": "Zapisz różne konfiguracje API, aby szybko przełączać się między dostawcami i ustawieniami.",
+		"apiProvider": "Dostawca API",
+		"apiProviderDocs": "Dokumentacja dostawcy",
+		"model": "Model",
+		"nameEmpty": "Nazwa nie może być pusta",
+		"nameExists": "Profil o tej nazwie już istnieje",
+		"deleteProfile": "Usuń profil",
+		"invalidArnFormat": "Nieprawidłowy format ARN. Sprawdź powyższe przykłady.",
+		"enterNewName": "Wprowadź nową nazwę",
+		"addProfile": "Dodaj profil",
+		"renameProfile": "Zmień nazwę profilu",
+		"newProfile": "Nowy profil konfiguracji",
+		"enterProfileName": "Wprowadź nazwę profilu",
+		"createProfile": "Utwórz profil",
+		"cannotDeleteOnlyProfile": "Nie można usunąć jedynego profilu",
+		"searchPlaceholder": "Szukaj profili",
+		"searchProviderPlaceholder": "Szukaj dostawców",
+		"noProviderMatchFound": "Nie znaleziono dostawców",
+		"noMatchFound": "Nie znaleziono pasujących profili",
+		"retiredProviderMessage": "Ten dostawca nie jest już dostępny. Wybierz obsługiwanego dostawcę, aby kontynuować.",
+		"vscodeLmDescription": "Zainstaluj i włącz dowolne rozszerzenie modelu implementujące interfejs VS Code Language Model API, a następnie wybierz tutaj zarejestrowany model. OctoCode nie wymaga logowania do GitHub.",
+		"awsCustomArnUse": "Wprowadź prawidłowy Amazon Bedrock ARN dla modelu, którego chcesz użyć. Przykłady formatu:",
+		"awsCustomArnDesc": "Upewnij się, że region w ARN odpowiada wybranemu powyżej regionowi AWS.",
+		"openRouterApiKey": "Klucz API OpenRouter",
+		"getOpenRouterApiKey": "Uzyskaj klucz API OpenRouter",
+		"vercelAiGatewayApiKey": "Klucz API Vercel AI Gateway",
+		"getVercelAiGatewayApiKey": "Uzyskaj klucz API Vercel AI Gateway",
+		"opencodeGoApiKey": "Klucz API Opencode Go",
+		"getOpencodeGoApiKey": "Uzyskaj klucz API Opencode Go",
+		"kenariApiKey": "Klucz API Kenari",
+		"getKenariApiKey": "Uzyskaj klucz API Kenari",
+		"nanoGpt": {
+			"provider": "NanoGPT",
+			"apiKey": "Klucz API NanoGPT",
+			"getApiKey": "Uzyskaj klucz API NanoGPT",
+			"model": "Model",
+			"routingPreference": "Preferencja routingu",
+			"routingOptions": {
+				"automatic": "Automatyczny",
+				"fastest": "Najszybszy",
+				"cheapest": "Najtańszy",
+				"lowestLatency": "Najniższe opóźnienie",
+				"highestThroughput": "Najwyższa przepustowość",
+				"toolCapable": "Obsługa narzędzi",
+				"cacheCapable": "Obsługa pamięci podręcznej"
+			},
+			"automaticExplanation": "Automatyczny nie dodaje sufiksu routingu.",
+			"billingWarning": "Zaawansowane preferencje routingu mogą używać rozliczeń za użycie i mogą omijać zakres subskrypcji, zależnie od aktualnych zasad rozliczeń NanoGPT.",
+			"routingDocs": "Zobacz szczegóły routingu i rozliczeń NanoGPT"
+		},
+		"apiKeyStorageNotice": "Klucze API są bezpiecznie przechowywane w Tajnym Magazynie VSCode",
+		"openAiCodexRateLimits": {
+			"title": "Usage Limits for Codex{{planLabel}}",
+			"loading": "Loading usage limits...",
+			"loadError": "Failed to load usage limits",
+			"retry": "Retry",
+			"usedPercent": "{{percent}}% used",
+			"resetsIn": "Resets in {{time}}",
+			"plan": {
+				"default": "",
+				"withType": " ({{planType}})"
+			},
+			"time": {
+				"now": "Now",
+				"notAvailable": "N/A"
+			},
+			"duration": {
+				"daysHours": "{{days}}d {{hours}}h",
+				"hoursMinutes": "{{hours}}h {{minutes}}m",
+				"minutes": "{{minutes}}m"
+			},
+			"window": {
+				"usage": "Usage",
+				"fiveHour": "5h limit",
+				"oneHour": "1h limit",
+				"daily": "Daily limit",
+				"weekly": "Weekly limit",
+				"days": "{{days}}d limit",
+				"hours": "{{hours}}h limit",
+				"minutes": "{{minutes}}m limit"
+			}
+		},
+		"openAiNativeNonOfficialUrl": "Ta pozycja dotyczy wyłącznie usługi samego OpenAI. Dla serwera lokalnego lub własnego (oMLX, vLLM, llama.cpp, bramy modeli) użyj „OpenAI Compatible”: odczytuje listę modeli z serwera i nie wysyła opcji charakterystycznych dla OpenAI.",
+		"switchToOpenAiCompatible": "Przełącz na OpenAI Compatible (zachowuje adres, klucz i model)",
+		"useCustomBaseUrl": "Użyj niestandardowego URL bazowego",
+		"useReasoning": "Włącz rozumowanie",
+		"useHostHeader": "Użyj niestandardowego nagłówka Host",
+		"customHeaders": "Niestandardowe nagłówki",
+		"headerName": "Nazwa nagłówka",
+		"headerValue": "Wartość nagłówka",
+		"noCustomHeaders": "Brak zdefiniowanych niestandardowych nagłówków. Kliknij przycisk +, aby dodać.",
+		"unboundApiKey": "Klucz API Unbound",
+		"getUnboundApiKey": "Uzyskaj klucz API Unbound",
+		"requestyApiKey": "Klucz API Requesty",
+		"refreshModels": {
+			"label": "Odśwież modele",
+			"hint": "Proszę ponownie otworzyć ustawienia, aby zobaczyć najnowsze modele.",
+			"loading": "Odświeżanie listy modeli...",
+			"success": "Lista modeli została pomyślnie odświeżona!",
+			"error": "Nie udało się odświeżyć listy modeli. Spróbuj ponownie.",
+			"missingConfig": "Najpierw skonfiguruj punkt końcowy dostawcy i dane uwierzytelniające."
+		},
+		"getRequestyApiKey": "Uzyskaj klucz API Requesty",
+		"getRequestyBaseUrl": "Bazowy URL",
+		"requestyUseCustomBaseUrl": "Użyj niestandardowego bazowego URL",
+		"anthropicApiKey": "Klucz API Anthropic",
+		"getAnthropicApiKey": "Uzyskaj klucz API Anthropic",
+		"anthropicUseAuthToken": "Przekaż klucz API Anthropic jako nagłówek Authorization zamiast X-Api-Key",
+		"anthropic1MContextBetaLabel": "Włącz okno kontekstowe 1M (Beta)",
+		"anthropic1MContextBetaDescription": "Rozszerza okno kontekstowe do 1 miliona tokenów dla Claude Sonnet 4.x / Claude Opus 4.6",
+		"awsBedrock1MContextBetaLabel": "Włącz okno kontekstowe 1M (Beta)",
+		"awsBedrock1MContextBetaDescription": "Rozszerza okno kontekstowe do 1 miliona tokenów dla Claude Sonnet 4.x / Claude Opus 4.6",
+		"vertex1MContextBetaLabel": "Włącz okno kontekstowe 1M (Beta)",
+		"vertex1MContextBetaDescription": "Rozszerza okno kontekstowe do 1 miliona tokenów dla Claude Sonnet 4.x / Claude Opus 4.6",
+		"basetenApiKey": "Klucz API Baseten",
+		"getBasetenApiKey": "Uzyskaj klucz API Baseten",
+		"poeApiKey": "Klucz API Poe",
+		"getPoeApiKey": "Uzyskaj klucz API Poe",
+		"poeBaseUrl": "Bazowy URL Poe",
+		"fireworksApiKey": "Klucz API Fireworks",
+		"getFireworksApiKey": "Uzyskaj klucz API Fireworks",
+		"friendliApiKey": "Klucz API Friendli",
+		"getFriendliApiKey": "Uzyskaj klucz API Friendli",
+		"deepSeekApiKey": "Klucz API DeepSeek",
+		"getDeepSeekApiKey": "Uzyskaj klucz API DeepSeek",
+		"moonshotApiKey": "Klucz API Moonshot",
+		"getMoonshotApiKey": "Uzyskaj klucz API Moonshot",
+		"moonshotBaseUrl": "Punkt wejścia Moonshot",
+		"kimiCode": {
+			"authMethod": "Authentication method",
+			"oauth": "Kimi Code subscription (OAuth)",
+			"apiKey": "Kimi Code API key",
+			"apiKeyLabel": "Kimi Code API Key",
+			"signIn": "Sign in to Kimi Code",
+			"signOut": "Sign out",
+			"authenticated": "Signed in to Kimi Code",
+			"deviceCodeHelp": "Enter this device code in the Kimi authorization page:",
+			"docs": "Kimi Code documentation"
+		},
+		"zaiApiKey": "Klucz API Z AI",
+		"getZaiApiKey": "Uzyskaj klucz API Z AI",
+		"zaiEntrypoint": "Punkt wejścia Z AI",
+		"zaiEntrypointDescription": "Wybierz odpowiedni punkt wejścia API w zależności od swojej lokalizacji. Jeśli jesteś w Chinach, wybierz open.bigmodel.cn. W przeciwnym razie wybierz api.z.ai.",
+		"minimaxApiKey": "Klucz API MiniMax",
+		"getMiniMaxApiKey": "Uzyskaj klucz API MiniMax",
+		"minimaxBaseUrl": "Punkt wejścia MiniMax",
+		"mimoApiKey": "Klucz API MiMo",
+		"getMimoApiKey": "Uzyskaj klucz API MiMo",
+		"mimoBaseUrl": "Punkt wejścia MiMo",
+		"mimoBaseUrlSingapore": "Plan tokenów - Singapur (Domyślny)",
+		"mimoBaseUrlChina": "Plan tokenów - Chiny",
+		"mimoBaseUrlEurope": "Plan tokenów - Europa (AMS)",
+		"mimoBaseUrlPayg": "Płacenie za zużycie",
+		"geminiApiKey": "Klucz API Gemini",
+		"getSambaNovaApiKey": "Uzyskaj klucz API SambaNova",
+		"sambaNovaApiKey": "Klucz API SambaNova",
+		"getGeminiApiKey": "Uzyskaj klucz API Gemini",
+		"apiKey": "Klucz API",
+		"openAiApiKey": "Klucz API OpenAI",
+		"openAiBaseUrl": "URL bazowy",
+		"azureOpenAiBaseUrlPlaceholder": "https://<resource>.openai.azure.com/openai",
+		"azureOpenAiDeploymentName": "Nazwa wdrożenia Azure",
+		"azureOpenAiDeploymentNameDescription": "Wprowadź nazwę wdrożenia z Azure AI Studio, a nie nazwę bazowego modelu.",
+		"getOpenAiApiKey": "Uzyskaj klucz API OpenAI",
+		"mistralApiKey": "Klucz API Mistral",
+		"getMistralApiKey": "Uzyskaj klucz API Mistral / Codestral",
+		"codestralBaseUrl": "URL bazowy Codestral (opcjonalnie)",
+		"codestralBaseUrlDesc": "Ustaw opcjonalny URL dla modeli Codestral.",
+		"xaiApiKey": "Klucz API xAI",
+		"getXaiApiKey": "Uzyskaj klucz API xAI",
+		"litellmApiKey": "Klucz API LiteLLM",
+		"litellmBaseUrl": "URL bazowy LiteLLM",
+		"awsCredentials": "Poświadczenia AWS",
+		"awsProfile": "Profil AWS",
+		"awsApiKey": "Klucz API Amazon Bedrock",
+		"awsProfileName": "Nazwa profilu AWS",
+		"awsAccessKey": "Klucz dostępu AWS",
+		"awsSecretKey": "Klucz tajny AWS",
+		"awsSessionToken": "Token sesji AWS",
+		"awsRegion": "Region AWS",
+		"awsCrossRegion": "Użyj wnioskowania międzyregionalnego",
+		"awsGlobalInference": "Użyj globalnej inferencji (automatyczny wybór optymalnego regionu AWS)",
+		"awsServiceTier": "Warstwa usługi",
+		"awsServiceTierStandard": "Standard",
+		"awsServiceTierStandardDesc": "Zrównoważona wydajność i koszt",
+		"awsServiceTierFlex": "Flex (50% zniżka)",
+		"awsServiceTierFlexDesc": "Niższy koszt, wyższe opóźnienie dla zadań niekrytycznych",
+		"awsServiceTierPriority": "Priority (75% premia)",
+		"awsServiceTierPriorityDesc": "Najszybsza wydajność dla aplikacji krytycznych",
+		"awsServiceTierNote": "Warstwy usługi wpływają na ceny i wydajność. Flex oferuje 50% zniżkę z wyższym opóźnieniem, Priority oferuje 25% lepszą wydajność z 75% premią.",
+		"awsBedrockVpc": {
+			"useCustomVpcEndpoint": "Użyj niestandardowego punktu końcowego VPC",
+			"vpcEndpointUrlPlaceholder": "Wprowadź URL punktu końcowego VPC (opcjonalnie)",
+			"examples": "Przykłady:"
+		},
+		"enablePromptCaching": "Włącz buforowanie podpowiedzi",
+		"enablePromptCachingTitle": "Włącz buforowanie podpowiedzi, aby poprawić wydajność i zmniejszyć koszty dla obsługiwanych modeli.",
+		"cacheUsageNote": "Uwaga: Jeśli nie widzisz użycia bufora, spróbuj wybrać inny model, a następnie ponownie wybrać żądany model.",
+		"vscodeLmModel": "Model językowy",
+		"googleCloudSetup": {
+			"title": "Aby korzystać z Google Cloud Vertex AI, potrzebujesz:",
+			"step1": "1. Utworzyć konto Google Cloud, włączyć API Vertex AI i włączyć żądane modele Claude.",
+			"step2": "2. Zainstalować Google Cloud CLI i skonfigurować domyślne poświadczenia aplikacji.",
+			"step3": "3. Lub utworzyć konto usługi z poświadczeniami."
+		},
+		"googleCloudCredentials": "Poświadczenia Google Cloud",
+		"googleCloudCredentialsPathWarning": "To pole oczekuje zawartości JSON pliku klucza konta usługi, a nie ścieżki. Jeśli masz ścieżkę, wklej ją do pola <strong>Ścieżka pliku klucza Google Cloud</strong> poniżej lub wyczyść to pole i użyj zmiennej środowiskowej <code>GOOGLE_APPLICATION_CREDENTIALS</code>.",
+		"googleCloudKeyFile": "Ścieżka pliku klucza Google Cloud",
+		"googleCloudProjectId": "ID projektu Google Cloud",
+		"googleCloudRegion": "Region Google Cloud",
+		"lmStudio": {
+			"baseUrl": "URL bazowy (opcjonalnie)",
+			"modelId": "ID modelu",
+			"speculativeDecoding": "Włącz dekodowanie spekulacyjne",
+			"draftModelId": "ID modelu szkicu",
+			"draftModelDesc": "Aby dekodowanie spekulacyjne działało poprawnie, model szkicu musi pochodzić z tej samej rodziny modeli.",
+			"selectDraftModel": "Wybierz model szkicu",
+			"noModelsFound": "Nie znaleziono modeli szkicu. Upewnij się, że LM Studio jest uruchomione z włączonym trybem serwera.",
+			"description": "LM Studio pozwala na lokalne uruchamianie modeli na twoim komputerze. Aby rozpocząć, zapoznaj się z ich <a>przewodnikiem szybkiego startu</a>. Będziesz również musiał uruchomić funkcję <b>serwera lokalnego</b> LM Studio, aby używać go z tym rozszerzeniem. <span>Uwaga:</span> OctoCode używa złożonych podpowiedzi i działa najlepiej z modelami Claude. Modele o niższych możliwościach mogą nie działać zgodnie z oczekiwaniami."
+		},
+		"ollama": {
+			"baseUrl": "URL bazowy (opcjonalnie)",
+			"modelId": "ID modelu",
+			"apiKey": "Klucz API Ollama",
+			"apiKeyHelp": "Opcjonalny klucz API dla uwierzytelnionych instancji Ollama lub usług chmurowych. Pozostaw puste dla instalacji lokalnych.",
+			"numCtx": "Rozmiar okna kontekstu (num_ctx)",
+			"numCtxHelp": "Zastępuje domyślny rozmiar okna kontekstu modelu. Pozostaw puste, aby użyć konfiguracji Modelfile modelu. Minimalna wartość to 128.",
+			"thinking": "Włącz wnioskowanie",
+			"thinkingHelp": "Włącz natywne wnioskowanie Ollama dla modeli wnioskujących (np. qwen3, deepseek-r1). Po włączeniu wnioskowanie modelu jest przesyłane i wyświetlane oddzielnie. Nieobsługiwane modele zignorują to ustawienie.",
+			"description": "Ollama pozwala na lokalne uruchamianie modeli na twoim komputerze. Aby rozpocząć, zapoznaj się z przewodnikiem szybkiego startu.",
+			"warning": "Uwaga: OctoCode używa złożonych podpowiedzi i działa najlepiej z modelami Claude. Modele o niższych możliwościach mogą nie działać zgodnie z oczekiwaniami."
+		},
+		"openRouter": {
+			"providerRouting": {
+				"title": "Routing dostawców OpenRouter",
+				"description": "OpenRouter kieruje żądania do najlepszych dostępnych dostawców dla Twojego modelu. Domyślnie żądania są równoważone między najlepszymi dostawcami, aby zmaksymalizować czas działania. Możesz jednak wybrać konkretnego dostawcę do użycia z tym modelem.",
+				"learnMore": "Dowiedz się więcej o routingu dostawców"
+			}
+		},
+		"customModel": {
+			"capabilities": "Skonfiguruj możliwości i ceny swojego niestandardowego modelu zgodnego z OpenAI. Zachowaj ostrożność podczas określania możliwości modelu, ponieważ mogą one wpływać na wydajność OctoCode.",
+			"maxTokens": {
+				"label": "Maksymalna liczba tokenów wyjściowych",
+				"description": "Maksymalna liczba tokenów, które model może wygenerować w odpowiedzi. (Określ -1, aby pozwolić serwerowi ustawić maksymalną liczbę tokenów.)"
+			},
+			"contextWindow": {
+				"label": "Rozmiar okna kontekstu",
+				"description": "Całkowita liczba tokenów (wejście + wyjście), które model może przetworzyć."
+			},
+			"imageSupport": {
+				"label": "Obsługa obrazów",
+				"description": "Czy model jest w stanie przetwarzać i rozumieć obrazy?"
+			},
+			"computerUse": {
+				"label": "Użycie komputera",
+				"description": "Czy model jest w stanie wchodzić w interakcję z przeglądarką?"
+			},
+			"promptCache": {
+				"label": "Buforowanie podpowiedzi",
+				"description": "Czy model jest w stanie buforować podpowiedzi?"
+			},
+			"pricing": {
+				"input": {
+					"label": "Cena wejścia",
+					"description": "Koszt za milion tokenów wejściowych/podpowiedzi. Wpływa to na koszt wysyłania kontekstu i instrukcji do modelu."
+				},
+				"output": {
+					"label": "Cena wyjścia",
+					"description": "Koszt za milion tokenów odpowiedzi modelu. Wpływa to na koszt generowanej treści i uzupełnień."
+				},
+				"cacheReads": {
+					"label": "Cena odczytów bufora",
+					"description": "Koszt za milion tokenów za odczyt z bufora. Ta cena jest naliczana przy otrzymywaniu zbuforowanej odpowiedzi."
+				},
+				"cacheWrites": {
+					"label": "Cena zapisów bufora",
+					"description": "Koszt za milion tokenów za zapis do bufora. Ta cena jest naliczana przy pierwszym buforowaniu podpowiedzi."
+				}
+			},
+			"resetDefaults": "Przywróć domyślne"
+		},
+		"rateLimitSeconds": {
+			"label": "Limit szybkości",
+			"description": "Minimalny czas między żądaniami API."
+		},
+		"consecutiveMistakeLimit": {
+			"label": "Limit błędów i powtórzeń",
+			"description": "Liczba kolejnych błędów lub powtórzonych akcji przed wyświetleniem okna dialogowego 'OctoCode ma problemy'. Ustaw na 0, aby wyłączyć ten mechanizm bezpieczeństwa (nigdy się nie uruchomi).",
+			"unlimitedDescription": "Włączono nieograniczone próby (automatyczne kontynuowanie). Okno dialogowe nigdy się nie pojawi.",
+			"warning": "⚠️ Ustawienie na 0 pozwala na nieograniczone próby, co może zużyć znaczną ilość API"
+		},
+		"reasoningEffort": {
+			"label": "Wysiłek rozumowania modelu",
+			"none": "Brak",
+			"minimal": "Minimalny (najszybszy)",
+			"high": "Wysoki",
+			"xhigh": "Bardzo wysoki",
+			"max": "Maksymalny",
+			"medium": "Średni",
+			"low": "Niski"
+		},
+		"verbosity": {
+			"label": "Szczegółowość danych wyjściowych",
+			"high": "Wysoka",
+			"medium": "Średnia",
+			"low": "Niska",
+			"description": "Kontroluje, jak szczegółowe są odpowiedzi modelu. Niska szczegółowość generuje zwięzłe odpowiedzi, podczas gdy wysoka szczegółowość dostarcza dokładnych wyjaśnień."
+		},
+		"setReasoningLevel": "Włącz wysiłek rozumowania",
+		"claudeCode": {
+			"pathLabel": "Ścieżka Claude Code",
+			"description": "Opcjonalna ścieżka do Twojego CLI Claude Code. Domyślnie 'claude', jeśli nie ustawiono.",
+			"placeholder": "Domyślnie: claude",
+			"maxTokensLabel": "Maksymalna liczba tokenów wyjściowych",
+			"maxTokensDescription": "Maksymalna liczba tokenów wyjściowych dla odpowiedzi Claude Code. Domyślnie 8000."
+		},
+		"octoCodeGateway": {
+			"account": "Konto OctoCode",
+			"signInButton": "Zaloguj się do OctoCode",
+			"signInDescription": "Zaloguj się, aby korzystać z OctoCode Gateway ze swoim kontem",
+			"authenticated": "Uwierzytelniono",
+			"authenticatedAs": "Uwierzytelniono jako {{name}}"
+		},
+		"authenticationMethod": "Metoda uwierzytelniania",
+		"toolProtocol": {
+			"label": "Protokół narzędzi",
+			"auto": "Automatyczne wykrywanie",
+			"toolCalls": "Wywołania narzędzi",
+			"hint": "Tryb automatyczny używa API Responses dla OpenAI Native i natywnych wywołań narzędzi dla innych dostawców."
+		},
+		"openAiCompatiblePreset": "Preset dostawcy",
+		"openAiCompatiblePresetPlaceholder": "Wybierz dostawcę (opcjonalnie)",
+		"openAiCompatiblePresetSearch": "Szukaj dostawców...",
+		"openAiCompatiblePresetEmpty": "Brak pasującego dostawcy",
+		"openAiCompatiblePresetHint": "Wybranie dostawcy wypełnia adres bazowy (Base URL). Modele są następnie wykrywane z serwera, więc lista jest zawsze aktualna. Każdy punkt końcowy zgodny z OpenAI działa, nawet jeśli nie jest wymieniony.",
+		"openAiCompatiblePresetGetKey": "Uzyskaj klucz API {{vendor}}",
+		"presetGroups": {
+			"local": "Lokalne",
+			"china": "Chiny",
+			"international": "Międzynarodowe",
+			"aggregator": "Agregator"
+		},
+		"openAiCodex": {
+			"signOutButton": "Wyloguj się",
+			"signInButton": "Zaloguj się do OpenAI Codex"
+		}
+	},
+	"notifications": {
+		"sound": {
+			"label": "Włącz efekty dźwiękowe",
+			"description": "Gdy włączone, OctoCode będzie odtwarzać efekty dźwiękowe dla powiadomień i zdarzeń.",
+			"volumeLabel": "Głośność"
+		},
+		"tts": {
+			"label": "Włącz syntezę mowy",
+			"description": "Gdy włączone, OctoCode będzie czytać na głos swoje odpowiedzi za pomocą syntezy mowy.",
+			"speedLabel": "Szybkość"
+		}
+	},
+	"contextManagement": {
+		"description": "Kontroluj, jakie informacje są zawarte w oknie kontekstu AI, wpływając na zużycie token i jakość odpowiedzi",
+		"autoCondenseContextPercent": {
+			"label": "Próg wyzwalający inteligentną kondensację kontekstu",
+			"description": "Gdy okno kontekstu osiągnie ten próg, OctoCode automatycznie je skondensuje."
+		},
+		"condensingApiConfiguration": {
+			"label": "Konfiguracja API dla kondensacji kontekstu",
+			"description": "Wybierz, którą konfigurację API używać do operacji kondensacji kontekstu. Pozostaw niewybrane, aby użyć aktualnej aktywnej konfiguracji.",
+			"useCurrentConfig": "Domyślna"
+		},
+		"customCondensingPrompt": {
+			"label": "Niestandardowy monit kondensacji kontekstu",
+			"description": "Niestandardowy monit systemowy dla kondensacji kontekstu. Pozostaw puste, aby użyć domyślnego monitu.",
+			"placeholder": "Wprowadź tutaj swój niestandardowy monit kondensacji...\n\nMożesz użyć tej samej struktury co domyślny monit:\n- Poprzednia rozmowa\n- Aktualna praca\n- Kluczowe koncepcje techniczne\n- Istotne pliki i kod\n- Rozwiązywanie problemów\n- Oczekujące zadania i następne kroki",
+			"reset": "Przywróć domyślne",
+			"hint": "Puste = użyj domyślnego monitu"
+		},
+		"autoCondenseContext": {
+			"name": "Automatycznie wyzwalaj inteligentną kondensację kontekstu",
+			"description": "Gdy włączone, OctoCode automatycznie skondensuje kontekst po osiągnięciu progu. Gdy wyłączone, nadal możesz ręcznie wyzwolić kondensację kontekstu."
+		},
+		"openTabs": {
+			"label": "Limit kontekstu otwartych kart",
+			"description": "Maksymalna liczba otwartych kart VSCode do uwzględnienia w kontekście. Wyższe wartości zapewniają więcej kontekstu, ale zwiększają zużycie token."
+		},
+		"workspaceFiles": {
+			"label": "Limit kontekstu plików obszaru roboczego",
+			"description": "Maksymalna liczba plików do uwzględnienia w szczegółach bieżącego katalogu roboczego. Wyższe wartości zapewniają więcej kontekstu, ale zwiększają zużycie token."
+		},
+		"rooignore": {
+			"label": "Pokaż pliki .rooignore na listach i w wyszukiwaniach",
+			"description": "Gdy włączone, pliki pasujące do wzorców w .rooignore będą pokazywane na listach z symbolem kłódki. Gdy wyłączone, te pliki będą całkowicie ukryte z list plików i wyszukiwań."
+		},
+		"maxReadFile": {
+			"label": "Próg automatycznego skracania odczytu pliku",
+			"description": "OctoCode odczytuje tę liczbę linii, gdy model nie określa wartości początkowej/końcowej. Jeśli ta liczba jest mniejsza niż całkowita liczba linii pliku, OctoCode generuje indeks numerów linii definicji kodu. Przypadki specjalne: -1 nakazuje OctoCode odczytać cały plik (bez indeksowania), a 0 nakazuje nie czytać żadnych linii i dostarczyć tylko indeksy linii dla minimalnego kontekstu. Niższe wartości minimalizują początkowe użycie kontekstu, umożliwiając późniejsze precyzyjne odczyty zakresów linii. Jawne żądania początku/końca nie są ograniczone tym ustawieniem.",
+			"lines": "linii",
+			"always_full_read": "Zawsze czytaj cały plik"
+		},
+		"maxConcurrentFileReads": {
+			"label": "Limit jednoczesnych odczytów",
+			"description": "Maksymalna liczba plików, które narzędzie 'read_file' może przetwarzać jednocześnie. Wyższe wartości mogą przyspieszyć odczyt wielu małych plików, ale zwiększają zużycie pamięci."
+		},
+		"diagnostics": {
+			"includeMessages": {
+				"label": "Automatycznie dołączaj diagnostykę do kontekstu",
+				"description": "Gdy włączone, komunikaty diagnostyczne (błędy) z edytowanych plików będą automatycznie dołączane do kontekstu. Zawsze możesz ręcznie dołączyć całą diagnostykę obszaru roboczego używając @problems."
+			},
+			"maxMessages": {
+				"label": "Maksymalna liczba komunikatów diagnostycznych",
+				"description": "Maksymalna liczba komunikatów diagnostycznych dołączanych na plik. Ten limit dotyczy zarówno automatycznego dołączania (gdy pole wyboru jest włączone) jak i ręcznych wzmianek @problems. Wyższe wartości dostarczają więcej kontekstu, ale zwiększają zużycie tokenów.",
+				"resetTooltip": "Resetuj do wartości domyślnej (50)",
+				"unlimitedLabel": "Nieograniczone"
+			},
+			"delayAfterWrite": {
+				"label": "Opóźnienie po zapisie, aby umożliwić diagnostyce wykrycie potencjalnych problemów",
+				"description": "Czas oczekiwania po zapisie plików przed kontynuowaniem, aby narzędzia diagnostyczne mogły przetworzyć zmiany i wykryć problemy."
+			}
+		},
+		"fileEdits": {
+			"diffFuzzyThreshold": {
+				"label": "Próg dopasowania diff",
+				"description": "Niższe progi sprawiają, że edycje plików są bardziej odporne na różnice w formatowaniu i białych znakach. Próg 100% wymaga dokładnego dopasowania."
+			}
+		},
+		"condensingThreshold": {
+			"label": "Próg wyzwalania kondensacji",
+			"selectProfile": "Skonfiguruj próg dla profilu",
+			"defaultProfile": "Globalny domyślny (wszystkie profile)",
+			"defaultDescription": "Gdy kontekst osiągnie ten procent, zostanie automatycznie skondensowany dla wszystkich profili, chyba że mają niestandardowe ustawienia",
+			"profileDescription": "Niestandardowy próg tylko dla tego profilu (zastępuje globalny domyślny)",
+			"inheritDescription": "Ten profil dziedziczy globalny domyślny próg ({{threshold}}%)",
+			"usesGlobal": "(używa globalnego {{threshold}}%)"
+		},
+		"maxImageFileSize": {
+			"label": "Maksymalny rozmiar pliku obrazu",
+			"mb": "MB",
+			"description": "Maksymalny rozmiar (w MB) plików obrazów, które mogą być przetwarzane przez narzędzie do czytania plików."
+		},
+		"maxTotalImageSize": {
+			"label": "Maksymalny całkowity rozmiar obrazów",
+			"mb": "MB",
+			"description": "Maksymalny skumulowany limit rozmiaru (w MB) dla wszystkich obrazów przetwarzanych w jednej operacji read_file. Podczas odczytu wielu obrazów rozmiar każdego obrazu jest dodawany do sumy. Jeśli dołączenie kolejnego obrazu przekroczyłoby ten limit, zostanie on pominięty."
+		},
+		"includeCurrentTime": {
+			"label": "Uwzględnij bieżący czas w kontekście",
+			"description": "Gdy włączone, bieżący czas i informacje o strefie czasowej zostaną uwzględnione w promptcie systemowym. Wyłącz, jeśli modele przestają działać z powodu problemów z czasem."
+		},
+		"includeCurrentCost": {
+			"label": "Uwzględnij bieżący koszt w kontekście",
+			"description": "Gdy włączone, bieżący koszt użycia API zostanie uwzględniony w promptcie systemowym. Wyłącz, jeśli modele przestają działać z powodu problemów z kosztami."
+		},
+		"maxGitStatusFiles": {
+			"label": "Git status maks. plików",
+			"description": "Maksymalna liczba wpisów plików do uwzględnienia w kontekście statusu git. Ustaw na 0, aby wyłączyć. Informacje o gałęzi i zatwierdzenia są zawsze pokazywane, gdy > 0."
+		},
+		"enableSubfolderRules": {
+			"label": "Włącz reguły podfolderów",
+			"description": "Rekursywnie odkrywaj i ładuj pliki .roo/rules i AGENTS.md z podkatalogów. Przydatne dla monorepo z regułami dla poszczególnych pakietów."
+		}
+	},
+	"terminal": {
+		"basic": {
+			"label": "Ustawienia terminala: Podstawowe",
+			"description": "Podstawowe ustawienia terminala"
+		},
+		"advanced": {
+			"label": "Ustawienia terminala: Zaawansowane",
+			"description": "Te ustawienia mają zastosowanie tylko gdy 'Użyj terminala wbudowanego' jest wyłączone. Dotyczą tylko terminala VS Code i mogą wymagać ponownego uruchomienia IDE."
+		},
+		"outputLineLimit": {
+			"label": "Limit wyjścia terminala",
+			"description": "Zachowuje pierwsze i ostatnie linie i odrzuca środkowe, aby zmieścić się w limicie. Zmniejsz, aby oszczędzać tokeny; zwiększ, aby dać OctoCode więcej szczegółów ze środka. OctoCode widzi symbol zastępczy tam, gdzie treść jest pomijana.<0>Dowiedz się więcej</0>"
+		},
+		"outputCharacterLimit": {
+			"label": "Limit znaków terminala",
+			"description": "Zastępuje limit linii, aby zapobiec problemom z pamięcią, narzucając twardy limit rozmiaru wyjścia. W przypadku przekroczenia zachowuje początek i koniec i pokazuje symbol zastępczy OctoCode tam, gdzie treść jest pomijana. <0>Dowiedz się więcej</0>"
+		},
+		"outputPreviewSize": {
+			"label": "Rozmiar podglądu wyjścia polecenia",
+			"description": "Kontroluje, ile wyjścia polecenia OctoCode widzi bezpośrednio. Pełne wyjście jest zawsze zapisywane i dostępne w razie potrzeby.",
+			"options": {
+				"small": "Mały (5KB)",
+				"medium": "Średni (10KB)",
+				"large": "Duży (20KB)"
+			}
+		},
+		"shellIntegrationTimeout": {
+			"label": "Limit czasu integracji powłoki terminala",
+			"description": "Jak długo czekać na integrację powłoki VS Code przed wykonaniem poleceń. Zwiększ, jeśli twoja powłoka wolno się uruchamia lub widzisz błędy 'Integracja Powłoki Niedostępna'. <0>Dowiedz się więcej</0>"
+		},
+		"shellIntegrationDisabled": {
+			"label": "Użyj terminala wbudowanego (zalecane)",
+			"description": "Uruchamiaj polecenia w terminalu wbudowanym (czat), aby ominąć profile/integrację powłoki dla szybszych, bardziej niezawodnych uruchomień. Gdy wyłączony, OctoCode używa terminala VS Code z twoim profilem powłoki, monitami i wtyczkami. <0>Dowiedz się więcej</0>"
+		},
+		"commandDelay": {
+			"label": "Opóźnienie polecenia terminala",
+			"description": "Dodaje krótką pauzę po każdym poleceniu, aby terminal VS Code mógł opróżnić całe wyjście (bash/zsh: PROMPT_COMMAND sleep; PowerShell: start-sleep). Używaj tylko gdy widzisz brakujące wyjście końcowe; w przeciwnym razie zostaw na 0. <0>Dowiedz się więcej</0>"
+		},
+		"powershellCounter": {
+			"label": "Włącz obejście licznika PowerShell",
+			"description": "Włącz gdy brakuje lub jest zduplikowane wyjście PowerShell; dodaje mały licznik do każdego polecenia, aby ustabilizować wyjście. Pozostaw wyłączone, jeśli wyjście już wygląda poprawnie. <0>Dowiedz się więcej</0>"
+		},
+		"zshClearEolMark": {
+			"label": "Wyczyść znacznik końca linii ZSH",
+			"description": "Włącz gdy widzisz zbłąkane % na końcu linii lub parsowanie wygląda nieprawidłowo; pomija znacznik końca linii (%) Zsh. <0>Dowiedz się więcej</0>"
+		},
+		"zshOhMy": {
+			"label": "Włącz integrację Oh My Zsh",
+			"description": "Włącz gdy twój motyw/wtyczki Oh My Zsh oczekują integracji powłoki; ustawia ITERM_SHELL_INTEGRATION_INSTALLED=Yes. Wyłącz, aby uniknąć ustawiania tej zmiennej. <0>Dowiedz się więcej</0>"
+		},
+		"zshP10k": {
+			"label": "Włącz integrację Powerlevel10k",
+			"description": "Włącz gdy używasz integracji powłoki Powerlevel10k. <0>Dowiedz się więcej</0>"
+		},
+		"zdotdir": {
+			"label": "Włącz obsługę ZDOTDIR",
+			"description": "Włącz gdy integracja powłoki zsh zawodzi lub jest w konflikcie z twoimi plikami dotfiles. <0>Dowiedz się więcej</0>"
+		},
+		"inheritEnv": {
+			"label": "Dziedzicz zmienne środowiskowe",
+			"description": "Włącz, aby dziedziczyć zmienne środowiskowe z procesu nadrzędnego VS Code. <0>Dowiedz się więcej</0>"
+		},
+		"profile": {
+			"label": "Profil terminala OctoCode",
+			"followVscode": "Podążanie za profilem VS Code (zalecane)",
+			"description": "Domyślnie OctoCode używa powłoki skonfigurowanej w VS Code. Wybierz profil powłoki z listy, aby użyć profilu ze ścieżką udostępnionego przez VS Code. Profile tylko ze źródłem (np. wbudowany wpis PowerShell) nie mogą być tutaj wyświetlone. <0>Dowiedz się więcej</0>",
+			"configureButton": "Wybierz domyślny profil w VS Code",
+			"noProfiles": "(brak profili ze ścieżką w terminal.integrated.profiles)"
+		}
+	},
+	"advancedSettings": {
+		"title": "Ustawienia zaawansowane"
+	},
+	"advanced": {
+		"diff": {
+			"label": "Włącz edycję przez różnice",
+			"description": "Gdy włączone, OctoCode będzie w stanie edytować pliki szybciej i automatycznie odrzuci obcięte pełne zapisy plików",
+			"strategy": {
+				"label": "Strategia diff",
+				"options": {
+					"standard": "Standardowa (Pojedynczy blok)",
+					"multiBlock": "Eksperymentalna: Diff wieloblokowy",
+					"unified": "Eksperymentalna: Diff ujednolicony"
+				},
+				"descriptions": {
+					"standard": "Standardowa strategia diff stosuje zmiany do jednego bloku kodu na raz.",
+					"unified": "Strategia diff ujednoliconego stosuje wiele podejść do zastosowania różnic i wybiera najlepsze podejście.",
+					"multiBlock": "Strategia diff wieloblokowego pozwala na aktualizację wielu bloków kodu w pliku w jednym żądaniu."
+				}
+			}
+		},
+		"todoList": {
+			"label": "Włącz narzędzie listy zadań",
+			"description": "Po włączeniu OctoCode może tworzyć i zarządzać listami zadań do śledzenia postępu zadań. Pomaga to organizować złożone zadania w łatwe do zarządzania kroki."
+		}
+	},
+	"promptCaching": {
+		"label": "Wyłącz buforowanie promptów",
+		"description": "Po zaznaczeniu, OctoCode nie będzie używać buforowania promptów dla tego modelu."
+	},
+	"temperature": {
+		"useCustom": "Użyj niestandardowej temperatury",
+		"description": "Kontroluje losowość w odpowiedziach modelu.",
+		"rangeDescription": "Wyższe wartości sprawiają, że wyjście jest bardziej losowe, niższe wartości czynią je bardziej deterministycznym."
+	},
+	"modelInfo": {
+		"supportsImages": "Obsługuje obrazy",
+		"noImages": "Nie obsługuje obrazów",
+		"supportsPromptCache": "Obsługuje buforowanie podpowiedzi",
+		"noPromptCache": "Nie obsługuje buforowania podpowiedzi",
+		"contextWindow": "Okno kontekstowe:",
+		"maxOutput": "Maksymalne wyjście",
+		"inputPrice": "Cena wejścia",
+		"outputPrice": "Cena wyjścia",
+		"cacheReadsPrice": "Cena odczytów bufora",
+		"cacheWritesPrice": "Cena zapisów bufora",
+		"enableStreaming": "Włącz strumieniowanie",
+		"enableR1Format": "Włącz parametry modelu R1",
+		"enableR1FormatTips": "Należy włączyć podczas korzystania z modeli R1, takich jak QWQ, aby uniknąć błędu 400",
+		"useAzure": "Użyj Azure",
+		"azureApiVersion": "Ustaw wersję API Azure",
+		"gemini": {
+			"freeRequests": "* Darmowe do {{count}} zapytań na minutę. Po tym, rozliczanie zależy od rozmiaru podpowiedzi.",
+			"pricingDetails": "Więcej informacji znajdziesz w szczegółach cennika.",
+			"billingEstimate": "* Rozliczenie jest szacunkowe - dokładny koszt zależy od rozmiaru podpowiedzi."
+		}
+	},
+	"modelPicker": {
+		"fetchModels": "Pobierz listę modeli",
+		"saveModel": "Zapisz wybrany model",
+		"saved": "Zapisano",
+		"fetchStatus": {
+			"fetched": "Pobrano {{count}} modeli",
+			"fetched_one": "Pobrano {{count}} model",
+			"fetched_other": "Pobrano {{count}} modeli",
+			"cached": "Z pamięci podręcznej ({{time}})",
+			"catalog": "Brak listy z serwera; pokazywane są modele wbudowane",
+			"error": "Pobieranie nie powiodło się: {{error}}"
+		},
+		"automaticFetch": "Rozszerzenie automatycznie pobiera najnowszą listę modeli dostępnych w <serviceLink>{{serviceName}}</serviceLink>. Jeśli nie jesteś pewien, który model wybrać, OctoCode działa najlepiej z <defaultModelLink>{{defaultModelId}}</defaultModelLink>. Możesz również wyszukać \"free\", aby znaleźć obecnie dostępne opcje bezpłatne.",
+		"label": "Model",
+		"searchPlaceholder": "Wyszukaj",
+		"noMatchFound": "Nie znaleziono dopasowań",
+		"useCustomModel": "Użyj niestandardowy: {{modelId}}",
+		"simplifiedExplanation": "Można dostosować szczegółowe ustawienia modelu później."
+	},
+	"footer": {
+		"telemetry": {
+			"label": "Zezwól na anonimowe raportowanie błędów i użycia",
+			"description": "Pomóż ulepszyć OctoCode, wysyłając anonimowe dane użytkowania i raporty błędów. Ta telemetria nie zbiera kodu, promptów ani danych osobowych. Zobacz naszą <privacyLink>politykę prywatności</privacyLink>, aby uzyskać więcej szczegółów. Możesz to wyłączyć w dowolnym momencie."
+		},
+		"settings": {
+			"import": "Importuj",
+			"export": "Eksportuj",
+			"reset": "Resetuj"
+		}
+	},
+	"thinkingBudget": {
+		"maxTokens": "Maksymalna liczba tokenów",
+		"maxThinkingTokens": "Maksymalna liczba tokenów myślenia"
+	},
+	"validation": {
+		"apiKey": "Musisz podać prawidłowy klucz API.",
+		"awsRegion": "Musisz wybrać region, aby korzystać z Amazon Bedrock.",
+		"googleCloud": "Musisz podać prawidłowe ID projektu i region Google Cloud.",
+		"modelId": "Musisz podać prawidłowe ID modelu.",
+		"modelSelector": "Musisz podać prawidłowy selektor modelu.",
+		"openAi": "Musisz podać prawidłowy bazowy URL, klucz API i ID modelu.",
+		"arn": {
+			"invalidFormat": "Nieprawidłowy format ARN. Sprawdź wymagania dotyczące formatu.",
+			"regionMismatch": "Ostrzeżenie: Region w Twoim ARN ({{arnRegion}}) nie zgadza się z wybranym regionem ({{region}}). Może to powodować problemy z dostępem. Dostawca użyje regionu z ARN."
+		},
+		"modelAvailability": "Podane ID modelu ({{modelId}}) jest niedostępne. Wybierz inny model.",
+		"modelDeprecated": "Ten model nie jest już dostępny. Wybierz inny model.",
+		"providerNotAllowed": "Dostawca '{{provider}}' nie jest dozwolony przez Twoją organizację",
+		"modelNotAllowed": "Model '{{model}}' nie jest dozwolony dla dostawcy '{{provider}}' przez Twoją organizację",
+		"profileInvalid": "Ten profil zawiera dostawcę lub model, który nie jest dozwolony przez Twoją organizację",
+		"qwenCodeOauthPath": "Musisz podać prawidłową ścieżkę do poświadczeń OAuth",
+		"octoCodeGatewaySignIn": "Zaloguj się do OctoCode, aby korzystać z OctoCode Gateway."
+	},
+	"placeholders": {
+		"apiKey": "Wprowadź klucz API...",
+		"profileName": "Wprowadź nazwę profilu",
+		"accessKey": "Wprowadź klucz dostępu...",
+		"secretKey": "Wprowadź klucz tajny...",
+		"sessionToken": "Wprowadź token sesji...",
+		"credentialsJson": "Wprowadź JSON poświadczeń...",
+		"keyFilePath": "Wprowadź ścieżkę pliku klucza...",
+		"projectId": "Wprowadź ID projektu...",
+		"customArn": "Wprowadź ARN (np. arn:aws:bedrock:us-east-1:123456789012:foundation-model/my-model)",
+		"baseUrl": "Wprowadź podstawowy URL...",
+		"modelId": {
+			"lmStudio": "np. meta-llama-3.1-8b-instruct",
+			"lmStudioDraft": "np. lmstudio-community/llama-3.2-1b-instruct",
+			"ollama": "np. llama3.1"
+		},
+		"numbers": {
+			"maxTokens": "np. 4096",
+			"contextWindow": "np. 128000",
+			"inputPrice": "np. 0.0001",
+			"outputPrice": "np. 0.0002",
+			"cacheWritePrice": "np. 0.00005"
+		}
+	},
+	"defaults": {
+		"ollamaUrl": "Domyślnie: http://localhost:11434",
+		"lmStudioUrl": "Domyślnie: http://localhost:1234",
+		"geminiUrl": "Domyślnie: https://generativelanguage.googleapis.com"
+	},
+	"labels": {
+		"customArn": "Niestandardowy ARN",
+		"useCustomArn": "Użyj niestandardowego ARN..."
+	},
+	"includeMaxOutputTokens": "Uwzględnij maksymalne tokeny wyjściowe",
+	"includeMaxOutputTokensDescription": "Wyślij parametr maksymalnych tokenów wyjściowych w żądaniach API. Niektórzy dostawcy mogą tego nie obsługiwać.",
+	"limitMaxTokensDescription": "Ogranicz maksymalną liczbę tokenów w odpowiedzi",
+	"maxOutputTokensLabel": "Maksymalne tokeny wyjściowe",
+	"maxTokensGenerateDescription": "Maksymalne tokeny do wygenerowania w odpowiedzi",
+	"openAiCodexSpeed": {
+		"label": "Szybkość",
+		"tooltip": "Tryb szybki korzysta z priorytetowego przetwarzania Codex, zapewniając około 1,5 raza większą szybkość i zużywając więcej limitu subskrypcji.",
+		"standard": "Standardowy",
+		"fast": "Szybki (1,5 raza szybciej, większe użycie)"
+	},
+	"serviceTier": {
+		"label": "Poziom usług",
+		"tooltip": "Aby szybciej przetwarzać żądania API, wypróbuj priorytetowy poziom usług. Aby uzyskać niższe ceny przy wyższej latencji, wypróbuj elastyczny poziom usług.",
+		"standard": "Standardowy",
+		"flex": "Elastyczny",
+		"priority": "Priorytetowy",
+		"pricingTableTitle": "Cennik według poziomu usług (cena za 1 mln tokenów)",
+		"columns": {
+			"tier": "Poziom",
+			"input": "Wejście",
+			"output": "Wyjście",
+			"cacheReads": "Odczyty z pamięci podręcznej"
+		}
+	},
+	"ui": {
+		"collapseThinking": {
+			"label": "Domyślnie zwijaj komunikaty o myśleniu",
+			"description": "Gdy włączone, bloki myślenia będą domyślnie zwinięte, dopóki nie wejdziesz z nimi w interakcję"
+		},
+		"requireCtrlEnterToSend": {
+			"label": "Wymagaj {{primaryMod}}+Enter do wysyłania wiadomości",
+			"description": "Po włączeniu musisz nacisnąć {{primaryMod}}+Enter, aby wysłać wiadomości, zamiast tylko Enter"
+		},
+		"chatFontSize": {
+			"label": "Rozmiar czcionki czatu",
+			"description": "Ustaw rozmiar czcionki (w pikselach) dla czatu OctoCode. Pozostaw wartość domyślną, aby dopasować ją do rozmiaru czcionki VS Code.",
+			"reset": "Użyj wartości domyślnej VS Code"
+		},
+		"autoCloseOctoCodeOpenedFiles": {
+			"label": "Automatycznie zamykaj pliki otwarte przez OctoCode",
+			"description": "Gdy wlaczone, karty edytora, ktore OctoCode otworzylo tymczasowo dla diffa, sa automatycznie zamykane po zaakceptowaniu lub odrzuceniu zmiany. Karty, ktore uzytkownik mial juz otwarte przed edycja, nigdy nie sa automatycznie zamykane."
+		},
+		"autoCloseOctoCodeOpenedFilesAfterUserEdited": {
+			"label": "Automatycznie zamykaj rowniez po interakcji uzytkownika",
+			"description": "Gdy wlaczone, karty otwarte przez OctoCode sa zamykane nawet jesli uzytkownik kliknal lub pisal w pliku lub diffie podczas sesji edycji. Nie ma efektu, jesli 'Automatycznie zamykaj pliki otwarte przez OctoCode' jest wylaczone."
+		},
+		"autoCloseOctoCodeOpenedNewFiles": {
+			"label": "Automatycznie zamykaj nowo utworzone pliki",
+			"description": "Gdy wlaczone, karty plikow, ktore OctoCode utworzylo (zamiast zmodyfikowalo), sa rowniez automatycznie zamykane po zaakceptowaniu zmiany."
+		},
+		"colorTheme": {
+			"label": "Motyw kolorystyczny",
+			"button": "Wybierz motyw",
+			"description": "Przełączaj między jasnym a ciemnym motywem."
+		}
+	},
+	"skills": {
+		"description": "Zarządzaj umiejętnościami, które dostarczają kontekstowe instrukcje dla agenta. Umiejętności są automatycznie stosowane, gdy są istotne dla Twoich zadań. <DocsLink>Dowiedz się więcej</DocsLink>",
+		"workspaceSkills": "Umiejętności obszaru roboczego",
+		"globalSkills": "Umiejętności Globalne",
+		"noWorkspaceSkills": "Brak umiejętności w tym projekcie.",
+		"noGlobalSkills": "Brak skonfigurowanych umiejętności globalnych. Utwórz jedną, aby dodać możliwości agenta dostępne we wszystkich projektach.",
+		"addSkill": "Dodaj Umiejętność",
+		"editSkill": "Edytuj umiejętność",
+		"deleteSkill": "Usuń umiejętność",
+		"configureModes": "Dostępność trybu",
+		"modeAny": "Dowolny tryb",
+		"modeCount": "{{count}} tryby",
+		"deleteDialog": {
+			"title": "Usuń Umiejętność",
+			"description": "Czy na pewno chcesz usunąć umiejętność \"{{name}}\"? Tej akcji nie można cofnąć.",
+			"confirm": "Usuń",
+			"cancel": "Anuluj"
+		},
+		"modeDialog": {
+			"title": "Konfiguruj tryby umiejętności",
+			"description": "Wybierz, które tryby mogą korzystać z tej umiejętności",
+			"intro": "Aby utrzymać lekki kontekst, zalecamy udostępnienie umiejętności tylko trybom, które ich potrzebują.",
+			"anyMode": "Dowolny tryb (dostępny wszędzie)",
+			"save": "Zapisz",
+			"cancel": "Anuluj"
+		},
+		"createDialog": {
+			"title": "Utwórz Nową Umiejętność",
+			"nameLabel": "Nazwa",
+			"namePlaceholder": "moja-nazwa-umiejetnosci",
+			"descriptionLabel": "Opis",
+			"descriptionPlaceholder": "Opisz, kiedy ta umiejętność powinna być użyta...",
+			"sourceLabel": "Lokalizacja",
+			"modeLabel": "Tryb (opcjonalnie)",
+			"modePlaceholder": "Dowolny tryb",
+			"modeHint": "Ogranicz tę umiejętność do określonego trybu",
+			"modeAny": "Dowolny tryb",
+			"create": "Utwórz",
+			"cancel": "Anuluj"
+		},
+		"source": {
+			"global": "Globalnie (dostępne we wszystkich projektach)",
+			"project": "Projekt (tylko ten obszar roboczy)"
+		},
+		"validation": {
+			"nameRequired": "Nazwa jest wymagana",
+			"nameTooLong": "Nazwa musi mieć maksymalnie 64 znaki",
+			"nameInvalid": "Nazwa musi zawierać 1-64 małe litery, cyfry lub myślniki",
+			"descriptionRequired": "Opis jest wymagany",
+			"descriptionTooLong": "Opis musi mieć maksymalnie 1024 znaki"
+		},
+		"footer": "Twórz własne umiejętności za pomocą trybu Skill Writer, dostępnego w <MarketplaceLink>Modes Marketplace</MarketplaceLink>."
+	},
+	"logs": {
+		"inspectorHint": "Elementy sterujące zapytaniem pozostają tutaj; pasujące rekordy pojawią się w Inspektorze po prawej stronie.",
+		"category": "Kategoria logu",
+		"system": "Logi systemowe",
+		"developer": "Logi deweloperskie",
+		"keyword": "Słowo kluczowe",
+		"startDate": "Data początkowa",
+		"endDate": "Data końcowa",
+		"query": "Zapytanie do logów",
+		"deleteFiltered": "Usuń filtrowane logi",
+		"clearAll": "Wyczyść wszystkie logi"
+	},
+	"language": {
+		"installPack": "Zainstaluj pakiet językowy JSON"
+	}
+}

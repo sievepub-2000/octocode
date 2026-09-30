@@ -1,0 +1,26 @@
+{
+	"extends": "./tsconfig.node.json",
+	"include": [
+		"../../src/**/common/**/*.ts",
+		"../../src/**/node/**/*.ts",
+		"../../src/**/electron-utility/**/*.ts",
+		"../../src/typings/*.d.ts",
+		"../../src/vs/monaco.d.ts",
+		"../../src/vscode-dts/vscode.proposed.*.d.ts",
+		"../../src/vscode-dts/vscode.d.ts",
+		"../../node_modules/@types/trusted-types/index.d.ts",
+	],
+	"exclude": [
+		"../../src/vs/platform/agentHost/common/otel/**",
+		"../../src/vs/platform/agentHost/node/agentHostGitHubTelemetryRouter.ts",
+		"../../src/vs/platform/agentHost/node/agentSdkDownloader.ts",
+		"../../src/vs/platform/agentHost/node/claude/**",
+		"../../src/vs/platform/agentHost/node/copilot/**",
+		"../../src/vs/platform/agentHost/node/codex/**",
+		"../../src/vs/platform/agentHost/node/otel/**",
+		"../../src/vs/platform/agentHost/node/shared/copilotApiService.ts",
+		"../../src/vs/sessions/contrib/providers/copilotChatSessions/**",
+		"../../src/**/test/**",
+		"../../src/**/fixtures/**",
+	]
+}

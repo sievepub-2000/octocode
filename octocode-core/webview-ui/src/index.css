@@ -1,0 +1,949 @@
+/**
+ * Normally we'd import tailwind with the following:
+ *
+ * @import "tailwindcss";
+ *
+ * However, we need to customize the preflight styles since the extension's
+ * current UI assumes there's no CSS resetting or normalization.
+ *
+ * We're excluding tailwind's default preflight and importing our own, which
+ * is based on the original:
+ * https://github.com/tailwindlabs/tailwindcss/blob/main/packages/tailwindcss/preflight.css
+ *
+ * Reference: https://tailwindcss.com/docs/preflight
+ */
+
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "./preflight.css" layer(base);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@source "../src";
+@import "katex/dist/katex.min.css";
+
+@plugin "tailwindcss-animate";
+
+/* Match the title-bar octopus in every theme, including hover/pressed states. */
+.octocode-brand-outline,
+.octocode-brand-outline:focus {
+	border-color: #d4554f;
+	outline-color: #d4554f;
+}
+
+.octocode-brand-fill,
+.octocode-brand-fill:hover,
+.octocode-brand-fill:active {
+	background-color: #d4554f;
+	color: #ffffff;
+	opacity: 1;
+}
+
+@theme {
+	--font-display: var(--vscode-font-family);
+
+	--text-xs: calc(var(--vscode-font-size) * 0.85);
+	--text-sm: calc(var(--vscode-font-size) * 0.9);
+	--text-base: var(--vscode-font-size);
+	--text-lg: calc(var(--vscode-font-size) * 1.1);
+
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-destructive-foreground: var(--destructive-foreground);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--color-chart-1: var(--chart-1);
+	--color-chart-2: var(--chart-2);
+	--color-chart-3: var(--chart-3);
+	--color-chart-4: var(--chart-4);
+	--color-chart-5: var(--chart-5);
+	--radius-lg: var(--radius);
+	--radius-md: calc(var(--radius) - 2px);
+	--radius-sm: calc(var(--radius) - 4px);
+
+	/**
+	 * Allow VSCode colors to be used with Tailwind.
+	 */
+
+	--color-vscode-foreground: var(--vscode-foreground);
+
+	--color-vscode-editor-foreground: var(--vscode-editor-foreground);
+	--color-vscode-editor-background: var(--vscode-editor-background);
+
+	--color-vscode-editorGroup-border: var(--vscode-editorGroup-border);
+
+	--color-vscode-editorWarning-foreground: var(--vscode-editorWarning-foreground);
+	--color-vscode-editorWarning-background: var(--vscode-editorWarning-background);
+
+	--color-vscode-button-foreground: var(--vscode-button-foreground);
+	--color-vscode-button-background: var(--vscode-button-background);
+	--color-vscode-button-secondaryForeground: var(--vscode-button-secondaryForeground);
+	--color-vscode-button-secondaryBackground: var(--vscode-button-secondaryBackground);
+	--color-vscode-button-hoverBackground: var(--vscode-button-hoverBackground);
+
+	--color-vscode-dropdown-foreground: var(--vscode-dropdown-foreground);
+	--color-vscode-dropdown-background: var(--vscode-dropdown-background);
+	--color-vscode-dropdown-border: var(--vscode-dropdown-border);
+
+	--color-vscode-input-foreground: var(--vscode-input-foreground);
+	--color-vscode-input-background: var(--vscode-input-background);
+	--color-vscode-input-border: var(
+		--vscode-input-border,
+		transparent
+	); /* Some themes don't have a border color, so we can fallback to transparent */
+
+	--color-vscode-focusBorder: var(--vscode-focusBorder);
+
+	--color-vscode-badge-foreground: var(--vscode-badge-foreground);
+	--color-vscode-badge-background: var(--vscode-badge-background);
+
+	--color-vscode-notifications-foreground: var(--vscode-notifications-foreground);
+	--color-vscode-notifications-background: var(--vscode-notifications-background);
+	--color-vscode-notifications-border: var(--vscode-notifications-border);
+
+	--color-vscode-descriptionForeground: var(--vscode-descriptionForeground);
+	--color-vscode-errorForeground: var(--vscode-errorForeground);
+
+	--color-vscode-list-hoverForeground: var(--vscode-list-hoverForeground);
+	--color-vscode-list-hoverBackground: var(--vscode-list-hoverBackground);
+	--color-vscode-list-focusBackground: var(--vscode-list-focusBackground);
+	--color-vscode-list-activeSelectionBackground: var(--vscode-list-activeSelectionBackground);
+	--color-vscode-list-activeSelectionForeground: var(--vscode-list-activeSelectionForeground);
+
+	--color-vscode-toolbar-hoverBackground: var(--vscode-toolbar-hoverBackground);
+	--color-vscode-toolbar-hoverOutline: var(--vscode-toolbar-hoverOutline);
+
+	--color-vscode-panel-border: var(--vscode-panel-border);
+
+	--color-vscode-sideBar-foreground: var(--vscode-sideBar-foreground);
+	--color-vscode-sideBar-background: var(--vscode-sideBar-background);
+	--color-vscode-sideBar-border: var(--vscode-sideBar-border);
+
+	--color-vscode-sideBarSectionHeader-foreground: var(--vscode-sideBarSectionHeader-foreground);
+	--color-vscode-sideBarSectionHeader-background: var(--vscode-sideBarSectionHeader-background);
+	--color-vscode-sideBarSectionHeader-border: var(--vscode-sideBarSectionHeader-border);
+
+	--color-vscode-titleBar-activeForeground: var(--vscode-titleBar-activeForeground);
+	--color-vscode-titleBar-inactiveForeground: var(--vscode-titleBar-inactiveForeground);
+
+	--color-vscode-charts-green: var(--vscode-charts-green);
+	--color-vscode-charts-red: var(--vscode-charts-red);
+	--color-vscode-charts-yellow: var(--vscode-charts-yellow);
+
+	--color-vscode-inputValidation-infoForeground: var(--vscode-inputValidation-infoForeground);
+	--color-vscode-inputValidation-infoBackground: var(--vscode-inputValidation-infoBackground);
+	--color-vscode-inputValidation-infoBorder: var(--vscode-inputValidation-infoBorder);
+
+	--color-vscode-inputValidation-warningForeground: var(--vscode-inputValidation-warningForeground);
+	--color-vscode-inputValidation-warningBackground: var(--vscode-inputValidation-warningBackground);
+	--color-vscode-inputValidation-warningBorder: var(--vscode-inputValidation-warningBorder);
+
+	--color-vscode-widget-border: var(--vscode-widget-border);
+	--color-vscode-widget-shadow: var(--vscode-widget-shadow);
+
+	--color-vscode-textLink-foreground: var(--vscode-textLink-foreground);
+
+	--color-vscode-textCodeBlock-background: var(--vscode-textCodeBlock-background);
+
+	--color-vscode-editorHoverWidget-foreground: var(--vscode-editorHoverWidget-foreground);
+	--color-vscode-editorHoverWidget-background: var(--vscode-editorHoverWidget-background);
+	--color-vscode-editorHoverWidget-border: var(--vscode-editorHoverWidget-border);
+
+	--color-vscode-banner-background: var(--vscode-banner-background);
+	--color-vscode-banner-foreground: var(--vscode-banner-foreground);
+}
+
+@layer base {
+	:root {
+		--background: var(--vscode-editor-background);
+		--foreground: var(--vscode-editor-foreground);
+		--card: var(--vscode-editor-background);
+		--card-foreground: var(--vscode-editor-foreground);
+		--popover: var(--vscode-menu-background, var(--vscode-editor-background));
+		--popover-foreground: var(--vscode-menu-foreground, var(--vscode-editor-foreground));
+		--primary: var(--vscode-button-background);
+		--primary-foreground: var(--vscode-button-foreground);
+		--secondary: var(--vscode-button-secondaryBackground);
+		--secondary-foreground: var(--vscode-button-secondaryForeground);
+		--muted: var(--vscode-disabledForeground);
+		--muted-foreground: var(--vscode-descriptionForeground);
+		--accent: var(--vscode-list-hoverBackground);
+		--accent-foreground: var(--vscode-list-hoverForeground);
+		--destructive: var(--vscode-errorForeground);
+		--destructive-foreground: var(--vscode-editor-background);
+		--border: var(--vscode-input-border, var(--vscode-panel-border, transparent));
+		--input: var(--vscode-input-background);
+		--ring: var(--vscode-input-border);
+		--chart-1: var(--vscode-charts-red);
+		--chart-2: var(--vscode-charts-blue);
+		--chart-3: var(--vscode-charts-yellow);
+		--chart-4: var(--vscode-charts-orange);
+		--chart-5: var(--vscode-charts-green);
+		--radius: 0.75rem;
+		--octo-surface-border: color-mix(in srgb, var(--vscode-foreground) 14%, transparent);
+		--octo-surface-highlight: color-mix(in srgb, var(--vscode-editor-background) 84%, white 16%);
+		--octo-surface-shadow: 0 1px 2px color-mix(in srgb, var(--vscode-widget-shadow, black) 18%, transparent);
+		--octo-float-shadow: 0 10px 28px color-mix(in srgb, var(--vscode-widget-shadow, black) 24%, transparent);
+	}
+}
+
+@layer components {
+	/* Quiet hardware-like surfaces: hairline edges and low-spread elevation. */
+	[data-slot="select-trigger"],
+	.octo-vscode-button,
+	.octo-vscode-input {
+		border-color: var(--octo-surface-border);
+		box-shadow:
+			inset 0 1px var(--octo-surface-highlight),
+			var(--octo-surface-shadow);
+	}
+
+	[data-slot="select-content"],
+	[data-slot="dialog-content"] {
+		border-color: var(--octo-surface-border);
+		box-shadow:
+			inset 0 1px var(--octo-surface-highlight),
+			var(--octo-float-shadow);
+	}
+
+	/* Border Styles */
+	.border,
+	.border-r,
+	.border-l,
+	.border-t,
+	.border-b,
+	.border-x,
+	.border-y {
+		border-color: var(--border);
+	}
+
+	/* Code Block Styles */
+	pre,
+	code {
+		background-color: var(--vscode-textCodeBlock-background);
+	}
+
+	/* Search result highlighting */
+	.history-item-highlight {
+		@apply underline;
+	}
+
+	/* Custom smooth bounce animation for Roo hero */
+	@keyframes smooth-bounce {
+		0% {
+			transform: translateY(0);
+		}
+		25% {
+			transform: translateY(-25%);
+		}
+		50% {
+			transform: translateY(0);
+		}
+		75% {
+			transform: translateY(-12.5%);
+		}
+		100% {
+			transform: translateY(0);
+		}
+	}
+
+	.animate-smooth-bounce {
+		animation: smooth-bounce 1s ease-in-out infinite;
+	}
+}
+
+/* Form Element Focus States */
+
+textarea:focus {
+	outline: 1.5px solid var(--vscode-focusBorder, #007fd4);
+}
+
+.focus\:outline-0 {
+	outline: 0 !important; /* Allow tailwind to override the `textarea:focus` rule */
+}
+
+/**
+ * Use vscode native scrollbar styles
+ * https://github.com/gitkraken/vscode-gitlens/blob/b1d71d4844523e8b2ef16f9e007068e91f46fd88/src/webviews/apps/home/home.scss
+ */
+
+html {
+	height: 100%;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	/*
+	 * Font size for the OctoCode chat message surface (consumed by MarkdownBlock).
+	 * Defaults to VS Code's font size so appearance is unchanged unless the user
+	 * configures the "Chat font size" setting, which overrides this variable at
+	 * runtime. Scoped to chat rendering so it does not resize settings/other UI.
+	 */
+	--octocode-chat-font-size: var(--vscode-font-size);
+}
+
+body {
+	margin: 0;
+	line-height: 1.25;
+}
+
+body.scrollable,
+.scrollable,
+body.code-block-scrollable,
+.code-block-scrollable {
+	border-color: transparent;
+	transition: border-color 0.7s linear;
+}
+
+body:hover.scrollable,
+body:hover .scrollable,
+body:focus-within.scrollable,
+body:focus-within .scrollable,
+body:hover.code-block-scrollable,
+body:hover .code-block-scrollable,
+body:focus-within.code-block-scrollable,
+body:focus-within .code-block-scrollable {
+	border-color: var(--vscode-scrollbarSlider-background);
+	transition: none;
+}
+
+.scrollable::-webkit-scrollbar-corner {
+	background-color: transparent !important;
+}
+
+.scrollable::-webkit-scrollbar-thumb {
+	background-color: transparent;
+	border-color: inherit;
+	border-right-style: inset;
+	border-right-width: calc(100vw + 100vh);
+	border-radius: unset !important;
+}
+
+.scrollable::-webkit-scrollbar-thumb:hover {
+	border-color: var(--vscode-scrollbarSlider-hoverBackground);
+}
+
+.scrollable::-webkit-scrollbar-thumb:active {
+	border-color: var(--vscode-scrollbarSlider-activeBackground);
+}
+
+/**
+ * Fix VSCode ignoring webkit scrollbar modifiers
+ * https://github.com/microsoft/vscode/issues/213045
+ */
+@supports selector(::-webkit-scrollbar) {
+	html {
+		scrollbar-color: unset;
+	}
+}
+
+/**
+ * The above scrollbar styling uses some transparent background color magic to accomplish its animation. However this doesn't play nicely with SyntaxHighlighter, so we need to set a background color for the code blocks' horizontal scrollbar. This actually has the unintended consequence of always showing the scrollbar which I prefer since it makes it more obvious that there is more content to scroll to.
+ */
+
+.code-block-scrollable::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.code-block-scrollable::-webkit-scrollbar-thumb {
+	background-color: var(--vscode-scrollbarSlider-background);
+	border-radius: 5px;
+	border: 2px solid transparent;
+	background-clip: content-box;
+}
+
+.code-block-scrollable::-webkit-scrollbar-thumb:hover {
+	background-color: var(--vscode-scrollbarSlider-hoverBackground);
+}
+
+.code-block-scrollable::-webkit-scrollbar-thumb:active {
+	background-color: var(--vscode-scrollbarSlider-activeBackground);
+}
+
+.code-block-scrollable::-webkit-scrollbar-corner {
+	background-color: transparent;
+}
+
+/**
+ * Add a way to hide scrollbars.
+ */
+
+.scrollbar-hide {
+	-ms-overflow-style: none; /* IE and Edge */
+	scrollbar-width: none; /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+	display: none; /* Chrome, Safari and Opera */
+}
+
+/**
+ * Dropdown label
+ * https://github.com/microsoft/vscode-webview-ui-toolkit/tree/main/src/dropdown#with-label
+ */
+
+.dropdown-container {
+	box-sizing: border-box;
+	display: flex;
+	flex-flow: column nowrap;
+	align-items: flex-start;
+	justify-content: flex-start;
+}
+
+.dropdown-container label {
+	display: block;
+	color: var(--vscode-foreground);
+	cursor: pointer;
+	font-size: var(--vscode-font-size);
+	line-height: normal;
+	margin-bottom: 2px;
+}
+
+/* Fix dropdown double scrollbar overflow */
+
+#api-provider > div > ul {
+	overflow: unset;
+}
+
+/* Fix scrollbar in dropdown */
+
+vscode-dropdown::part(listbox) {
+	border-color: var(--vscode-scrollbarSlider-background);
+	transition: none;
+	scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
+}
+
+/* Faded icon buttons in textfields */
+.input-icon-button {
+	cursor: pointer;
+	opacity: 0.65;
+}
+
+.input-icon-button:hover {
+	opacity: 1;
+}
+
+.input-icon-button.disabled {
+	cursor: not-allowed;
+	opacity: 0.4;
+}
+
+.input-icon-button.disabled:hover {
+	opacity: 0.4;
+}
+
+/* Context mentions */
+
+.mention-context-textarea-highlight {
+	background-color: color-mix(in srgb, var(--vscode-badge-foreground) 30%, transparent);
+	border-radius: 3px;
+	box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--vscode-badge-foreground) 30%, transparent);
+	color: transparent;
+}
+
+.mention-context-highlight {
+	background-color: color-mix(in srgb, var(--vscode-badge-foreground) 15%, transparent);
+	border-radius: 6px;
+	padding: 1px 4px;
+	font-family: var(--font-mono);
+}
+
+.mention-context-highlight-with-shadow {
+	background-color: color-mix(in srgb, var(--vscode-badge-foreground) 15%, transparent);
+	border-radius: 3px;
+	padding: 1px 4px;
+	box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--vscode-badge-foreground) 30%, transparent);
+	font-family: var(--font-mono);
+}
+
+/**
+ * vscrui Overrides / Hacks
+ */
+
+.vscrui-checkbox__listbox > ul {
+	max-height: unset !important;
+}
+
+.vscrui-checkbox svg {
+	min-width: 16px;
+	min-height: 16px;
+}
+
+/**
+ * @shadcn/ui Overrides / Hacks
+ */
+
+input[cmdk-input]:focus {
+	outline: none;
+}
+
+/**
+ * Markdown
+ */
+
+.custom-markdown > pre {
+	background-color: transparent !important;
+}
+
+/*
+ * Use geometric precision for codicons to avoid blurriness 
+ */
+
+.codicon[class*="codicon-"] {
+	text-rendering: geometricPrecision !important;
+}
+
+/**
+ * Custom animations for UI elements
+ */
+
+@keyframes slide-in-right {
+	from {
+		transform: translateX(100%);
+	}
+	to {
+		transform: translateX(0);
+	}
+}
+
+.animate-slide-in-right {
+	animation: slide-in-right 0.3s ease-out;
+}
+
+@keyframes fade-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+.animate-fade-in {
+	animation: fade-in 0.2s ease-out;
+}
+
+@keyframes pulse {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.7;
+	}
+}
+
+/* Transition utilities */
+.transition-all {
+	transition-property: all;
+	transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+	transition-duration: 150ms;
+}
+
+.transition-colors {
+	transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
+	transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+	transition-duration: 150ms;
+}
+
+/* DiffView code font: use VS Code editor font and enable ligatures */
+.diff-view,
+.diff-view pre,
+.diff-view code,
+.diff-view .hljs {
+	font-family:
+		var(--vscode-editor-font-family), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+		"Courier New", monospace;
+	font-variant-ligatures: contextual;
+	font-feature-settings:
+		"calt" 1,
+		"liga" 1;
+}
+
+/* DiffView background tints via CSS classes instead of inline styles */
+.diff-content-inserted {
+	background-color: color-mix(in srgb, var(--vscode-diffEditor-insertedTextBackground) 70%, transparent);
+}
+.diff-content-removed {
+	background-color: color-mix(in srgb, var(--vscode-diffEditor-removedTextBackground) 70%, transparent);
+}
+.diff-content-context {
+	background-color: color-mix(in srgb, var(--vscode-editorGroup-border) 100%, transparent);
+}
+
+@keyframes ground-slide {
+	0% {
+		transform: translateX(0);
+	}
+	100% {
+		transform: translateX(-30px);
+	}
+}
+
+.animate-ground-slide {
+	animation: ground-slide 1s linear infinite;
+}
+
+@keyframes sun {
+	0% {
+		transform: translateX(200px);
+	}
+	100% {
+		transform: translateX(-200px);
+	}
+}
+
+.animate-sun {
+	animation: sun 30s linear infinite;
+}
+
+/* Settings search highlight animation */
+@keyframes settings-highlight-fade {
+	0% {
+		background-color: color-mix(in srgb, var(--vscode-focusBorder) 40%, transparent);
+	}
+	100% {
+		background-color: transparent;
+	}
+}
+
+.settings-highlight {
+	animation: settings-highlight-fade 1.5s ease-out forwards;
+	border-radius: 4px;
+	padding: 8px;
+	margin: -8px;
+}
+
+.octo-vscode-button,
+.octo-vscode-input {
+	border: 1px solid var(--vscode-input-border, transparent);
+	border-radius: 2px;
+	background: var(--vscode-input-background);
+	color: var(--vscode-input-foreground);
+	font: inherit;
+}
+
+.octo-vscode-button {
+	min-height: 26px;
+	padding: 4px 10px;
+	cursor: pointer;
+}
+
+.octo-vscode-button-primary {
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+}
+
+.octo-vscode-button-secondary {
+	background: var(--vscode-button-secondaryBackground);
+	color: var(--vscode-button-secondaryForeground);
+}
+
+.octo-vscode-button-icon,
+.octo-vscode-button-icon-label {
+	border-color: transparent;
+	background: transparent;
+}
+
+.octo-vscode-button:hover {
+	background: var(--vscode-button-hoverBackground);
+}
+
+.octo-vscode-button:disabled {
+	cursor: default;
+	opacity: 0.5;
+}
+
+.octo-vscode-input {
+	min-height: 26px;
+	padding: 3px 7px;
+}
+
+.octo-vscode-input-wrap {
+	position: relative;
+}
+
+.octo-vscode-input-wrap > .octo-vscode-input {
+	width: 100%;
+	box-sizing: border-box;
+}
+
+.octo-vscode-input-wrap > [slot="start"],
+.octo-vscode-input-wrap > [slot="end"] {
+	position: absolute;
+	top: 50%;
+	z-index: 1;
+	transform: translateY(-50%);
+}
+
+.octo-vscode-input-wrap > [slot="start"] {
+	left: 8px;
+}
+
+.octo-vscode-input-wrap > [slot="end"] {
+	right: 8px;
+}
+
+.octo-vscode-input:focus-visible,
+.octo-vscode-button:focus-visible,
+.octo-vscode-link:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 1px;
+}
+
+.octo-vscode-link {
+	color: var(--vscode-textLink-foreground);
+	cursor: pointer;
+}
+
+.octo-vscode-badge {
+	display: inline-flex;
+	align-items: center;
+	border-radius: 999px;
+	padding: 1px 6px;
+	background: var(--vscode-badge-background);
+	color: var(--vscode-badge-foreground);
+}
+
+.octo-vscode-check {
+	display: inline-flex;
+	align-items: flex-start;
+	gap: 6px;
+	cursor: pointer;
+}
+
+.octo-vscode-progress {
+	display: inline-block;
+	width: 16px;
+	height: 16px;
+	border: 2px solid color-mix(in srgb, var(--vscode-progressBar-background) 35%, transparent);
+	border-top-color: var(--vscode-progressBar-background);
+	border-radius: 50%;
+	animation: octo-spin 0.8s linear infinite;
+}
+
+.octo-vscode-tablist {
+	display: flex;
+	gap: 4px;
+	border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.octo-vscode-tablist > button {
+	border: 0;
+	border-bottom: 2px solid transparent;
+	padding: 6px 8px;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+}
+
+.octo-vscode-tablist > button[aria-selected="true"] {
+	border-bottom-color: var(--vscode-focusBorder);
+}
+
+@keyframes octo-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+/*
+ * Waiting indicators.
+ *
+ * These used to run on stepped timing (`steps(12)`, `steps(4)`) to save repaints
+ * on an integrated GPU. That traded away the thing the indicator exists for: at
+ * four frames per turn the hourglass reads as stuck rather than busy, which is
+ * exactly how it was reported.
+ *
+ * The saving was not real either. Every one of these animates `transform` or
+ * `opacity`, and both are composited properties — the browser hands them to the
+ * compositor and never re-runs paint for the frames in between. Stepping such an
+ * animation gives up the smoothness without giving back any work.
+ */
+
+.animate-spin,
+.motion-safe\:animate-spin {
+	animation: octo-spin 1s linear infinite;
+}
+
+.animate-pulse,
+.motion-safe\:animate-pulse {
+	animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.octo-hourglass-flip {
+	animation: octo-spin 2s linear infinite;
+	transform-origin: 50% 50%;
+}
+
+.octo-wait-label {
+	animation: octo-wait-label 1.6s ease-in-out infinite alternate;
+}
+
+@keyframes octo-wait-label {
+	from {
+		opacity: 1;
+	}
+	to {
+		opacity: 0.45;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	/* The hero's hover bounce is an inline animation. */
+	img[alt="OctoCode"] {
+		animation: none !important;
+	}
+
+	.animate-smooth-bounce,
+	.animate-ground-slide,
+	.animate-sun,
+	.animate-spin,
+	.animate-pulse,
+	.motion-safe\:animate-spin,
+	.motion-safe\:animate-pulse,
+	.octo-hourglass-flip,
+	.octo-wait-label {
+		animation: none;
+	}
+
+	.octo-wait-label {
+		opacity: 0.7;
+	}
+}
+
+/*
+ * The composer's resize grip.
+ *
+ * A thin strip along the top edge of the message box. Invisible until
+ * approached, like the side panel's: a permanent bar there would read as a
+ * divider between the conversation and the composer, which is not what it is.
+ */
+.octo-composer-grip {
+	height: 6px;
+	/* Full width, like the composer it resizes: both run edge to edge. */
+	margin: 0 0 -2px;
+	width: 100%;
+	border-radius: 3px;
+	cursor: row-resize;
+	background-color: transparent;
+	transition: background-color 120ms ease;
+	touch-action: none;
+}
+
+.octo-composer-grip:hover,
+.octo-composer-grip--active {
+	background-color: var(--vscode-focusBorder);
+}
+
+.octo-composer-grip:focus-visible {
+	outline: 2px solid var(--vscode-focusBorder);
+	outline-offset: 0;
+}
+
+/*
+ * The chat composer runs edge to edge, so it is framed by rules above and below
+ * instead of a box: they separate it from the conversation and from the panel
+ * edge without narrowing it.
+ */
+.octo-composer {
+	border-top: 1px solid var(--vscode-panel-border);
+	border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+/*
+ * Attachment previews: a frosted card floating over the conversation.
+ *
+ * The user asked for the row to stop costing layout beneath the button bar and
+ * instead hover in front of the chat. Two alphas are separated because they are
+ * two different requests: the plate is glass you read *through*, so it stays
+ * mostly transparent, while the icons are the content and must stay legible.
+ * Both are variables so the balance can be retuned in one place.
+ *
+ * Anchored by `bottom: 100%` on the button bar it is a child of, so the card
+ * sits flush above the bar at any bar height with no magic offset to maintain.
+ */
+.octo-attach-overlay {
+	--octo-attach-glass-alpha: 0.2;
+	--octo-attach-icon-alpha: 0.5;
+
+	position: absolute;
+	bottom: 100%;
+	left: 8px;
+	z-index: 40;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	max-width: calc(100% - 16px);
+	max-height: 160px;
+	overflow-y: auto;
+	padding: 6px 8px;
+	border: 1px solid color-mix(in srgb, var(--vscode-panel-border) 60%, transparent);
+	border-radius: 10px;
+	background: color-mix(
+		in srgb,
+		var(--vscode-editor-background) calc(var(--octo-attach-glass-alpha) * 100%),
+		transparent
+	);
+	/*
+	 * Prefixed first, standard last. The CSS minifier collapses a prefixed and
+	 * an unprefixed declaration of the same property to one and keeps the last,
+	 * and Chromium (148 in the test instance) no longer honours
+	 * `-webkit-backdrop-filter`. Writing the standard property last is what
+	 * keeps the frost alive in the shipped bundle; the reverse order silently
+	 * drops it and leaves a flat, unfrosted panel.
+	 */
+	-webkit-backdrop-filter: blur(12px) saturate(1.2);
+	backdrop-filter: blur(12px) saturate(1.2);
+	box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+.octo-attach-overlay img {
+	opacity: var(--octo-attach-icon-alpha);
+	transition: opacity 120ms ease-in-out;
+}
+
+.octo-attach-overlay img:hover {
+	opacity: 1;
+}
+
+/*
+ * backdrop-filter needs a compositing layer to be cheap, and Windows users can
+ * turn transparency off system-wide; in forced-colors mode the glass is dropped
+ * entirely so the previews keep a hard, readable edge.
+ */
+@media (forced-colors: active) {
+	.octo-attach-overlay {
+		background: Canvas;
+		-webkit-backdrop-filter: none;
+		backdrop-filter: none;
+		border-color: CanvasText;
+	}
+
+	.octo-attach-overlay img {
+		opacity: 1;
+	}
+}
+
+/* The user's own messages: between the composer (input) and the transcript
+   (editor) backgrounds, so the bubble reads as the same family as both. */
+.octo-user-bubble {
+	background: color-mix(in srgb, var(--vscode-input-background) 50%, var(--vscode-editor-background));
+	color: var(--vscode-foreground);
+}
+.vscode-dark .octo-user-bubble,
+.vscode-high-contrast:not(.vscode-high-contrast-light) .octo-user-bubble {
+	color: #ffffff;
+}

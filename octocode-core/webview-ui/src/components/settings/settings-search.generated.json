@@ -1,0 +1,140 @@
+[
+  {
+    "settingId": "about-debug-mode",
+    "section": "about",
+    "labelKey": "settings:about.debugMode.label",
+    "label": null
+  },
+  {
+    "settingId": "about-manage-settings",
+    "section": "about",
+    "labelKey": "settings:about.manageSettings",
+    "label": null
+  },
+  {
+    "settingId": "about-telemetry",
+    "section": "about",
+    "labelKey": "settings:footer.telemetry.label",
+    "label": null
+  },
+  {
+    "settingId": "context-auto-condense",
+    "section": "contextManagement",
+    "labelKey": "settings:contextManagement.autoCondenseContext.name",
+    "label": null
+  },
+  {
+    "settingId": "context-max-image-file-size",
+    "section": "contextManagement",
+    "labelKey": "settings:contextManagement.maxImageFileSize.label",
+    "label": null
+  },
+  {
+    "settingId": "context-max-total-image-size",
+    "section": "contextManagement",
+    "labelKey": "settings:contextManagement.maxTotalImageSize.label",
+    "label": null
+  },
+  {
+    "settingId": "context-show-rooignored-files",
+    "section": "contextManagement",
+    "labelKey": "settings:contextManagement.rooignore.label",
+    "label": null
+  },
+  {
+    "settingId": "language-select",
+    "section": "language",
+    "labelKey": "settings:sections.language",
+    "label": null
+  },
+  {
+    "settingId": "notifications-sound",
+    "section": "notifications",
+    "labelKey": "settings:notifications.sound.label",
+    "label": null
+  },
+  {
+    "settingId": "notifications-sound-volume",
+    "section": "notifications",
+    "labelKey": "settings:notifications.sound.volumeLabel",
+    "label": null
+  },
+  {
+    "settingId": "notifications-tts",
+    "section": "notifications",
+    "labelKey": "settings:notifications.tts.label",
+    "label": null
+  },
+  {
+    "settingId": "notifications-tts-speed",
+    "section": "notifications",
+    "labelKey": "settings:notifications.tts.speedLabel",
+    "label": null
+  },
+  {
+    "settingId": "permission-profile",
+    "section": "autoApprove",
+    "labelKey": "settings:autoApprove.profile.label",
+    "label": null
+  },
+  {
+    "settingId": "prompts-support-prompt-select",
+    "section": "prompts",
+    "labelKey": "settings:sections.prompts",
+    "label": null
+  },
+  {
+    "settingId": "terminal-inherit-env",
+    "section": "terminal",
+    "labelKey": "settings:terminal.inheritEnv.label",
+    "label": null
+  },
+  {
+    "settingId": "terminal-profile",
+    "section": "terminal",
+    "labelKey": "settings:terminal.profile.label",
+    "label": null
+  },
+  {
+    "settingId": "ui-auto-close-octocode-opened-files",
+    "section": "ui",
+    "labelKey": "settings:ui.autoCloseOctoCodeOpenedFiles.label",
+    "label": null
+  },
+  {
+    "settingId": "ui-auto-close-octocode-opened-files-after-user-edited",
+    "section": "ui",
+    "labelKey": "settings:ui.autoCloseOctoCodeOpenedFilesAfterUserEdited.label",
+    "label": null
+  },
+  {
+    "settingId": "ui-auto-close-octocode-opened-new-files",
+    "section": "ui",
+    "labelKey": "settings:ui.autoCloseOctoCodeOpenedNewFiles.label",
+    "label": null
+  },
+  {
+    "settingId": "ui-chat-font-size",
+    "section": "ui",
+    "labelKey": "settings:ui.chatFontSize.label",
+    "label": null
+  },
+  {
+    "settingId": "ui-collapse-thinking",
+    "section": "ui",
+    "labelKey": "settings:ui.collapseThinking.label",
+    "label": null
+  },
+  {
+    "settingId": "ui-color-theme",
+    "section": "ui",
+    "labelKey": "settings:ui.colorTheme.label",
+    "label": null
+  },
+  {
+    "settingId": "ui-enter-behavior",
+    "section": "ui",
+    "labelKey": "settings:ui.requireCtrlEnterToSend.label",
+    "label": null
+  }
+]

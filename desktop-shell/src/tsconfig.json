@@ -1,0 +1,51 @@
+{
+	"extends": "./tsconfig.base.json",
+	"compilerOptions": {
+		"esModuleInterop": true,
+		"removeComments": false,
+		"preserveConstEnums": true,
+		"sourceMap": false,
+		"allowJs": true,
+		"resolveJsonModule": true,
+		"isolatedModules": false,
+		"skipLibCheck": true,
+		"outDir": "../out/vs",
+		"types": [
+			"@webgpu/types",
+			"mocha",
+			"semver",
+			"sinon",
+			"trusted-types",
+			"winreg",
+			"wicg-file-system-access"
+		],
+		"plugins": [
+			{
+				"name": "tsec",
+				"exemptionConfig": "./tsec.exemptions.json"
+			}
+		]
+	},
+	"include": [
+		"./*.ts",
+		"./typings",
+		"./vs/**/*.ts",
+		"./vscode-dts/vscode.proposed.*.d.ts",
+		"./vscode-dts/vscode.d.ts"
+	],
+	"exclude": [
+		"vs/platform/agentHost/node/**",
+		"vs/platform/agentHost/test/**",
+		"vs/server/node/agentHostChannel.ts",
+		"vs/server/node/serverAgentHostManager.ts",
+		"vs/server/test/node/agentHostChannel.test.ts",
+		"vs/server/test/node/serverAgentHostManager.test.ts",
+		"vs/sessions/**",
+		"vs/workbench/contrib/agentsVoice/**",
+		"vs/workbench/contrib/chat/browser/**",
+		"vs/workbench/contrib/chat/test/**",
+		"vs/workbench/contrib/inlineChat/**",
+		"vs/workbench/services/agentHost/**",
+		"vs/workbench/contrib/webview/browser/pre/service-worker.js"
+	]
+}

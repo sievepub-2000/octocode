@@ -1,0 +1,563 @@
+{
+	"greeting": "Witamy w OctoCode!",
+	"task": {
+		"title": "Zadanie",
+		"expand": "Rozwiń zadanie",
+		"collapse": "Zwiń zadanie",
+		"seeMore": "Zobacz więcej",
+		"seeLess": "Zobacz mniej",
+		"tokens": "Tokeny",
+		"cache": "Pamięć podręczna",
+		"apiCost": "Koszt API",
+		"size": "Rozmiar",
+		"contextWindow": "Okno kontekstu",
+		"closeAndStart": "Zamknij zadanie i rozpocznij nowe",
+		"export": "Eksportuj historię zadań",
+		"delete": "Usuń zadanie (Shift + Kliknięcie, aby pominąć potwierdzenie)",
+		"condenseContext": "Inteligentnie skondensuj kontekst",
+		"openApiHistory": "Otwórz historię API",
+		"openUiHistory": "Otwórz historię UI",
+		"backToParentTask": "Zadanie nadrzędne",
+		"waitingOnSubtask": "Oczekuje na podzadanie",
+		"goToSubtask": "Przejdź do podzadania"
+	},
+	"unpin": "Odepnij",
+	"pin": "Przypnij",
+	"fileChangesInConversation": {
+		"header": "{{count}} plik(ów) zmienionych w tej rozmowie"
+	},
+	"tokenProgress": {
+		"availableSpace": "Dostępne miejsce: {{amount}} tokenów",
+		"tokensUsed": "Wykorzystane tokeny: {{used}} z {{total}}",
+		"reservedForResponse": "Zarezerwowane dla odpowiedzi modelu: {{amount}} tokenów",
+		"tokensUsedLabel": "Wykorzystane tokeny",
+		"reservedForResponseLabel": "Zarezerwowane dla odpowiedzi",
+		"availableSpaceLabel": "Dostępne miejsce"
+	},
+	"retry": {
+		"title": "Ponów",
+		"tooltip": "Spróbuj ponownie wykonać operację"
+	},
+	"startNewTask": {
+		"title": "Rozpocznij nowe zadanie",
+		"tooltip": "Rozpocznij nowe zadanie"
+	},
+	"seeNewChanges": {
+		"title": "Zobacz nowe zmiany",
+		"tooltip": "Wyświetl zmiany wprowadzone od twojego ostatniego promptu"
+	},
+	"restoreChanges": {
+		"title": "Przywróć zmiany",
+		"tooltip": "Przywróć pliki i stan zadania do twojego ostatniego promptu"
+	},
+	"proceedAnyways": {
+		"title": "Kontynuuj mimo to",
+		"tooltip": "Kontynuuj podczas wykonywania polecenia"
+	},
+	"save": {
+		"title": "Zapisz",
+		"tooltip": "Zapisz zmiany wiadomości"
+	},
+	"reject": {
+		"title": "Odrzuć",
+		"tooltip": "Odrzuć tę akcję"
+	},
+	"completeSubtaskAndReturn": "Zakończ podzadanie i wróć",
+	"approve": {
+		"title": "Zatwierdź",
+		"tooltip": "Zatwierdź tę akcję"
+	},
+	"runCommand": {
+		"title": "Polecenie",
+		"tooltip": "Wykonaj to polecenie"
+	},
+	"proceedWhileRunning": {
+		"title": "Kontynuuj podczas wykonywania",
+		"tooltip": "Kontynuuj pomimo ostrzeżeń"
+	},
+	"killCommand": {
+		"title": "Zatrzymaj polecenie",
+		"tooltip": "Zatrzymaj bieżące polecenie"
+	},
+	"resumeTask": {
+		"title": "Wznów zadanie",
+		"tooltip": "Kontynuuj bieżące zadanie"
+	},
+	"terminate": {
+		"title": "Zakończ",
+		"tooltip": "Zakończ bieżące zadanie"
+	},
+	"stop": {
+		"title": "Zatrzymaj",
+		"tooltip": "Zatrzymaj bieżące zadanie"
+	},
+	"cancel": {
+		"title": "Anuluj",
+		"tooltip": "Anuluj bieżącą operację"
+	},
+	"enqueueMessage": "Dodaj wiadomość do kolejki (zostanie wysłana po zakończeniu bieżącego zadania)",
+	"scrollToBottom": "Przewiń do dołu czatu",
+	"scrollToLatestCheckpoint": "Przewiń do poprzedniego punktu kontrolnego",
+	"about": "OctoCode to cały zespół deweloperów AI w Twoim edytorze.",
+	"docs": "Sprawdź naszą <DocsLink>dokumentację</DocsLink>, aby dowiedzieć się więcej.",
+	"onboarding": "Twoja lista zadań w tym obszarze roboczym jest pusta.",
+	"rooTips": {
+		"customizableModes": {
+			"title": "Konfigurowalne tryby",
+			"description": "Wyspecjalizowane persony, które trzymają się zadania i dostarczają."
+		},
+		"modelAgnostic": {
+			"title": "Przynieś własny model",
+			"description": "Użyj własnego klucza dostawcy lub nawet uruchom lokalne wnioskowanie — bez narzutów, bez blokad, bez ograniczeń"
+		}
+	},
+	"selectMode": "Wybierz tryb interakcji",
+	"selectApiConfig": "Wybierz konfigurację API",
+	"lockApiConfigAcrossModes": "Zablokuj konfigurację API dla wszystkich trybów w tym obszarze roboczym",
+	"unlockApiConfigAcrossModes": "Konfiguracja API jest zablokowana dla wszystkich trybów w tym obszarze roboczym (kliknij, aby odblokować)",
+	"enhancePrompt": "Ulepsz podpowiedź dodatkowym kontekstem",
+	"addImages": "Dodaj obrazy do wiadomości",
+	"startVoiceInput": "Rozpocznij wprowadzanie głosowe",
+	"stopVoiceInput": "Zatrzymaj wprowadzanie głosowe",
+	"cancelVoiceInput": "Anuluj wprowadzanie głosowe",
+	"listening": "Słuchanie…",
+	"transcribeAudio": "Transkrybuj dźwięk",
+	"transcribingAudio": "Transkrypcja…",
+	"transcript": "Transkrypcja pojawi się tutaj",
+	"sendMessage": "Wyślij wiadomość",
+	"pressToSend": "Naciśnij {{keyCombination}}, aby wysłać",
+	"stopTts": "Zatrzymaj syntezę mowy",
+	"typeMessage": "Wpisz wiadomość...",
+	"typeTask": "Wpisz swoje zadanie tutaj...",
+	"addContext": "@ aby dodać kontekst, / dla poleceń",
+	"dragFiles": "przytrzymaj shift, aby przeciągnąć pliki",
+	"dragFilesImages": "przytrzymaj shift, aby przeciągnąć pliki/obrazy",
+	"enhancePromptDescription": "Przycisk 'Ulepsz podpowiedź' pomaga ulepszyć Twoją prośbę, dostarczając dodatkowy kontekst, wyjaśnienia lub przeformułowania. Spróbuj wpisać prośbę tutaj i kliknij przycisk ponownie, aby zobaczyć, jak to działa.",
+	"modeSelector": {
+		"title": "Tryby",
+		"marketplace": "Marketplace Trybów",
+		"settings": "Ustawienia Trybów",
+		"description": "Wyspecjalizowane persony, które dostosowują zachowanie OctoCode.",
+		"searchPlaceholder": "Szukaj trybów...",
+		"noResults": "Nie znaleziono wyników"
+	},
+	"errorReadingFile": "Błąd odczytu pliku",
+	"noValidImages": "Nie przetworzono żadnych prawidłowych obrazów",
+	"separator": "Separator",
+	"edit": "Edytuj...",
+	"forNextMode": "dla następnego trybu",
+	"forPreviousMode": "dla poprzedniego trybu",
+	"error": "Błąd",
+	"diffError": {
+		"title": "Edycja nieudana"
+	},
+	"troubleMessage": "OctoCode ma problemy...",
+	"apiRequest": {
+		"title": "Zapytanie API",
+		"failed": "Zapytanie API nie powiodło się",
+		"streaming": "Zapytanie API...",
+		"cancelled": "Zapytanie API anulowane",
+		"streamingFailed": "Strumieniowanie API nie powiodło się",
+		"rateLimitWait": "Ograniczenie szybkości",
+		"errorTitle": "Błąd dostawcy {{code}}",
+		"errorMessage": {
+			"400": "Dostawca nie mógł przetworzyć żądania. Zatrzymaj zadanie i spróbuj innego podejścia.",
+			"401": "Nie można uwierzytelnić u dostawcy. Sprawdź konfigurację klucza API.",
+			"402": "Wygląda na to, że wyczerpałeś środki/kredyty na swoim koncie. Przejdź do dostawcy i dodaj więcej, aby kontynuować.",
+			"403": "Brak autoryzacji. Twój klucz API jest ważny, ale dostawca odmówił ukończenia tego żądania.",
+			"429": "Zbyt wiele żądań. Dostawca ogranicza Ci szybkość żądań. Poczekaj chwilę przed następnym wywołaniem API.",
+			"500": "Błąd serwera dostawcy. Po stronie dostawcy coś się nie powiodło, w Twoim żądaniu nie ma nic złego.",
+			"docs": "Dokumentacja",
+			"goToSettings": "Ustawienia",
+			"unknown": "Nieznany błąd API. Skontaktuj się z pomocą techniczną OctoCode.",
+			"connection": "Błąd połączenia. Upewnij się, że masz działające połączenie internetowe.",
+			"claudeCodeNotAuthenticated": "Musisz się zalogować, aby korzystać z Claude Code. Przejdź do Ustawień i kliknij \"Zaloguj się do Claude Code\", aby się uwierzytelnić."
+		}
+	},
+	"checkpoint": {
+		"regular": "Punkt kontrolny",
+		"initializingWarning": "Trwa inicjalizacja punktu kontrolnego... Jeśli to trwa zbyt długo, możesz wyłączyć punkty kontrolne w <settingsLink>ustawieniach</settingsLink> i uruchomić zadanie ponownie.",
+		"menu": {
+			"viewDiff": "Zobacz różnice",
+			"more": "Więcej opcji",
+			"viewDiffFromInit": "Zobacz wszystkie zmiany",
+			"viewDiffWithCurrent": "Zobacz zmiany od tego punktu kontrolnego",
+			"restore": "Przywróć punkt kontrolny",
+			"restoreFiles": "Przywróć pliki",
+			"restoreFilesDescription": "Przywraca pliki Twojego projektu do zrzutu wykonanego w tym punkcie.",
+			"restoreFilesAndTask": "Przywróć pliki i zadanie",
+			"confirm": "Potwierdź",
+			"cancel": "Anuluj",
+			"cannotUndo": "Tej akcji nie można cofnąć.",
+			"restoreFilesAndTaskDescription": "Przywraca pliki Twojego projektu do zrzutu wykonanego w tym punkcie i usuwa wszystkie wiadomości po tym punkcie."
+		},
+		"current": "Bieżący"
+	},
+	"instructions": {
+		"wantsToFetch": "OctoCode chce pobrać szczegółowe instrukcje, aby pomóc w bieżącym zadaniu"
+	},
+	"fileOperations": {
+		"wantsToRead": "OctoCode chce przeczytać ten plik",
+		"wantsToReadOutsideWorkspace": "OctoCode chce przeczytać ten plik poza obszarem roboczym",
+		"didRead": "OctoCode przeczytał ten plik",
+		"wantsToEdit": "OctoCode chce edytować ten plik",
+		"wantsToEditOutsideWorkspace": "OctoCode chce edytować ten plik poza obszarem roboczym",
+		"wantsToEditProtected": "OctoCode chce edytować chroniony plik konfiguracyjny",
+		"wantsToCreate": "OctoCode chce utworzyć nowy plik",
+		"wantsToSearchReplace": "OctoCode chce wykonać wyszukiwanie i zamianę w tym pliku",
+		"didSearchReplace": "OctoCode wykonał wyszukiwanie i zamianę w tym pliku",
+		"wantsToInsert": "OctoCode chce wstawić zawartość do tego pliku",
+		"wantsToInsertWithLineNumber": "OctoCode chce wstawić zawartość do tego pliku w linii {{lineNumber}}",
+		"wantsToInsertAtEnd": "OctoCode chce dodać zawartość na końcu tego pliku",
+		"wantsToReadAndXMore": "OctoCode chce przeczytać ten plik i {{count}} więcej",
+		"wantsToReadMultiple": "OctoCode chce odczytać wiele plików",
+		"wantsToApplyBatchChanges": "OctoCode chce zastosować zmiany do wielu plików",
+		"wantsToGenerateImage": "OctoCode chce wygenerować obraz",
+		"wantsToGenerateImageOutsideWorkspace": "OctoCode chce wygenerować obraz poza obszarem roboczym",
+		"wantsToGenerateImageProtected": "OctoCode chce wygenerować obraz w chronionym miejscu",
+		"didGenerateImage": "OctoCode wygenerował obraz"
+	},
+	"directoryOperations": {
+		"wantsToViewTopLevel": "OctoCode chce zobaczyć pliki najwyższego poziomu w tym katalogu",
+		"didViewTopLevel": "OctoCode zobaczył pliki najwyższego poziomu w tym katalogu",
+		"wantsToViewRecursive": "OctoCode chce rekurencyjnie zobaczyć wszystkie pliki w tym katalogu",
+		"didViewRecursive": "OctoCode rekurencyjnie zobaczył wszystkie pliki w tym katalogu",
+		"wantsToSearch": "OctoCode chce przeszukać ten katalog w poszukiwaniu <code>{{regex}}</code>",
+		"didSearch": "OctoCode przeszukał ten katalog w poszukiwaniu <code>{{regex}}</code>",
+		"wantsToSearchOutsideWorkspace": "OctoCode chce przeszukać ten katalog (poza obszarem roboczym) w poszukiwaniu <code>{{regex}}</code>",
+		"didSearchOutsideWorkspace": "OctoCode przeszukał ten katalog (poza obszarem roboczym) w poszukiwaniu <code>{{regex}}</code>",
+		"wantsToViewTopLevelOutsideWorkspace": "OctoCode chce zobaczyć pliki najwyższego poziomu w tym katalogu (poza obszarem roboczym)",
+		"didViewTopLevelOutsideWorkspace": "OctoCode zobaczył pliki najwyższego poziomu w tym katalogu (poza obszarem roboczym)",
+		"wantsToViewRecursiveOutsideWorkspace": "OctoCode chce rekurencyjnie zobaczyć wszystkie pliki w tym katalogu (poza obszarem roboczym)",
+		"didViewRecursiveOutsideWorkspace": "OctoCode rekurencyjnie zobaczył wszystkie pliki w tym katalogu (poza obszarem roboczym)",
+		"wantsToViewMultipleDirectories": "OctoCode chce wyświetlić wiele katalogów"
+	},
+	"commandOutput": "Wyjście polecenia",
+	"commandExecution": {
+		"running": "Wykonywanie",
+		"abort": "Przerwij",
+		"pid": "PID: {{pid}}",
+		"exitStatus": "Zakończono ze statusem {{exitCode}}",
+		"malformedCommand": "Nieprawidlowe polecenie: blad skladni shell",
+		"manageCommands": "Polecenia zatwierdzone automatycznie",
+		"denied": "Polecenie odrzucone",
+		"addToAllowed": "Dodaj do listy dozwolonych",
+		"removeFromAllowed": "Usuń z listy dozwolonych",
+		"addToDenied": "Dodaj do listy odrzuconych",
+		"removeFromDenied": "Usuń z listy odrzuconych",
+		"abortCommand": "Przerwij wykonywanie polecenia",
+		"expandOutput": "Rozwiń wyjście",
+		"collapseOutput": "Zwiń wyjście",
+		"expandManagement": "Rozwiń sekcję zarządzania poleceniami",
+		"collapseManagement": "Zwiń sekcję zarządzania poleceniami",
+		"executing": "Wykonywanie…"
+	},
+	"response": "Odpowiedź",
+	"arguments": "Argumenty",
+	"text": {
+		"rooSaid": "OctoCode powiedział"
+	},
+	"feedback": {
+		"youSaid": "Powiedziałeś"
+	},
+	"mcp": {
+		"wantsToUseTool": "OctoCode chce użyć narzędzia na serwerze MCP {{serverName}}",
+		"wantsToAccessResource": "OctoCode chce uzyskać dostęp do zasobu na serwerze MCP {{serverName}}"
+	},
+	"modeNames": {
+		"architect": "Architekt",
+		"ask": "Pytania",
+		"code": "Kod",
+		"debug": "Debugowanie",
+		"orchestrator": "Orkiestrator"
+	},
+	"modeDescriptions": {
+		"architect": "Planuj i projektuj przed wdrożeniem",
+		"ask": "Uzyskaj odpowiedzi i wyjaśnienia",
+		"code": "Pisz, modyfikuj i refaktoryzuj kod",
+		"debug": "Diagnozuj i naprawiaj problemy z oprogramowaniem",
+		"orchestrator": "Koordynuj zadania w wielu trybach"
+	},
+	"modes": {
+		"wantsToSwitch": "OctoCode chce przełączyć się na tryb <code>{{mode}}</code>",
+		"wantsToSwitchWithReason": "OctoCode chce przełączyć się na tryb <code>{{mode}}</code> ponieważ: {{reason}}",
+		"didSwitch": "OctoCode przełączył się na tryb <code>{{mode}}</code>",
+		"didSwitchWithReason": "OctoCode przełączył się na tryb <code>{{mode}}</code> ponieważ: {{reason}}"
+	},
+	"subtasks": {
+		"wantsToCreate": "OctoCode chce utworzyć nowe podzadanie w trybie <code>{{mode}}</code>",
+		"wantsToFinish": "OctoCode chce zakończyć to podzadanie",
+		"newTaskContent": "Instrukcje podzadania",
+		"completionContent": "Podzadanie zakończone",
+		"resultContent": "Wyniki podzadania",
+		"defaultResult": "Proszę kontynuować następne zadanie.",
+		"completionInstructions": "Podzadanie zakończone! Możesz przejrzeć wyniki i zasugerować poprawki lub następne kroki. Jeśli wszystko wygląda dobrze, potwierdź, aby zwrócić wynik do zadania nadrzędnego.",
+		"goToSubtask": "Wyświetl zadanie"
+	},
+	"questions": {
+		"hasQuestion": "OctoCode ma pytanie"
+	},
+	"taskCompleted": "Zadanie zakończone",
+	"modelResponseIncomplete": "Odpowiedź modelu niekompletna",
+	"modelResponseErrors": {
+		"noToolsUsed": "Model nie użył żadnych narzędzi w swojej odpowiedzi. Zwykle dzieje się tak, gdy model dostarcza tylko tekst/rozumowanie bez wywołania wymaganych narzędzi do wykonania zadania.",
+		"noToolsUsedDetails": "Model dostarczył tekst/rozumowanie, ale nie wywołał żadnego z wymaganych narzędzi. Zazwyczaj oznacza to, że model źle zrozumiał zadanie lub ma trudności z określeniem, którego narzędzia użyć. Model został automatycznie poproszony o ponowną próbę z odpowiednim użyciem narzędzi.",
+		"noAssistantMessages": "Model nie dostarczył żadnej odpowiedzi. Może to wskazywać na problem z API lub wyjściem modelu.",
+		"noAssistantMessagesDetails": "Model językowy zwrócił pustą odpowiedź bez żadnego tekstu ani wywołań narzędzi. Może się to zdarzyć z powodu problemów z API, limitów szybkości lub problemów specyficznych dla modelu. Model został automatycznie poproszony o ponowną próbę."
+	},
+	"errorDetails": {
+		"link": "Details",
+		"title": "Szczegóły błędu",
+		"copyToClipboard": "Kopiuj do schowka",
+		"copied": "Skopiowano!",
+		"diagnostics": "Uzyskaj szczegółowe informacje o błędzie",
+		"proxyProvider": "Wygląda na to, że używasz dostawcy opartego na proxy. Pamiętaj, aby sprawdzić jego dzienniki i upewnić się, że nie przepisuje żądań OctoCode."
+	},
+	"powershell": {
+		"issues": "Wygląda na to, że masz problemy z Windows PowerShell, proszę zapoznaj się z tym"
+	},
+	"autoApprove": {
+		"tooltipManage": "Zarządzaj ustawieniami automatycznego zatwierdzania",
+		"tooltipStatus": "Automatyczne zatwierdzanie włączone dla: {{toggles}}",
+		"title": "Automatyczne zatwierdzanie",
+		"toggle": "Przełącz automatyczne zatwierdzanie",
+		"all": "Wszystkie",
+		"none": "Żadne",
+		"description": "Wykonuj te działania bez pytania o zgodę. Włącz tę opcję tylko dla działań, którym w pełni ufasz.",
+		"selectOptionsFirst": "Wybierz co najmniej jedną opcję poniżej, aby włączyć automatyczne zatwierdzanie",
+		"toggleAriaLabel": "Przełącz automatyczne zatwierdzanie",
+		"disabledAriaLabel": "Automatyczne zatwierdzanie wyłączone - najpierw wybierz opcje",
+		"triggerLabelOff": "Automatyczne zatwierdzanie wyłączone",
+		"triggerLabelOffShort": "Wyłączone",
+		"triggerLabel_zero": "0 automatycznie zatwierdzone",
+		"triggerLabel_one": "1 automatycznie zatwierdzony",
+		"triggerLabel_other": "{{count}} automatycznie zatwierdzonych",
+		"triggerLabelAll": "BRRR",
+		"selectAll": "Zaznacz wszystko",
+		"selectNone": "Odznacz wszystko"
+	},
+	"reasoning": {
+		"thinking": "Myślenie",
+		"seconds": "{{count}} s"
+	},
+	"contextManagement": {
+		"tokens": "tokeny",
+		"condensation": {
+			"title": "Kontekst skondensowany",
+			"inProgress": "Kondensowanie kontekstu...",
+			"errorHeader": "Nie udało się skondensować kontekstu"
+		},
+		"truncation": {
+			"title": "Kontekst obcięty",
+			"inProgress": "Obcinanie kontekstu...",
+			"messagesRemoved": "{{count}} wiadomość usunięta",
+			"messagesRemoved_other": "{{count}} wiadomości usunięte",
+			"description": "Starsze wiadomości zostały usunięte z konwersacji, aby pozostać w granicach okna kontekstu. To szybsze, ale mniej zachowujące kontekst podejście w porównaniu z kondensacją."
+		}
+	},
+	"skill": {
+		"wantsToLoad": "OctoCode chce załadować umiejętność",
+		"didLoad": "OctoCode załadował umiejętność"
+	},
+	"followUpSuggest": {
+		"copyToInput": "Kopiuj do pola wprowadzania (lub Shift + kliknięcie)",
+		"timerPrefix": "Automatyczne zatwierdzanie włączone. Zaznaczanie za {{seconds}}s…"
+	},
+	"announcement": {
+		"title": "OctoCode {{version}} wydany",
+		"support": "Wesprzyj OctoCode, dając nam gwiazdkę na <githubLink>GitHub</githubLink>.",
+		"release": {
+			"heading": "Co nowego:",
+			"highlight1": "Pojawiły się trzy ważne nowe modele — korzystaj z zupełnie nowych Gemini 3.7 Flash, GLM 5.3 i Qwen3.8 Max oraz zaktualizowanego reasoning, cen i obsługi providerów dla DeepSeek V4.",
+			"highlight2": "Połącz się z NanoGPT — korzystaj z dynamicznego wykrywania modeli, streamingu i uzupełniania promptów oraz preferencji routingu według szybkości, ceny, opóźnienia, przepustowości, obsługi narzędzi i cache.",
+			"highlight3": "Bardziej niezawodni providerzy i zadania — poprawki usprawniają konfigurację endpointów Azure OpenAI, limity wyjścia Kimi Code, zachowywanie tytułów historii zadań oraz import/eksport ustawień OctoCode."
+		},
+		"cloudAgents": {
+			"heading": "Nowości w chmurze:",
+			"specialized": "Przedstawiamy <bold>Explainer</bold>, <bold>Planner</bold> i <bold>Coder</bold> - trzech wyspecjalizowanych agentów chmurowych, aby ulepszyć Twoje przepływy pracy.",
+			"description": "Agenci pracują razem w chmurze i mogą być uruchamiani z sieci lub przez Slack.",
+			"tryButton": "Wypróbuj agentów chmurowych"
+		}
+	},
+	"costs": {
+		"totalWithSubtasks": "Całkowity koszt (w tym podzadania): ${{cost}}",
+		"total": "Całkowity koszt: ${{cost}}",
+		"includesSubtasks": "Zawiera koszty podzadań"
+	},
+	"codeblock": {
+		"tooltips": {
+			"expand": "Rozwiń blok kodu",
+			"collapse": "Zwiń blok kodu",
+			"copy_code": "Kopiuj kod"
+		}
+	},
+	"profileViolationWarning": "Bieżący profil nie jest kompatybilny z ustawieniami Twojej organizacji",
+	"shellIntegration": {
+		"title": "Ostrzeżenie wykonania polecenia",
+		"description": "Twoje polecenie jest wykonywane bez integracji powłoki terminala VSCode. Aby ukryć to ostrzeżenie, możesz wyłączyć integrację powłoki w sekcji <strong>Terminal</strong> w <settingsLink>ustawieniach OctoCode</settingsLink> lub rozwiązać problemy z integracją terminala VSCode korzystając z poniższego linku.",
+		"troubleshooting": "Kliknij tutaj, aby zobaczyć dokumentację integracji powłoki."
+	},
+	"ask": {
+		"autoApprovedRequestLimitReached": {
+			"title": "Osiągnięto limit automatycznie zatwierdzonych żądań",
+			"description": "OctoCode osiągnął automatycznie zatwierdzony limit {{count}} żądania/żądań API. Czy chcesz zresetować licznik i kontynuować zadanie?",
+			"button": "Zresetuj i kontynuuj"
+		},
+		"autoApprovedCostLimitReached": {
+			"button": "Zresetuj i Kontynuuj",
+			"title": "Osiągnięto limit kosztów z automatycznym zatwierdzaniem",
+			"description": "OctoCode osiągnął automatycznie zatwierdzony limit kosztów wynoszący ${{count}}. Czy chcesz zresetować koszt i kontynuować zadanie?"
+		}
+	},
+	"codebaseSearch": {
+		"wantsToSearch": "OctoCode chce przeszukać bazę kodu w poszukiwaniu <code>{{query}}</code>",
+		"wantsToSearchWithPath": "OctoCode chce przeszukać bazę kodu w poszukiwaniu <code>{{query}}</code> w <code>{{path}}</code>",
+		"didSearch_one": "Znaleziono 1 wynik",
+		"didSearch_other": "Znaleziono {{count}} wyników",
+		"resultTooltip": "Wynik podobieństwa: {{score}} (kliknij, aby otworzyć plik)"
+	},
+	"read-batch": {
+		"approve": {
+			"title": "Zatwierdź wszystko"
+		},
+		"deny": {
+			"title": "Odrzuć wszystko"
+		}
+	},
+	"list-batch": {
+		"approve": {
+			"title": "Zatwierdź wszystko"
+		},
+		"deny": {
+			"title": "Odrzuć wszystko"
+		}
+	},
+	"edit-batch": {
+		"approve": {
+			"title": "Zapisz wszystko"
+		},
+		"deny": {
+			"title": "Odrzuć wszystko"
+		}
+	},
+	"indexingStatus": {
+		"ready": "Indeks gotowy",
+		"indexing": "Indeksowanie {{percentage}}%",
+		"indexed": "Zaindeksowane",
+		"error": "Błąd indeksu",
+		"status": "Status indeksu",
+		"stopping": "Zatrzymywanie indeksowania..."
+	},
+	"versionIndicator": {
+		"ariaLabel": "Wersja {{version}} - Kliknij, aby wyświetlić informacje o wydaniu"
+	},
+	"rooCloudCTA": {
+		"title": "OctoCode Cloud się rozwija!",
+		"description": "Uruchamiaj zdalne agenty w chmurze, uzyskuj dostęp do swoich zadań z dowolnego miejsca, współpracuj z innymi i wiele więcej.",
+		"joinWaitlist": "Zarejestruj się, aby otrzymywać najnowsze aktualizacje."
+	},
+	"editMessage": {
+		"placeholder": "Edytuj swoją wiadomość..."
+	},
+	"command": {
+		"triggerDescription": "Uruchom polecenie {{name}}"
+	},
+	"slashCommands": {
+		"tooltip": "Zarządzaj poleceniami slash",
+		"title": "Polecenia Slash",
+		"description": "Używaj wbudowanych poleceń slash lub twórz niestandardowe dla szybkiego dostępu do często używanych promptów i przepływów pracy. <DocsLink>Dokumentacja</DocsLink>",
+		"manageCommands": "Zarządzaj poleceniami slash w ustawieniach",
+		"builtInCommands": "Polecenia Wbudowane",
+		"globalCommands": "Polecenia Globalne",
+		"workspaceCommands": "Polecenia Obszaru Roboczego",
+		"globalCommand": "Polecenie globalne",
+		"editCommand": "Edytuj polecenie",
+		"deleteCommand": "Usuń polecenie",
+		"newGlobalCommandPlaceholder": "Nowe polecenie globalne...",
+		"newWorkspaceCommandPlaceholder": "Nowe polecenie obszaru roboczego...",
+		"deleteDialog": {
+			"title": "Usuń Polecenie",
+			"description": "Czy na pewno chcesz usunąć polecenie \"{{name}}\"? Tej akcji nie można cofnąć.",
+			"cancel": "Anuluj",
+			"confirm": "Usuń"
+		}
+	},
+	"contextMenu": {
+		"noResults": "Brak wyników",
+		"problems": "Problemy",
+		"terminal": "Terminal",
+		"url": "Wklej adres URL, aby pobrać zawartość",
+		"gitCommits": "Zatwierdzenia Git"
+	},
+	"queuedMessages": {
+		"title": "Wiadomości w kolejce",
+		"clickToEdit": "Kliknij, aby edytować wiadomość",
+		"edit": "Edytuj wiadomość",
+		"delete": "Usuń wiadomość"
+	},
+	"slashCommand": {
+		"wantsToRun": "OctoCode chce uruchomić komendę slash",
+		"didRun": "OctoCode uruchomił komendę slash"
+	},
+	"todo": {
+		"partial": "Ukończono {{completed}} z {{total}} zadań do wykonania",
+		"complete": "Ukończono {{total}} zadań do wykonania",
+		"updated": "Zaktualizowano listę zadań do wykonania",
+		"completed": "Ukończono",
+		"started": "Rozpoczęto",
+		"notStarted": "Nie rozpoczęto",
+		"inProgress": "W trakcie",
+		"userEdits": "Edycje użytkownika",
+		"enterItem": "Wpisz element do wykonania",
+		"enterItemAndAdd": "Wpisz element do wykonania, naciśnij Enter, aby dodać",
+		"remove": "Usuń"
+	},
+	"tooManyTools": {
+		"title": "Włączono zbyt wiele narzędzi",
+		"toolsPart_one": "{{count}} narzędzie",
+		"toolsPart_other": "{{count}} narzędzi",
+		"serversPart_one": "{{count}} serwer MCP",
+		"serversPart_other": "{{count}} serwerów MCP",
+		"messageTemplate": "Masz {{tools}} włączonych przez {{servers}}. Taka duża liczba może zamieszać model i prowadzić do błędów. Staraj się, aby była poniżej {{threshold}}.",
+		"openMcpSettings": "Otwórz ustawienia MCP"
+	},
+	"readCommandOutput": {
+		"title": "OctoCode read command output"
+	},
+	"retiredProvider": {
+		"title": "Dostawca nie jest już obsługiwany",
+		"message": "Ten dostawca nie jest już dostępny. Wybierz obsługiwanego dostawcę, aby kontynuować.",
+		"openSettings": "Otwórz ustawienia"
+	},
+	"allConfigurations": "Wszystkie konfiguracje",
+	"pinnedConfigurations": "Przypięte konfiguracje",
+	"commandPatterns": {
+		"edit": "Kliknij, aby edytować wzorzec"
+	},
+	"openInPreview": "Otwórz w podglądzie",
+	"openMarkdownInPreview": "Otwórz Markdown w podglądzie",
+	"errors": {
+		"displaySearchResults": "Błąd podczas wyświetlania wyników wyszukiwania."
+	},
+	"composer": {
+		"resize": "Zmień rozmiar pola wiadomości"
+	},
+	"contextMeter": {
+		"tooltip": "Kontekst: {{percent}}% ({{used}} / {{total}} tokenów). Próg kompresji: {{threshold}}%."
+	},
+	"thinking": {
+		"heading": "Thinking",
+		"title": "Thinking: {{tier}}",
+		"unsupported": "This model has no thinking mode",
+		"tiers": {
+			"disable": "Off",
+			"none": "None",
+			"minimal": "Minimal",
+			"low": "Low",
+			"medium": "Medium",
+			"high": "High",
+			"xhigh": "Extra high",
+			"max": "Max"
+		}
+	}
+}

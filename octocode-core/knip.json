@@ -1,0 +1,79 @@
+{
+	"$schema": "https://unpkg.com/knip@5/schema.json",
+	"ignore": [
+		"**/__tests__/**",
+		"**/.venv/**",
+		"apps/vscode-e2e/**",
+		"scripts/**",
+		"apps/cli/scripts/**",
+		"src/assets/default-skills/**"
+	],
+	"ignoreDependencies": ["husky", "lint-staged"],
+	"ignoreBinaries": ["build", "powershell"],
+	"ignoreExportsUsedInFile": true,
+	"playwright": false,
+	"playwright-ct": false,
+	"workspaces": {
+		"src": {
+			"entry": ["extension.ts", "extension/api.ts", "workers/countTokens.ts"],
+			"project": ["**/*.ts", "!**/__tests__/**"],
+			"ignoreDependencies": [
+				"@roo-code/config-typescript",
+				"@types/vscode",
+				"@vscode/ripgrep",
+				"esbuild-wasm",
+				"tree-sitter-wasms"
+			]
+		},
+		"webview-ui": {
+			"entry": ["src/index.tsx"],
+			"project": ["src/**/*.{ts,tsx}", "../src/shared/*.ts"],
+			"ignoreDependencies": [
+				"@roo-code/config-typescript",
+				"@types/katex",
+				"babel-plugin-react-compiler",
+				"katex",
+				"tailwindcss",
+				"tailwindcss-animate",
+				"monocart-reporter"
+			]
+		},
+		"apps/cli": {
+			"project": ["src/**/*.ts", "src/**/*.tsx"],
+			"ignoreDependencies": ["@vscode/ripgrep"]
+		},
+		"packages/config-typescript": {
+			"ignoreUnresolved": ["vitest/globals"]
+		},
+		"packages/core": {
+			"project": ["src/**/*.ts"],
+			"ignoreDependencies": ["esbuild"]
+		},
+		"packages/vscode-shim": {
+			"project": ["src/**/*.ts"]
+		},
+		"packages/webview-ui-toolkit": {
+			"ignoreDependencies": ["react-compiler-runtime"]
+		},
+		"packages/cloud": {
+			"project": ["src/**/*.ts"],
+			"ignoreDependencies": ["@types/vscode"]
+		},
+		"packages/telemetry": {
+			"project": ["src/**/*.ts"],
+			"ignoreDependencies": ["@types/vscode"]
+		},
+		"packages/{build,ipc,types}": {
+			"project": ["src/**/*.ts"]
+		}
+	},
+	"rules": {
+		"classMembers": "off",
+		"duplicates": "off",
+		"enumMembers": "off",
+		"exports": "off",
+		"nsExports": "off",
+		"types": "off",
+		"nsTypes": "off"
+	}
+}

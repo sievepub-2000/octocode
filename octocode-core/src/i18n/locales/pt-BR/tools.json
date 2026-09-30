@@ -1,0 +1,41 @@
+{
+	"readFile": {
+		"linesRange": " (linhas {{start}}-{{end}})",
+		"definitionsOnly": " (apenas definições)",
+		"maxLines": " (máx. {{max}} linhas)",
+		"imageTooLarge": "Arquivo de imagem é muito grande ({{size}} MB). O tamanho máximo permitido é {{max}} MB.",
+		"imageWithSize": "Arquivo de imagem ({{size}} KB)"
+	},
+	"toolRepetitionLimitReached": "OctoCode parece estar preso em um loop, tentando a mesma ação ({{toolName}}) repetidamente. Isso pode indicar um problema com sua estratégia atual. Considere reformular a tarefa, fornecer instruções mais específicas ou guiá-lo para uma abordagem diferente.",
+	"unknownToolError": "OctoCode tentou usar uma ferramenta desconhecida: \"{{toolName}}\". Tentando novamente...",
+	"missingToolParameter": "OctoCode tentou usar {{toolName}} sem valor para o parâmetro obrigatório '{{paramName}}'. Tentando novamente...",
+	"missingToolParameterWithPath": "OctoCode tentou usar {{toolName}} para '{{relPath}}' sem valor para o parâmetro obrigatório '{{paramName}}'. Tentando novamente...",
+	"codebaseSearch": {
+		"approval": "Pesquisando '{{query}}' na base de código..."
+	},
+	"executeCommand": {
+		"destructiveCommandGuard": {
+			"blocked": "O Destructive Command Guard bloqueou este comando.",
+			"blockedWithReason": "O Destructive Command Guard bloqueou este comando. Mensagem do DCG: {{reason}}",
+			"blockedWithRule": "O Destructive Command Guard bloqueou este comando. (Regra: {{ruleId}})",
+			"blockedWithReasonAndRule": "O Destructive Command Guard bloqueou este comando. Mensagem do DCG: {{reason}} (Regra: {{ruleId}})"
+		}
+	},
+	"newTask": {
+		"errors": {
+			"policy_restriction": "Falha ao criar nova tarefa devido a restrições de política."
+		}
+	},
+	"generateImage": {
+		"openRouterApiKeyRequired": "A chave API do OpenRouter é necessária para geração de imagens com modelos OpenRouter. Configure-a nas configurações experimentais de Geração de Imagens.",
+		"failedWithStatus": "Falha ao gerar imagem: {{status}} {{statusText}}",
+		"failedWithMessage": "Falha ao gerar imagem: {{message}}",
+		"noImageGenerated": "Nenhuma imagem foi gerada na resposta",
+		"invalidImageData": "Dados de imagem inválidos na resposta",
+		"invalidImageFormat": "Formato de imagem inválido recebido",
+		"unknownError": "Ocorreu um erro desconhecido",
+		"roo": {
+			"authRequired": "A autenticação do OctoCode Cloud é necessária para geração de imagens. Faça login no OctoCode Cloud."
+		}
+	}
+}

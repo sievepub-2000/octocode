@@ -1,0 +1,51 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/*
+ * Trims the editor area down for OctoCode's own shell.
+ *
+ * The chrome-only parts are hidden from `layout.ts` while the layout state is
+ * built, so they never paint. What is left is the editor part's own framing,
+ * which would draw a border around the shell as if it were a document.
+ *
+ * The tab strip is deliberately left alone. The upper-right group carries both
+ * the preview and the browser, and hiding its tabs left no way to switch between
+ * them; an earlier revision hid every group's strip and did exactly that.
+ *
+ * Everything here is scoped to `.octocode-shell`, a class the workbench sets
+ * only while the shell owns the window.
+ */
+
+/* No seam between the window edge and the shell. */
+.monaco-workbench.octocode-shell .part.editor,
+.monaco-workbench.octocode-shell .part.editor > .content,
+.monaco-workbench.octocode-shell .part.editor > .content .editor-group-container {
+	border: none !important;
+}
+
+/*
+ * The editor keeps its own fill, so the moment before the webview paints its
+ * first frame does not flash a different colour.
+ */
+.monaco-workbench.octocode-shell .part.editor > .content .editor-group-container > .editor-container,
+.monaco-workbench.octocode-shell .part.editor > .content .editor-group-container {
+	background-color: var(--vscode-editor-background);
+}
+
+.monaco-workbench.octocode-shell .part.titlebar > .titlebar-container > .titlebar-left > .window-appicon:not(.codicon) {
+	width: 36px;
+	background-size: 26px;
+}
+
+.octocode-titlebar-wordmark {
+	order: 2;
+	font-family: 'Microsoft YaHei', '微软雅黑', sans-serif;
+	align-self: center;
+	color: #d4554f;
+	font-size: 15px;
+	font-weight: 700;
+	margin-right: 12px;
+	white-space: nowrap;
+}

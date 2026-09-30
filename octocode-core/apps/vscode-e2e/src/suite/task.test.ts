@@ -1,0 +1,36 @@
+import * as assert from "assert"
+
+import { RooCodeEventName, type ClineMessage } from "@roo-code/types"
+
+import { waitUntilCompleted } from "./utils"
+import { setDefaultSuiteTimeout } from "./test-utils"
+
+suite("Roo Code Task", function () {
+	setDefaultSuiteTimeout(this)
+
+	test("Should handle prompt and response correctly", async () => {
+		const api = globalThis.api
+
+		const messages: ClineMessage[] = []
+
+		api.on(RooCodeEventName.Message, ({ message }) => {
+			if (message.type === "say" && message.partial === false) {
+				messages.push(message)
+			}
+		})
+
+		const taskId = await api.startNewTask({
+			configuration: { mode: "ask", alwaysAllowModeSwitch: true, autoApprovalEnabled: true },
+			text: "TASK_HELLO_WORLD_SMOKE: what is your name?",
+		})
+
+		await waitUntilCompleted({ api, taskId })
+
+		assert.ok(
+			!!messages.find(
+				({ say, text }) => (say === "completion_result" || say === "text") && text?.includes("My name is OctoCode"),
+			),
+			`Completion should include "My name is OctoCode"`,
+		)
+	})
+})

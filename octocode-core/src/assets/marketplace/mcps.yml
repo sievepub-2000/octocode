@@ -1,0 +1,41 @@
+items:
+  - id: code-review-graph
+    name: Code Review Graph
+    description: Local incremental code graph for review, impact analysis, and dependency queries.
+    author: tirth8205
+    url: https://github.com/tirth8205/code-review-graph
+    tags: [code-analysis, code-graph, local]
+    content:
+      - name: Bundled stdio
+        content: |
+          {
+            "command": "${env:OCTOCODE_PYTHON_BASE}",
+            "args": ["-m", "code_review_graph", "serve", "--repo", "${env:OCTOCODE_WORKSPACE}"],
+            "env": {"PYTHONPATH": "${env:OCTOCODE_ENVIRONMENTS}/tools/mcp/code-review-graph"}
+          }
+  - id: llm-wiki
+    name: LLM Wiki
+    description: Local wiki exposed through MCP and kept separate from agent memory.
+    author: Microsoft
+    url: https://github.com/microsoft/llmwiki
+    tags: [knowledge-base, wiki, local, mcp]
+    content:
+      - name: Bundled stdio
+        content: |
+          {
+            "command": "${env:OCTOCODE_NODE}",
+            "args": ["${env:OCTOCODE_ENVIRONMENTS}/tools/mcp/llmwiki/node_modules/@llmwiki/core/dist/mcp/bin.js", "${env:OCTOCODE_WORKSPACE}/.wiki"]
+          }
+  - id: scrapling
+    name: Scrapling
+    description: Web scraping from the bundled Python — browser-fingerprinted HTTP fetches for pages that refuse plain clients, and headless Chrome/Edge rendering for JavaScript pages; returns Markdown.
+    author: D4Vinci
+    url: https://github.com/D4Vinci/Scrapling
+    tags: [web, scraping, browser, local, mcp]
+    content:
+      - name: Bundled stdio
+        content: |
+          {
+            "command": "${env:OCTOCODE_PYTHON_BASE}",
+            "args": ["${env:OCTOCODE_ENVIRONMENTS}/tools/mcp/scrapling/server.py"]
+          }

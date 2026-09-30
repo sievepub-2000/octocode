@@ -1,0 +1,371 @@
+/*
+ * Layout and surfaces for the product's own window chrome.
+ *
+ * Every surface here is opaque. An earlier revision frosted the side panel with
+ * `backdrop-filter`, which needs the window itself to be translucent so there is
+ * something real behind it to blur; that never worked on this platform, and a
+ * blur over a flat fill returns the same flat fill. The effect is gone and the
+ * panels simply paint their palette colours.
+ */
+
+.octo-shell {
+	position: relative;
+	display: grid;
+	grid-template-rows: 100%;
+	height: 100vh;
+	width: 100%;
+	overflow-x: auto;
+	overflow-y: hidden;
+	background-color: var(--octo-bg, var(--vscode-editor-background));
+	color: var(--octo-fg, var(--vscode-foreground));
+
+	--octo-rail-width: 56px;
+	--octo-side-width: 300px;
+
+	/*
+	 * The conversation's floor.
+	 *
+	 * Its composer is one row of controls, and the row only works if all of it
+	 * is reachable: 12px of insets, five 28px icon buttons on the left, the gaps
+	 * between them, then the clock, the model name, the context meter, dictate
+	 * and send on the right. That comes to 440. Below it the row would clip
+	 * silently — nothing wraps, the controls just leave the box.
+	 *
+	 * Height is the composer's own 94px box plus its action row over a
+	 * transcript still tall enough to read.
+	 */
+	--octo-main-min-width: 440px;
+	--octo-main-min-height: 320px;
+}
+
+/* ---------------------------------------------------------------- rail --- */
+
+.octo-rail {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	justify-content: space-between;
+	align-items: center;
+	padding: 10px 0;
+	gap: 8px;
+	background-color: var(--octo-bg-sunken);
+	border-right: var(--octo-hairline, 1px) solid var(--octo-border);
+}
+
+.octo-rail-group {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 6px;
+}
+
+/*
+ * One rail slot. Wrapping every entry keeps the group's gap even on both sides
+ * of a divider, which a bare sibling hairline would not.
+ */
+.octo-rail-cell {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+}
+
+.octo-rail-cell--divided {
+	margin-top: 6px;
+	padding-top: 12px;
+	border-top: var(--octo-hairline, 1px) solid var(--octo-border);
+	width: 32px;
+}
+
+.octo-rail-item {
+	position: relative;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 40px;
+	height: 40px;
+	border: none;
+	border-radius: var(--octo-radius-md, 10px);
+	background: transparent;
+	color: var(--octo-fg-muted);
+	cursor: pointer;
+	transition:
+		background-color 120ms ease,
+		color 120ms ease;
+}
+
+.octo-rail-item:hover {
+	background-color: var(--vscode-list-hoverBackground);
+	color: var(--octo-fg);
+}
+
+.octo-rail-item:focus-visible {
+	outline: 2px solid var(--octo-accent);
+	outline-offset: -2px;
+}
+
+.octo-rail-item--active {
+	color: var(--octo-fg-strong);
+	background-color: var(--vscode-list-activeSelectionBackground);
+}
+
+/* Selection marker, drawn outside the flow so the icon never shifts. */
+.octo-rail-item--active::before {
+	content: "";
+	position: absolute;
+	left: -8px;
+	top: 50%;
+	transform: translateY(-50%);
+	width: 3px;
+	height: 22px;
+	border-radius: 0 3px 3px 0;
+	background-color: var(--octo-accent);
+}
+
+.octo-rail-badge {
+	position: absolute;
+	top: 2px;
+	right: 2px;
+	min-width: 16px;
+	height: 16px;
+	padding: 0 4px;
+	border-radius: 999px;
+	background-color: var(--octo-accent);
+	color: var(--octo-accent-fg);
+	font-size: 10px;
+	line-height: 16px;
+	text-align: center;
+	font-weight: 600;
+}
+
+/*
+ * The update dot. Deliberately a fixed red rather than `--vscode-errorForeground`
+ * or `--octo-accent`: the accent is the brand colour already used for selection,
+ * and in the shipped dark theme `errorForeground` is a desaturated salmon that
+ * reads as muted text rather than as "act on this". A red that survives both
+ * themes is the point of a notification dot.
+ */
+.octo-rail-dot {
+	position: absolute;
+	top: 6px;
+	right: 6px;
+	width: 9px;
+	height: 9px;
+	border-radius: 999px;
+	background-color: #e5484d;
+	/* Keeps the dot legible against the rail without relying on a shadow. */
+	box-shadow: 0 0 0 1.5px var(--octo-bg-sunken, var(--vscode-sideBar-background));
+	pointer-events: none;
+}
+
+/* Forced-colors mode drops the custom red for the system's own error colour. */
+@media (forced-colors: active) {
+	.octo-rail-dot {
+		background-color: LinkText;
+		box-shadow: none;
+		forced-color-adjust: none;
+	}
+}
+
+/* The update entry keeps the icon legible while it doubles as a button. */
+.octo-rail-item--update:disabled {
+	cursor: progress;
+	opacity: 0.6;
+}
+
+/*
+ * A rail entry that brings its own control — today only the account badge.
+ * It matches the button footprint so the rail keeps one rhythm, and its own menu
+ * is positioned against this box.
+ */
+.octo-rail-slot {
+	position: relative;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 40px;
+	height: 40px;
+}
+
+/* ---------------------------------------------------------- side panel --- */
+
+.octo-side {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	overflow: hidden;
+	background-color: var(--octo-bg-elevated, var(--vscode-sideBar-background));
+	border-right: var(--octo-hairline, 1px) solid var(--octo-border);
+}
+
+/* -------------------------------------------------------------- shared --- */
+
+.octo-panel-header {
+	position: relative;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	height: 35px;
+	padding: 0 8px 0 14px;
+	flex: 0 0 auto;
+	border-bottom: var(--octo-hairline, 1px) solid var(--octo-border);
+}
+
+.octo-panel-title {
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--octo-fg-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.octo-panel-collapse {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	border: none;
+	border-radius: var(--octo-radius-sm, 6px);
+	background: transparent;
+	color: var(--octo-fg-muted);
+	cursor: pointer;
+	font-size: 14px;
+	line-height: 1;
+}
+
+.octo-panel-collapse:hover {
+	background-color: var(--vscode-list-hoverBackground);
+	color: var(--octo-fg);
+}
+
+.octo-panel-body {
+	position: relative;
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow: auto;
+}
+
+/*
+ * The collapsed column's way back.
+ *
+ * The panel's own collapse button is inside the panel, so once collapsed it is
+ * gone with the panel and the history cannot be brought back — which reads as
+ * "the conversations disappeared". This strip is that missing control: a
+ * rail-width sliver, flush against the rail, always present while the column
+ * is hidden. It uses the same surfaces as the rail so the two read as one
+ * continuous edge rather than a stray widget.
+ */
+.octo-side-restore {
+	position: relative;
+	display: flex;
+	align-items: flex-start;
+	justify-content: center;
+	padding-top: 10px;
+	width: 34px;
+	min-width: 34px;
+	border: none;
+	border-right: var(--octo-hairline, 1px) solid var(--octo-border);
+	background-color: var(--octo-bg-sunken);
+	color: var(--octo-fg-muted);
+	cursor: pointer;
+	font-size: 14px;
+	line-height: 1;
+}
+
+.octo-side-restore:hover {
+	background-color: var(--vscode-list-hoverBackground);
+	color: var(--octo-fg);
+}
+
+.octo-side-restore:focus-visible {
+	outline: 2px solid var(--octo-accent);
+	outline-offset: -2px;
+}
+
+/* ---------------------------------------------------------------- main --- */
+
+.octo-main {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	min-width: var(--octo-main-min-width);
+	min-height: var(--octo-main-min-height);
+	overflow: hidden;
+	background-color: var(--octo-bg, var(--vscode-editor-background));
+}
+
+/* ------------------------------------------------------------ resizing --- */
+
+/*
+ * The side panel's drag handle, built to match the host's own sash.
+ *
+ * The window has two resizable boundaries: this one, drawn here, and the one
+ * between the editor groups on the right, drawn by the host as a
+ * `.monaco-sash`. Two boundaries that do the same thing must feel the same, and
+ * a hand-rolled grip did not — it was wider, it filled solid instead of showing
+ * a centred line, it used the accent colour rather than the sash colour, and it
+ * lit up the instant the pointer crossed it.
+ *
+ * So every value below is taken from the host's sash rather than chosen: a 4px
+ * target, a 4px indicator centred in it, `sash.hoverBorder` as the colour, a
+ * 0.1s ease-out fade, and the 300ms delay before hover registers (sash.ts holds
+ * that as `globalHoverDelay`). The delay is what stops the boundary flashing at
+ * every pointer that passes over it.
+ */
+.octo-resize-handle {
+	position: absolute;
+	top: 0;
+	/* Centred on the boundary, using the same width the grid column is given. */
+	left: calc(var(--octo-rail-width) + var(--octo-side-width) - 2px);
+	width: 4px;
+	height: 100%;
+	z-index: 4;
+	cursor: col-resize;
+	background: transparent;
+	touch-action: none;
+}
+
+.octo-resize-handle::before {
+	content: "";
+	pointer-events: none;
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	background: transparent;
+	transition: background-color 0.1s ease-out;
+}
+
+/*
+ * Hover waits; dragging does not. The delay lives on the hover rule alone, so
+ * leaving the handle clears the highlight immediately — which is how the host's
+ * sash behaves, because it cancels its delayer on the way out.
+ */
+.octo-resize-handle:hover::before {
+	background: var(--vscode-sash-hoverBorder);
+	transition-delay: 300ms;
+}
+
+.octo-resize-handle--active::before {
+	background: var(--vscode-sash-hoverBorder);
+	transition-delay: 0s;
+}
+
+.octo-resize-handle:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 0;
+}
+
+/*
+ * While dragging, the pointer leaves the handle almost immediately. Without this
+ * the cursor flickers between shapes and the panel's text starts selecting.
+ */
+.octo-shell:has(.octo-resize-handle--active) {
+	cursor: col-resize;
+	user-select: none;
+}

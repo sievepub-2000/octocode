@@ -1,0 +1,636 @@
+// pnpm --filter @roo-code/vscode-webview test src/components/settings/__tests__/SettingsView.spec.tsx
+
+import { renderWithExtensionState, screen, fireEvent, within, waitFor } from "@/utils/test-utils"
+import { act } from "@testing-library/react"
+
+import { vscode } from "@/utils/vscode"
+
+import SettingsView from "../SettingsView"
+
+vi.mock("@src/utils/vscode", () => ({ vscode: { postMessage: vi.fn() } }))
+
+vi.mock("../ApiConfigManager", () => ({
+	__esModule: true,
+	default: ({ currentApiConfigName }: any) => (
+		<div data-testid="api-config-management">
+			<span>Current config: {currentApiConfigName}</span>
+		</div>
+	),
+}))
+
+vi.mock("@vscode/webview-ui-toolkit/react", () => ({
+	VSCodeButton: ({ children, onClick, appearance, "data-testid": dataTestId }: any) =>
+		appearance === "icon" ? (
+			<button
+				onClick={onClick}
+				className="codicon codicon-close"
+				aria-label="Remove command"
+				data-testid={dataTestId}>
+				<span className="codicon codicon-close" />
+			</button>
+		) : (
+			<button onClick={onClick} data-appearance={appearance} data-testid={dataTestId}>
+				{children}
+			</button>
+		),
+	VSCodeCheckbox: ({ children, onChange, checked, "data-testid": dataTestId }: any) => (
+		<label>
+			<input
+				type="checkbox"
+				checked={checked}
+				onChange={(e) => onChange({ target: { checked: e.target.checked } })}
+				aria-label={typeof children === "string" ? children : undefined}
+				data-testid={dataTestId}
+			/>
+			{children}
+		</label>
+	),
+	VSCodeTextField: ({ value, onInput, placeholder, "data-testid": dataTestId }: any) => (
+		<input
+			type="text"
+			value={value}
+			onChange={(e) => onInput({ target: { value: e.target.value } })}
+			placeholder={placeholder}
+			data-testid={dataTestId}
+		/>
+	),
+	VSCodeLink: ({ children, href }: any) => <a href={href || "#"}>{children}</a>,
+	VSCodeRadio: ({ value, checked, onChange }: any) => (
+		<input type="radio" value={value} checked={checked} onChange={onChange} />
+	),
+	VSCodeRadioGroup: ({ children, onChange }: any) => <div onChange={onChange}>{children}</div>,
+	VSCodeTextArea: ({ value, onChange, rows, className, "data-testid": dataTestId }: any) => (
+		<textarea
+			value={value}
+			onChange={onChange}
+			rows={rows}
+			className={className}
+			data-testid={dataTestId}
+			role="textbox"
+		/>
+	),
+}))
+
+vi.mock("../../../components/common/Tab", () => ({
+	...vi.importActual("../../../components/common/Tab"),
+	Tab: ({ children }: any) => <div data-testid="tab-container">{children}</div>,
+	TabHeader: ({ children }: any) => <div data-testid="tab-header">{children}</div>,
+	TabContent: ({ children, "data-testid": dataTestId }: any) => (
+		<div data-testid={dataTestId || "tab-content"}>{children}</div>
+	),
+	TabList: ({ children, value, onValueChange, "data-testid": dataTestId }: any) => {
+		// Store onValueChange in a global variable so TabTrigger can access it
+		;(window as any).__onValueChange = onValueChange
+		return (
+			<div data-testid={dataTestId} data-value={value}>
+				{children}
+			</div>
+		)
+	},
+	TabTrigger: ({ children, value, "data-testid": dataTestId, onClick, isSelected }: any) => {
+		// This function simulates clicking on a tab and making its content visible
+		const handleClick = () => {
+			if (onClick) onClick()
+			// Access onValueChange from the global variable
+			const onValueChange = (window as any).__onValueChange
+			if (onValueChange) onValueChange(value)
+			// Make all tab contents invisible
+			document.querySelectorAll("[data-tab-content]").forEach((el) => {
+				;(el as HTMLElement).style.display = "none"
+			})
+			// Make this tab's content visible
+			const tabContent = document.querySelector(`[data-tab-content="${value}"]`)
+			if (tabContent) {
+				;(tabContent as HTMLElement).style.display = "block"
+			}
+		}
+
+		return (
+			<button data-testid={dataTestId} data-value={value} data-selected={isSelected} onClick={handleClick}>
+				{children}
+			</button>
+		)
+	},
+}))
+
+vi.mock("@/components/ui", () => ({
+	...vi.importActual("@/components/ui"),
+	ToggleSwitch: ({ checked, onChange, "aria-label": ariaLabel, "data-testid": dataTestId }: any) => (
+		<button role="switch" aria-checked={checked} aria-label={ariaLabel} data-testid={dataTestId} onClick={onChange}>
+			Toggle
+		</button>
+	),
+	Checkbox: ({ checked, onCheckedChange, id, className, ...props }: any) => (
+		<input
+			type="checkbox"
+			checked={checked}
+			onChange={(e) => onCheckedChange?.(e.target.checked)}
+			id={id}
+			className={className}
+			{...props}
+		/>
+	),
+	Textarea: ({ value, onChange, placeholder, id, className, ...props }: any) => (
+		<textarea
+			value={value}
+			onChange={onChange}
+			placeholder={placeholder}
+			id={id}
+			className={className}
+			{...props}
+		/>
+	),
+	Popover: ({ children }: any) => <div data-testid="popover">{children}</div>,
+	PopoverTrigger: ({ children }: any) => <div data-testid="popover-trigger">{children}</div>,
+	PopoverContent: ({ children }: any) => <div data-testid="popover-content">{children}</div>,
+	Command: ({ children }: any) => <div data-testid="command">{children}</div>,
+	CommandInput: ({ value, onValueChange }: any) => (
+		<input data-testid="command-input" value={value} onChange={(e) => onValueChange(e.target.value)} />
+	),
+	CommandGroup: ({ children }: any) => <div data-testid="command-group">{children}</div>,
+	CommandItem: ({ children, onSelect }: any) => (
+		<div data-testid="command-item" onClick={onSelect}>
+			{children}
+		</div>
+	),
+	CommandList: ({ children }: any) => <div data-testid="command-list">{children}</div>,
+	CommandEmpty: ({ children }: any) => <div data-testid="command-empty">{children}</div>,
+	Slider: ({ value, onValueChange, "data-testid": dataTestId }: any) => (
+		<input
+			type="range"
+			value={value?.[0] ?? 0}
+			onChange={(e) => onValueChange?.([parseFloat(e.target.value)])}
+			data-testid={dataTestId}
+		/>
+	),
+	Button: ({ children, onClick, variant, className, "data-testid": dataTestId }: any) => (
+		<button onClick={onClick} data-variant={variant} className={className} data-testid={dataTestId}>
+			{children}
+		</button>
+	),
+	StandardTooltip: ({ children, content }: any) => <div title={content}>{children}</div>,
+	Input: ({ value, onChange, placeholder, "data-testid": dataTestId }: any) => (
+		<input type="text" value={value} onChange={onChange} placeholder={placeholder} data-testid={dataTestId} />
+	),
+	Select: ({ children, value, onValueChange }: any) => (
+		<div data-testid="select" data-value={value}>
+			<button onClick={() => onValueChange && onValueChange("test-change")}>{value}</button>
+			{children}
+		</div>
+	),
+	SelectContent: ({ children }: any) => <div data-testid="select-content">{children}</div>,
+	SelectGroup: ({ children }: any) => <div data-testid="select-group">{children}</div>,
+	SelectItem: ({ children, value }: any) => (
+		<div data-testid={`select-item-${value}`} data-value={value}>
+			{children}
+		</div>
+	),
+	SelectTrigger: ({ children }: any) => <div data-testid="select-trigger">{children}</div>,
+	SelectValue: ({ placeholder }: any) => <div data-testid="select-value">{placeholder}</div>,
+	SearchableSelect: ({ value, onValueChange, options, placeholder }: any) => (
+		<select value={value} onChange={(e) => onValueChange(e.target.value)} data-testid="searchable-select">
+			{placeholder && <option value="">{placeholder}</option>}
+			{options?.map((opt: any) => (
+				<option key={opt.value} value={opt.value}>
+					{opt.label}
+				</option>
+			))}
+		</select>
+	),
+	AlertDialog: ({ children, open }: any) => (
+		<div data-testid="alert-dialog" data-open={open}>
+			{children}
+		</div>
+	),
+	AlertDialogContent: ({ children }: any) => <div data-testid="alert-dialog-content">{children}</div>,
+	AlertDialogHeader: ({ children }: any) => <div data-testid="alert-dialog-header">{children}</div>,
+	AlertDialogTitle: ({ children }: any) => <div data-testid="alert-dialog-title">{children}</div>,
+	AlertDialogDescription: ({ children }: any) => <div data-testid="alert-dialog-description">{children}</div>,
+	AlertDialogFooter: ({ children }: any) => <div data-testid="alert-dialog-footer">{children}</div>,
+	AlertDialogAction: ({ children, onClick }: any) => (
+		<button data-testid="alert-dialog-action" onClick={onClick}>
+			{children}
+		</button>
+	),
+	AlertDialogCancel: ({ children, onClick }: any) => (
+		<button data-testid="alert-dialog-cancel" onClick={onClick}>
+			{children}
+		</button>
+	),
+	// Add Collapsible components
+	Collapsible: ({ children, open }: any) => (
+		<div className="collapsible-mock" data-open={open}>
+			{children}
+		</div>
+	),
+	CollapsibleTrigger: ({ children, className, onClick }: any) => (
+		<div className={`collapsible-trigger-mock ${className || ""}`} onClick={onClick}>
+			{children}
+		</div>
+	),
+	CollapsibleContent: ({ children, className }: any) => (
+		<div className={`collapsible-content-mock ${className || ""}`}>{children}</div>
+	),
+	Dialog: ({ children, ...props }: any) => (
+		<div data-testid="dialog" {...props}>
+			{children}
+		</div>
+	),
+	DialogContent: ({ children, ...props }: any) => (
+		<div data-testid="dialog-content" {...props}>
+			{children}
+		</div>
+	),
+	DialogHeader: ({ children, ...props }: any) => (
+		<div data-testid="dialog-header" {...props}>
+			{children}
+		</div>
+	),
+	DialogTitle: ({ children, ...props }: any) => (
+		<div data-testid="dialog-title" {...props}>
+			{children}
+		</div>
+	),
+	DialogDescription: ({ children, ...props }: any) => (
+		<div data-testid="dialog-description" {...props}>
+			{children}
+		</div>
+	),
+	DialogFooter: ({ children, ...props }: any) => (
+		<div data-testid="dialog-footer" {...props}>
+			{children}
+		</div>
+	),
+}))
+
+// Mock window.postMessage to trigger state hydration
+const mockPostMessage = (state: any) => {
+	window.postMessage(
+		{
+			type: "state",
+			state: {
+				version: "1.0.0",
+				shouldShowAnnouncement: false,
+				allowedCommands: [],
+				alwaysAllowExecute: false,
+				ttsEnabled: false,
+				ttsSpeed: 1,
+				soundEnabled: false,
+				soundVolume: 0.5,
+				...state,
+			},
+		},
+		"*",
+	)
+}
+
+const renderSettingsView = (initialState: any = {}) => {
+	const onDone = vi.fn()
+
+	const result = renderWithExtensionState(<SettingsView onDone={onDone} />)
+
+	// Hydrate initial state.
+	act(() => {
+		mockPostMessage(initialState)
+	})
+
+	// Helper function to activate a tab and ensure its content is visible
+	const activateTab = (tabId: string) => {
+		// Skip trying to find and click the tab, just directly render with the target section
+		// This bypasses the actual tab clicking mechanism but ensures the content is shown
+		result.rerender(<SettingsView onDone={onDone} targetSection={tabId} />)
+	}
+
+	// Helper to get elements within the settings content (not the indexing container)
+	const getSettingsContent = () => screen.getByTestId("settings-content")
+
+	return { onDone, activateTab, getSettingsContent }
+}
+
+describe("SettingsView - Sound Settings", () => {
+	beforeEach(() => {
+		vi.clearAllMocks()
+	})
+
+	it("opens only the requested page without mounting other managers for search", async () => {
+		renderWithExtensionState(<SettingsView onDone={vi.fn()} targetSection="ui" />)
+		await waitFor(() => expect(vscode.postMessage).toHaveBeenCalledWith({ type: "requestColorThemes" }))
+		const types = vi.mocked(vscode.postMessage).mock.calls.map(([message]) => message.type)
+		expect(types).not.toContain("requestSkills")
+		expect(types).not.toContain("requestRules")
+		expect(types).not.toContain("requestTerminalProfiles")
+		expect(screen.getAllByTestId("settings-group").map((element) => element.textContent)).toEqual([
+			"common:ui.commonSettings",
+			"common:ui.agents",
+			"common:ui.toolsExtensions",
+			"common:ui.taskExecution",
+			"common:ui.system",
+		])
+	})
+
+	it("initializes with tts disabled by default", () => {
+		// Render once and get the activateTab helper
+		const { activateTab, getSettingsContent } = renderSettingsView()
+
+		// Activate the notifications tab
+		activateTab("notifications")
+
+		const content = getSettingsContent()
+		const ttsCheckbox = within(content).getByTestId("tts-enabled-checkbox")
+		expect(ttsCheckbox).not.toBeChecked()
+
+		// Speed slider should not be visible when tts is disabled
+		expect(within(content).queryByTestId("tts-speed-slider")).not.toBeInTheDocument()
+	})
+
+	it("initializes with sound disabled by default", () => {
+		// Render once and get the activateTab helper
+		const { activateTab, getSettingsContent } = renderSettingsView()
+
+		// Activate the notifications tab
+		activateTab("notifications")
+
+		const content = getSettingsContent()
+		const soundCheckbox = within(content).getByTestId("sound-enabled-checkbox")
+		expect(soundCheckbox).not.toBeChecked()
+
+		// Volume slider should not be visible when sound is disabled
+		expect(within(content).queryByTestId("sound-volume-slider")).not.toBeInTheDocument()
+	})
+
+	it("toggles tts setting and sends message to VSCode", () => {
+		// Render once and get the activateTab helper
+		const { activateTab, getSettingsContent } = renderSettingsView()
+
+		// Activate the notifications tab
+		activateTab("notifications")
+
+		const content = getSettingsContent()
+		const ttsCheckbox = within(content).getByTestId("tts-enabled-checkbox")
+
+		// Enable tts
+		fireEvent.click(ttsCheckbox)
+		expect(ttsCheckbox).toBeChecked()
+
+		// Click Save to save settings
+		const saveButton = screen.getByTestId("save-button")
+		fireEvent.click(saveButton)
+
+		expect(vscode.postMessage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: "updateSettings",
+				updatedSettings: expect.objectContaining({
+					ttsEnabled: true,
+				}),
+			}),
+		)
+	})
+
+	it("toggles sound setting and sends message to VSCode", () => {
+		// Render once and get the activateTab helper
+		const { activateTab, getSettingsContent } = renderSettingsView()
+
+		// Activate the notifications tab
+		activateTab("notifications")
+
+		const content = getSettingsContent()
+		const soundCheckbox = within(content).getByTestId("sound-enabled-checkbox")
+
+		// Enable sound
+		fireEvent.click(soundCheckbox)
+		expect(soundCheckbox).toBeChecked()
+
+		// Click Save to save settings
+		const saveButton = screen.getByTestId("save-button")
+		fireEvent.click(saveButton)
+
+		expect(vscode.postMessage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: "updateSettings",
+				updatedSettings: expect.objectContaining({
+					soundEnabled: true,
+				}),
+			}),
+		)
+	})
+
+	it("saves the selected chat font size and persists null on reset", () => {
+		const { activateTab, getSettingsContent } = renderSettingsView()
+
+		activateTab("ui")
+
+		const content = getSettingsContent()
+		const slider = within(content).getByTestId("chat-font-size-slider")
+
+		// Pick a size, then Save — the boundary should forward it to the host.
+		fireEvent.change(slider, { target: { value: "18" } })
+		fireEvent.click(screen.getByTestId("save-button"))
+
+		expect(vscode.postMessage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: "updateSettings",
+				updatedSettings: expect.objectContaining({ chatFontSize: 18 }),
+			}),
+		)
+
+		// Reset clears the override; it is persisted as null (not undefined).
+		fireEvent.click(within(getSettingsContent()).getByTestId("chat-font-size-reset"))
+		fireEvent.click(screen.getByTestId("save-button"))
+
+		expect(vscode.postMessage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: "updateSettings",
+				updatedSettings: expect.objectContaining({ chatFontSize: null }),
+			}),
+		)
+	})
+
+	it("saves terminal defaults without writing retired checkpoint controls", async () => {
+		const { activateTab, getSettingsContent } = renderSettingsView({
+			soundEnabled: undefined,
+			enableCheckpoints: undefined,
+			checkpointTimeout: undefined,
+			terminalShellIntegrationTimeout: undefined,
+			settingsImportedAt: new Date().toISOString(),
+		})
+
+		activateTab("notifications")
+		const content = getSettingsContent()
+		fireEvent.click(await within(content).findByTestId("sound-enabled-checkbox"))
+		fireEvent.click(screen.getByTestId("save-button"))
+
+		await waitFor(() =>
+			expect(vscode.postMessage).toHaveBeenCalledWith(
+				expect.objectContaining({
+					type: "updateSettings",
+					updatedSettings: expect.objectContaining({
+						soundEnabled: true,
+						terminalShellIntegrationTimeout: 30_000,
+					}),
+				}),
+			),
+		)
+	})
+
+	it("shows tts slider when sound is enabled", () => {
+		// Render once and get the activateTab helper
+		const { activateTab, getSettingsContent } = renderSettingsView()
+
+		// Activate the notifications tab
+		activateTab("notifications")
+
+		const content = getSettingsContent()
+		// Enable tts
+		const ttsCheckbox = within(content).getByTestId("tts-enabled-checkbox")
+		fireEvent.click(ttsCheckbox)
+
+		// Speed slider should be visible
+		const speedSlider = within(content).getByTestId("tts-speed-slider")
+		expect(speedSlider).toBeInTheDocument()
+		expect(speedSlider).toHaveValue("1")
+	})
+
+	it("shows volume slider when sound is enabled", () => {
+		// Render once and get the activateTab helper
+		const { activateTab, getSettingsContent } = renderSettingsView()
+
+		// Activate the notifications tab
+		activateTab("notifications")
+
+		const content = getSettingsContent()
+		// Enable sound
+		const soundCheckbox = within(content).getByTestId("sound-enabled-checkbox")
+		fireEvent.click(soundCheckbox)
+
+		// Volume slider should be visible
+		const volumeSlider = within(content).getByTestId("sound-volume-slider")
+		expect(volumeSlider).toBeInTheDocument()
+		expect(volumeSlider).toHaveValue("0.5")
+	})
+
+	it("updates speed and sends message to VSCode when slider changes", () => {
+		// Render once and get the activateTab helper
+		const { activateTab, getSettingsContent } = renderSettingsView()
+
+		// Activate the notifications tab
+		activateTab("notifications")
+
+		const content = getSettingsContent()
+		// Enable tts
+		const ttsCheckbox = within(content).getByTestId("tts-enabled-checkbox")
+		fireEvent.click(ttsCheckbox)
+
+		// Change speed
+		const speedSlider = within(content).getByTestId("tts-speed-slider")
+		fireEvent.change(speedSlider, { target: { value: "0.75" } })
+
+		// Click Save to save settings
+		const saveButton = screen.getByTestId("save-button")
+		fireEvent.click(saveButton)
+
+		// Verify message sent to VSCode
+		expect(vscode.postMessage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: "updateSettings",
+				updatedSettings: expect.objectContaining({
+					ttsSpeed: 0.75,
+				}),
+			}),
+		)
+	})
+
+	it("updates volume and sends message to VSCode when slider changes", () => {
+		// Render once and get the activateTab helper
+		const { activateTab, getSettingsContent } = renderSettingsView()
+
+		// Activate the notifications tab
+		activateTab("notifications")
+
+		const content = getSettingsContent()
+		// Enable sound
+		const soundCheckbox = within(content).getByTestId("sound-enabled-checkbox")
+		fireEvent.click(soundCheckbox)
+
+		// Change volume
+		const volumeSlider = within(content).getByTestId("sound-volume-slider")
+		fireEvent.change(volumeSlider, { target: { value: "0.75" } })
+
+		// Click Save to save settings
+		const saveButton = screen.getByTestId("save-button")
+		fireEvent.click(saveButton)
+
+		// Verify message sent to VSCode
+		expect(vscode.postMessage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: "updateSettings",
+				updatedSettings: expect.objectContaining({
+					soundVolume: 0.75,
+				}),
+			}),
+		)
+	})
+})
+
+describe("SettingsView - API Configuration", () => {
+	beforeEach(() => {
+		vi.clearAllMocks()
+	})
+
+	it("renders ApiConfigManagement with correct props", () => {
+		renderSettingsView()
+
+		expect(screen.getByTestId("api-config-management")).toBeInTheDocument()
+	})
+})
+
+describe("SettingsView - Runtime permissions", () => {
+	beforeEach(() => {
+		vi.clearAllMocks()
+	})
+	it("uses the enforced profile and does not expose legacy command or cost controls", () => {
+		const { activateTab, getSettingsContent } = renderSettingsView({ alwaysAllowExecute: true, allowedMaxCost: 1 })
+		activateTab("autoApprove")
+		const content = getSettingsContent()
+		const select = within(content).getByRole("combobox")
+		fireEvent.change(select, { target: { value: "directory" } })
+		expect(vscode.postMessage).toHaveBeenCalledWith({ type: "permissionProfile", text: "directory" })
+		expect(within(content).queryByTestId("always-allow-execute-toggle")).not.toBeInTheDocument()
+		expect(within(content).queryByTestId("max-cost-input")).not.toBeInTheDocument()
+	})
+	describe("SettingsView - Tab Navigation", () => {
+		beforeEach(() => {
+			vi.clearAllMocks()
+		})
+
+		it("renders with providers tab active by default", () => {
+			renderSettingsView()
+
+			// Check that the tab list is rendered
+			const tabList = screen.getByTestId("settings-tab-list")
+			expect(tabList).toBeInTheDocument()
+
+			// Check that providers content is visible
+			expect(screen.getByTestId("api-config-management")).toBeInTheDocument()
+		})
+
+		it("shows unsaved changes dialog when clicking Done with unsaved changes", () => {
+			// Render once and get the activateTab helper
+			const { activateTab, getSettingsContent } = renderSettingsView()
+
+			// Activate the notifications tab
+			activateTab("notifications")
+
+			const content = getSettingsContent()
+			// Make a change to create unsaved changes
+			const soundCheckbox = within(content).getByTestId("sound-enabled-checkbox")
+			fireEvent.click(soundCheckbox)
+
+			// Click the Done button
+			const doneButton = screen.getByText("settings:common.done")
+			fireEvent.click(doneButton)
+
+			// Check that unsaved changes dialog is shown
+			expect(screen.getByText("settings:unsavedChangesDialog.title")).toBeInTheDocument()
+		})
+	})
+})

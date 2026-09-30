@@ -1,0 +1,41 @@
+{
+	"readFile": {
+		"linesRange": " (regels {{start}}-{{end}})",
+		"definitionsOnly": " (alleen definities)",
+		"maxLines": " (max {{max}} regels)",
+		"imageTooLarge": "Afbeeldingsbestand is te groot ({{size}} MB). De maximaal toegestane grootte is {{max}} MB.",
+		"imageWithSize": "Afbeeldingsbestand ({{size}} KB)"
+	},
+	"toolRepetitionLimitReached": "OctoCode lijkt vast te zitten in een lus, waarbij hij herhaaldelijk dezelfde actie ({{toolName}}) probeert. Dit kan duiden op een probleem met de huidige strategie. Overweeg de taak te herformuleren, specifiekere instructies te geven of OctoCode naar een andere aanpak te leiden.",
+	"unknownToolError": "OctoCode probeerde een onbekende tool te gebruiken: \"{{toolName}}\". Opnieuw proberen...",
+	"missingToolParameter": "OctoCode probeerde {{toolName}} te gebruiken zonder waarde voor de vereiste parameter '{{paramName}}'. Opnieuw proberen...",
+	"missingToolParameterWithPath": "OctoCode probeerde {{toolName}} te gebruiken voor '{{relPath}}' zonder waarde voor de vereiste parameter '{{paramName}}'. Opnieuw proberen...",
+	"codebaseSearch": {
+		"approval": "Zoeken naar '{{query}}' in codebase..."
+	},
+	"executeCommand": {
+		"destructiveCommandGuard": {
+			"blocked": "Destructive Command Guard heeft deze opdracht geblokkeerd.",
+			"blockedWithReason": "Destructive Command Guard heeft deze opdracht geblokkeerd. Bericht van DCG: {{reason}}",
+			"blockedWithRule": "Destructive Command Guard heeft deze opdracht geblokkeerd. (Regel: {{ruleId}})",
+			"blockedWithReasonAndRule": "Destructive Command Guard heeft deze opdracht geblokkeerd. Bericht van DCG: {{reason}} (Regel: {{ruleId}})"
+		}
+	},
+	"newTask": {
+		"errors": {
+			"policy_restriction": "Kan geen nieuwe taak aanmaken vanwege beleidsbeperkingen."
+		}
+	},
+	"generateImage": {
+		"openRouterApiKeyRequired": "OpenRouter API-sleutel is vereist voor het genereren van afbeeldingen met OpenRouter-modellen. Configureer deze in de Experimentele Instellingen voor Afbeeldingsgeneratie.",
+		"failedWithStatus": "Afbeelding genereren mislukt: {{status}} {{statusText}}",
+		"failedWithMessage": "Afbeelding genereren mislukt: {{message}}",
+		"noImageGenerated": "Er is geen afbeelding gegenereerd in het antwoord",
+		"invalidImageData": "Ongeldige afbeeldingsgegevens in het antwoord",
+		"invalidImageFormat": "Ongeldig afbeeldingsformaat ontvangen",
+		"unknownError": "Er is een onbekende fout opgetreden",
+		"roo": {
+			"authRequired": "OctoCode Cloud-authenticatie is vereist voor het genereren van afbeeldingen. Log in bij OctoCode Cloud."
+		}
+	}
+}

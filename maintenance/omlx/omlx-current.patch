@@ -1,0 +1,59 @@
+--- scheduler.py
++++ scheduler.py
+@@ -625,7 +625,9 @@
+     """
+     if not current_lps and not expected_lps:
+         return False
+-    return current_lps != expected_lps
++    # mlx-lm normalizes rows to tuples; the registry stores lists.
++    # Compare processor order/content rather than the container type.
++    return tuple(current_lps or ()) != tuple(expected_lps or ())
+ 
+ 
+ def _log_drift_correction(uids, slot_count) -> None:
+--- engine_pool.py
++++ engine_pool.py
+@@ -2723,6 +2723,9 @@
+         # ANE admission allowance includes private storage and staging that
+         # cannot be reclaimed through the MLX allocator. Check the weights;
+         # release the full admission charge only after this barrier.
++        # Admission estimates include overhead that may never be allocated.
++        # An unload cannot release more Metal memory than existed before it.
++        settle_size = min(settle_size, pre_unload_active)
+         settle_tolerance = max(2 * 1024**3, int(settle_size * 0.05))
+         min_expected_freed = max(0, settle_size - settle_tolerance)
+         settled = False
+--- process_memory_enforcer.py
++++ process_memory_enforcer.py
+@@ -503,15 +503,12 @@
+         ceiling = self._get_hard_limit_bytes()
+ 
+         if self._prefill_memory_guard:
+-            static_ceiling = self._get_static_ceiling()
++            # Use the effective budget, including the Metal/custom cap, when
++            # requesting wired memory; do not recommend an unusable budget.
++            static_ceiling = min(self._get_static_ceiling(), ceiling)
+             applied, previous = _apply_metal_wired_limit(static_ceiling)
+-            # Store the *recommended* limit (static ceiling clamped below
+-            # physical RAM, see _wired_limit_suggestion_bytes) rather than
+-            # the post-clamp applied value. The admin UI compares this
+-            # against the live iogpu.wired_limit_mb so a kernel cap below
+-            # the recommendation triggers the red sysctl-command banner;
+-            # clamping keeps the banner from telling users to wire nearly
+-            # all of physical RAM (#2184).
++            # The admin UI must advertise the same effective budget used by
++            # admission, without asking users to raise the kernel cap.
+             self._metal_wired_limit_request = _wired_limit_suggestion_bytes(
+                 static_ceiling
+             )
+--- cache/paged_ssd_cache.py
++++ cache/paged_ssd_cache.py
+@@ -5039,7 +5039,7 @@
+         # Flush hot cache entries to SSD before shutdown.
+         # Dirty blocks wait for queue space first; sustained saturation falls
+         # back to an inline write on this thread.
+-        if self._hot_cache_enabled:
++        if self._hot_cache_enabled and not self._hot_cache_only:
+             with self._hot_cache_lock:
+                 entries_to_flush = list(self._hot_cache.items())
+             flushed = 0

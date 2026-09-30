@@ -1,0 +1,573 @@
+import {
+	providerIdentifiers,
+	type ProviderSettings,
+	type OrganizationAllowList,
+	type RouterModels,
+} from "@roo-code/types"
+
+// Mock i18next to return translation keys with interpolated values
+vi.mock("i18next", () => ({
+	default: {
+		t: (key: string, options?: Record<string, string>) => {
+			if (options) {
+				let result = key
+				Object.entries(options).forEach(([k, v]) => {
+					result += ` ${k}=${v}`
+				})
+				return result
+			}
+			return key
+		},
+	},
+}))
+
+import {
+	getModelValidationError,
+	validateApiConfiguration,
+	validateApiConfigurationExcludingModelErrors,
+	validateBedrockArn,
+} from "../validate"
+
+describe("Model Validation Functions", () => {
+	const mockRouterModels: RouterModels = {
+		openrouter: {
+			"valid-model": {
+				maxTokens: 8192,
+				contextWindow: 200000,
+				supportsImages: true,
+				supportsPromptCache: false,
+				inputPrice: 3.0,
+				outputPrice: 15.0,
+			},
+			"another-valid-model": {
+				maxTokens: 4096,
+				contextWindow: 100000,
+				supportsImages: false,
+				supportsPromptCache: false,
+				inputPrice: 1.0,
+				outputPrice: 5.0,
+			},
+		},
+		requesty: {},
+		unbound: {},
+		litellm: {},
+		ollama: {},
+		lmstudio: {},
+		"vercel-ai-gateway": {},
+		poe: {},
+		deepseek: {},
+		"opencode-go": {},
+		kenari: {},
+		nanogpt: {},
+		"octocode-gateway": {},
+		"kimi-code": {},
+		moonshot: {},
+	}
+
+	const allowAllOrganization: OrganizationAllowList = {
+		allowAll: true,
+		providers: {},
+	}
+
+	const restrictiveOrganization: OrganizationAllowList = {
+		allowAll: false,
+		providers: {
+			openrouter: {
+				allowAll: false,
+				models: ["valid-model"],
+			},
+		},
+	}
+
+	describe("getModelValidationError", () => {
+		it("returns undefined for valid OpenRouter model", () => {
+			const config: ProviderSettings = {
+				apiProvider: "openrouter",
+				openRouterModelId: "valid-model",
+			}
+
+			const result = getModelValidationError(config, mockRouterModels, allowAllOrganization)
+			expect(result).toBeUndefined()
+		})
+
+		it("returns error for invalid OpenRouter model", () => {
+			const config: ProviderSettings = {
+				apiProvider: "openrouter",
+				openRouterModelId: "invalid-model",
+			}
+
+			const result = getModelValidationError(config, mockRouterModels, allowAllOrganization)
+			expect(result).toContain("settings:validation.modelAvailability")
+		})
+
+		it("returns error for model not allowed by organization", () => {
+			const config: ProviderSettings = {
+				apiProvider: "openrouter",
+				openRouterModelId: "another-valid-model",
+			}
+
+			const result = getModelValidationError(config, mockRouterModels, restrictiveOrganization)
+			expect(result).toContain("model")
+		})
+
+		it("returns undefined for OpenAI models when no router models provided", () => {
+			const config: ProviderSettings = {
+				apiProvider: "openai",
+				openAiModelId: "gpt-4",
+			}
+
+			const result = getModelValidationError(config, undefined, allowAllOrganization)
+			expect(result).toBeUndefined()
+		})
+
+		it.each([
+			{
+				name: "OpenAI Native",
+				config: {
+					apiProvider: providerIdentifiers.openaiNative,
+					apiModelId: "blocked-model",
+				} satisfies ProviderSettings,
+			},
+			{
+				name: "OpenAI Compatible",
+				config: {
+					apiProvider: providerIdentifiers.openai,
+					openAiModelId: "blocked-model",
+				} satisfies ProviderSettings,
+			},
+			{
+				name: "VS Code LM",
+				config: {
+					apiProvider: providerIdentifiers.vscodeLm,
+					vsCodeLmModelSelector: { id: "blocked-model" },
+				} satisfies ProviderSettings,
+			},
+		])("uses the provider-specific model field for $name organization validation", ({ config }) => {
+			const organizationAllowList: OrganizationAllowList = {
+				allowAll: false,
+				providers: {
+					[config.apiProvider!]: { allowAll: false, models: ["allowed-model"] },
+				},
+			}
+
+			const result = getModelValidationError(config, undefined, organizationAllowList)
+
+			expect(result).toContain("settings:validation.modelNotAllowed")
+			expect(result).toContain("model=blocked-model")
+		})
+
+		it("handles empty model IDs gracefully", () => {
+			const config: ProviderSettings = {
+				apiProvider: "openrouter",
+				openRouterModelId: "",
+			}
+
+			const result = getModelValidationError(config, mockRouterModels, allowAllOrganization)
+			expect(result).toBe("settings:validation.modelId")
+		})
+
+		it("handles undefined model IDs gracefully", () => {
+			const config: ProviderSettings = {
+				apiProvider: "openrouter",
+				// openRouterModelId is undefined
+			}
+
+			const result = getModelValidationError(config, mockRouterModels, allowAllOrganization)
+			expect(result).toBe("settings:validation.modelId")
+		})
+	})
+
+	describe("validateApiConfigurationExcludingModelErrors", () => {
+		it("returns undefined when configuration is valid", () => {
+			const config: ProviderSettings = {
+				apiProvider: "openrouter",
+				openRouterApiKey: "valid-key",
+				openRouterModelId: "valid-model",
+			}
+
+			const result = validateApiConfigurationExcludingModelErrors(config, mockRouterModels, allowAllOrganization)
+			expect(result).toBeUndefined()
+		})
+
+		it("returns error for missing API key", () => {
+			const config: ProviderSettings = {
+				apiProvider: "openrouter",
+				openRouterModelId: "valid-model",
+				// Missing openRouterApiKey
+			}
+
+			const result = validateApiConfigurationExcludingModelErrors(config, mockRouterModels, allowAllOrganization)
+			expect(result).toBe("settings:validation.apiKey")
+		})
+
+		it("excludes model-specific errors", () => {
+			const config: ProviderSettings = {
+				apiProvider: "openrouter",
+				openRouterApiKey: "valid-key",
+				openRouterModelId: "invalid-model", // This should be ignored
+			}
+
+			const result = validateApiConfigurationExcludingModelErrors(config, mockRouterModels, allowAllOrganization)
+			expect(result).toBeUndefined() // Should not return model validation error
+		})
+
+		it("excludes model-specific organization errors", () => {
+			const config: ProviderSettings = {
+				apiProvider: "openrouter",
+				openRouterApiKey: "valid-key",
+				openRouterModelId: "another-valid-model", // Not allowed by restrictive org
+			}
+
+			const result = validateApiConfigurationExcludingModelErrors(
+				config,
+				mockRouterModels,
+				restrictiveOrganization,
+			)
+			expect(result).toBeUndefined() // Should exclude model-specific org errors
+		})
+	})
+
+	describe("Opencode Go validation", () => {
+		it("returns an apiKey error when the Opencode Go API key is missing", () => {
+			const config: ProviderSettings = {
+				apiProvider: "opencode-go",
+				opencodeGoModelId: "glm-5.1",
+				// Missing opencodeGoApiKey
+			}
+
+			const result = validateApiConfigurationExcludingModelErrors(config, mockRouterModels, allowAllOrganization)
+			expect(result).toBe("settings:validation.apiKey")
+		})
+
+		it("returns undefined for a valid Opencode Go configuration", () => {
+			const config: ProviderSettings = {
+				apiProvider: "opencode-go",
+				opencodeGoApiKey: "valid-key",
+				opencodeGoModelId: "glm-5.1",
+			}
+
+			const result = validateApiConfigurationExcludingModelErrors(config, mockRouterModels, allowAllOrganization)
+			expect(result).toBeUndefined()
+		})
+
+		it("returns a modelId error when no Opencode Go model id is set", () => {
+			const config: ProviderSettings = {
+				apiProvider: "opencode-go",
+				opencodeGoApiKey: "valid-key",
+				// Missing opencodeGoModelId
+			}
+
+			const result = getModelValidationError(config, mockRouterModels, allowAllOrganization)
+			expect(result).toBe("settings:validation.modelId")
+		})
+	})
+	describe("Kenari validation", () => {
+		it("returns an apiKey error when the Kenari API key is missing", () => {
+			const config: ProviderSettings = {
+				apiProvider: "kenari",
+				kenariModelId: "glm-5.1",
+				// Missing kenariApiKey
+			}
+
+			const result = validateApiConfigurationExcludingModelErrors(config, mockRouterModels, allowAllOrganization)
+			expect(result).toBe("settings:validation.apiKey")
+		})
+
+		it("returns undefined for a valid Kenari configuration", () => {
+			const config: ProviderSettings = {
+				apiProvider: "kenari",
+				kenariApiKey: "valid-key",
+				kenariModelId: "glm-5.1",
+			}
+
+			const result = validateApiConfigurationExcludingModelErrors(config, mockRouterModels, allowAllOrganization)
+			expect(result).toBeUndefined()
+		})
+
+		it("returns a modelId error when no Kenari model id is set", () => {
+			const config: ProviderSettings = {
+				apiProvider: "kenari",
+				kenariApiKey: "valid-key",
+				// Missing kenariModelId
+			}
+
+			const result = getModelValidationError(config, mockRouterModels, allowAllOrganization)
+			expect(result).toBe("settings:validation.modelId")
+		})
+	})
+
+	describe("NanoGPT validation", () => {
+		it("returns an apiKey error when the NanoGPT API key is missing", () => {
+			const config: ProviderSettings = {
+				apiProvider: providerIdentifiers.nanogpt,
+				nanoGptModelId: "openai/model",
+			}
+
+			expect(validateApiConfiguration(config, mockRouterModels)).toBe("settings:validation.apiKey")
+		})
+
+		it("returns a modelId error when the NanoGPT model is missing", () => {
+			const config: ProviderSettings = {
+				apiProvider: providerIdentifiers.nanogpt,
+				nanoGptApiKey: "valid-key",
+			}
+
+			expect(validateApiConfiguration(config, mockRouterModels)).toBe("settings:validation.modelId")
+		})
+
+		it("accepts a NanoGPT API key and selected model", () => {
+			const config: ProviderSettings = {
+				apiProvider: providerIdentifiers.nanogpt,
+				nanoGptApiKey: "valid-key",
+				nanoGptModelId: "openai/model",
+			}
+
+			expect(validateApiConfiguration(config, mockRouterModels)).toBeUndefined()
+		})
+	})
+
+	describe("Friendli validation", () => {
+		it("returns an apiKey error when the Friendli API key is missing", () => {
+			const config: ProviderSettings = {
+				apiProvider: "friendli",
+				apiModelId: "zai-org/GLM-5.2",
+				// Missing friendliApiKey
+			}
+
+			const result = validateApiConfigurationExcludingModelErrors(config, mockRouterModels, allowAllOrganization)
+			expect(result).toBe("settings:validation.apiKey")
+		})
+
+		it("returns undefined for a valid Friendli configuration", () => {
+			const config: ProviderSettings = {
+				apiProvider: "friendli",
+				friendliApiKey: "valid-key",
+				apiModelId: "zai-org/GLM-5.2",
+			}
+
+			const result = validateApiConfigurationExcludingModelErrors(config, mockRouterModels, allowAllOrganization)
+			expect(result).toBeUndefined()
+		})
+	})
+
+	describe("OctoCode Gateway validation", () => {
+		describe("validateApiConfiguration (welcome-view entry point)", () => {
+			it("returns a sign-in error when neither profile token nor OctoCode auth is present", () => {
+				const config: ProviderSettings = {
+					apiProvider: "octocode-gateway",
+					octoCodeGatewayModelId: "anthropic/claude-sonnet-4",
+				}
+
+				const result = validateApiConfiguration(config, mockRouterModels, allowAllOrganization, false)
+				expect(result).toBe("settings:validation.octoCodeGatewaySignIn")
+			})
+
+			it("returns undefined when OctoCode auth is active without a profile token", () => {
+				const config: ProviderSettings = {
+					apiProvider: "octocode-gateway",
+					octoCodeGatewayModelId: "anthropic/claude-sonnet-4",
+				}
+
+				const result = validateApiConfiguration(config, mockRouterModels, allowAllOrganization, true)
+				expect(result).toBeUndefined()
+			})
+
+			it("returns undefined when a profile session token is set", () => {
+				const config: ProviderSettings = {
+					apiProvider: "octocode-gateway",
+					octoCodeGatewayModelId: "anthropic/claude-sonnet-4",
+					octoCodeSessionToken: "octo_ext_test_token",
+				}
+
+				const result = validateApiConfiguration(config, mockRouterModels, allowAllOrganization, false)
+				expect(result).toBeUndefined()
+			})
+		})
+
+		describe("validateApiConfigurationExcludingModelErrors (settings form)", () => {
+			// The settings form short-circuits octocode-gateway and renders the sign-in
+			// error inline in `OctoCodeGateway.tsx`, so this entry point must never
+			// surface a octocode-gateway-specific error regardless of auth state.
+			it("returns undefined for octocode-gateway when unauthenticated and no token", () => {
+				const config: ProviderSettings = {
+					apiProvider: "octocode-gateway",
+					octoCodeGatewayModelId: "anthropic/claude-sonnet-4",
+				}
+
+				const result = validateApiConfigurationExcludingModelErrors(
+					config,
+					mockRouterModels,
+					allowAllOrganization,
+				)
+				expect(result).toBeUndefined()
+			})
+
+			it("returns undefined for octocode-gateway when a profile token is set", () => {
+				const config: ProviderSettings = {
+					apiProvider: "octocode-gateway",
+					octoCodeGatewayModelId: "anthropic/claude-sonnet-4",
+					octoCodeSessionToken: "octo_ext_test_token",
+				}
+
+				const result = validateApiConfigurationExcludingModelErrors(
+					config,
+					mockRouterModels,
+					allowAllOrganization,
+				)
+				expect(result).toBeUndefined()
+			})
+
+			it("surfaces PROVIDER_NOT_ALLOWED for octocode-gateway when organization disallows it", () => {
+				const orgWithoutOctoCodeGateway: OrganizationAllowList = {
+					allowAll: false,
+					providers: {
+						openrouter: { allowAll: true },
+					},
+				}
+
+				const config: ProviderSettings = {
+					apiProvider: "octocode-gateway",
+					octoCodeGatewayModelId: "anthropic/claude-sonnet-4",
+				}
+
+				const result = validateApiConfigurationExcludingModelErrors(
+					config,
+					mockRouterModels,
+					orgWithoutOctoCodeGateway,
+				)
+				expect(result).toContain("settings:validation.providerNotAllowed")
+			})
+		})
+	})
+
+	describe("Kimi Code validation", () => {
+		it("returns undefined when using OAuth auth method", () => {
+			const config: ProviderSettings = {
+				apiProvider: "kimi-code",
+				kimiCodeAuthMethod: "oauth",
+			}
+
+			const result = validateApiConfigurationExcludingModelErrors(config, mockRouterModels, allowAllOrganization)
+			expect(result).toBeUndefined()
+		})
+
+		it("returns undefined when auth method is not specified (defaults to OAuth)", () => {
+			const config: ProviderSettings = {
+				apiProvider: "kimi-code",
+			}
+
+			const result = validateApiConfigurationExcludingModelErrors(config, mockRouterModels, allowAllOrganization)
+			expect(result).toBeUndefined()
+		})
+
+		it("returns apiKey error when using api-key auth method without key", () => {
+			const config: ProviderSettings = {
+				apiProvider: "kimi-code",
+				kimiCodeAuthMethod: "api-key",
+			}
+
+			const result = validateApiConfigurationExcludingModelErrors(config, mockRouterModels, allowAllOrganization)
+			expect(result).toBe("settings:validation.apiKey")
+		})
+
+		it("returns undefined when using api-key auth method with key", () => {
+			const config: ProviderSettings = {
+				apiProvider: "kimi-code",
+				kimiCodeAuthMethod: "api-key",
+				kimiCodeApiKey: "valid-key",
+			}
+
+			const result = validateApiConfigurationExcludingModelErrors(config, mockRouterModels, allowAllOrganization)
+			expect(result).toBeUndefined()
+		})
+	})
+})
+
+describe("validateBedrockArn", () => {
+	describe("always returns isValid: true (no strict format validation)", () => {
+		it("accepts standard AWS Bedrock ARNs", () => {
+			const result = validateBedrockArn(
+				"arn:aws:bedrock:us-west-2:123456789012:inference-profile/us.anthropic.claude-3-5-sonnet-v2",
+			)
+			expect(result.isValid).toBe(true)
+			expect(result.arnRegion).toBe("us-west-2")
+			expect(result.errorMessage).toBeUndefined()
+		})
+
+		it("accepts AWS GovCloud ARNs", () => {
+			const result = validateBedrockArn(
+				"arn:aws-us-gov:bedrock:us-gov-west-1:123456789012:inference-profile/model",
+			)
+			expect(result.isValid).toBe(true)
+			expect(result.arnRegion).toBe("us-gov-west-1")
+			expect(result.errorMessage).toBeUndefined()
+		})
+
+		it("accepts AWS China ARNs", () => {
+			const result = validateBedrockArn("arn:aws-cn:bedrock:cn-north-1:123456789012:inference-profile/model")
+			expect(result.isValid).toBe(true)
+			expect(result.arnRegion).toBe("cn-north-1")
+			expect(result.errorMessage).toBeUndefined()
+		})
+
+		it("accepts SageMaker ARNs", () => {
+			const result = validateBedrockArn("arn:aws:sagemaker:us-east-1:123456789012:endpoint/my-endpoint")
+			expect(result.isValid).toBe(true)
+			expect(result.arnRegion).toBe("us-east-1")
+			expect(result.errorMessage).toBeUndefined()
+		})
+
+		it("accepts non-standard ARN formats without validation errors", () => {
+			// Users are advanced - trust their input
+			const result = validateBedrockArn("arn:custom:service:region:account:resource")
+			expect(result.isValid).toBe(true)
+			expect(result.arnRegion).toBe("region")
+			expect(result.errorMessage).toBeUndefined()
+		})
+
+		it("accepts completely custom ARN strings", () => {
+			// Even unusual formats should be accepted
+			const result = validateBedrockArn("some-custom-arn-format")
+			expect(result.isValid).toBe(true)
+			// May not be able to extract region from non-standard format
+			expect(result.errorMessage).toBeUndefined()
+		})
+	})
+
+	describe("region mismatch warnings", () => {
+		it("shows warning when ARN region differs from provided region", () => {
+			const result = validateBedrockArn(
+				"arn:aws:bedrock:us-west-2:123456789012:inference-profile/model",
+				"us-east-1",
+			)
+			expect(result.isValid).toBe(true) // Still valid, just a warning
+			expect(result.arnRegion).toBe("us-west-2")
+			expect(result.errorMessage).toBeDefined()
+			expect(result.errorMessage).toContain("us-west-2")
+		})
+
+		it("shows no warning when ARN region matches provided region", () => {
+			const result = validateBedrockArn(
+				"arn:aws:bedrock:us-west-2:123456789012:inference-profile/model",
+				"us-west-2",
+			)
+			expect(result.isValid).toBe(true)
+			expect(result.arnRegion).toBe("us-west-2")
+			expect(result.errorMessage).toBeUndefined()
+		})
+
+		it("shows no warning when no region is provided to check against", () => {
+			const result = validateBedrockArn("arn:aws:bedrock:us-west-2:123456789012:inference-profile/model")
+			expect(result.isValid).toBe(true)
+			expect(result.arnRegion).toBe("us-west-2")
+			expect(result.errorMessage).toBeUndefined()
+		})
+
+		it("shows no warning when region cannot be extracted from ARN", () => {
+			const result = validateBedrockArn("non-arn-format", "us-east-1")
+			expect(result.isValid).toBe(true)
+			expect(result.arnRegion).toBeUndefined()
+			expect(result.errorMessage).toBeUndefined()
+		})
+	})
+})

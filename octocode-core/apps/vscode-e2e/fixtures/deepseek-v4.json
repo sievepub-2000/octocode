@@ -1,0 +1,72 @@
+{
+	"fixtures": [
+		{
+			"match": {
+				"model": "deepseek-v4-flash",
+				"userMessage": "deepseek-v4-e2e:deepseek-v4-flash:reasoning-on",
+				"sequenceIndex": 0
+			},
+			"response": {
+				"content": "",
+				"reasoning": "I should read the file to find the marker.",
+				"toolCalls": [
+					{
+						"name": "read_file",
+						"arguments": "{\"path\":\"deepseek-v4-e2e-deepseek-v4-flash-reasoning-on.txt\"}",
+						"id": "call_dsv4_flash_on_read"
+					}
+				]
+			}
+		},
+		{
+			"match": {
+				"model": "deepseek-v4-flash",
+				"userMessage": "deepseek-v4-e2e:deepseek-v4-flash:reasoning-off",
+				"sequenceIndex": 0
+			},
+			"response": {
+				"toolCalls": [
+					{
+						"name": "read_file",
+						"arguments": "{\"path\":\"deepseek-v4-e2e-deepseek-v4-flash-reasoning-off.txt\"}",
+						"id": "call_dsv4_flash_off_read"
+					}
+				]
+			}
+		},
+		{
+			"match": {
+				"model": "deepseek-v4-pro",
+				"userMessage": "deepseek-v4-e2e:deepseek-v4-pro:reasoning-on",
+				"sequenceIndex": 0
+			},
+			"response": {
+				"content": "",
+				"reasoning": "I should read the file to find the marker.",
+				"toolCalls": [
+					{
+						"name": "read_file",
+						"arguments": "{\"path\":\"deepseek-v4-e2e-deepseek-v4-pro-reasoning-on.txt\"}",
+						"id": "call_dsv4_pro_on_read"
+					}
+				]
+			}
+		},
+		{
+			"match": {
+				"model": "deepseek-v4-pro",
+				"userMessage": "deepseek-v4-e2e:deepseek-v4-pro:reasoning-off",
+				"sequenceIndex": 0
+			},
+			"response": {
+				"toolCalls": [
+					{
+						"name": "read_file",
+						"arguments": "{\"path\":\"deepseek-v4-e2e-deepseek-v4-pro-reasoning-off.txt\"}",
+						"id": "call_dsv4_pro_off_read"
+					}
+				]
+			}
+		}
+	]
+}

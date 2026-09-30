@@ -1,0 +1,9 @@
+**/test/**
+**/tests/**
+**/*.test.ts
+**/*.spec.ts
+**/fixtures/**
+**/*.md
+**/node_modules/**
+**/out/**
+**/.build/**

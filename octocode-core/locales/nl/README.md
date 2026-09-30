@@ -1,0 +1,176 @@
+<p align="center">
+          <a href="https://marketplace.visualstudio.com/items?itemName=OctoCode.octocode"><img src="https://img.shields.io/badge/VS_Code_Marketplace-007ACC?style=flat&logo=visualstudiocode&logoColor=white" alt="VS Code Marketplace"></a>
+          <a href="https://x.com/OctoCodeDev"><img src="https://img.shields.io/badge/OctoCode-000000?style=flat&logo=x&logoColor=white" alt="X"></a>
+          <a href="https://discord.gg/VxfP4Vx3gX"><img src="https://img.shields.io/badge/Join%20Discord-5865F2?style=flat&logo=discord&logoColor=white" alt="Join Discord"></a>
+          <a href="https://www.reddit.com/r/OctoCode/"><img src="https://img.shields.io/badge/Join%20r%2FOctoCode-FF4500?style=flat&logo=reddit&logoColor=white" alt="Join r/OctoCode"></a>
+          <a href="https://github.com/OctoCode-Org/OctoCode/issues"><img src="https://img.shields.io/badge/GitHub-Issues-181717?style=flat&logo=github&logoColor=white" alt="GitHub Issues"></a>
+        </p>
+        <p align="center">
+          <em>Snel hulp nodig → <a href="https://discord.gg/VxfP4Vx3gX">Word lid van Discord</a> • Liever asynchroon? → <a href="https://www.reddit.com/r/OctoCode/">Word lid van r/OctoCode</a></em>
+        </p>
+
+        # OctoCode
+
+        > Jouw AI-aangedreven dev-team, rechtstreeks in je editor
+
+        ## Wij zijn OctoCode
+
+> OctoCode zet de ontwikkeling van dit project voort nadat het Roo-team
+> gestopt is met actieve ontwikkeling van Roo Code om zich te richten op
+> [Roomote](https://roomote.dev/). Dank aan het Roo-team voor alles wat ze
+> hebben gebouwd.
+>
+> Het kernteam bestaat uit ontwikkelaars die eerder aan Roo hebben
+> bijgedragen en veel om deze plugin geven. We blijven modellen updaten,
+> bugs oplossen en functies uitbrengen, en we zijn van plan goed te
+> luisteren naar de community die deze plugin zo bijzonder heeft gemaakt.
+> Doe met ons mee op
+> [Discord](https://discord.gg/VxfP4Vx3gX),
+> [Reddit](https://www.reddit.com/r/OctoCode), of
+> [open een PR of issue](https://github.com/OctoCode-Org/OctoCode).
+>
+> _-OctoCode Team_
+
+## Migratie van Roo Code naar OctoCode
+
+Je vindt een korte handleiding voor de overstap van Roo Code naar OctoCode in de [Roo→OctoCode-migratiegids](https://docs.octocode.dev/roo-to-octocode-migration). We willen gebruikers zo goed mogelijk helpen tijdens de overgang, en precies daarvoor zijn onze [Reddit](https://www.reddit.com/r/OctoCode) en [Discord](https://discord.gg/VxfP4Vx3gX) er. Als je ergens tegenaan loopt of vragen hebt, kom langs en vraag het.
+
+## Wat OctoCode sinds Roo Code heeft toegevoegd
+
+OctoCode bouwt voort op het fundament van Roo Code en breidt dit verder uit met:
+
+- **Semble-codebase-intelligentie** — snelle semantische codezoekfunctie op aanvraag, met automatische configuratie en zonder afzonderlijke indexeringsworkflow.
+- **Sterkere Orchestrator-workflows** — veiligere delegatie, parallelle taakcoördinatie, betrouwbaar herstel van bovenliggende en onderliggende taken en betere isolatie tussen subtaken en providerprofielen.
+- **Langere autonome runs met Destructive Command Guard (DCG)** — blokkeert gevaarlijke opdrachten automatisch terwijl vertrouwd werk doorgaat zonder herhaalde goedkeuringsverzoeken.
+- **De nieuwste modellen** — doorlopende ondersteuning voor nieuwe modelfamilies van Claude, GPT, Gemini, Kimi, GLM, Grok, MiniMax en andere.
+- **Meer manieren om verbinding te maken** — nieuwe en uitgebreide providers, waaronder OctoCode Gateway, Moonshot, Kimi Code, Kenari, Friendli, OpenCode Go en nog veel meer.
+- **Betrouwbaardere terminal- en bewerkingsworkflows** — oplossingen voor voortijdige terminalvoltooiing, race conditions in taakstatussen, contextbeheer, diff-bewerking en providerspecifiek toolgebruik.
+- **Meer controle over je workspace** — regelbeheer, MCP-beperkingen per modus, padbeheer voor multi-root-workspaces, reasoning-opties voor modellen en acties om wijzigingen bij voltooiing te beoordelen.
+
+## Nieuw in v3.78.0
+
+- **Drie belangrijke nieuwe modellen zijn gearriveerd** — gebruik de gloednieuwe Gemini 3.7 Flash-, GLM 5.3- en Qwen3.8 Max-modellen, plus bijgewerkte reasoning, prijzen en providerondersteuning voor DeepSeek V4.
+- **Maak verbinding met NanoGPT** — gebruik dynamische modeldetectie, streaming en promptaanvulling, plus routeringsvoorkeuren voor snelheid, prijs, latentie, doorvoer, toolondersteuning en caching.
+- **Betrouwbaardere providers en taken** — oplossingen verbeteren de instelling van Azure OpenAI-endpoints, Kimi Code-uitvoerlimieten, het behouden van titels in de taakgeschiedenis en het importeren/exporteren van OctoCode-instellingen.
+- Destructive Command Guard ondersteunt nu Intel-gebaseerde Macs.
+- Beveiligingsupdates verhelpen kwetsbaarheden in `undici` en Mermaid.
+
+## Wat kan OctoCode voor JOU doen?
+
+- Genereer code vanuit natuurlijke taalomschrijvingen
+- Aanpassen met Modi: Code, Architect, Vraag, Debug en Aangepaste Modi
+- Refactor & debug bestaande code
+- Schrijf & update documentatie
+- Beantwoord vragen over je codebase
+- Automatiseer repetitieve taken
+- Gebruik MCP Servers
+
+## Modi
+
+OctoCode past zich aan jouw werkwijze aan, niet andersom:
+
+- Code Modus: dagelijks coderen, bewerkingen en bestandsoperaties
+- Architect Modus: plan systemen, specificaties en migraties
+- Vraag Modus: snelle antwoorden, uitleg en documenten
+- Debug Modus: spoor problemen op, voeg logs toe, isoleer de oorzaak
+- Aangepaste Modi: bouw gespecialiseerde modi voor je team of workflow
+
+Meer info: [Modi gebruiken](https://docs.octocode.dev/basic-usage/using-modes) • [Aangepaste modi](https://docs.octocode.dev/advanced-usage/custom-modes)
+
+## Hulpbronnen
+
+- **[Documentatie](https://docs.octocode.dev):** De officiële gids voor het installeren, configureren en beheersen van OctoCode.
+- **[Discord Server](https://discord.gg/VxfP4Vx3gX):** Word lid van de community voor realtime hulp en discussie.
+- **[Reddit Community](https://www.reddit.com/r/OctoCode):** Deel je ervaringen en kijk wat anderen bouwen.
+- **[GitHub Issues](https://github.com/OctoCode-Org/OctoCode/issues):** Meld bugs en volg de ontwikkeling.
+- **[Feature Requests](https://github.com/OctoCode-Org/OctoCode/discussions/categories/feature-requests?discussions_q=is%3Aopen+category%3A%22Feature+Requests%22+sort%3Atop):** Heb je een idee? Deel het met de ontwikkelaars.
+
+---
+
+## Lokale setup & ontwikkeling
+
+1. **Kloon** de repo:
+
+```sh
+git clone https://github.com/OctoCode-Org/OctoCode.git
+```
+
+2. **Installeer afhankelijkheden**:
+
+```sh
+pnpm install
+```
+
+3. **Voer de extensie uit**:
+
+Er zijn verschillende manieren om de OctoCode-extensie uit te voeren:
+
+### Ontwikkelmodus (F5)
+
+Gebruik voor actieve ontwikkeling de ingebouwde foutopsporing van VSCode:
+
+Druk op `F5` (of ga naar **Uitvoeren** → **Foutopsporing starten**) in VSCode. Dit opent een nieuw VSCode-venster waarin de OctoCode-extensie wordt uitgevoerd.
+
+- Wijzigingen in de webweergave verschijnen onmiddellijk.
+- Wijzigingen in de kernextensie worden ook automatisch hot-herladen.
+
+### Geautomatiseerde VSIX-installatie
+
+Om de extensie als een VSIX-pakket te bouwen en rechtstreeks in VSCode te installeren:
+
+```sh
+pnpm install:vsix [-y] [--editor=<command>]
+```
+
+Dit commando zal:
+
+- Vragen welk editorcommando te gebruiken (code/cursor/code-insiders) - standaard is 'code'
+- Een eventuele bestaande versie van de extensie verwijderen.
+- Het nieuwste VSIX-pakket bouwen.
+- De nieuw gebouwde VSIX installeren.
+- U vragen om VS Code opnieuw op te starten om de wijzigingen door te voeren.
+
+Opties:
+
+- `-y`: Sla alle bevestigingsprompts over en gebruik de standaardwaarden
+- `--editor=<command>`: Specificeer het editorcommando (bijv. `--editor=cursor` of `--editor=code-insiders`)
+
+### Handmatige VSIX-installatie
+
+Als u het VSIX-pakket liever handmatig installeert:
+
+1.  Bouw eerst het VSIX-pakket:
+    ```sh
+    pnpm vsix
+    ```
+2.  Een `.vsix`-bestand wordt gegenereerd in de `bin/`-directory (bijv. `bin/octocode-<version>.vsix`).
+3.  Installeer het handmatig met de VSCode CLI:
+    ```sh
+    code --install-extension bin/octocode-<version>.vsix
+    ```
+
+---
+
+We gebruiken [changesets](https://github.com/changesets/changesets) voor versiebeheer en publicatie. Bekijk onze `CHANGELOG.md` voor release-opmerkingen.
+
+---
+
+## Disclaimer
+
+**Let op**: OctoCode geeft **geen** verklaringen of garanties met betrekking tot enige code, modellen of andere tools die worden geleverd of beschikbaar worden gesteld in verband met OctoCode, enige geassocieerde tools van derden, of enige resulterende output. U aanvaardt **alle risico's** die gepaard gaan met het gebruik van dergelijke tools of output; dergelijke tools worden geleverd op een **"AS IS"** en **"AS AVAILABLE"** basis. Dergelijke risico's kunnen omvatten, maar zijn niet beperkt tot, inbreuk op intellectueel eigendom, cyberkwetsbaarheden of -aanvallen, vooringenomenheid, onnauwkeurigheden, fouten, defecten, virussen, downtime, verlies of beschadiging van eigendommen, en/of persoonlijk letsel. U bent als enige verantwoordelijk voor uw gebruik van dergelijke tools of output (inclusief, maar niet beperkt tot, de wettigheid, geschiktheid en resultaten daarvan).
+
+---
+
+## Bijdragen
+
+We houden van bijdragen uit de community! Begin met het lezen van onze [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
+## Licentie
+
+[Apache 2.0 © 2025 OctoCode Org](../../LICENSE)
+
+---
+
+**Veel plezier met OctoCode!** Of je het nu kort aangelijnd houdt of autonoom laat rondzwerven, we kunnen niet wachten om te zien wat je bouwt. Als je vragen of feature-ideeën hebt, open dan een [issue](https://github.com/OctoCode-Org/OctoCode/issues) of start een [discussion](https://github.com/OctoCode-Org/OctoCode/discussions). Veel codeerplezier!

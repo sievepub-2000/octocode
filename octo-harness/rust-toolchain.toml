@@ -1,0 +1,19 @@
+[toolchain]
+# We use the latest stable, but bump it manually.
+# To avoid unnecessary churn and simplify regression detection
+# - bump one point version at a time
+# - wait at least a couple of weeks after the release before bumping
+# After bumping the version, run
+# ```
+# cargo check --all-targets --workspace
+# cargo clippy --all-targets --workspace
+# ```
+# OctoCode ships one authoritative toolchain (see octocode-core/toolchain.json).
+# The harness builds on that same rustc as the Rust host, so the product never
+# needs a second toolchain installed beside it.
+channel = "1.98.0"
+components = ["rustfmt", "clippy"]
+profile = "default" # this will override global preferred profile if such is set
+# Host target only; OctoCode's supported product target is win32-x64. Upstream's
+# Linux cross-targets are not installed by the unified environment.
+# force CI
