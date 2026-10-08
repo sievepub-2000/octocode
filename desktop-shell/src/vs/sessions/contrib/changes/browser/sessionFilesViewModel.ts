@@ -23,10 +23,10 @@ export class SessionFilesViewModel extends Disposable {
 	) {
 		super();
 
-		// The underlying `externalChanges` observable carries its own structural
-		// equality, so when it is unchanged it returns the same array reference
-		// and this derived does not propagate. The shared empty constant keeps
-		// the "no session" case equally stable.
+		// The agent-host `externalChanges` observable uses structural equality to
+		// suppress change notifications for equivalent file lists, without
+		// guaranteeing the same array reference. The shared empty constant keeps
+		// the "no session" case stable.
 		this.sessionFilesObs = derived(this, reader => {
 			const activeSession = sessionsService.activeSession.read(reader);
 			return activeSession?.externalChanges?.read(reader) ?? EMPTY_SESSION_FILES;
