@@ -232,7 +232,7 @@ describe("McpOAuthClientProvider", () => {
 			await provider.saveClientInformation(info as OAuthClientInformationFull)
 
 			const result = await provider.clientInformation()
-			expect(result).toEqual(info)
+			expect(result).toEqual({ ...info, issuer: "https://auth.example.com" })
 			await provider.close()
 		})
 	})
@@ -260,7 +260,7 @@ describe("McpOAuthClientProvider", () => {
 			await provider.saveTokens(tokens)
 
 			const result = await provider.tokens()
-			expect(result).toEqual(tokens)
+			expect(result).toEqual({ ...tokens, issuer: "https://auth.example.com" })
 			await provider.close()
 		})
 
@@ -283,7 +283,8 @@ describe("McpOAuthClientProvider", () => {
 
 			await provider.saveClientInformation({ client_id: "id", redirect_uris: [] } as OAuthClientInformationFull)
 			await secretStorage.saveOAuthData("https://example.com/mcp", {
-				tokens: initialTokens,
+				tokens: { ...initialTokens, issuer: "https://auth.example.com" },
+				server_url: "https://example.com/mcp",
 				expires_at: Date.now() - 1000,
 			})
 
@@ -293,7 +294,7 @@ describe("McpOAuthClientProvider", () => {
 			})
 
 			const result = await provider.tokens()
-			expect(result).toEqual(refreshedTokens)
+			expect(result).toEqual({ ...refreshedTokens, issuer: "https://auth.example.com" })
 			expect(mockFetch).toHaveBeenCalledWith(
 				expect.stringContaining("/token"),
 				expect.objectContaining({
@@ -559,7 +560,7 @@ describe("McpOAuthClientProvider", () => {
 
 			// Verify tokens were saved
 			const saved = await provider.tokens()
-			expect(saved).toEqual(tokenResponse)
+			expect(saved).toEqual({ ...tokenResponse, issuer: "https://mcp.kapa.ai/auth/public" })
 
 			await provider.close()
 		})
@@ -750,10 +751,12 @@ describe("McpOAuthClientProvider", () => {
 
 			// Pre-populate storage with cached data including full client_info
 			await secretStorage.saveOAuthData("https://example.com/mcp", {
-				tokens: { access_token: "cached-token", token_type: "Bearer" },
+				tokens: { access_token: "cached-token", token_type: "Bearer", issuer: "https://auth.example.com" },
+				server_url: "https://example.com/mcp",
 				expires_at: Date.now() + 3600000,
 				client_info: {
 					client_id: "cached-client-id",
+					issuer: "https://auth.example.com",
 					client_name: "Test Client",
 					redirect_uris: ["http://localhost:9999/callback"],
 					grant_types: ["authorization_code", "refresh_token"],
@@ -777,10 +780,12 @@ describe("McpOAuthClientProvider", () => {
 			// may differ from the port used in the original registration, but we still
 			// reuse the client_id to avoid "refresh token not issued to this client" errors.
 			await secretStorage.saveOAuthData("https://example.com/mcp", {
-				tokens: { access_token: "cached-token", token_type: "Bearer" },
+				tokens: { access_token: "cached-token", token_type: "Bearer", issuer: "https://auth.example.com" },
+				server_url: "https://example.com/mcp",
 				expires_at: Date.now() + 3600000,
 				client_info: {
 					client_id: "cached-client-id",
+					issuer: "https://auth.example.com",
 					client_name: "Test Client",
 					redirect_uris: ["http://localhost:9999/callback"],
 					grant_types: ["authorization_code", "refresh_token"],
@@ -883,6 +888,120 @@ describe("McpOAuthClientProvider", () => {
 			const dcrBody = JSON.parse(mockFetch.mock.calls[1][1]?.body as string)
 			expect(dcrBody.redirect_uris).toContain(provider.redirectUrl)
 			await provider.close()
+		})
+	})
+
+	describe("credential issuer binding", () => {
+		const serverUrl = "https://example.com/mcp"
+		const issuer = "https://auth.example.com"
+
+		async function makeProvider(storage: SecretStorageService) {
+			vi.mocked(discoverOAuthProtectedResourceMetadata).mockResolvedValue({
+				resource: serverUrl,
+				authorization_servers: [issuer],
+			})
+			mockFetch.mockReset()
+			mockFetch.mockResolvedValue({
+				ok: true,
+				json: async () => ({
+					issuer,
+					authorization_endpoint: `${issuer}/authorize`,
+					token_endpoint: `${issuer}/token`,
+					response_types_supported: ["code"],
+					token_endpoint_auth_methods_supported: ["client_secret_post"],
+				}),
+			})
+			return McpOAuthClientProvider.create(serverUrl, storage)
+		}
+
+		it("does not reuse a valid token issued by a different authorization server", async () => {
+			const storage = createMockSecretStorage()
+			const data = {
+				tokens: { access_token: "owned-access", token_type: "Bearer", issuer: "https://other.example" },
+				expires_at: Date.now() + 3600000,
+				server_url: serverUrl,
+			}
+			await storage.saveOAuthData(serverUrl, data)
+			const provider = await makeProvider(storage)
+			try {
+				expect(await provider.tokens()).toBeUndefined()
+				expect(await storage.getOAuthData(serverUrl)).toEqual(data)
+				expect(storage.deleteOAuthData).not.toHaveBeenCalled()
+			} finally {
+				await provider.close()
+			}
+		})
+
+		it("does not refresh legacy credentials or send their client secret", async () => {
+			const storage = createMockSecretStorage()
+			const data = {
+				tokens: { access_token: "expired-owned", token_type: "Bearer", refresh_token: "owned-refresh" },
+				expires_at: Date.now() - 1000,
+				client_info: { client_id: "owned-client", client_secret: "owned-secret", redirect_uris: [] },
+			}
+			await storage.saveOAuthData(serverUrl, data)
+			const provider = await makeProvider(storage)
+			mockFetch.mockClear()
+			try {
+				await provider.registerClientIfNeeded()
+				expect(await provider.tokens()).toBeUndefined()
+				expect(await provider.clientInformation()).toBeUndefined()
+				expect(mockFetch).not.toHaveBeenCalled()
+				expect(await storage.getOAuthData(serverUrl)).toEqual(data)
+			} finally {
+				await provider.close()
+			}
+		})
+
+		it("does not reuse a token for the same host after the MCP scheme changes", async () => {
+			const storage = createMockSecretStorage()
+			await storage.saveOAuthData(serverUrl, {
+				tokens: { access_token: "owned-access", token_type: "Bearer", issuer },
+				expires_at: Date.now() + 3600000,
+				server_url: "http://example.com/mcp",
+			} as StoredMcpOAuthData)
+			const provider = await makeProvider(storage)
+			try {
+				expect(await provider.tokens()).toBeUndefined()
+			} finally {
+				await provider.close()
+			}
+		})
+
+		it("persists new token issuer and exact MCP resource URL", async () => {
+			const storage = createMockSecretStorage()
+			const provider = await makeProvider(storage)
+			try {
+				await provider.saveTokens({ access_token: "owned-access", token_type: "Bearer" })
+				const saved = await storage.getOAuthData(serverUrl)
+				expect(saved).toMatchObject({ server_url: serverUrl, tokens: { issuer } })
+			} finally {
+				await provider.close()
+			}
+		})
+
+		it("keeps the stored refresh client's secret when an in-memory registration differs", async () => {
+			const storage = createMockSecretStorage()
+			const clientInfo = { client_id: "owned-old-client", client_secret: "owned-old-secret", issuer, redirect_uris: [] }
+			await storage.saveOAuthData(serverUrl, {
+				tokens: { access_token: "owned-old-access", refresh_token: "owned-refresh", token_type: "Bearer", issuer },
+				server_url: serverUrl,
+				expires_at: 0,
+				client_info: clientInfo,
+			})
+			const provider = await makeProvider(storage)
+			await provider.saveClientInformation({ client_id: "owned-new-client", client_secret: "owned-new-secret", issuer, redirect_uris: [] })
+			mockFetch.mockClear()
+			mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ access_token: "owned-refreshed", token_type: "Bearer" }) })
+			try {
+				await provider.tokens()
+				const request = new URLSearchParams(mockFetch.mock.calls[0][1].body)
+				expect(request.get("client_id")).toBe(clientInfo.client_id)
+				expect(request.get("client_secret")).toBe(clientInfo.client_secret)
+				expect((await storage.getOAuthData(serverUrl))?.client_info).toEqual(clientInfo)
+			} finally {
+				await provider.close()
+			}
 		})
 	})
 })

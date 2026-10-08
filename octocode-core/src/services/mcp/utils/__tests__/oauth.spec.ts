@@ -150,4 +150,40 @@ describe("fetchOAuthAuthServerMetadata", () => {
 		const result = await fetchOAuthAuthServerMetadata("https://example.com/mcp")
 		expect(result).toEqual({ authServerMeta: meta, resourceIndicator: null })
 	})
+
+	it("rejects metadata that names a different issuer than the discovery server", async () => {
+		vi.mocked(discoverOAuthProtectedResourceMetadata).mockResolvedValue({
+			resource: "https://example.com/mcp",
+			authorization_servers: ["https://other.example/issuer"],
+		})
+		mockFetch.mockResolvedValueOnce({
+			ok: true,
+			json: async () => ({ issuer: "https://auth.example.com/issuer" }),
+		})
+		expect(await fetchOAuthAuthServerMetadata("https://example.com/mcp")).toBeNull()
+	})
+
+	it("does not use missing issuer metadata as a credential binding", async () => {
+		vi.mocked(discoverOAuthProtectedResourceMetadata).mockResolvedValue({
+			resource: "https://example.com/mcp",
+			authorization_servers: ["https://auth.example.com"],
+		})
+		mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({}) })
+		expect(await fetchOAuthAuthServerMetadata("https://example.com/mcp")).toBeNull()
+	})
+
+	it("clears its discovery deadline after a successful response", async () => {
+		vi.useFakeTimers()
+		try {
+			vi.mocked(discoverOAuthProtectedResourceMetadata).mockResolvedValue({
+				resource: "https://example.com/mcp",
+				authorization_servers: ["https://auth.example.com"],
+			})
+			mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ issuer: "https://auth.example.com" }) })
+			expect(await fetchOAuthAuthServerMetadata("https://example.com/mcp")).not.toBeNull()
+			expect(vi.getTimerCount()).toBe(0)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
 })

@@ -2515,6 +2515,7 @@ describe("McpHub", () => {
 
 			mockAuthProvider = {
 				openBrowser: vi.fn().mockResolvedValue(undefined),
+				isOAuthDataUsable: vi.fn().mockReturnValue(true),
 				waitForAuthCode: vi.fn().mockResolvedValue("auth-code-123"),
 				exchangeCodeForTokens: vi.fn().mockResolvedValue(undefined),
 				close: vi.fn().mockResolvedValue(undefined),
@@ -2568,6 +2569,21 @@ describe("McpHub", () => {
 				}),
 				expect.any(Function),
 			)
+		})
+
+		it("requires authentication when a still-valid cached token fails its issuer binding", async () => {
+			mockSecretStorage.getOAuthData.mockResolvedValue({
+				tokens: { access_token: "owned-legacy", token_type: "Bearer" },
+				expires_at: Date.now() + 3600000,
+			})
+			mockAuthProvider.isOAuthDataUsable.mockReturnValue(false)
+			vsc.window.showInformationMessage.mockResolvedValueOnce(t("mcp:oauth.flow.authenticateButton"))
+			const hub = mcpHub as unknown as { _completeOAuthFlow(): Promise<void> }
+			const complete = vi.spyOn(hub, "_completeOAuthFlow").mockResolvedValue(undefined)
+			const initiate = Reflect.get(mcpHub, "_initiateOAuthFlow") as (...args: unknown[]) => Promise<void>
+			await initiate.call(mcpHub, serverName, source, config, mockAuthProvider, mockTransport, mockConnection)
+			expect(complete).toHaveBeenCalledOnce()
+			expect(Reflect.get(mcpHub, "connectToServer")).not.toHaveBeenCalled()
 		})
 
 		it("should update progress bar hint when toast is dismissed without clicking Authenticate", async () => {

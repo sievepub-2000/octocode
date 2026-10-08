@@ -59,8 +59,9 @@ describe("SecretStorageService", () => {
 		})
 
 		it("should return undefined for malformed JSON", async () => {
-			// Manually store garbage via the underlying mock (key uses base64url-encoded path)
-			context.secrets.store("mcp.oauth.example.com.L21jcA.data", "not-json")
+			await service.getOAuthData("https://example.com/mcp")
+			const key = context.secrets.get.mock.calls[0][0]
+			await context.secrets.store(key, "not-json")
 
 			const result = await service.getOAuthData("https://example.com/mcp")
 			expect(result).toBeUndefined()
@@ -68,7 +69,7 @@ describe("SecretStorageService", () => {
 	})
 
 	describe("saveOAuthData", () => {
-		it("should persist data under host and path-based key", async () => {
+		it("should persist data under an opaque resource-specific key", async () => {
 			const data: StoredMcpOAuthData = {
 				tokens: { access_token: "abc", token_type: "Bearer" },
 				expires_at: 12345,
@@ -76,7 +77,7 @@ describe("SecretStorageService", () => {
 			await service.saveOAuthData("https://example.com/mcp", data)
 
 			expect(context.secrets.store).toHaveBeenCalledWith(
-				"mcp.oauth.example.com.L21jcA.data",
+				expect.stringMatching(/^mcp\.oauth\.v2\.[0-9a-f]{64}\.data$/),
 				JSON.stringify(data),
 			)
 		})
@@ -88,7 +89,7 @@ describe("SecretStorageService", () => {
 			}
 			await service.saveOAuthData("https://example.com/", data)
 
-			expect(context.secrets.store).toHaveBeenCalledWith("mcp.oauth.example.com.data", JSON.stringify(data))
+			expect(context.secrets.store).toHaveBeenCalledWith(expect.stringMatching(/^mcp\.oauth\.v2\.[0-9a-f]{64}\.data$/), JSON.stringify(data))
 		})
 	})
 
@@ -124,21 +125,23 @@ describe("SecretStorageService", () => {
 				expires_at: Date.now() + 3600_000,
 			}
 			await service.saveOAuthData("https://example.com/mcp", data)
+			const key = context.secrets.store.mock.calls[0][0]
 
 			await service.deleteOAuthData("https://example.com/mcp")
 
-			expect(context.secrets.delete).toHaveBeenCalledWith("mcp.oauth.example.com.L21jcA.data")
+			expect(context.secrets.delete).toHaveBeenCalledWith(key)
 			const result = await service.getOAuthData("https://example.com/mcp")
 			expect(result).toBeUndefined()
 		})
 	})
 
 	describe("onDidChange", () => {
-		it("should call the callback when the key for the given URL changes", () => {
+		it("should call the callback when the key for the given URL changes", async () => {
 			const cb = vi.fn()
 			service.onDidChange("https://example.com/mcp", cb)
 
-			context.secrets._emit("mcp.oauth.example.com.L21jcA.data")
+			await service.getOAuthData("https://example.com/mcp")
+			context.secrets._emit(context.secrets.get.mock.calls[0][0])
 
 			expect(cb).toHaveBeenCalledTimes(1)
 		})
@@ -152,12 +155,13 @@ describe("SecretStorageService", () => {
 			expect(cb).not.toHaveBeenCalled()
 		})
 
-		it("should stop calling the callback after the returned dispose function is called", () => {
+		it("should stop calling the callback after the returned dispose function is called", async () => {
 			const cb = vi.fn()
 			const unsubscribe = service.onDidChange("https://example.com/mcp", cb)
 
 			unsubscribe()
-			context.secrets._emit("mcp.oauth.example.com.L21jcA.data")
+			await service.getOAuthData("https://example.com/mcp")
+			context.secrets._emit(context.secrets.get.mock.calls[0][0])
 
 			expect(cb).not.toHaveBeenCalled()
 		})
@@ -189,6 +193,25 @@ describe("SecretStorageService", () => {
 	})
 
 	describe("key isolation", () => {
+		it("isolates schemes and query-scoped resources on the same host and path", async () => {
+			const urls = ["http://example.com/mcp", "https://example.com/mcp", "https://example.com/mcp?tenant=a"]
+			for (const [index, url] of urls.entries()) {
+				await service.saveOAuthData(url, { tokens: { access_token: `owned-${index}`, token_type: "Bearer" }, expires_at: index })
+			}
+			for (const [index, url] of urls.entries()) {
+				expect((await service.getOAuthData(url))?.tokens.access_token).toBe(`owned-${index}`)
+			}
+		})
+
+		it("preserves an unbound legacy record without returning it as current credentials", async () => {
+			const key = "mcp.oauth.example.com.L21jcA.data"
+			const raw = JSON.stringify({ tokens: { access_token: "owned-legacy", token_type: "Bearer" }, expires_at: 12345 })
+			await context.secrets.store(key, raw)
+			expect(await service.getOAuthData("https://example.com/mcp")).toBeUndefined()
+			expect(await context.secrets.get(key)).toBe(raw)
+			expect(context.secrets.delete).not.toHaveBeenCalled()
+		})
+
 		it("should isolate data by host", async () => {
 			const data1: StoredMcpOAuthData = {
 				tokens: { access_token: "a", token_type: "Bearer" },

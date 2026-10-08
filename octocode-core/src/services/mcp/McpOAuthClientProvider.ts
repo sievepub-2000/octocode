@@ -10,7 +10,7 @@ import type {
 } from "@modelcontextprotocol/sdk/shared/auth.js"
 
 import { TOKEN_EXPIRY_BUFFER_MS } from "./constants"
-import { SecretStorageService } from "./SecretStorageService"
+import { SecretStorageService, type StoredMcpOAuthData } from "./SecretStorageService"
 import { startCallbackServer, stopCallbackServer } from "./utils/callbackServer"
 import { fetchOAuthAuthServerMetadata } from "./utils/oauth"
 
@@ -67,6 +67,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
 	private _clientInfo?: OAuthClientInformationFull
 	private _closed = false
 	private _refreshPromise: Promise<OAuthTokens> | null = null
+	private _refreshFailed = false
 	/** Stored by redirectToAuthorization(); opened on-demand via openBrowser(). */
 	private _pendingAuthorizationUrl: URL | null = null
 	/** Deduplicates concurrent _ensureCallbackServer() calls. */
@@ -161,6 +162,30 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
 		return this._authServerMeta !== null
 	}
 
+	private get _credentialIssuer(): string | undefined {
+		const issuer = this._authServerMeta?.issuer
+		return typeof issuer === "string" ? issuer : undefined
+	}
+
+	private _matchesIssuer(issuer: unknown): boolean {
+		if (typeof issuer !== "string" || !this._credentialIssuer) return false
+		try {
+			return new URL(issuer).href === new URL(this._credentialIssuer).href
+		} catch {
+			return false
+		}
+	}
+
+	/** Legacy/unbound records remain stored, but require a new interactive sign-in. */
+	isOAuthDataUsable(data: StoredMcpOAuthData | null | undefined): boolean {
+		return !!(
+			data &&
+			data.server_url === new URL(this._serverUrl).href &&
+			this._matchesIssuer(data.tokens?.issuer) &&
+			(!data.client_info || this._matchesIssuer(data.client_info.issuer))
+		)
+	}
+
 	get redirectUrl(): string {
 		return `http://localhost:${this._port}/callback`
 	}
@@ -214,7 +239,11 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
 	}
 
 	async saveClientInformation(info: OAuthClientInformationFull): Promise<void> {
-		this._clientInfo = info
+		const issuer = this._credentialIssuer
+		if (!issuer || (info.issuer !== undefined && !this._matchesIssuer(info.issuer))) {
+			throw new Error("MCP OAuth client information does not match the discovered authorization server")
+		}
+		this._clientInfo = { ...info, issuer: info.issuer ?? issuer }
 	}
 
 	/**
@@ -234,7 +263,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
 
 		// Check if we have a cached client_id from previous registration
 		const cachedData = await this._secretStorage.getOAuthData(this._serverUrl)
-		if (cachedData?.client_info) {
+		if (this.isOAuthDataUsable(cachedData) && cachedData?.client_info) {
 			// Use the full DCR response, override redirect_uris with the
 			// current port (which may have changed between sessions).
 			this._clientInfo = {
@@ -252,6 +281,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
 
 		const response = await fetch(this._authServerMeta.registration_endpoint as string, {
 			method: "POST",
+			redirect: "error",
 			headers: {
 				"Content-Type": "application/json",
 				Accept: "application/json",
@@ -263,17 +293,21 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
 			throw new Error(`Dynamic client registration failed: HTTP ${response.status}`)
 		}
 
-		this._clientInfo = (await response.json()) as OAuthClientInformationFull
+		await this.saveClientInformation({
+			...((await response.json()) as OAuthClientInformationFull),
+			issuer: this._credentialIssuer,
+		})
 	}
 
 	async tokens(): Promise<OAuthTokens | undefined> {
 		const data = await this._secretStorage.getOAuthData(this._serverUrl)
-		if (!data) return undefined
+		if (!this.isOAuthDataUsable(data) || !data) return undefined
 
 		// If the access token is still valid (with 5m buffer), return it.
 		if (Date.now() < data.expires_at - TOKEN_EXPIRY_BUFFER_MS) {
 			return data.tokens
 		}
+		if (this._refreshFailed) return undefined
 
 		// Access token is expired or near expiry. Try to refresh if we have a refresh token.
 		if (data.tokens.refresh_token) {
@@ -296,27 +330,32 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
 			try {
 				return await this._refreshPromise
 			} catch (error) {
-				console.error(`Failed to refresh MCP OAuth token for ${this._serverUrl}:`, error)
-				// Clear stale tokens on refresh failure so we don't keep retrying a dead refresh token
-				await this._secretStorage.deleteOAuthData(this._serverUrl)
-				// Fall through to return undefined, which triggers full re-auth
+				console.error(`Failed to refresh MCP OAuth token for ${new URL(this._serverUrl).origin}:`, error)
+				// Stop this provider's retries without deleting the stored credentials.
+				this._refreshFailed = true
 			}
 		}
 
 		return undefined
 	}
 
-	async saveTokens(tokens: OAuthTokens, clientIdOverride?: string): Promise<void> {
+	async saveTokens(tokens: OAuthTokens, clientInfoOverride?: OAuthClientInformationFull): Promise<void> {
+		const issuer = this._credentialIssuer
+		if (!issuer || (tokens.issuer !== undefined && !this._matchesIssuer(tokens.issuer))) {
+			throw new Error("MCP OAuth tokens do not match the discovered authorization server")
+		}
 		const expires_at = tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : Date.now() + 3600 * 1000 // default 1 hour when server omits expires_in
-		const clientInfo =
-			clientIdOverride && this._clientInfo
-				? { ...this._clientInfo, client_id: clientIdOverride }
-				: this._clientInfo
+		const clientInfo = clientInfoOverride ?? this._clientInfo
+		if (clientInfo && !this._matchesIssuer(clientInfo.issuer)) {
+			throw new Error("MCP OAuth token client information does not match the authorization server")
+		}
 		await this._secretStorage.saveOAuthData(this._serverUrl, {
-			tokens,
+			tokens: { ...tokens, issuer: tokens.issuer ?? issuer },
+			server_url: new URL(this._serverUrl).href,
 			expires_at,
 			...(clientInfo ? { client_info: clientInfo } : {}),
 		})
+		this._refreshFailed = false
 	}
 
 	async redirectToAuthorization(authorizationUrl: URL): Promise<void> {
@@ -462,6 +501,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
 
 		const response = await fetch(this._authServerMeta.token_endpoint as string, {
 			method: "POST",
+			redirect: "error",
 			headers: {
 				"Content-Type": "application/x-www-form-urlencoded",
 				Accept: "application/json",
@@ -474,7 +514,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
 		}
 
 		const tokens = (await response.json()) as OAuthTokens
-		await this.saveTokens(tokens)
+		await this.saveTokens({ ...tokens, issuer: this._credentialIssuer })
 	}
 
 	/**
@@ -491,9 +531,17 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
 			throw new Error("No token_endpoint in auth server metadata — cannot refresh token")
 		}
 
-		const clientId = clientIdOverride ?? this._clientInfo?.client_id
+		const data = await this._secretStorage.getOAuthData(this._serverUrl)
+		if (!this.isOAuthDataUsable(data) || data?.tokens.refresh_token !== refreshToken) {
+			throw new Error("MCP OAuth refresh requires credentials bound to this resource and authorization server")
+		}
+		const clientInfo = data.client_info ?? this._clientInfo
+		const clientId = clientIdOverride ?? clientInfo?.client_id
 		if (!clientId) {
 			throw new Error("No client information — registerClientIfNeeded() must be called first")
+		}
+		if (!clientInfo || !this._matchesIssuer(clientInfo.issuer) || clientId !== clientInfo.client_id) {
+			throw new Error("MCP OAuth refresh client does not match its stored credential binding")
 		}
 
 		const params: Record<string, string> = {
@@ -507,12 +555,13 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
 			params.resource = this._resourceIndicator
 		}
 
-		if (this._tokenEndpointAuthMethod === "client_secret_post" && this._clientInfo?.client_secret) {
-			params.client_secret = this._clientInfo.client_secret
+		if (this._tokenEndpointAuthMethod === "client_secret_post" && clientInfo.client_secret) {
+			params.client_secret = clientInfo.client_secret
 		}
 
 		const response = await fetch(this._authServerMeta.token_endpoint as string, {
 			method: "POST",
+			redirect: "error",
 			headers: {
 				"Content-Type": "application/x-www-form-urlencoded",
 				Accept: "application/json",
@@ -521,13 +570,13 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
 		})
 
 		if (!response.ok) {
-			const errorBody = await response.text().catch(() => "")
-			throw new Error(`Token refresh failed: HTTP ${response.status} ${errorBody}`)
+			throw new Error(`Token refresh failed: HTTP ${response.status}`)
 		}
 
 		const tokens = (await response.json()) as OAuthTokens
-		await this.saveTokens(tokens, clientId)
-		return tokens
+		const boundTokens = { ...tokens, issuer: this._credentialIssuer }
+		await this.saveTokens(boundTokens, clientInfo)
+		return boundTokens
 	}
 
 	/** Close the local callback server. Always call this when done. */

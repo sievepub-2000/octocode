@@ -1185,7 +1185,12 @@ export class McpHub {
 			existing ?? (tokenChangedDuringRead ? await this.secretStorage.getOAuthData(serverUrl) : undefined)
 		unsubscribeCrossWindow()
 
-		if (!this.isDisposed && tokenToUse && Date.now() < tokenToUse.expires_at - TOKEN_EXPIRY_BUFFER_MS) {
+		if (
+			!this.isDisposed &&
+			authProvider.isOAuthDataUsable(tokenToUse) &&
+			tokenToUse &&
+			Date.now() < tokenToUse.expires_at - TOKEN_EXPIRY_BUFFER_MS
+		) {
 			await authProvider.close()
 			await this.deleteConnection(name, source)
 			await this.connectToServer(name, config, source)
@@ -1264,7 +1269,7 @@ export class McpHub {
 					// Re-check after the async yield — cancellation or completion may have
 					// fired while getOAuthData was in flight.
 					if (disposed || this.isDisposed) return
-					if (data && Date.now() < data.expires_at - TOKEN_EXPIRY_BUFFER_MS) {
+					if (authProvider.isOAuthDataUsable(data) && data && Date.now() < data.expires_at - TOKEN_EXPIRY_BUFFER_MS) {
 						cleanup(cancellationDisposable)
 						await authProvider.close()
 						await this.deleteConnection(name, source)
@@ -1365,7 +1370,7 @@ export class McpHub {
 				// Guard: another window may have authed while the toast was open
 				const tokens = await this.secretStorage!.getOAuthData(serverUrl)
 				if (disposed) return
-				if (tokens && Date.now() < tokens.expires_at - TOKEN_EXPIRY_BUFFER_MS) {
+				if (authProvider.isOAuthDataUsable(tokens) && tokens && Date.now() < tokens.expires_at - TOKEN_EXPIRY_BUFFER_MS) {
 					cleanup(cancellationDisposable)
 					await authProvider.close()
 					await this.deleteConnection(name, source)

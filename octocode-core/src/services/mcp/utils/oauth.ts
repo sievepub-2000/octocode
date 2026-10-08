@@ -47,15 +47,16 @@ export interface OAuthDiscoveryResult {
 const DISCOVERY_TIMEOUT_MS = 5_000
 
 export async function fetchOAuthAuthServerMetadata(serverUrl: string): Promise<OAuthDiscoveryResult | null> {
+	let timeout: ReturnType<typeof setTimeout> | undefined
 	try {
 		// Step 1 – RFC 9728: resolve the authorization server issuer URL and
 		// capture the resource indicator for RFC 8707.
 		// The SDK does not accept an AbortSignal, so we race it against a timeout.
 		const resourceMeta = await Promise.race([
 			discoverOAuthProtectedResourceMetadata(serverUrl),
-			new Promise<never>((_, reject) =>
-				setTimeout(() => reject(new Error("OAuth discovery timeout")), DISCOVERY_TIMEOUT_MS),
-			),
+			new Promise<never>((_, reject) => {
+				timeout = setTimeout(() => reject(new Error("OAuth discovery timeout")), DISCOVERY_TIMEOUT_MS)
+			}),
 		])
 		const authServers = resourceMeta.authorization_servers
 		if (!authServers?.length) return null
@@ -80,8 +81,15 @@ export async function fetchOAuthAuthServerMetadata(serverUrl: string): Promise<O
 		})
 		if (!response.ok) return null
 		const authServerMeta = (await response.json()) as Record<string, any>
+		// A metadata document cannot choose the credential binding. It must echo
+		// the authorization server from which this document was discovered.
+		if (typeof authServerMeta.issuer !== "string" || new URL(authServerMeta.issuer).href !== parsed.href) {
+			return null
+		}
 		return { authServerMeta, resourceIndicator }
 	} catch {
 		return null
+	} finally {
+		if (timeout !== undefined) clearTimeout(timeout)
 	}
 }

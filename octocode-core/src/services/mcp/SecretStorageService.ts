@@ -1,8 +1,11 @@
 import * as vscode from "vscode"
+import { createHash } from "node:crypto"
 import type { OAuthClientInformationFull, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js"
 
 export interface StoredMcpOAuthData {
 	tokens: OAuthTokens
+	/** Exact MCP resource URL used when these credentials were saved. Absent on legacy data. */
+	server_url?: string
 	/** Unix ms timestamp after which the access token should be considered expired. */
 	expires_at: number
 	/**
@@ -16,23 +19,22 @@ export interface StoredMcpOAuthData {
 
 /**
  * Thin wrapper around VS Code SecretStorage for persisting MCP OAuth tokens.
- * Tokens are stored per-server (keyed by host) so different servers on the
- * same host share credentials, which is the common case for multi-path APIs.
+ * V2 keys isolate the full resource URL, including scheme and query. Legacy
+ * records are retained under their old keys and require a new sign-in; their
+ * missing issuer/resource binding cannot be inferred safely from new discovery.
  */
 export class SecretStorageService {
 	private readonly _storage: vscode.SecretStorage
-	private readonly _namespace = "mcp.oauth."
+	private readonly _namespace = "mcp.oauth.v2."
 
 	constructor(context: vscode.ExtensionContext) {
 		this._storage = context.secrets
 	}
 
 	private _key(serverUrl: string): string {
-		const url = new URL(serverUrl)
-		const normalizedPath = url.pathname.replace(/\/$/, "")
-		// Use base64url encoding to avoid collisions between paths like /a-b, /a_b, /a/b.
-		const pathSuffix = normalizedPath ? `.${Buffer.from(normalizedPath).toString("base64url")}` : ""
-		return `${this._namespace}${url.host}${pathSuffix}.data`
+		// Keep credential-bearing URL components out of the storage key itself.
+		const identity = createHash("sha256").update(new URL(serverUrl).href).digest("hex")
+		return `${this._namespace}${identity}.data`
 	}
 
 	async getOAuthData(serverUrl: string): Promise<StoredMcpOAuthData | undefined> {
