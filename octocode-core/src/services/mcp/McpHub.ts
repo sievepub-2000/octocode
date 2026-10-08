@@ -228,7 +228,16 @@ export class McpHub {
 	 * Registers a client (e.g., ClineProvider) using this hub.
 	 * Increments the reference count.
 	 */
+	public get disposed(): boolean {
+		return this.isDisposed
+	}
+
+	public setProvider(provider: ClineProvider): void {
+		if (!this.isDisposed) this.providerRef = new WeakRef(provider)
+	}
+
 	public registerClient(): void {
+		if (this.isDisposed) throw new Error("Cannot register a client on a disposed MCP Hub")
 		this.refCount++
 	}
 
@@ -237,6 +246,7 @@ export class McpHub {
 	 * If the count reaches zero, disposes the hub.
 	 */
 	public async unregisterClient(): Promise<void> {
+		if (this.isDisposed || this.refCount === 0) return
 		this.refCount--
 
 		if (this.refCount <= 0) {
@@ -2705,6 +2715,7 @@ export class McpHub {
 		}
 
 		this.isDisposed = true
+		this.refCount = 0
 
 		// Clear all debounce timers
 		for (const timer of this.configChangeDebounceTimers.values()) {

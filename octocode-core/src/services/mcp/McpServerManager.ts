@@ -3,100 +3,133 @@ import { McpHub } from "./McpHub"
 import { SecretStorageService } from "./SecretStorageService"
 import { ClineProvider } from "../../core/webview/ClineProvider"
 
-/**
- * Singleton manager for MCP server instances.
- * Ensures only one set of MCP servers runs across all webviews.
- */
+/** One shared Hub with one reference per active or pending provider. */
 export class McpServerManager {
 	private static instance: McpHub | null = null
 	private static readonly GLOBAL_STATE_KEY = "mcpHubInstanceId"
-	private static providers: Set<ClineProvider> = new Set()
+	private static providers = new Map<ClineProvider, { hub?: McpHub }>()
 	private static initializationPromise: Promise<McpHub> | null = null
+	private static cleanupPromise: Promise<void> | null = null
 
-	/**
-	 * Get the singleton McpHub instance.
-	 * Creates a new instance if one doesn't exist.
-	 * Thread-safe implementation using a promise-based lock.
-	 */
 	static async getInstance(context: vscode.ExtensionContext, provider: ClineProvider): Promise<McpHub> {
-		// Register the provider
-		this.providers.add(provider)
-
-		// If we already have an instance, return it
-		if (this.instance) {
-			return this.instance
+		let registration = this.providers.get(provider)
+		if (!registration) {
+			registration = {}
+			this.providers.set(provider, registration)
 		}
-
-		// If initialization is in progress, wait for it
-		if (this.initializationPromise) {
-			return this.initializationPromise
-		}
-
-		// Create a new initialization promise
-		this.initializationPromise = (async () => {
-			try {
-				// Double-check instance in case it was created while we were waiting
-				if (!this.instance) {
-					const secretStorage = new SecretStorageService(context)
-					const hub = new McpHub(provider, secretStorage)
-
-					/*
-					 * Hand back the hub as soon as it exists.
-					 *
-					 * This used to `await hub.waitUntilReady()`, which blocks until every
-					 * configured server has connected or run out its own timeout — 60
-					 * seconds each by default. Because activation asks for the hub, the
-					 * window could not finish opening until that settled: a startup profile
-					 * on a running build put 217 of 219 seconds in this one call.
-					 *
-					 * Nothing is lost by not waiting here. The one caller that genuinely
-					 * needs connected servers — building the system prompt — already waits
-					 * on its own, bounded to ten seconds and degrading gracefully past it,
-					 * so an unreachable server costs a prompt a moment rather than costing
-					 * the whole window minutes.
-					 */
-					this.instance = hub
-					// Store a unique identifier in global state to track the primary instance
-					await context.globalState.update(this.GLOBAL_STATE_KEY, Date.now().toString())
+		try {
+			while (this.cleanupPromise) await this.cleanupPromise
+			if (this.providers.get(provider) !== registration) throw new Error("MCP provider was released")
+			let hub = this.instance
+			if (!hub || hub.disposed) {
+				hub = new McpHub(provider, new SecretStorageService(context))
+				this.instance = hub
+				const createdHub = hub
+				// Only serialize metadata, never network/server readiness, during acquisition.
+				const initializing = Promise.resolve()
+					.then(() => context.globalState.update(this.GLOBAL_STATE_KEY, Date.now().toString()))
+					.then(() => createdHub)
+				this.initializationPromise = initializing
+				const clearInitialization = () => {
+					if (this.initializationPromise === initializing) this.initializationPromise = null
 				}
-				return this.instance
-			} finally {
-				// Clear the initialization promise after completion or error
-				this.initializationPromise = null
+				void initializing.then(clearInitialization, clearInitialization)
 			}
-		})()
-
-		return this.initializationPromise
+			if (registration.hub !== hub) {
+				if (this.providers.get(provider) !== registration || this.instance !== hub || hub.disposed)
+					throw new Error("MCP provider was released")
+				const previousHub = registration.hub
+				// Claim the old lease before yielding so overlapping gets release it once.
+				registration.hub = undefined
+				await previousHub?.unregisterClient()
+				if (this.providers.get(provider) !== registration || this.instance !== hub || hub.disposed)
+					throw new Error("MCP provider was released")
+				if (registration.hub !== hub) {
+					hub.registerClient()
+					registration.hub = hub
+					if (this.providers.size === 1) hub.setProvider(provider)
+				}
+			}
+			const initializing = this.initializationPromise
+			if (initializing) await initializing
+			if (this.providers.get(provider) !== registration || this.instance !== hub || hub.disposed)
+				throw new Error("MCP provider was released")
+			return hub
+		} catch (error) {
+			if (this.providers.get(provider) === registration) {
+				await this.releaseProvider(provider).catch((cleanupError) => console.error("MCP provider release failed:", cleanupError))
+			}
+			throw error
+		}
 	}
 
-	/**
-	 * Remove a provider from the tracked set.
-	 * This is called when a webview is disposed.
-	 */
+	/** Preserve the synchronous void API; disposal consumers await releaseProvider. */
 	static unregisterProvider(provider: ClineProvider): void {
-		this.providers.delete(provider)
+		void this.releaseProvider(provider).catch((error) => console.error("MCP provider release failed:", error))
 	}
 
-	/**
-	 * Notify all registered providers of server state changes.
-	 */
+	static async releaseProvider(provider: ClineProvider): Promise<void> {
+		const registration = this.providers.get(provider)
+		if (!registration) return
+		this.providers.delete(provider)
+		const hub = registration.hub
+		if (!hub) {
+			if (this.providers.size === 0) await this.cleanup(provider.context)
+			return
+		}
+		const nextProvider = [...this.providers].find(([, next]) => next.hub === hub)?.[0]
+		if (nextProvider) hub.setProvider(nextProvider)
+		if (this.providers.size === 0 && this.instance === hub) {
+			const initializing = this.initializationPromise
+			const closing = hub.unregisterClient()
+			await this.finishCleanup(provider.context, hub, initializing, closing, false)
+		} else {
+			await hub.unregisterClient()
+		}
+	}
+
 	static notifyProviders(message: any): void {
-		this.providers.forEach((provider) => {
+		this.providers.forEach((_registration, provider) => {
 			provider.postMessageToWebview(message).catch((error) => {
 				console.error("Failed to notify provider:", error)
 			})
 		})
 	}
 
-	/**
-	 * Clean up the singleton instance and all its resources.
-	 */
 	static async cleanup(context: vscode.ExtensionContext): Promise<void> {
-		if (this.instance) {
-			await this.instance.dispose()
-			this.instance = null
-			await context.globalState.update(this.GLOBAL_STATE_KEY, undefined)
-		}
+		if (this.cleanupPromise) return this.cleanupPromise
+		const hub = this.instance
+		const initializing = this.initializationPromise
+		this.instance = null
+		this.initializationPromise = null
 		this.providers.clear()
+		await this.finishCleanup(context, hub, initializing, hub?.dispose() ?? Promise.resolve(), true)
+	}
+
+	private static async finishCleanup(
+		context: vscode.ExtensionContext,
+		hub: McpHub | null,
+		initializing: Promise<McpHub> | null,
+		closing: Promise<void>,
+		force: boolean,
+	): Promise<void> {
+		const cleanup = (async () => {
+			try {
+				await closing
+			} finally {
+				// Old identity writes must settle before clearing them or creating a new Hub.
+				await initializing?.catch(() => undefined)
+				if (force || hub?.disposed) {
+					if (this.instance === hub) this.instance = null
+					if (hub || initializing) await context.globalState.update(this.GLOBAL_STATE_KEY, undefined)
+				}
+			}
+		})()
+		this.cleanupPromise = cleanup
+		try {
+			await cleanup
+		} finally {
+			if (this.cleanupPromise === cleanup) this.cleanupPromise = null
+		}
 	}
 }

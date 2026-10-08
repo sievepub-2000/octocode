@@ -241,8 +241,7 @@ export class ClineProvider
 		// Initialize MCP Hub through the singleton manager
 		McpServerManager.getInstance(this.context, this)
 			.then((hub) => {
-				this.mcpHub = hub
-				this.mcpHub.registerClient()
+				if (!this._disposed && !hub.disposed) this.mcpHub = hub
 			})
 			.catch((error) => {
 				this.log(`Failed to initialize MCP Hub: ${error}`)
@@ -330,6 +329,7 @@ export class ClineProvider
 		}
 
 		this._disposed = true
+		this.mcpHub = undefined
 		this.log("Disposing ClineProvider...")
 
 		if (this.view && "dispose" in this.view) {
@@ -354,19 +354,19 @@ export class ClineProvider
 
 		this._workspaceTracker?.dispose()
 		this._workspaceTracker = undefined
-		await this.mcpHub?.unregisterClient()
-		this.mcpHub = undefined
-		await this.skillsManager?.dispose()
-		this.skillsManager = undefined
-		await this.marketplaceManager?.cleanup()
-		this.customModesManager?.dispose()
-		this.log("Disposed all disposables")
-		ClineProvider.activeInstances.delete(this)
+		try {
+			await McpServerManager.releaseProvider(this)
+		} finally {
+			await this.skillsManager?.dispose()
+			this.skillsManager = undefined
+			await this.marketplaceManager?.cleanup()
+			this.customModesManager?.dispose()
+			this.log("Disposed all disposables")
+			ClineProvider.activeInstances.delete(this)
 
-		// Clean up any event listeners attached to this provider
-		this.removeAllListeners()
-
-		McpServerManager.unregisterProvider(this)
+			// Clean up any event listeners attached to this provider
+			this.removeAllListeners()
+		}
 	}
 
 	public static getVisibleInstance(): ClineProvider | undefined {
@@ -425,10 +425,12 @@ export class ClineProvider
 	}
 
 	public async installDefaultMarketplaceItems(): Promise<void> {
-		if (!(await this.marketplaceManager.installDefaultItemsOnce())) {
+		if (this._disposed || !(await this.marketplaceManager.installDefaultItemsOnce())) {
 			return
 		}
+		if (this._disposed) return
 		const hub = await McpServerManager.getInstance(this.context, this)
+		if (this._disposed || hub.disposed) return
 		this.mcpHub = hub
 
 		/*
