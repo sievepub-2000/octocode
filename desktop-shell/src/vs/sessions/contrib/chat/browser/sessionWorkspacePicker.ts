@@ -526,22 +526,26 @@ export class WorkspacePicker extends Disposable {
 			if (!await this._canSelectWorkspace(folderUri, selection.providerId)) {
 				return false;
 			}
-			if (generation !== this._selectionGeneration) {
+			if (generation !== this._selectionGeneration || !this._getAllBrowseActions().includes(item.browseAction)) {
 				return false;
 			}
 			this._selectFolder(folderUri);
 			return true;
 		} else if (item.folderUri) {
+			const provider = item.providerId ? this.sessionsProvidersService.getProvider(item.providerId) : undefined;
+			if (item.providerId && !provider) {
+				return false;
+			}
 			if (item.providerId && !await this._connectProviderOnDemand(item.providerId)) {
 				return false;
 			}
-			if (generation !== this._selectionGeneration) {
+			if (generation !== this._selectionGeneration || (item.providerId && provider !== this.sessionsProvidersService.getProvider(item.providerId))) {
 				return false;
 			}
 			if (!await this._canSelectWorkspace(item.folderUri, item.providerId)) {
 				return false;
 			}
-			if (generation !== this._selectionGeneration) {
+			if (generation !== this._selectionGeneration || (item.providerId && provider !== this.sessionsProvidersService.getProvider(item.providerId))) {
 				return false;
 			}
 			this._selectFolder(item.folderUri);
@@ -695,10 +699,11 @@ export class WorkspacePicker extends Disposable {
 
 		try {
 			if (action === this._localBrowseAction) {
-				return await this._browseForLocalFolder();
+				const selection = await this._browseForLocalFolder();
+				return this._getAllBrowseActions().includes(action) ? selection : undefined;
 			}
 			const workspace = await action.run();
-			return workspace ? { workspace, providerId: action.providerId } : undefined;
+			return workspace && this._getAllBrowseActions().includes(action) ? { workspace, providerId: action.providerId } : undefined;
 		} catch {
 			// browse action was cancelled or failed
 		}
@@ -1111,6 +1116,7 @@ export class WorkspacePicker extends Disposable {
 	}
 
 	protected _removeRecentWorkspace(folderUri: URI): void {
+		this._selectionGeneration++;
 		this.recentWorkspacesService.removeRecentWorkspace(folderUri);
 
 		// Clear current selection if it was the removed workspace

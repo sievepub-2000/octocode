@@ -769,6 +769,122 @@ suite('WorkspacePicker - Connection Status', () => {
 		});
 	});
 
+	test('removing a pending workspace preserves the current workspace', async () => {
+		const remoteStatus = observableValue<RemoteAgentHostConnectionStatus>('remoteStatus', RemoteAgentHostConnectionStatus.disconnected);
+		const connectStarted = new DeferredPromise<void>();
+		const finishConnect = new DeferredPromise<void>();
+		const remote = createMockProvider('agenthost-remote-1', {
+			connectionStatus: remoteStatus,
+			canConnectOnDemand: true,
+			connect: async () => {
+				await connectStarted.complete();
+				await finishConnect.p;
+				remoteStatus.set(RemoteAgentHostConnectionStatus.connected, undefined);
+			},
+		});
+		const local = createMockProvider('local-1');
+		const currentFolder = URI.file('/local/current');
+		const pendingFolder = URI.file('/remote/pending');
+		const storage = disposables.add(new TestStorageService());
+		seedStorage(storage, [
+			{ uri: currentFolder, providerId: local.id, checked: true },
+			{ uri: pendingFolder, providerId: remote.id, checked: false },
+		]);
+		providersService.setProviders([local, remote]);
+		const workspacesService = upcastPartial<IWorkspacesService>({
+			getRecentlyOpened: async () => ({ workspaces: [], files: [] }),
+			onDidChangeRecentlyOpened: Event.None,
+			removeRecentlyOpened: async () => { },
+		});
+		const picker = createTestPicker(disposables, providersService, storage, undefined, DispatchingWorkspacePicker, undefined, workspacesService) as DispatchingWorkspacePicker;
+		const selectedEvents: Array<string | undefined> = [];
+		disposables.add(picker.onDidSelectWorkspace(uri => selectedEvents.push(uri?.toString())));
+		const pending = picker.dispatchFolder(pendingFolder, remote.id);
+		await connectStarted.p;
+		picker.removeRecent(pendingFolder);
+		await finishConnect.complete();
+		const applied = await pending;
+
+		assert.deepStrictEqual({ applied, selected: picker.selectedFolderUri?.toString(), selectedEvents }, {
+			applied: false,
+			selected: currentFolder.toString(),
+			selectedEvents: [],
+		});
+	});
+
+	test('a browse result cannot select a provider removed while browsing', async () => {
+		const result = new DeferredPromise<ISessionWorkspace | undefined>();
+		const started = new DeferredPromise<void>();
+		const action = { ...makeBrowseAction('first', SESSION_WORKSPACE_GROUP_REMOTE), run: async () => { await started.complete(); return result.p; } };
+		const provider = createMockProvider('first', { browseActions: [action] });
+		providersService.setProviders([provider]);
+		const picker = createTestPicker(disposables, providersService, undefined, undefined, DispatchingWorkspacePicker) as DispatchingWorkspacePicker;
+		const row = picker.getItems().find(item => item.item && !item.item.folderUri);
+		assert.ok(row?.item);
+		const pending = picker.dispatchItem(row!.item!);
+		await started.p;
+		providersService.setProviders([]);
+		await result.complete(provider.resolveWorkspace(URI.file('/owned/browse')));
+		const applied = await pending;
+
+		assert.deepStrictEqual({ applied, selected: picker.selectedFolderUri }, { applied: false, selected: undefined });
+	});
+
+	test('a browse result cannot select a provider removed during trust confirmation', async () => {
+		const confirmation = new DeferredPromise<boolean>();
+		const started = new DeferredPromise<void>();
+		const folder = URI.file('/owned/confirmed');
+		const provider = createMockProvider('first');
+		const action = { ...makeBrowseAction('first', SESSION_WORKSPACE_GROUP_REMOTE), run: async () => provider.resolveWorkspace(folder) };
+		providersService.setProviders([createMockProvider('first', { browseActions: [action] })]);
+		const picker = createTestPicker(disposables, providersService, undefined, undefined, DispatchingWorkspacePicker, undefined, undefined, undefined, {
+			canSelectWorkspace: async () => { await started.complete(); return confirmation.p; },
+		}) as DispatchingWorkspacePicker;
+		const row = picker.getItems().find(item => item.item && !item.item.folderUri);
+		assert.ok(row?.item);
+		const pending = picker.dispatchItem(row!.item!);
+		await started.p;
+		providersService.setProviders([]);
+		await confirmation.complete(true);
+
+		assert.deepStrictEqual({ applied: await pending, selected: picker.selectedFolderUri }, { applied: false, selected: undefined });
+	});
+
+	test('a remote selection cannot select a provider removed during connection', async () => {
+		const remoteStatus = observableValue<RemoteAgentHostConnectionStatus>('remoteStatus', RemoteAgentHostConnectionStatus.disconnected);
+		const started = new DeferredPromise<void>();
+		const finish = new DeferredPromise<void>();
+		const remote = createMockProvider('agenthost-remote-1', {
+			connectionStatus: remoteStatus,
+			canConnectOnDemand: true,
+			connect: async () => { await started.complete(); await finish.p; remoteStatus.set(RemoteAgentHostConnectionStatus.connected, undefined); },
+		});
+		const local = createMockProvider('local-1');
+		const folder = URI.file('/local/current');
+		const storage = disposables.add(new TestStorageService());
+		seedStorage(storage, [{ uri: folder, providerId: local.id, checked: true }]);
+		providersService.setProviders([local, remote]);
+		const picker = createTestPicker(disposables, providersService, storage, undefined, DispatchingWorkspacePicker) as DispatchingWorkspacePicker;
+		const pending = picker.dispatchFolder(URI.file('/remote/pending'), remote.id);
+		await started.p;
+		providersService.setProviders([local]);
+		await finish.complete();
+
+		assert.deepStrictEqual({ applied: await pending, selected: picker.selectedFolderUri?.toString() }, { applied: false, selected: folder.toString() });
+	});
+
+	test('a recent workspace cannot select an unregistered provider', async () => {
+		const provider = createMockProvider('first');
+		providersService.setProviders([provider]);
+		const picker = createTestPicker(disposables, providersService, undefined, undefined, DispatchingWorkspacePicker) as DispatchingWorkspacePicker;
+		providersService.setProviders([]);
+
+		assert.deepStrictEqual({
+			applied: await picker.dispatchFolder(URI.file('/owned/unregistered'), provider.id),
+			selected: picker.selectedFolderUri,
+		}, { applied: false, selected: undefined });
+	});
+
 	test('a browse row keeps its action when providers reorder', async () => {
 		const calls: string[] = [];
 		const firstAction = { ...makeBrowseAction('first', SESSION_WORKSPACE_GROUP_REMOTE), run: async () => { calls.push('first'); return undefined; } };
