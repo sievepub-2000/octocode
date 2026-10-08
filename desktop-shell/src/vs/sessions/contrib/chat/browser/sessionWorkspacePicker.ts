@@ -78,7 +78,7 @@ export interface IWorkspacePickerItem {
 	readonly folderUri?: URI;
 	/** The resolved workspace (used for unavailable-provider checks). */
 	readonly providerId?: string;
-	readonly browseActionIndex?: number;
+	readonly browseAction?: ISessionWorkspaceBrowseAction;
 	readonly checked?: boolean;
 	/** Command to execute when this item is selected. */
 	readonly commandId?: string;
@@ -517,8 +517,8 @@ export class WorkspacePicker extends Disposable {
 			// Workspace belongs to an unavailable remote — ignore selection
 			return false;
 		}
-		if (item.browseActionIndex !== undefined) {
-			const selection = await this._executeBrowseAction(item.browseActionIndex);
+		if (item.browseAction) {
+			const selection = await this._executeBrowseAction(item.browseAction);
 			const folderUri = selection?.workspace.folders[0]?.root;
 			if (!folderUri || generation !== this._selectionGeneration) {
 				return false;
@@ -686,12 +686,10 @@ export class WorkspacePicker extends Disposable {
 	}
 
 	/**
-	 * Executes a browse action from a provider, identified by index.
+	 * Executes the browse action captured when the picker row was built.
 	 */
-	private async _executeBrowseAction(actionIndex: number): Promise<IBrowsedWorkspaceSelection | undefined> {
-		const allActions = this._getAllBrowseActions();
-		const action = allActions[actionIndex];
-		if (!action) {
+	private async _executeBrowseAction(action: ISessionWorkspaceBrowseAction): Promise<IBrowsedWorkspaceSelection | undefined> {
+		if (!this._getAllBrowseActions().includes(action)) {
 			return undefined;
 		}
 
@@ -818,7 +816,7 @@ export class WorkspacePicker extends Disposable {
 		// Render each browse action individually. Within a tab, actions are
 		// already constrained to a single category, so cross-provider
 		// merging is no longer meaningful.
-		allBrowseActions.forEach((action, index) => {
+		allBrowseActions.forEach(action => {
 			const provider = allProviders.find(p => p.id === action.providerId);
 			const agentHostProvider = provider && isAgentHostProvider(provider) ? provider : undefined;
 			const connectionStatus = agentHostProvider?.connectionStatus?.get();
@@ -837,7 +835,7 @@ export class WorkspacePicker extends Disposable {
 				description: action.description,
 				group: { title: '', icon: action.icon },
 				disabled: isUnavailable,
-				item: { browseActionIndex: index },
+				item: { browseAction: action },
 			});
 		});
 
@@ -1117,10 +1115,7 @@ export class WorkspacePicker extends Disposable {
 
 		// Clear current selection if it was the removed workspace
 		if (this._isSelectedFolder(folderUri)) {
-			this._hidePicker();
-			this._selectedFolderUri = undefined;
-			this._selectedResolved = undefined;
-			this._updateTriggerLabel();
+			this.clearSelection();
 			this._onDidSelectWorkspace.fire(undefined);
 		}
 	}

@@ -1156,7 +1156,7 @@ export class AutomationsWorkspacePicker extends WorkspacePicker {
 	protected override async _dispatchPickerItem(item: IWorkspacePickerItem): Promise<boolean> {
 		const applied = await super._dispatchPickerItem(item);
 		const selectedFolder = this.selectedFolderUri;
-		if (applied && selectedFolder && (item.folderUri || item.browseActionIndex !== undefined)) {
+		if (applied && selectedFolder && (item.folderUri || item.browseAction)) {
 			this.targetModel?.setQuickChat(false, selectedFolder);
 		}
 		return applied;

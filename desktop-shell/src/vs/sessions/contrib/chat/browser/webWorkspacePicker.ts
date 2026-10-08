@@ -168,8 +168,8 @@ export class WebWorkspacePicker extends WorkspacePicker {
 
 		// 2. "Select Folder..." — dispatches the scoped provider's first browse action
 		const allBrowseActions = this._getAllBrowseActions();
-		const browseIndex = allBrowseActions.findIndex(a => a.providerId === scopedProviderId);
-		if (browseIndex >= 0 && !this._isProviderUnavailable(scopedProviderId)) {
+		const browseAction = allBrowseActions.find(a => a.providerId === scopedProviderId);
+		if (browseAction && !this._isProviderUnavailable(scopedProviderId)) {
 			if (items.length > 0) {
 				items.push({ kind: ActionListItemKind.Separator, label: '' });
 			}
@@ -177,7 +177,7 @@ export class WebWorkspacePicker extends WorkspacePicker {
 				kind: ActionListItemKind.Action,
 				label: localize('scopedWorkspacePicker.selectFolder', "Select Folder..."),
 				group: { title: '', icon: Codicon.folderOpened },
-				item: { browseActionIndex: browseIndex },
+				item: { browseAction },
 			});
 		}
 

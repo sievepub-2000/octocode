@@ -232,6 +232,18 @@ class DispatchingWorkspacePicker extends WorkspacePicker {
 	dispatchFolder(folderUri: URI, providerId: string): Promise<boolean> {
 		return this._dispatchPickerItem({ folderUri, providerId });
 	}
+
+	getItems() {
+		return this._buildItems();
+	}
+
+	dispatchItem(item: IWorkspacePickerItem): Promise<boolean> {
+		return this._dispatchPickerItem(item);
+	}
+
+	removeRecent(folderUri: URI): void {
+		this._removeRecentWorkspace(folderUri);
+	}
 }
 
 class TestAutomationsWorkspacePicker extends AutomationsWorkspacePicker {
@@ -706,6 +718,89 @@ suite('WorkspacePicker - Connection Status', () => {
 		const checkedEntries = stored.filter(e => e.checked);
 		assert.strictEqual(checkedEntries.length, 1, 'Only one entry should be checked');
 		assert.strictEqual(checkedEntries[0].uri.path, '/local/project', 'The local entry should be checked');
+	});
+
+	test('removing the selected workspace cancels an in-flight remote selection', async () => {
+		const remoteStatus = observableValue<RemoteAgentHostConnectionStatus>('remoteStatus', RemoteAgentHostConnectionStatus.disconnected);
+		const connectStarted = new DeferredPromise<void>();
+		const finishConnect = new DeferredPromise<void>();
+		const remoteProvider = createMockProvider('agenthost-remote-1', {
+			connectionStatus: remoteStatus,
+			canConnectOnDemand: true,
+			connect: async () => {
+				await connectStarted.complete();
+				await finishConnect.p;
+				remoteStatus.set(RemoteAgentHostConnectionStatus.connected, undefined);
+			},
+		});
+		const folder = URI.file('/remote/project');
+		const storage = disposables.add(new TestStorageService());
+		seedStorage(storage, [{ uri: folder, providerId: remoteProvider.id, checked: true }]);
+		providersService.setProviders([remoteProvider]);
+		const workspacesService = upcastPartial<IWorkspacesService>({
+			getRecentlyOpened: async () => ({ workspaces: [], files: [] }),
+			onDidChangeRecentlyOpened: Event.None,
+			removeRecentlyOpened: async () => { },
+		});
+		const picker = createTestPicker(disposables, providersService, storage, undefined, DispatchingWorkspacePicker, undefined, workspacesService) as DispatchingWorkspacePicker;
+		const selectedEvents: Array<string | undefined> = [];
+		const changedSelections: Array<string | undefined> = [];
+		disposables.add(picker.onDidSelectWorkspace(uri => selectedEvents.push(uri?.toString())));
+		disposables.add(picker.onDidChangeSelection(() => changedSelections.push(picker.selectedFolderUri?.toString())));
+
+		const staleSelection = picker.dispatchFolder(folder, remoteProvider.id);
+		await connectStarted.p;
+		picker.removeRecent(folder);
+		await finishConnect.complete();
+		const applied = await staleSelection;
+
+		assert.deepStrictEqual({
+			applied,
+			selectedFolder: picker.selectedFolderUri,
+			selectedEvents,
+			changedSelections,
+			storedRecents: JSON.parse(storage.get(STORAGE_KEY_RECENT_WORKSPACES, StorageScope.PROFILE)!),
+		}, {
+			applied: false,
+			selectedFolder: undefined,
+			selectedEvents: [undefined],
+			changedSelections: [undefined],
+			storedRecents: [],
+		});
+	});
+
+	test('a browse row keeps its action when providers reorder', async () => {
+		const calls: string[] = [];
+		const firstAction = { ...makeBrowseAction('first', SESSION_WORKSPACE_GROUP_REMOTE), run: async () => { calls.push('first'); return undefined; } };
+		const secondAction = { ...makeBrowseAction('second', SESSION_WORKSPACE_GROUP_REMOTE), run: async () => { calls.push('second'); return undefined; } };
+		const first = createMockProvider('first', { browseActions: [firstAction] });
+		const second = createMockProvider('second', { browseActions: [secondAction] });
+		providersService.setProviders([first, second]);
+		const picker = createTestPicker(disposables, providersService, undefined, undefined, DispatchingWorkspacePicker) as DispatchingWorkspacePicker;
+		const row = picker.getItems().find(item => item.item && !item.item.folderUri);
+		assert.ok(row?.item);
+
+		providersService.setProviders([second, first]);
+		await picker.dispatchItem(row!.item!);
+
+		assert.deepStrictEqual(calls, ['first']);
+	});
+
+	test('a browse row from a removed provider cannot invoke its replacement', async () => {
+		const calls: string[] = [];
+		const firstAction = { ...makeBrowseAction('first', SESSION_WORKSPACE_GROUP_REMOTE), run: async () => { calls.push('first'); return undefined; } };
+		const secondAction = { ...makeBrowseAction('second', SESSION_WORKSPACE_GROUP_REMOTE), run: async () => { calls.push('second'); return undefined; } };
+		const first = createMockProvider('first', { browseActions: [firstAction] });
+		const second = createMockProvider('second', { browseActions: [secondAction] });
+		providersService.setProviders([first, second]);
+		const picker = createTestPicker(disposables, providersService, undefined, undefined, DispatchingWorkspacePicker) as DispatchingWorkspacePicker;
+		const row = picker.getItems().find(item => item.item && !item.item.folderUri);
+		assert.ok(row?.item);
+
+		providersService.setProviders([second]);
+		await picker.dispatchItem(row!.item!);
+
+		assert.deepStrictEqual(calls, []);
 	});
 
 	test('programmatic workspace initialization can avoid persisting recents', () => {
@@ -1243,6 +1338,7 @@ suite('AutomationsWorkspacePicker', () => {
 		disposables.add({ dispose: () => workbench.remove() });
 		const trigger = workbench.appendChild(document.createElement('button'));
 		const dispatched: IWorkspacePickerItem[] = [];
+		const browseAction = makeBrowseAction('local-1', SESSION_WORKSPACE_GROUP_LOCAL, 'Select...');
 		const sheet = showMobileWorkspacePickerSheet(
 			upcastPartial<IWorkbenchLayoutService>({ mainContainer: workbench }),
 			trigger,
@@ -1257,11 +1353,11 @@ suite('AutomationsWorkspacePicker', () => {
 					kind: ActionListItemKind.Action,
 					label: 'Select...',
 					group: { title: '', icon: Codicon.folderOpened },
-					item: { browseActionIndex: 0 },
+					item: { browseAction },
 				},
 			],
 			item => dispatched.push(item),
-			[makeBrowseAction('local-1', SESSION_WORKSPACE_GROUP_LOCAL, 'Select...')],
+			[browseAction],
 		);
 		const headerAction = workbench.querySelector<HTMLButtonElement>('.mobile-picker-sheet-header-action');
 		assert.ok(headerAction);
@@ -1269,7 +1365,7 @@ suite('AutomationsWorkspacePicker', () => {
 		headerAction.click();
 		await sheet;
 
-		assert.deepStrictEqual(dispatched, [{ browseActionIndex: 0 }]);
+		assert.deepStrictEqual(dispatched, [{ browseAction }]);
 	});
 });
 

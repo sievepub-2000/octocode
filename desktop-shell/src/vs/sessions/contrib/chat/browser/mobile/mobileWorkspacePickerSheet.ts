@@ -162,7 +162,7 @@ export async function showMobileWorkspacePickerSheet(
 	dispatch: (item: IWorkspacePickerItem) => void,
 	browseActions: readonly ISessionWorkspaceBrowseAction[],
 ): Promise<void> {
-	const { rowItems, headerBrowseActions } = partitionItems(items, dispatch, browseActions);
+	const { rowItems, headerBrowseActions } = partitionItems(items, dispatch);
 
 	// Restrict inline folder search to browse actions the picker
 	// actually chose to surface in its item list — the scoped picker
@@ -338,7 +338,7 @@ interface IBrowseHeaderAction {
 /**
  * Splits picker items into row items (workspaces, commands) and browse
  * actions that should be hoisted to the sheet's header. Browse actions
- * are recognized as items whose data carries a `browseActionIndex`.
+ * are recognized as items whose data carries a `browseAction`.
  *
  * Submenu-grouped browse actions are flattened into individual header
  * actions, one per child action. Browse actions whose underlying
@@ -349,12 +349,9 @@ interface IBrowseHeaderAction {
 function partitionItems(
 	items: readonly IActionListItem<IWorkspacePickerItem>[],
 	dispatch: (item: IWorkspacePickerItem) => void,
-	browseActions: readonly ISessionWorkspaceBrowseAction[],
 ): IPartitionedItems {
 	const rowItems: IActionListItem<IWorkspacePickerItem>[] = [];
 	const headerBrowseActions: IBrowseHeaderAction[] = [];
-
-	const hasInlineSearch = (index: number | undefined) => index !== undefined && typeof browseActions[index]?.listFolders === 'function';
 
 	for (const item of items) {
 		if (item.kind === ActionListItemKind.Separator) {
@@ -382,8 +379,8 @@ function partitionItems(
 			continue;
 		}
 
-		if (item.item?.browseActionIndex !== undefined && !item.disabled) {
-			if (hasInlineSearch(item.item.browseActionIndex)) {
+		if (item.item?.browseAction && !item.disabled) {
+			if (typeof item.item.browseAction.listFolders === 'function') {
 				// Inline search owns this browse action — don't duplicate
 				// it as a header icon.
 				continue;
@@ -443,17 +440,14 @@ function collectSurfacedBrowseProviderIds(
 		if (item.kind === ActionListItemKind.Separator) {
 			continue;
 		}
-		const idx = item.item?.browseActionIndex;
-		if (idx !== undefined) {
-			const action = browseActions[idx];
-			if (action) {
-				ids.add(action.providerId);
-			}
+		const action = item.item?.browseAction;
+		if (action) {
+			ids.add(action.providerId);
 			continue;
 		}
 		// Multi-provider case: the desktop picker groups browse actions
 		// into a submenu item. The submenu children don't carry
-		// `browseActionIndex`, so we fall back to including all browse-
+		// `browseAction`, so we fall back to including all browse-
 		// action providers when a submenu is present — the picker has
 		// already scoped the items to visible providers.
 		if (item.submenuActions?.length) {

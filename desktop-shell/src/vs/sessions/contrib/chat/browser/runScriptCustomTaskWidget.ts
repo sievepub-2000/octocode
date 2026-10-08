@@ -142,7 +142,6 @@ export class RunScriptCustomTaskWidget extends Disposable {
 		}));
 		this._storageOptions.domNode.setAttribute('aria-label', localize('storageAriaLabel', "Task storage target"));
 		this._storageOptions.domNode.classList.toggle('run-script-action-radio-disabled', this._targetLocked);
-		this._storageOptions.setEnabled(!this._targetLocked);
 		storageSection.appendChild(this._storageOptions.domNode);
 
 		const buttonRow = dom.append(this.domNode, dom.$('.run-script-action-buttons'));

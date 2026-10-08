@@ -115,11 +115,6 @@
 	cursor: default;
 }
 
-.run-script-action-section .monaco-custom-radio.run-script-action-radio-disabled > .monaco-button:focus,
-.run-script-action-section .monaco-custom-radio.run-script-action-radio-disabled > .monaco-button.active:focus {
-	outline: none !important;
-}
-
 .run-script-action-hint {
 	font-size: var(--vscode-agents-fontSize-label1);
 	color: var(--vscode-descriptionForeground);
