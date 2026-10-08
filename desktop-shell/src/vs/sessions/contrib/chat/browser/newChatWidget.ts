@@ -879,6 +879,7 @@ export class NewChatWidget extends Disposable {
 		this._pendingPreferredUpgrade.clear();
 
 		if (!folderUri) {
+			this._newSessionCreation.clear();
 			this.sessionsService.unsetNewSession();
 			return;
 		}

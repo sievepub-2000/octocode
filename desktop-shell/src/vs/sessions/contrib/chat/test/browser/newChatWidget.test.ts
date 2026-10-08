@@ -21,6 +21,7 @@ interface INewChatWidgetHarness {
 	readonly _pendingPreferredUpgrade: MutableDisposable<IDisposable>;
 	readonly _newSessionCreation: MutableDisposable<IDisposable>;
 	readonly sessionsManagementService: { readonly onDidChangeSessionTypes: Event<void> };
+	readonly sessionsService: { unsetNewSession(): void };
 	readonly _session: IObservable<IActiveSession | undefined>;
 	readonly _newChatInput: {
 		readonly sessionTypePicker: {
@@ -31,6 +32,7 @@ interface INewChatWidgetHarness {
 	_isPreferredServable(folderUri: URI, pick: IPreferredSessionType): boolean;
 	_createSessionNow(folderUri: URI, userPick: IPreferredSessionType | undefined, token: CancellationToken): Promise<IOpenNewSessionResult>;
 	_createNewSession(folderUri: URI): Promise<IOpenNewSessionResult>;
+	_onWorkspaceSelected(folderUri: URI | undefined): Promise<void>;
 	_scheduleRecreateOnProviderChange(folderUri: URI, userPick: IPreferredSessionType | undefined, created: ISession | undefined, replayMissedChange: boolean): void;
 	_recreateOnProviderChange(folderUri: URI, userPick: IPreferredSessionType | undefined, created: ISession | undefined): void;
 }
@@ -41,6 +43,7 @@ const createNewSession = Reflect.get(NewChatWidget.prototype, '_createNewSession
 ) => Promise<IOpenNewSessionResult>;
 const scheduleRecreateOnProviderChange = Reflect.get(NewChatWidget.prototype, '_scheduleRecreateOnProviderChange') as INewChatWidgetHarness['_scheduleRecreateOnProviderChange'];
 const recreateOnProviderChange = Reflect.get(NewChatWidget.prototype, '_recreateOnProviderChange') as INewChatWidgetHarness['_recreateOnProviderChange'];
+const onWorkspaceSelected = Reflect.get(NewChatWidget.prototype, '_onWorkspaceSelected') as INewChatWidgetHarness['_onWorkspaceSelected'];
 
 function createHarness(
 	pendingPreferredUpgrade: MutableDisposable<IDisposable>,
@@ -52,6 +55,7 @@ function createHarness(
 		_pendingPreferredUpgrade: pendingPreferredUpgrade,
 		_newSessionCreation: newSessionCreation,
 		sessionsManagementService: { onDidChangeSessionTypes },
+		sessionsService: { unsetNewSession: () => { } },
 		_session: observableValue<IActiveSession | undefined>('session', undefined),
 		_newChatInput: {
 			sessionTypePicker: {
@@ -62,6 +66,7 @@ function createHarness(
 		_isPreferredServable: () => false,
 		_createSessionNow: (_folderUri, _userPick, token) => createSessionNow(token),
 		_createNewSession: folderUri => createNewSession.call(harness, folderUri),
+		_onWorkspaceSelected: folderUri => onWorkspaceSelected.call(harness, folderUri),
 		_scheduleRecreateOnProviderChange: (folderUri, userPick, created, replayMissedChange) => scheduleRecreateOnProviderChange.call(harness, folderUri, userPick, created, replayMissedChange),
 		_recreateOnProviderChange: (folderUri, userPick, created) => recreateOnProviderChange.call(harness, folderUri, userPick, created),
 	};
@@ -108,6 +113,31 @@ suite('NewChatWidget', () => {
 		sessionTypesChanged.fire();
 
 		assert.deepStrictEqual({ countBeforeChange, countAfterChange: createCount }, { countBeforeChange: 1, countAfterChange: 2 });
+	});
+
+	test('clearing the workspace cancels creation and does not rearm a provider upgrade', async () => {
+		const sessionTypesChanged = disposables.add(new Emitter<void>());
+		const pendingPreferredUpgrade = disposables.add(new MutableDisposable<IDisposable>());
+		const newSessionCreation = disposables.add(new MutableDisposable<IDisposable>());
+		const result = new DeferredPromise<IOpenNewSessionResult>();
+		const tokens: CancellationToken[] = [];
+		const harness = createHarness(pendingPreferredUpgrade, newSessionCreation, sessionTypesChanged.event, token => {
+			tokens.push(token);
+			return result.p;
+		});
+		let unsetCount = 0;
+		harness.sessionsService.unsetNewSession = () => unsetCount++;
+		const creating = harness._createNewSession(URI.file('/project'));
+		await harness._onWorkspaceSelected(undefined);
+		const cancelledOnClear = tokens[0].isCancellationRequested;
+		await result.complete({ session: undefined, trustDeclined: false });
+		await creating;
+
+		assert.deepStrictEqual({ cancelledOnClear, unsetCount, upgradeRearmed: pendingPreferredUpgrade.value !== undefined }, {
+			cancelledOnClear: true,
+			unsetCount: 1,
+			upgradeRearmed: false,
+		});
 	});
 
 	test('cancels an in-flight creation when a newer one starts', async () => {
