@@ -744,8 +744,10 @@ export class McpHub {
 		config: z.infer<typeof ServerConfigSchema>,
 		source: "global" | "project" = "global",
 	): Promise<void> {
+		if (this.isDisposed) return
 		// Remove existing connection if it exists with the same source
 		await this.deleteConnection(name, source)
+		if (this.isDisposed) return
 
 		// Register the sanitized name for O(1) lookup
 		const sanitizedName = sanitizeMcpName(name)
@@ -753,6 +755,7 @@ export class McpHub {
 
 		// Check if MCP is globally enabled
 		const mcpEnabled = await this.isMcpEnabled()
+		if (this.isDisposed || this.findConnection(name, source)) return
 		if (!mcpEnabled) {
 			// Still create a connection object to track the server, but don't actually connect
 			const connection = this.createPlaceholderConnection(name, config, source, DisableReason.MCP_DISABLED)
@@ -774,6 +777,7 @@ export class McpHub {
 		pendingConnection.server.status = "connecting"
 		this.connections.push(pendingConnection)
 		await this.notifyWebviewOfServerChanges()
+		let stdioConnection: ConnectedMcpConnection | undefined
 
 		try {
 			const client = new Client(
@@ -800,6 +804,18 @@ export class McpHub {
 				: undefined
 
 			if (configInjected.type === "stdio") {
+				const pendingConfig = JSON.stringify(config)
+				const isCurrentPending = () =>
+					!this.isDisposed &&
+					this.findConnection(name, source) === pendingConnection &&
+					!pendingConnection.server.disabled &&
+					pendingConnection.server.config === pendingConfig &&
+					(source !== "project" ||
+						arePathsEqual(pendingConnection.server.projectPath, vscode.workspace.workspaceFolders?.[0]?.uri.fsPath))
+				if (!isCurrentPending()) {
+					pendingConnection.server.status = "disconnected"
+					return
+				}
 				/*
 				 * Provision the toolchain this server runs on, if it is one of ours.
 				 *
@@ -814,6 +830,11 @@ export class McpHub {
 				 */
 				const provisioner = getSharedEnvironmentProvisioner()
 				await provisioner?.ensureForExecutable(configInjected.command)
+				const mcpEnabled = await this.isMcpEnabled()
+				if (!mcpEnabled || !isCurrentPending()) {
+					pendingConnection.server.status = "disconnected"
+					return
+				}
 
 				// On Windows, wrap commands with cmd.exe to handle non-exe executables like npx.ps1
 				// This is necessary for node version managers (fnm, nvm-windows, volta) that implement
@@ -847,7 +868,7 @@ export class McpHub {
 				transport.onerror = async (error) => {
 					console.error(`Transport error for "${name}":`, error)
 					const connection = this.findConnection(name, source)
-					if (connection) {
+					if (connection?.type === "connected" && connection.transport === transport) {
 						connection.server.status = "disconnected"
 						this.appendErrorMessage(connection, error instanceof Error ? error.message : `${error}`)
 					}
@@ -856,7 +877,7 @@ export class McpHub {
 
 				transport.onclose = async () => {
 					const connection = this.findConnection(name, source)
-					if (connection) {
+					if (connection?.type === "connected" && connection.transport === transport) {
 						connection.server.status = "disconnected"
 					}
 					await this.notifyWebviewOfServerChanges()
@@ -874,7 +895,7 @@ export class McpHub {
 							// Treat as error log
 							console.error(`Server "${name}" stderr:`, output)
 							const connection = this.findConnection(name, source)
-							if (connection) {
+							if (connection?.type === "connected" && connection.transport === transport) {
 								this.appendErrorMessage(connection, output)
 								if (connection.server.status === "disconnected") {
 									await this.notifyWebviewOfServerChanges()
@@ -1067,6 +1088,23 @@ export class McpHub {
 				return
 			}
 			this.connections.splice(pendingIndex, 1, connection)
+			if (configInjected.type === "stdio") stdioConnection = connection
+			const connectionConfig = connection.server.config
+			const checkStdioConnection = async () => {
+				if (configInjected.type !== "stdio") return
+				const mcpEnabled = await this.isMcpEnabled()
+				if (
+					!mcpEnabled ||
+					this.isDisposed ||
+					this.findConnection(name, source) !== connection ||
+					connection.server.disabled ||
+					(source === "project" &&
+						!arePathsEqual(connection.server.projectPath, vscode.workspace.workspaceFolders?.[0]?.uri.fsPath)) ||
+					connection.server.config !== connectionConfig
+				) {
+					throw new Error(`Server "${name}" is no longer available`)
+				}
+			}
 
 			// Connect (this will automatically start the transport)
 			try {
@@ -1113,6 +1151,7 @@ export class McpHub {
 			// Successful connection — close callback server if it was started.
 			// We keep the authProvider on the connection so it can handle mid-session 401s.
 			await streamableHttpAuthProvider?.close()
+			if (stdioConnection) await checkStdioConnection()
 
 			connection.server.status = "connected"
 			connection.server.error = ""
@@ -1122,9 +1161,15 @@ export class McpHub {
 			connection.server.tools = await this.fetchToolsList(name, source, true)
 			connection.server.resources = await this.fetchResourcesList(name, source)
 			connection.server.resourceTemplates = await this.fetchResourceTemplatesList(name, source)
+			if (stdioConnection) await checkStdioConnection()
 		} catch (error) {
-			// Update status with error
+			if (stdioConnection) {
+				await stdioConnection.transport.close().catch(console.error)
+				await stdioConnection.client.close().catch(console.error)
+			}
+			// A cancelled stdio attempt must not overwrite or retry a replacement.
 			const connection = this.findConnection(name, source)
+			if (config.type === "stdio" && connection !== stdioConnection && connection !== pendingConnection) return
 			if (connection) {
 				connection.server.status = "disconnected"
 				this.appendErrorMessage(connection, error instanceof Error ? error.message : `${error}`)
@@ -1669,11 +1714,7 @@ export class McpHub {
 		}
 
 		// Remove the connections from the array
-		this.connections = this.connections.filter((conn) => {
-			if (conn.server.name !== name) return true
-			if (source && conn.server.source !== source) return true
-			return false
-		})
+		this.connections = this.connections.filter((conn) => !connections.includes(conn))
 
 		// Remove from sanitized name registry if no more connections with this name exist
 		const remainingConnections = this.connections.filter((conn) => conn.server.name === name)
@@ -2335,7 +2376,7 @@ export class McpHub {
 		toolArguments?: Record<string, unknown>,
 		source?: "global" | "project",
 	): Promise<McpToolCallResponse> {
-		const connection = this.findConnection(serverName, source)
+		let connection = this.findConnection(serverName, source)
 		if (!connection || connection.type !== "connected") {
 			throw new Error(
 				`No connection found for server: ${serverName}${source ? ` with source ${source}` : ""}. Please make sure to use MCP servers available under 'Connected MCP Servers'.`,
@@ -2344,7 +2385,58 @@ export class McpHub {
 		if (connection.server.disabled) {
 			throw new Error(`Server "${serverName}" is disabled and cannot be used`)
 		}
-
+		const connectionSource = source ?? connection.server.source ?? "global"
+		const projectPath = connection.server.projectPath
+		const isCurrentProject = () =>
+			connectionSource !== "project" ||
+			(arePathsEqual(this.findConnection(serverName, connectionSource)?.server.projectPath, projectPath) &&
+				arePathsEqual(projectPath, vscode.workspace.workspaceFolders?.[0]?.uri.fsPath))
+		const isStdio = connection.transport instanceof StdioClientTransport
+		// Recover only before dispatch; a failed request may already have executed.
+		if (connection.server.status === "disconnected") {
+			const originalConnection = connection
+			const originalConfig = connection.server.config
+			const config = ServerConfigSchema.parse(JSON.parse(originalConfig))
+			const mcpEnabled = config.type === "stdio" && (await this.isMcpEnabled())
+			const pending = this.connectionAttempts.get(`${connectionSource}:${serverName}`)
+			if (
+				!mcpEnabled ||
+				!isCurrentProject() ||
+				this.isDisposed ||
+				originalConnection.server.disabled ||
+				originalConnection.server.config !== originalConfig ||
+				(this.findConnection(serverName, connectionSource) !== originalConnection && !pending)
+			) {
+				throw new Error(`Server "${serverName}" is disconnected`)
+			}
+			await this.connectToServer(serverName, config, connectionSource)
+			connection = this.findConnection(serverName, connectionSource)
+			if (
+				!connection ||
+				connection.type !== "connected" ||
+				!deepEqual(JSON.parse(connection.server.config), config)
+			) {
+				throw new Error(`Server "${serverName}" is disconnected`)
+			}
+		}
+		if (isStdio) {
+			const dispatchConnection = connection
+			const dispatchConfig = connection.server.config
+			const mcpEnabled = await this.isMcpEnabled()
+			if (
+				!mcpEnabled ||
+				!isCurrentProject() ||
+				this.isDisposed ||
+				this.findConnection(serverName, connectionSource) !== dispatchConnection ||
+				dispatchConnection.server.config !== dispatchConfig ||
+				dispatchConnection.server.status !== "connected"
+			) {
+				throw new Error(`Server "${serverName}" is disconnected`)
+			}
+			if (dispatchConnection.server.disabled) {
+				throw new Error(`Server "${serverName}" is disabled and cannot be used`)
+			}
+		}
 		let timeout: number
 		try {
 			const parsedConfig = ServerConfigSchema.parse(JSON.parse(connection.server.config))

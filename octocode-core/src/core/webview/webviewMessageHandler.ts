@@ -516,11 +516,6 @@ export const webviewMessageHandler = async (
 						Terminal.setExecaShellPath(value as string | undefined)
 					} else if (key === "mcpEnabled") {
 						newValue = value ?? true
-						const mcpHub = provider.getMcpHub()
-
-						if (mcpHub) {
-							await mcpHub.handleMcpEnabledChange(newValue as boolean)
-						}
 					} else if (key === "experiments") {
 						if (!value) {
 							continue
@@ -537,6 +532,9 @@ export const webviewMessageHandler = async (
 					}
 
 					await provider.contextProxy.setValue(key as keyof RooCodeSettings, newValue)
+					if (key === "mcpEnabled") {
+						await provider.getMcpHub()?.handleMcpEnabledChange(newValue as boolean)
+					}
 				}
 
 				await provider.postStateToWebview()
