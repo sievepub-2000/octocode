@@ -7,15 +7,34 @@ import assert from 'assert';
 import { DeferredPromise } from '../../../../../base/common/async.js';
 import { CancellationToken } from '../../../../../base/common/cancellation.js';
 import { Emitter, Event } from '../../../../../base/common/event.js';
-import { IDisposable, MutableDisposable } from '../../../../../base/common/lifecycle.js';
-import { IObservable, observableValue } from '../../../../../base/common/observable.js';
+import { IDisposable, MutableDisposable, toDisposable } from '../../../../../base/common/lifecycle.js';
+import { constObservable, IObservable, observableValue } from '../../../../../base/common/observable.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { IActiveSession } from '../../../../services/sessions/common/sessionsManagement.js';
+import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
+import { IContextKeyService } from '../../../../../platform/contextkey/common/contextkey.js';
+import { IContextMenuService } from '../../../../../platform/contextview/browser/contextView.js';
+import { ExtensionIdentifier } from '../../../../../platform/extensions/common/extensions.js';
+import { TestInstantiationService } from '../../../../../platform/instantiation/test/common/instantiationServiceMock.js';
+import { MockContextKeyService } from '../../../../../platform/keybinding/test/common/mockKeybindingService.js';
+import { ILogService, NullLogService } from '../../../../../platform/log/common/log.js';
+import { IOpenerService } from '../../../../../platform/opener/common/opener.js';
+import { IUriIdentityService } from '../../../../../platform/uriIdentity/common/uriIdentity.js';
+import { IChatPetService } from '../../../../../workbench/contrib/chat/browser/chatPetService.js';
+import { IChatTipService } from '../../../../../workbench/contrib/chat/browser/chatTipService.js';
+import { IChatViewOptions } from '../../../../browser/parts/chatView.js';
+import { IAgentHostFilterService } from '../../../../services/agentHostFilter/common/agentHostFilter.js';
+import { IActiveSession, ISessionsManagementService } from '../../../../services/sessions/common/sessionsManagement.js';
 import { ISession } from '../../../../services/sessions/common/session.js';
-import { IOpenNewSessionResult } from '../../../../services/sessions/browser/sessionsService.js';
+import { IOpenNewSessionResult, ISessionsService } from '../../../../services/sessions/browser/sessionsService.js';
+import { IAgentFeedbackService } from '../../../agentFeedback/browser/agentFeedbackService.js';
+import { IAquariumService } from '../../../aquarium/browser/aquariumOverlay.js';
+import { NewChatInputWidget } from '../../browser/newChatInput.js';
+import { ISessionModelSelectionState, normalizeModelPickerOptions } from '../../browser/sessionModelSelectionModel.js';
 import { IPreferredSessionType } from '../../browser/sessionTypePicker.js';
 import { NewChatWidget } from '../../browser/newChatWidget.js';
+import { WorkspacePicker } from '../../browser/sessionWorkspacePicker.js';
+import { WebWorkspacePicker } from '../../browser/webWorkspacePicker.js';
 
 interface INewChatWidgetHarness {
 	readonly _pendingPreferredUpgrade: MutableDisposable<IDisposable>;
@@ -160,5 +179,80 @@ suite('NewChatWidget', () => {
 		await Promise.all([first, second]);
 
 		assert.deepStrictEqual({ tokenCount: tokens.length, firstCancelledWhenSecondStarted }, { tokenCount: 2, firstCancelledWhenSecondStarted: true });
+	});
+});
+
+suite('NewChatWidget model tips', () => {
+	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
+
+	function modelState(identifier: string | undefined): ISessionModelSelectionState {
+		return {
+			currentModel: identifier === undefined ? undefined : {
+				identifier,
+				metadata: {
+					extension: new ExtensionIdentifier('test.model'),
+					name: identifier, id: identifier, vendor: 'test', version: '1', family: 'test',
+					maxInputTokens: 100, maxOutputTokens: 100, isDefaultForLocation: {},
+				},
+			},
+			pendingSelection: undefined,
+			models: [],
+			options: normalizeModelPickerOptions(undefined),
+			hasSelectableModel: identifier !== undefined,
+		};
+	}
+
+	function createWidget(initialModel: string | undefined = undefined) {
+		const instantiation = disposables.add(new TestInstantiationService(undefined, true, undefined, true));
+		const selectedModelState = observableValue('selectedModel', modelState(initialModel));
+		const picker = { dispose: () => { }, onDidSelectWorkspace: Event.None };
+		instantiation.stubInstance(WorkspacePicker, picker);
+		instantiation.stubInstance(WebWorkspacePicker, picker);
+		instantiation.stubInstance(NewChatInputWidget, {
+			dispose: () => { }, saveState: () => { }, selectedModelState,
+			sessionTypePicker: { onDidSelectSessionType: Event.None } as NewChatInputWidget['sessionTypePicker'],
+		});
+		instantiation.stub(IContextKeyService, new MockContextKeyService());
+		instantiation.stub(IContextMenuService, {});
+		instantiation.stub(IConfigurationService, { onDidChangeConfiguration: Event.None });
+		instantiation.stub(ILogService, new NullLogService());
+		instantiation.stub(ISessionsManagementService, {});
+		instantiation.stub(ISessionsService, { activeSession: observableValue<IActiveSession | undefined>('activeSession', undefined) });
+		instantiation.stub(IAquariumService, {});
+		instantiation.stub(IAgentHostFilterService, {});
+		instantiation.stub(IUriIdentityService, {});
+		instantiation.stub(IAgentFeedbackService, { onDidChangeFeedback: Event.None, getFeedback: () => [] });
+		instantiation.stub(IChatPetService, {});
+		instantiation.stub(IChatTipService, {});
+		instantiation.stub(IOpenerService, { registerOpener: () => toDisposable(() => { }) });
+		const widget = disposables.add(instantiation.createInstance(NewChatWidget, {
+			renderSessionTypePickerInControls: constObservable(false),
+		} as IChatViewOptions));
+		const renderedModels: (string | undefined)[] = [];
+		Reflect.set(widget, '_renderChatTip', () => renderedModels.push(selectedModelState.get().currentModel?.identifier));
+		return { widget, selectedModelState, renderedModels };
+	}
+
+	test('refreshes tips when the first model arrives and when models return after clearing', () => {
+		const { selectedModelState, renderedModels } = createWidget();
+		selectedModelState.set(modelState('first'), undefined);
+		selectedModelState.set(modelState(undefined), undefined);
+		selectedModelState.set(modelState('returned'), undefined);
+		assert.deepStrictEqual(renderedModels, ['first', undefined, 'returned']);
+	});
+
+	test('refreshes an existing model change and ignores the same identifier', () => {
+		const { selectedModelState, renderedModels } = createWidget('initial');
+		selectedModelState.set(modelState('initial'), undefined);
+		selectedModelState.set(modelState('changed'), undefined);
+		selectedModelState.set(modelState('changed'), undefined);
+		assert.deepStrictEqual(renderedModels, ['changed']);
+	});
+
+	test('stops model-driven tip refresh after disposal', () => {
+		const { widget, selectedModelState, renderedModels } = createWidget('initial');
+		widget.dispose();
+		selectedModelState.set(modelState('after-dispose'), undefined);
+		assert.deepStrictEqual(renderedModels, []);
 	});
 });

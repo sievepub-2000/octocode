@@ -256,7 +256,7 @@ export class NewChatWidget extends Disposable {
 		let previousModelId: string | undefined;
 		this._register(autorun(reader => {
 			const modelId = this._newChatInput.selectedModelState.read(reader).currentModel?.identifier;
-			if (previousModelId !== undefined && previousModelId !== modelId) {
+			if (previousModelId !== modelId) {
 				this._renderChatTip();
 			}
 			previousModelId = modelId;
