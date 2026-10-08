@@ -8,4 +8,8 @@
 
 五个新增浏览器回归先得到实际失败，再验证修复。完整工作区选择器与新任务对话框套件共 48 项通过，改动 TypeScript ESLint 通过，限定产品 TypeScript 依赖检查零诊断。正常远程连接、provider 顺序变化、当前工作区删除与清空通知仍由原回归覆盖。
 
+复核命令在 desktop-shell 根执行：`node test/unit/browser/index.js --browser chromium-chrome --run src/vs/sessions/contrib/chat/test/browser/sessionWorkspacePicker.test.ts --run src/vs/sessions/contrib/chat/test/browser/runScriptCustomTaskWidget.test.ts`。本机实际命令另加载只记录浏览器网络日志的 owned preload；完整 argv/输出见审计 `workspace-picker-repair-main-20261008T090918Z/picker-followup-final.json`，UTC10:48:06至10:48:08、exit0。
+
+“限定类型检查”指 `src/tsconfig.json` 配置下的五个产品根及其导入依赖和声明：sessionWorkspacePicker、webWorkspacePicker、mobileWorkspacePickerSheet、automationDialog、runScriptCustomTaskWidget。使用 `workspace-picker-types-main-20261008.cjs` 的真实编译器 program，noEmit/skipLibCheck，原字节和修复版本均零诊断；不是整个客户端或所有测试项目通过。ESLint使用仓内 `build/eslint.ts`，完整记录见同目录 picker-followup-final-lint.json。
+
 这些对象身份检查描述前端 provider 注册生命周期，不是操作系统进程、服务器权限或文件命名空间身份保证。真实安装版、原生键盘/主题/缩放、后端权限和完整审计仍待验收。旧源码版本的报告、会话、失败和补审计划保持原样，后续源码仅以新哈希补审。
