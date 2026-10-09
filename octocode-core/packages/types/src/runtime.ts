@@ -1,6 +1,9 @@
 /** Runtime Host contracts shared by the extension and every task view. */
 export type RuntimeTask = { sessionId: string; taskId: string }
 
+/** Client handoff correlation. An unknown source cannot select a task view. */
+export type RuntimeHandoff = { source?: RuntimeTask; target?: RuntimeTask }
+
 export type RuntimeSession = {
 	id: string
 	title: string

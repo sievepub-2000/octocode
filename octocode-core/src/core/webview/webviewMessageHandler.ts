@@ -359,7 +359,7 @@ export const webviewMessageHandler = async (
 		case "newRuntimeSession":
 			if (message.taskId?.trim()) {
 				try {
-					await provider.rolloverRuntimeSession(message.taskId.trim(), true)
+					await provider.rolloverRuntimeSession(message.taskId.trim(), true, message.sourceTask)
 				} catch (error) {
 					vscode.window.showErrorMessage(
 						`Failed to continue task in a new session: ${error instanceof Error ? error.message : String(error)}`,

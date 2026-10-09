@@ -232,7 +232,7 @@ describe("single Runtime conversation model", () => {
 			payload: { newSessionId: "B2" },
 		})
 		expect(screen.getByTestId("transcript")).toHaveTextContent("A:before:true")
-		emit("agentEvent", { session_id: "A", task_id: "A-task", kind: "runtime.rollover_started", payload: {} })
+		emit("agentEvent", { session_id: "A", task_id: "A-task", kind: "runtime.rollover_started", payload: {} }, { runtimeHandoff: { source: { sessionId: "A", taskId: "A-task" } } })
 		emit("agentEvent", { session_id: "A", task_id: "A-task", kind: "agent.finished", payload: { cancelled: true } })
 		expect(screen.getByTestId("transcript")).toHaveTextContent("A:before:true")
 		emit("agentEvent", {
@@ -240,13 +240,13 @@ describe("single Runtime conversation model", () => {
 			task_id: "A-task",
 			kind: "runtime.rollover_ready",
 			payload: { newSessionId: "A2" },
-		})
-		emit("runtimeTaskStarted", { sessionId: "A2", taskId: "A2-task", prompt: "continue A" })
+		}, { runtimeHandoff: { source: { sessionId: "A", taskId: "A-task" }, target: { sessionId: "A2", taskId: "A2-task" } } })
+		emit("runtimeTaskStarted", { sessionId: "A2", taskId: "A2-task", prompt: "continue A" }, { runtimeHandoff: { source: { sessionId: "A", taskId: "A-task" }, target: { sessionId: "A2", taskId: "A2-task" } } })
 		emit("agentEvent", { session_id: "A2", task_id: "A2-task", kind: "text", payload: { data: "after" } })
 		act(() => vi.advanceTimersByTime(50))
 		expect(screen.getByTestId("transcript")).toHaveTextContent("A:beforeafter:true")
 		fireEvent.change(screen.getByLabelText("draft"), { target: { value: "/newsession" } })
 		fireEvent.click(screen.getByText("send"))
-		expect(vscode.postMessage).toHaveBeenLastCalledWith({ type: "newRuntimeSession", taskId: "A2" })
+		expect(vscode.postMessage).toHaveBeenLastCalledWith({ type: "newRuntimeSession", taskId: "A2", sourceTask: { sessionId: "A2", taskId: "A2-task" } })
 	})
 })

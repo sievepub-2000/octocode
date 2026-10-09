@@ -15,6 +15,7 @@ import type { ModelRecord, RouterModels } from "./model.js"
 import type { OpenAiCodexRateLimitInfo } from "./providers/openai-codex-rate-limits.js"
 import type { SkillMetadata } from "./skills.js"
 import type { RuleMetadata } from "./rules.js"
+import type { RuntimeHandoff, RuntimeTask } from "./runtime.js"
 import type { TelemetrySetting } from "./telemetry.js"
 import type { WorktreeIncludeStatus } from "./worktree.js"
 
@@ -30,6 +31,7 @@ export interface LanguagePackManifest {
  * Extension -> Webview | CLI
  */
 export interface ExtensionMessage {
+	runtimeHandoff?: RuntimeHandoff
 	type:
 		| "action"
 		| "state"
@@ -700,6 +702,7 @@ export interface WebviewMessage {
 		| "openRulesDirectory"
 	text?: string
 	taskId?: string
+	sourceTask?: RuntimeTask
 	editedMessageContent?: string
 	tab?: "settings" | "history" | "mcp" | "modes" | "chat" | "marketplace" | "cloud"
 	disabled?: boolean

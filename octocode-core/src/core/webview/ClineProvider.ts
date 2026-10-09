@@ -41,6 +41,7 @@ import {
 	type ProviderSettings,
 	type ProviderSettingsEntry,
 	type RooCodeSettings,
+	type RuntimeTask,
 	type StaticAppProperties,
 	type TaskProperties,
 	type TaskProviderEvents,
@@ -2120,16 +2121,27 @@ export class ClineProvider
 		}
 	}
 
-	public async rolloverRuntimeSession(sourceSessionId: string, allowCompleted = false): Promise<boolean> {
+	public async rolloverRuntimeSession(
+		sourceSessionId: string,
+		allowCompleted = false,
+		requestedSourceTask?: RuntimeTask,
+	): Promise<boolean> {
+		const activeAtEntry = ClineProvider.getActiveRuntimeTask()
+		const requested = requestedSourceTask ?? activeAtEntry
+		const sourceTask =
+			requested?.sessionId === sourceSessionId && typeof requested.taskId === "string" && requested.taskId
+				? { sessionId: requested.sessionId, taskId: requested.taskId }
+				: undefined
 		const { getOctoCodeRuntime } = await import("../../services/octocode-runtime/OctoCodeRuntime")
 		const runtime = getOctoCodeRuntime()
 		let handoff: Awaited<ReturnType<typeof runtime.prepareHandoff>>
-		const notify = async (kind: string, payload: Record<string, unknown>) => {
+		const notify = async (kind: string, payload: Record<string, unknown>, targetTask?: RuntimeTask) => {
 			for (const instance of ClineProvider.getAllInstances()) {
 				await instance.postMessageToWebview({
 					type: "agentEvent",
+					runtimeHandoff: { source: sourceTask, target: targetTask },
 					payload: {
-						task_id: sourceSessionId,
+						task_id: sourceTask?.taskId ?? sourceSessionId,
 						session_id: sourceSessionId,
 						kind,
 						payload,
@@ -2146,13 +2158,22 @@ export class ClineProvider
 			}
 			handoff = task
 			await runtime.runPreparedAgentTask(task, task.prompt, task.images, false, task.permissionProfile)
-			if (ClineProvider.getActiveRuntimeTask()?.sessionId === sourceSessionId) {
+			const currentActiveTask = ClineProvider.getActiveRuntimeTask()
+			if (
+				sourceTask &&
+				activeAtEntry?.sessionId === sourceTask.sessionId &&
+				activeAtEntry.taskId === sourceTask.taskId &&
+				currentActiveTask?.sessionId === sourceTask.sessionId &&
+				currentActiveTask.taskId === sourceTask.taskId
+			) {
 				ClineProvider.setActiveRuntimeSession(task.sessionId, task.taskId)
 			}
-			await notify("runtime.rollover_ready", { newSessionId: task.sessionId })
+			const targetTask = { sessionId: task.sessionId, taskId: task.taskId }
+			await notify("runtime.rollover_ready", { newSessionId: task.sessionId }, targetTask)
 			for (const instance of ClineProvider.getAllInstances()) {
 				await instance.postMessageToWebview({
 					type: "runtimeTaskStarted",
+					runtimeHandoff: { source: sourceTask, target: targetTask },
 					payload: {
 						sessionId: task.sessionId,
 						taskId: task.taskId,

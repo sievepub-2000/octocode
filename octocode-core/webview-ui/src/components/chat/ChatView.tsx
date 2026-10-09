@@ -49,6 +49,19 @@ export function readRuntimePlan(payload: unknown): RuntimePlanEntry[] {
 		: []
 }
 
+function matchesRuntimeTask(left: RuntimeTask | undefined, right: RuntimeTask | undefined): boolean {
+	return (
+		!!left &&
+		!!right &&
+		typeof left.sessionId === "string" &&
+		left.sessionId.length > 0 &&
+		typeof left.taskId === "string" &&
+		left.taskId.length > 0 &&
+		left.sessionId === right.sessionId &&
+		left.taskId === right.taskId
+	)
+}
+
 const ChatView = forwardRef<ChatViewRef, ChatViewProps>(({ isHidden }, ref) => {
 	const { t } = useAppTranslation()
 	const { apiConfiguration, organizationAllowList, mode, setMode, showWorktreesInHomeScreen } = useExtensionState()
@@ -56,7 +69,8 @@ const ChatView = forwardRef<ChatViewRef, ChatViewProps>(({ isHidden }, ref) => {
 	const [view, setView] = useState<View>()
 	const current = useRef<View | undefined>(undefined)
 	const selectedSession = useRef<string | undefined>(undefined)
-	const rolloverSource = useRef<string | undefined>(undefined)
+	const rolloverSource = useRef<RuntimeTask | undefined>(undefined)
+	const rolloverTarget = useRef<RuntimeTask | undefined>(undefined)
 	const [inputValue, setInputValue] = useState("")
 	const [selectedImages, setSelectedImages] = useState<string[]>([])
 	const [selectedAttachments, setSelectedAttachments] = useState<NonNullable<ExtensionMessage["attachments"]>>([])
@@ -66,6 +80,10 @@ const ChatView = forwardRef<ChatViewRef, ChatViewProps>(({ isHidden }, ref) => {
 	const pending = useRef<RuntimeEvent[]>([])
 	const flushTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 	const publish = useCallback((next: View | undefined) => {
+		if (!matchesRuntimeTask(current.current, next)) {
+			rolloverSource.current = undefined
+			rolloverTarget.current = undefined
+		}
 		current.current = next
 		setView(next)
 	}, [])
@@ -142,7 +160,11 @@ const ChatView = forwardRef<ChatViewRef, ChatViewProps>(({ isHidden }, ref) => {
 					setError("No active task to continue")
 					return
 				}
-				vscode.postMessage({ type: "newRuntimeSession", taskId: task.sessionId })
+				vscode.postMessage({
+					type: "newRuntimeSession",
+					taskId: task.sessionId,
+					sourceTask: { sessionId: task.sessionId, taskId: task.taskId },
+				})
 				setInputValue("")
 				return
 			}
@@ -191,6 +213,8 @@ const ChatView = forwardRef<ChatViewRef, ChatViewProps>(({ isHidden }, ref) => {
 	useEffect(() => {
 		const receive = ({ data: message }: MessageEvent<ExtensionMessage>) => {
 			if (message.type === "runtimeSessionLoading") {
+				rolloverSource.current = undefined
+				rolloverTarget.current = undefined
 				selectedSession.current = (message.payload as { sessionId: string }).sessionId
 				pending.current = []
 				return
@@ -206,15 +230,26 @@ const ChatView = forwardRef<ChatViewRef, ChatViewProps>(({ isHidden }, ref) => {
 			}
 			if (message.type === "runtimeTaskStarted") {
 				const next = message.payload as RuntimeTask & { prompt: string; images?: string[] }
-				const stopPending = current.current?.taskId === "pending" && current.current.status === "stopping"
-				if (
+				const handoff = message.runtimeHandoff
+				if (handoff !== undefined) {
+					if (
+						!matchesRuntimeTask(current.current, handoff?.source) ||
+						selectedSession.current !== handoff?.source?.sessionId ||
+						!matchesRuntimeTask(rolloverSource.current, handoff?.source) ||
+						!matchesRuntimeTask(rolloverTarget.current, handoff?.target) ||
+						!matchesRuntimeTask(next, handoff?.target)
+					)
+						return
+				} else if (
 					selectedSession.current &&
 					selectedSession.current !== "pending" &&
 					selectedSession.current !== next.sessionId
 				)
 					return
+				const stopPending = current.current?.taskId === "pending" && current.current.status === "stopping"
 				flush()
-				const previous = current.current?.sessionId === next.sessionId ? current.current : undefined
+				const previous =
+					handoff !== undefined || current.current?.sessionId === next.sessionId ? current.current : undefined
 				selectedSession.current = next.sessionId
 				publish({
 					...next,
@@ -260,24 +295,44 @@ const ChatView = forwardRef<ChatViewRef, ChatViewProps>(({ isHidden }, ref) => {
 					event.session_id !== current.current.sessionId
 				)
 					return
-				if (event.kind === "runtime.rollover_started") {
-					rolloverSource.current = event.session_id
-					return
-				}
-				if (event.kind === "runtime.rollover_ready") {
-					const next = (event.payload as { newSessionId?: string }).newSessionId
-					if (rolloverSource.current !== event.session_id || !next) return
-					flush()
-					rolloverSource.current = undefined
-					selectedSession.current = next
-					publish({ ...current.current, sessionId: next, taskId: "pending", status: "running" })
-					return
-				}
-				if (event.kind === "runtime.rollover_aborted" || event.kind === "runtime.rollover_failed") {
-					rolloverSource.current = undefined
-					if (event.kind === "runtime.rollover_failed")
-						setError((event.payload as { message?: string }).message ?? "Session handoff failed")
-					return
+				if (event.kind.startsWith("runtime.rollover_")) {
+					const handoff = message.runtimeHandoff
+					const source = handoff?.source
+					if (
+						!source ||
+						!matchesRuntimeTask(current.current, source) ||
+						selectedSession.current !== source.sessionId ||
+						event.task_id !== source.taskId
+					)
+						return
+					if (event.kind === "runtime.rollover_started") {
+						if (!matchesRuntimeTask(rolloverSource.current, source)) {
+							rolloverSource.current = { ...source }
+							rolloverTarget.current = undefined
+						}
+						return
+					}
+					if (!matchesRuntimeTask(rolloverSource.current, handoff?.source)) return
+					if (event.kind === "runtime.rollover_ready") {
+						const next = (event.payload as { newSessionId?: string }).newSessionId
+						const target = handoff?.target
+						if (
+							!target ||
+							!matchesRuntimeTask(target, target) ||
+							target.sessionId !== next ||
+							(rolloverTarget.current && !matchesRuntimeTask(rolloverTarget.current, target))
+						)
+							return
+						rolloverTarget.current = { ...target }
+						return
+					}
+					if (event.kind === "runtime.rollover_aborted" || event.kind === "runtime.rollover_failed") {
+						rolloverSource.current = undefined
+						rolloverTarget.current = undefined
+						if (event.kind === "runtime.rollover_failed")
+							setError((event.payload as { message?: string }).message ?? "Session handoff failed")
+						return
+					}
 				}
 				if (event.kind === "runtime.started") {
 					flush()
@@ -330,7 +385,7 @@ const ChatView = forwardRef<ChatViewRef, ChatViewProps>(({ isHidden }, ref) => {
 				if (
 					(event.kind === "agent.finished" || event.kind === "agent.error") &&
 					event.task_id === current.current.taskId &&
-					rolloverSource.current !== event.session_id
+					!matchesRuntimeTask(rolloverSource.current, { sessionId: event.session_id, taskId: event.task_id })
 				) {
 					flush()
 					publish({
