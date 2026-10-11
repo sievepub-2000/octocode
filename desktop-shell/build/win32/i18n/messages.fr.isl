@@ -2,7 +2,7 @@
 AddContextMenuFiles=Ajouter l'action "Ouvrir avec %1" au menu contextuel de fichier de l'Explorateur Windows
 AddContextMenuFolders=Ajouter l'action "Ouvrir avec %1" au menu contextuel de répertoire de l'Explorateur Windows
 AssociateWithFiles=Inscrire %1 en tant qu'éditeur pour les types de fichier pris en charge
-AddToPath=Ajouter à PATH (disponible après le redémarrage)
+AddToPath=Ajouter à PATH (nécessite le redémarrage de l'interpréteur de commandes)
 RunAfter=Exécuter %1 après l'installation
 Other=Autre :
 SourceFile=Fichier source %1

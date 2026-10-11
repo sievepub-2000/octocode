@@ -2,7 +2,7 @@
 AddContextMenuFiles="Megnyitás a következővel: %1" parancs hozzáadása a fájlok helyi menüjéhez a Windows Intézőben
 AddContextMenuFolders="Megnyitás a következővel: %1" parancs hozzáadása a mappák helyi menüjéhez a Windows Intézőben
 AssociateWithFiles=%1 regisztrálása szerkesztőként a támogatott fájltípusokhoz
-AddToPath=Hozzáadás a PATH-hoz (újraindítás után lesz elérhető)
+AddToPath=Hozzáadás a PATH-hoz (a parancsértelmező újraindítása szükséges)
 RunAfter=%1 indítása a telepítés után
 Other=Egyéb:
 SourceFile=%1 forrásfájl
