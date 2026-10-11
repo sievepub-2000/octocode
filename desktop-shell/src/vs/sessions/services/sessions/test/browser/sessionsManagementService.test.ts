@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
+import sinon from 'sinon';
 import { DeferredPromise } from '../../../../../base/common/async.js';
 import { CancellationTokenSource } from '../../../../../base/common/cancellation.js';
 import { Emitter, Event } from '../../../../../base/common/event.js';
@@ -31,7 +32,7 @@ import { ChatInteractivity, ChatOriginKind, IChat, ISession, ISessionType, ISess
 import { ILanguageModelChatMetadataAndIdentifier } from '../../../../../workbench/contrib/chat/common/languageModels.js';
 import { ISessionChangeEvent, ISendRequestOptions, ISessionModelsSnapshot, ISessionModelPickerOptions, ISessionsProvider } from '../../common/sessionsProvider.js';
 import { SessionsManagementService } from '../../browser/sessionsManagementService.js';
-import { ISessionsManagementService, ICreateNewSessionOptions, inheritableSessionTarget, WorkspaceNotTrustedError } from '../../common/sessionsManagement.js';
+import { ISessionsManagementService, ISendRequestLifecycleEvent, ICreateNewSessionOptions, inheritableSessionTarget, WorkspaceNotTrustedError } from '../../common/sessionsManagement.js';
 import { SessionsService } from '../../browser/sessionsService.js';
 import { ISessionsPartService } from '../../browser/sessionsPartService.js';
 import { CustomViewService, ICustomViewService } from '../../../customView/browser/customViewService.js';
@@ -193,15 +194,16 @@ function createSessionsManagementService(
 	provider: ISessionsProvider = new TestSessionsProvider(session),
 	workspaceTrustManagementService = new TestWorkspaceTrustManagementService(),
 	workspaceTrustRequestService?: IWorkspaceTrustRequestService,
-): { service: ISessionsManagementService; view: SessionsService; chatWidgetService: TestChatWidgetService; chatService: TestChatService } {
+	controls?: { readonly providers?: readonly ISessionsProvider[]; readonly logService?: ILogService },
+): { service: SessionsManagementService; view: SessionsService; chatWidgetService: TestChatWidgetService; chatService: TestChatService } {
 	const instantiationService = disposables.add(new TestInstantiationService());
 	const chatWidgetService = new TestChatWidgetService();
 	const chatService = new TestChatService();
 
 	instantiationService.stub(IStorageService, disposables.add(new InMemoryStorageService()));
-	instantiationService.stub(ILogService, new NullLogService());
+	instantiationService.stub(ILogService, controls?.logService ?? new NullLogService());
 	instantiationService.stub(IContextKeyService, disposables.add(new MockContextKeyService()));
-	instantiationService.stub(ISessionsProvidersService, new TestSessionsProvidersService([provider]));
+	instantiationService.stub(ISessionsProvidersService, new TestSessionsProvidersService(controls?.providers ?? [provider]));
 	instantiationService.stub(IUriIdentityService, { extUri: extUriBiasedIgnorePathCase });
 	instantiationService.stub(IChatWidgetService, chatWidgetService);
 	instantiationService.stub(IProgressService, new TestProgressService());
@@ -1935,6 +1937,374 @@ suite('SessionsManagementService', () => {
 		// `from` matches the active session: active is replaced with `to`.
 		onDidReplaceSession.fire({ from: a, to: b });
 		assert.strictEqual(view.activeSession.get()?.sessionId, 'b');
+	});
+
+	suite('six confirmed fixes', () => {
+
+		function workspace(uri: URI): ISessionWorkspace {
+			return { uri, label: 'Test', icon: Codicon.folder, folders: [], requiresWorkspaceTrust: false, isVirtualWorkspace: false };
+		}
+
+		function completedChat(id: string): IChat {
+			return { ...stubChat, resource: URI.parse(`test:///six-fixes/${id}`), status: constObservable(SessionStatus.Completed) };
+		}
+
+		function completedSession(id: string, chat: IChat): ISession {
+			return stubSession({ sessionId: id, providerId: 'test', status: constObservable(SessionStatus.Completed), chats: constObservable([chat]), mainChat: constObservable(chat) });
+		}
+
+		test('C01 missing provider emits no success and retains view recency', async () => {
+			const chat = completedChat('missing-provider');
+			const session = completedSession('missing-provider', chat);
+			const calls: string[] = [];
+			const provider = new class extends TestSessionsProvider {
+				override async archiveSession(): Promise<void> { calls.push('archive'); }
+				override async unarchiveSession(): Promise<void> { calls.push('unarchive'); }
+				override async deleteSession(): Promise<void> { calls.push('delete'); }
+				override async renameChat(): Promise<void> { calls.push('renameChat'); }
+				override async renameSession(): Promise<void> { calls.push('renameSession'); }
+			}(session);
+			const providers = [provider];
+			const { service, view } = createSessionsManagementService(session, disposables, provider, undefined, undefined, { providers });
+			const emitted: string[] = [];
+			disposables.add(service.onDidArchiveSession(() => emitted.push('archive')));
+			disposables.add(service.onDidUnarchiveSession(() => emitted.push('unarchive')));
+			disposables.add(service.onDidDeleteSession(() => emitted.push('delete')));
+			disposables.add(service.onDidRenameChat(() => emitted.push('renameChat')));
+			disposables.add(service.onDidRenameSession(() => emitted.push('renameSession')));
+			await view.openSession(session.resource);
+			providers.splice(0);
+			await service.archiveSession(session);
+			await service.unarchiveSession(session);
+			await service.deleteSession(session);
+			await service.renameChat(session, chat.resource, 'Changed');
+			await service.renameSession(session, 'Changed');
+			providers.push(provider);
+			assert.deepStrictEqual({ calls, emitted, recent: view.getRecentlyOpenedSessions().recent.map(item => item.sessionId) }, { calls: [], emitted: [], recent: [session.sessionId] });
+		});
+
+		test('C01 existing provider emits only after success and propagates rejection', async () => {
+			const chat = completedChat('provider-result');
+			const session = completedSession('provider-result', chat);
+			const failure = new Error('provider operation failed');
+			let reject = false;
+			const calls: string[] = [];
+			const provider = new class extends TestSessionsProvider {
+				private result(operation: string): Promise<void> {
+					calls.push(operation);
+					return reject ? Promise.reject(failure) : Promise.resolve();
+				}
+				override archiveSession(): Promise<void> { return this.result('archive'); }
+				override unarchiveSession(): Promise<void> { return this.result('unarchive'); }
+				override deleteSession(): Promise<void> { return this.result('delete'); }
+				override renameChat(): Promise<void> { return this.result('renameChat'); }
+				override renameSession(): Promise<void> { return this.result('renameSession'); }
+			}(session);
+			const { service } = createSessionsManagementService(session, disposables, provider);
+			const emitted: string[] = [];
+			disposables.add(service.onDidArchiveSession(() => emitted.push('archive')));
+			disposables.add(service.onDidUnarchiveSession(() => emitted.push('unarchive')));
+			disposables.add(service.onDidDeleteSession(() => emitted.push('delete')));
+			disposables.add(service.onDidRenameChat(() => emitted.push('renameChat')));
+			disposables.add(service.onDidRenameSession(() => emitted.push('renameSession')));
+			const operations = [
+				() => service.archiveSession(session),
+				() => service.unarchiveSession(session),
+				() => service.deleteSession(session),
+				() => service.renameChat(session, chat.resource, 'Changed'),
+				() => service.renameSession(session, 'Changed'),
+			];
+			for (const operation of operations) {
+				await operation();
+			}
+			reject = true;
+			const failures = [];
+			for (const operation of operations) {
+				failures.push(await operation().then(() => false, error => error === failure));
+			}
+			assert.deepStrictEqual({ calls, emitted, failures }, {
+				calls: ['archive', 'unarchive', 'delete', 'renameChat', 'renameSession', 'archive', 'unarchive', 'delete', 'renameChat', 'renameSession'],
+				emitted: ['archive', 'unarchive', 'delete', 'renameChat', 'renameSession'], failures: [true, true, true, true, true],
+			});
+		});
+
+		for (const firstError of [undefined, null]) {
+			test(`C02 retains first ${String(firstError)} rejection and continues later providers`, async () => {
+				const first = stubSession({ sessionId: 'first', providerId: 'first' });
+				const second = stubSession({ sessionId: 'second', providerId: 'second' });
+				const third = stubSession({ sessionId: 'third', providerId: 'third' });
+				const laterError = new Error('later provider failure');
+				const calls: string[] = [];
+				const providers: ISessionsProvider[] = [
+					new class extends TestSessionsProvider {
+						override readonly id = 'first';
+						override deleteSessions(): Promise<void> { calls.push(this.id); return Promise.reject(firstError); }
+					}(first),
+					new class extends TestSessionsProvider {
+						override readonly id = 'second';
+						override async deleteSessions(): Promise<void> { calls.push(this.id); }
+					}(second),
+					new class extends TestSessionsProvider {
+						override readonly id = 'third';
+						override deleteSessions(): Promise<void> { calls.push(this.id); return Promise.reject(laterError); }
+					}(third),
+				];
+				const { service } = createSessionsManagementService(first, disposables, providers[0], undefined, undefined, { providers });
+				const deleted: string[] = [];
+				disposables.add(service.onDidDeleteSession(session => deleted.push(session.sessionId)));
+				const result = await service.deleteSessions([first, second, third]).then(
+					() => ({ rejected: false, reason: undefined }),
+					(reason: unknown) => ({ rejected: true, reason }),
+				);
+				assert.deepStrictEqual({ result, calls, deleted }, { result: { rejected: true, reason: firstError }, calls: ['first', 'second', 'third'], deleted: ['second'] });
+			});
+		}
+
+		test('C03 missing provider validation leaves the current draft and observable intact', async () => {
+			const session = stubSession({ sessionId: 'draft', providerId: 'test' });
+			const calls: string[] = [];
+			const provider = new class extends TestSessionsProvider {
+				override resolveWorkspace(uri: URI): ISessionWorkspace { return workspace(uri); }
+				override deleteNewSession(): void { calls.push('delete'); }
+				override async createNewChat(): Promise<IChat> { calls.push('createChat'); return stubChat; }
+				override async sendRequest(): Promise<ISession> { calls.push('send'); return session; }
+			}(session);
+			const providers = [provider];
+			const { service } = createSessionsManagementService(session, disposables, provider, undefined, undefined, { providers });
+			const draft = service.createNewSession(URI.parse('test:///draft-folder'));
+			const observed: (string | undefined)[] = [];
+			disposables.add(autorun(reader => observed.push(service.newSession.read(reader)?.sessionId)));
+			providers.splice(0);
+			const result = await service.sendNewChatRequest(draft, { query: 'retain draft' }).then(
+				() => false,
+				(error: Error) => /provider 'test' not found/.test(error.message),
+			);
+			assert.deepStrictEqual({ rejected: result, sameDraft: service.newSession.get() === draft, observed, calls }, { rejected: true, sameDraft: true, observed: ['draft'], calls: [] });
+		});
+
+		test('C04 cancellation after model resolution does not call configuration setters or send', async () => {
+			const session = stubSession({ sessionId: 'cancel-after-model', providerId: 'test' });
+			const changed = disposables.add(new Emitter<void>());
+			let resolution: ISessionModelsSnapshot['desiredModelResolution'] = { kind: 'pending', identifier: 'test:model' };
+			const calls: string[] = [];
+			const model: ILanguageModelChatMetadataAndIdentifier = {
+				identifier: 'test:model',
+				metadata: { extension: nullExtensionDescription.identifier, name: 'Test', vendor: 'test', family: 'test', version: '1', id: 'model', maxInputTokens: 100, maxOutputTokens: 100, isDefaultForLocation: {} },
+			};
+			const provider = new class extends TestSessionsProvider {
+				override readonly onDidChangeModels = changed.event;
+				override resolveWorkspace(uri: URI): ISessionWorkspace { return workspace(uri); }
+				override getModelsSnapshot(): ISessionModelsSnapshot { return { models: [], desiredModelResolution: resolution, modelTarget: 'test' }; }
+				override setModel(): void { calls.push('model'); }
+				override setMode(): void { calls.push('mode'); }
+				override setPermissionLevel(): void { calls.push('permission'); }
+				override deleteNewSession(): void { calls.push('delete'); }
+				override async sendRequest(): Promise<ISession> { calls.push('send'); return session; }
+			}(session);
+			const { service } = createSessionsManagementService(session, disposables, provider);
+			const cts = disposables.add(new CancellationTokenSource());
+			const request = service.createAndSendNewChatRequest(URI.parse('test:///folder'), { query: 'cancel' }, { modelId: 'test:model', modeId: 'agent', permissionLevel: 'default' }, cts.token);
+			const result = request.then(() => false, (error: Error) => error.name === 'Canceled');
+			resolution = { kind: 'available', model };
+			changed.fire();
+			cts.cancel();
+			assert.deepStrictEqual({ cancelled: await result, calls }, { cancelled: true, calls: ['delete'] });
+		});
+
+		test('C05 cleanup secondary error does not mask the original configuration error', async () => {
+			const session = stubSession({ sessionId: 'cleanup-error', providerId: 'test' });
+			const original = new Error('original configuration error');
+			const secondary = new Error('cleanup secondary error');
+			const logged: unknown[][] = [];
+			const logService = new class extends NullLogService {
+				override error(...args: unknown[]): void { logged.push(args); }
+			};
+			let cleanupCalls = 0;
+			const provider = new class extends TestSessionsProvider {
+				override resolveWorkspace(uri: URI): ISessionWorkspace { return workspace(uri); }
+				override setModel(): void { throw original; }
+				override deleteNewSession(): void { cleanupCalls++; throw secondary; }
+			}(session);
+			const { service } = createSessionsManagementService(session, disposables, provider, undefined, undefined, { logService });
+			const result = await service.createAndSendNewChatRequest(URI.parse('test:///folder'), { query: 'fail' }, { modelId: 'test:model' }).then(() => undefined, (reason: unknown) => reason);
+			assert.deepStrictEqual({ originalRetained: result === original, cleanupCalls, secondaryLogged: logged.some(args => args.includes(secondary)) }, { originalRetained: true, cleanupCalls: 1, secondaryLogged: true });
+		});
+
+		test('C05 background cleanup secondary error still records the original send failure', async () => {
+			const chat = completedChat('background-cleanup');
+			const session = completedSession('background-cleanup', chat);
+			const original = new Error('original background error');
+			const secondary = new Error('cleanup background error');
+			const logged: unknown[][] = [];
+			const originalLogged = new DeferredPromise<void>();
+			const logService = new class extends NullLogService {
+				override error(...args: unknown[]): void {
+					logged.push(args);
+					if (args.includes(original)) {
+						void originalLogged.complete();
+					}
+				}
+			};
+			let cleanupCalls = 0;
+			const provider = new class extends TestSessionsProvider {
+				override createNewChat(): Promise<IChat> { return Promise.reject(original); }
+				override deleteNewSession(): void { cleanupCalls++; throw secondary; }
+			}(session);
+			const { service } = createSessionsManagementService(session, disposables, provider, undefined, undefined, { logService });
+			let failures = 0;
+			let successes = 0;
+			disposables.add(service.onDidFailBackgroundSend(() => failures++));
+			disposables.add(service.onDidSendRequest(() => successes++));
+			await service.sendNewChatRequest(session, { query: 'fail', background: true });
+			await originalLogged.p;
+			assert.deepStrictEqual({ cleanupCalls, failures, successes, errors: logged.map(args => args[1]) }, { cleanupCalls: 1, failures: 1, successes: 0, errors: [secondary, original] });
+		});
+
+		for (const failurePoint of ['create', 'send'] as const) {
+			test(`C06 ${failurePoint} failure releases the real view follow without success`, async () => {
+				const main = completedChat(`failure-${failurePoint}-main`);
+				const later = completedChat(`failure-${failurePoint}-later`);
+				const chats = observableValue<readonly IChat[]>('six-fixes.failure.chats', [main]);
+				const session = stubSession({ ...completedSession(`failure-${failurePoint}`, main), chats });
+				const failure = new Error(`fail at ${failurePoint}`);
+				const provider = new class extends TestSessionsProvider {
+					override createNewChat(): Promise<IChat> { return failurePoint === 'create' ? Promise.reject(failure) : Promise.resolve(main); }
+					override sendRequest(): Promise<ISession> { return Promise.reject(failure); }
+				}(session);
+				const { service, view } = createSessionsManagementService(session, disposables, provider);
+				await view.openSession(session.resource);
+				const lifecycle: ISendRequestLifecycleEvent[] = [];
+				let successes = 0;
+				disposables.add(service.onDidChangeSendRequest(event => lifecycle.push(event)));
+				disposables.add(service.onDidSendRequest(() => successes++));
+				const failed = await service.sendNewChatRequest(session, { query: 'failure' }).then(() => false, error => error === failure);
+				chats.set([main, later], undefined);
+				assert.deepStrictEqual({ failed, successes, phases: lifecycle.map(event => event.phase), sameAttempt: lifecycle[0].attempt === lifecycle[1].attempt, active: view.activeSession.get()?.activeChat.get().resource.toString() }, {
+					failed: true, successes: 0, phases: ['started', 'finished'], sameAttempt: true, active: main.resource.toString(),
+				});
+			});
+		}
+
+		for (const olderOutcome of ['success', 'failure'] as const) {
+			test(`C06 older ${olderOutcome} does not release a concurrent same-session attempt`, async () => {
+				const main = completedChat(`concurrent-${olderOutcome}-main`);
+				const peer = completedChat(`concurrent-${olderOutcome}-peer`);
+				const during = completedChat(`concurrent-${olderOutcome}-during`);
+				const after = completedChat(`concurrent-${olderOutcome}-after`);
+				const chats = observableValue<readonly IChat[]>('six-fixes.concurrent.chats', [main, peer]);
+				const session = stubSession({ ...completedSession(`concurrent-${olderOutcome}`, main), chats, capabilities: constObservable({ supportsMultipleChats: true }) });
+				const first = new DeferredPromise<ISession>();
+				const second = new DeferredPromise<ISession>();
+				let sends = 0;
+				const provider = new class extends TestSessionsProvider {
+					override sendRequest(): Promise<ISession> { return sends++ === 0 ? first.p : second.p; }
+				}(session);
+				const { service, view } = createSessionsManagementService(session, disposables, provider);
+				await view.openSession(session.resource);
+				const lifecycle: ISendRequestLifecycleEvent[] = [];
+				disposables.add(service.onDidChangeSendRequest(event => lifecycle.push(event)));
+				const options = { query: 'shared options' };
+				const older = service.sendRequest(session, main, options).then(() => 'success', () => 'failure');
+				const newer = service.sendRequest(session, peer, options);
+				try {
+					if (olderOutcome === 'success') {
+						await first.complete(session);
+					} else {
+						await first.error(new Error('older failure'));
+					}
+					const observedOlderOutcome = await older;
+					chats.set([main, peer, during], undefined);
+					const whileNewer = view.activeSession.get()?.activeChat.get().resource.toString();
+					await second.complete(session);
+					await newer;
+					chats.set([main, peer, during, after], undefined);
+					assert.deepStrictEqual({ observedOlderOutcome, differentAttempts: lifecycle[0].attempt !== lifecycle[1].attempt, phases: lifecycle.map(event => event.phase), whileNewer, afterBoth: view.activeSession.get()?.activeChat.get().resource.toString() }, {
+						observedOlderOutcome: olderOutcome, differentAttempts: true, phases: ['started', 'started', 'finished', 'finished'], whileNewer: during.resource.toString(), afterBoth: during.resource.toString(),
+					});
+				} finally {
+					await first.complete(session);
+					await second.complete(session);
+					await older;
+					await newer;
+				}
+			});
+		}
+
+		test('C06 cancelled headless send finishes its attempt before the provider settles', async () => {
+			const main = completedChat('cancelled-headless');
+			const session = completedSession('cancelled-headless', main);
+			const pending = new DeferredPromise<ISession>();
+			const sendStarted = new DeferredPromise<void>();
+			const finished = new DeferredPromise<void>();
+			let cleanupCalls = 0;
+			const provider = new class extends TestSessionsProvider {
+				override resolveWorkspace(uri: URI): ISessionWorkspace { return workspace(uri); }
+				override async sendRequest(): Promise<ISession> { await sendStarted.complete(); return pending.p; }
+				override deleteNewSession(): void { cleanupCalls++; }
+			}(session);
+			const { service, chatService } = createSessionsManagementService(session, disposables, provider);
+			const cts = disposables.add(new CancellationTokenSource());
+			const lifecycle: ISendRequestLifecycleEvent[] = [];
+			let successes = 0;
+			disposables.add(service.onDidChangeSendRequest(event => {
+				lifecycle.push(event);
+				if (event.phase === 'finished') {
+					void finished.complete();
+				}
+			}));
+			disposables.add(service.onDidSendRequest(() => successes++));
+			const request = service.createAndSendNewChatRequest(URI.parse('test:///folder'), { query: 'cancel send' }, undefined, cts.token);
+			const outcome = request.then(() => false, (error: Error) => error.name === 'Canceled');
+			try {
+				await sendStarted.p;
+				cts.cancel();
+				const cancelled = await outcome;
+				await finished.p;
+				const beforeLateCompletion = { cancelled, providerStillPending: !pending.isSettled, cleanupCalls, successes, phases: lifecycle.map(event => event.phase), sameAttempt: lifecycle[0].attempt === lifecycle[1].attempt, cancelledResources: chatService.cancelledResources.map(resource => resource.toString()) };
+				await pending.complete(session);
+				await Promise.resolve();
+				assert.deepStrictEqual({ beforeLateCompletion, finalPhases: lifecycle.map(event => event.phase), successes }, {
+					beforeLateCompletion: { cancelled: true, providerStillPending: true, cleanupCalls: 1, successes: 0, phases: ['started', 'finished'], sameAttempt: true, cancelledResources: [main.resource.toString()] },
+					finalPhases: ['started', 'finished'], successes: 0,
+				});
+			} finally {
+				cts.cancel();
+				await pending.complete(session);
+				await outcome;
+			}
+		});
+
+		test('C06 disposing the real view releases owned follow observers while send is pending', async () => {
+			const main = completedChat('dispose-main');
+			const later = completedChat('dispose-later');
+			const chats = observableValue<readonly IChat[]>('six-fixes.dispose.chats', [main]);
+			const session = stubSession({ ...completedSession('dispose-follow', main), chats });
+			const pending = new DeferredPromise<ISession>();
+			const provider = new class extends TestSessionsProvider {
+				override sendRequest(): Promise<ISession> { return pending.p; }
+			}(session);
+			const { service, view } = createSessionsManagementService(session, disposables, provider);
+			await view.openSession(session.resource);
+			const tabs = view.activeSession.get()!.visibleChatTabs;
+			const addObserver = sinon.spy(tabs, 'addObserver');
+			const removeObserver = sinon.spy(tabs, 'removeObserver');
+			const request = service.sendRequest(session, main, { query: 'pending dispose' });
+			try {
+				const subscribed = addObserver.callCount > 0;
+				view.dispose();
+				const released = addObserver.getCalls().every(call => removeObserver.calledWith(call.args[0]));
+				chats.set([main, later], undefined);
+				await pending.complete(session);
+				await request;
+				assert.deepStrictEqual({ subscribed, released }, { subscribed: true, released: true });
+			} finally {
+				await pending.complete(session);
+				await request;
+				view.dispose();
+				addObserver.restore();
+				removeObserver.restore();
+			}
+		});
 	});
 
 	suite('deleteSessions', () => {

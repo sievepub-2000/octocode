@@ -21,7 +21,7 @@ import { IChatRequestVariableEntry } from '../../../../workbench/contrib/chat/co
 import { IPathService } from '../../../../workbench/services/path/common/pathService.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { getSessionReferenceResource } from './sessionReference.js';
-import { IBackgroundSendFailedEvent, ICreateNewChatInSessionOptions, ICreateNewSessionOptions, IProviderSessionType, ISendRequestOptions, ISendRequestSentEvent, ISessionsChangeEvent, ISessionsManagementService, WorkspaceNotTrustedError } from '../common/sessionsManagement.js';
+import { IBackgroundSendFailedEvent, ICreateNewChatInSessionOptions, ICreateNewSessionOptions, IProviderSessionType, ISendRequestOptions, ISendRequestSentEvent, ISendRequestLifecycleEvent, ISessionsChangeEvent, ISessionsManagementService, WorkspaceNotTrustedError } from '../common/sessionsManagement.js';
 import { ISessionsProvidersChangeEvent, ISessionsProvidersService } from './sessionsProvidersService.js';
 import { IDeleteChatOptions, ISessionChangeEvent, ISessionsProvider } from '../common/sessionsProvider.js';
 import { IChat, ISession, ISessionWorkspace, ISideChatSelection, SessionStatus, ISessionType } from '../common/session.js';
@@ -45,6 +45,8 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 	readonly onWillSendRequest: Event<ISession> = this._onWillSendRequest.event;
 	private readonly _onDidSendRequest = this._register(new Emitter<ISendRequestSentEvent>());
 	readonly onDidSendRequest: Event<ISendRequestSentEvent> = this._onDidSendRequest.event;
+	private readonly _onDidChangeSendRequest = this._register(new Emitter<ISendRequestLifecycleEvent>());
+	readonly onDidChangeSendRequest: Event<ISendRequestLifecycleEvent> = this._onDidChangeSendRequest.event;
 	private readonly _onDidFailBackgroundSend = this._register(new Emitter<IBackgroundSendFailedEvent>());
 	readonly onDidFailBackgroundSend: Event<IBackgroundSendFailedEvent> = this._onDidFailBackgroundSend.event;
 
@@ -561,16 +563,16 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 	}
 
 	async sendNewChatRequest(session: ISession, options: ISendRequestOptions): Promise<void> {
+		const provider = this._getProvider(session);
+		if (!provider) {
+			throw new Error(`Sessions provider '${session.providerId}' not found`);
+		}
+
 		// The session is graduating into the list (being sent),
 		// so the provider keeps owning it — just drop the pointer, do not delete.
 		// Clearing the new session recomputes the isNewChatSession context key
 		// via the view service's active-session autorun.
 		this._newSession.set(undefined, undefined);
-
-		const provider = this._getProvider(session);
-		if (!provider) {
-			throw new Error(`Sessions provider '${session.providerId}' not found`);
-		}
 
 		if (options.background) {
 			// Fire-and-forget so the composer can reset immediately. On commit
@@ -578,7 +580,11 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 			// its provider (no-op if already graduated/removed).
 			this._sendNewChatRequestInBackground(provider, session, options).catch(e => {
 				this._onDidFailBackgroundSend.fire({ session, options });
-				provider.deleteNewSession(session.sessionId);
+				try {
+					provider.deleteNewSession(session.sessionId);
+				} catch (cleanupError) {
+					this.logService.error('[SessionsManagement] Failed to dispose stranded draft:', cleanupError);
+				}
 				this.logService.error('[SessionsManagement] Failed to send background request:', e);
 			});
 			return;
@@ -592,23 +598,29 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 		// active in the visible slot while the send materialises.
 		this._onWillSendRequest.fire(session);
 
-		// Ask the provider to create the new chat, then send the request.
-		const chat = await provider.createNewChat(session.sessionId, options.query);
-
-		const sendOptions = this._augmentOptionsForTroubleshoot(session, options);
-		const chatResourceKey = chat.resource.toString();
-		this._pendingSendChatResources.add(chatResourceKey);
-		let updatedSession: ISession;
+		const attempt = { session };
+		this._onDidChangeSendRequest.fire({ attempt, phase: 'started' });
 		try {
-			updatedSession = await provider.sendRequest(session.sessionId, chat.resource, sendOptions);
+			// Ask the provider to create the new chat, then send the request.
+			const chat = await provider.createNewChat(session.sessionId, options.query);
+
+			const sendOptions = this._augmentOptionsForTroubleshoot(session, options);
+			const chatResourceKey = chat.resource.toString();
+			this._pendingSendChatResources.add(chatResourceKey);
+			let updatedSession: ISession;
+			try {
+				updatedSession = await provider.sendRequest(session.sessionId, chat.resource, sendOptions);
+			} finally {
+				this._pendingSendChatResources.delete(chatResourceKey);
+			}
+			if (updatedSession.sessionId !== session.sessionId) {
+				this.logService.info(`[SessionsManagement] sendRequest: active session replaced: ${session.sessionId} -> ${updatedSession.sessionId}`);
+			}
+			this._onDidStartSession.fire(updatedSession);
+			this._onDidSendRequest.fire({ session: updatedSession, chat, isNewSession: true, isNewChat: true, options });
 		} finally {
-			this._pendingSendChatResources.delete(chatResourceKey);
+			this._onDidChangeSendRequest.fire({ attempt, phase: 'finished' });
 		}
-		if (updatedSession.sessionId !== session.sessionId) {
-			this.logService.info(`[SessionsManagement] sendRequest: active session replaced: ${session.sessionId} -> ${updatedSession.sessionId}`);
-		}
-		this._onDidStartSession.fire(updatedSession);
-		this._onDidSendRequest.fire({ session: updatedSession, chat, isNewSession: true, isNewChat: true, options });
 	}
 
 	/**
@@ -661,6 +673,9 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 			}
 			if (createOptions?.modelId) {
 				const resolvedModelId = await this._waitForRequestedModel(provider, session, createOptions.modelId, token, folderUri);
+				if (token.isCancellationRequested) {
+					throw new CancellationError();
+				}
 				provider.setModel(session.sessionId, resolvedModelId);
 			}
 			if (createOptions?.modeId) {
@@ -689,7 +704,11 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 			// The send never committed, so the draft is stranded. Dispose it
 			// through its provider to release the eager backend session before
 			// rethrowing. Safe no-op if the provider already removed it.
-			provider.deleteNewSession(session.sessionId);
+			try {
+				provider.deleteNewSession(session.sessionId);
+			} catch (cleanupError) {
+				this.logService.error('[SessionsManagement] Failed to dispose stranded draft:', cleanupError);
+			}
 			throw e;
 		}
 	}
@@ -781,36 +800,46 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 		// Notify listeners (e.g., telemetry) that a send is starting so they can
 		// prewarm caches whose result is consumed when `onDidSendRequest` fires.
 		this._onWillSendRequest.fire(session);
-		const chatPromise = provider.createNewChat(session.sessionId, options.query);
-		const chat = token === CancellationToken.None ? await chatPromise : await raceCancellationError(chatPromise, token);
-
-		// Suppress the `chatService.onDidSubmitRequest` mirror for this send so
-		// `_onDidSendRequest` is not fired twice for providers that dispatch
-		// through `chatService.sendRequest` (see the mirror in the constructor).
-		const sendOptions = this._augmentOptionsForTroubleshoot(session, options);
-		const chatResourceKey = chat.resource.toString();
-		this._pendingSendChatResources.add(chatResourceKey);
-		const cancellationListener = token.onCancellationRequested(() => {
-			void this.chatService.cancelCurrentRequestForSession(chat.resource, 'sessionsManagement').catch(error => {
-				this.logService.warn('[SessionsManagement] Failed to cancel headless request:', error);
-			});
-		});
-		let updatedSession: ISession;
+		const attempt = { session };
+		this._onDidChangeSendRequest.fire({ attempt, phase: 'started' });
 		try {
-			updatedSession = await provider.sendRequest(session.sessionId, chat.resource, sendOptions);
+			const chatPromise = provider.createNewChat(session.sessionId, options.query);
+			const chat = token === CancellationToken.None ? await chatPromise : await raceCancellationError(chatPromise, token);
+			if (token.isCancellationRequested) {
+				throw new CancellationError();
+			}
+
+			// Suppress the `chatService.onDidSubmitRequest` mirror for this send so
+			// `_onDidSendRequest` is not fired twice for providers that dispatch
+			// through `chatService.sendRequest` (see the mirror in the constructor).
+			const sendOptions = this._augmentOptionsForTroubleshoot(session, options);
+			const chatResourceKey = chat.resource.toString();
+			this._pendingSendChatResources.add(chatResourceKey);
+			const cancellationListener = token.onCancellationRequested(() => {
+				void this.chatService.cancelCurrentRequestForSession(chat.resource, 'sessionsManagement').catch(error => {
+					this.logService.warn('[SessionsManagement] Failed to cancel headless request:', error);
+				});
+			});
+			let updatedSession: ISession;
+			try {
+				const sendPromise = provider.sendRequest(session.sessionId, chat.resource, sendOptions);
+				updatedSession = token === CancellationToken.None ? await sendPromise : await raceCancellationError(sendPromise, token);
+			} finally {
+				cancellationListener.dispose();
+				this._pendingSendChatResources.delete(chatResourceKey);
+			}
+			if (token.isCancellationRequested) {
+				throw new CancellationError();
+			}
+			if (this._store.isDisposed) {
+				return undefined;
+			}
+			this._onDidStartSession.fire(updatedSession);
+			this._onDidSendRequest.fire({ session: updatedSession, chat, isNewSession: true, isNewChat: true, options });
+			return updatedSession;
 		} finally {
-			cancellationListener.dispose();
-			this._pendingSendChatResources.delete(chatResourceKey);
+			this._onDidChangeSendRequest.fire({ attempt, phase: 'finished' });
 		}
-		if (token.isCancellationRequested) {
-			throw new CancellationError();
-		}
-		if (this._store.isDisposed) {
-			return undefined;
-		}
-		this._onDidStartSession.fire(updatedSession);
-		this._onDidSendRequest.fire({ session: updatedSession, chat, isNewSession: true, isNewChat: true, options });
-		return updatedSession;
 	}
 
 	async sendRequest(session: ISession, chat: IChat, options: ISendRequestOptions): Promise<void> {
@@ -839,20 +868,26 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 		// send pair to keep the sent chat active in the visible slot.
 		this._onWillSendRequest.fire(session);
 
-		const sendOptions = this._augmentOptionsForTroubleshoot(session, options);
-		const chatResourceKey = chat.resource.toString();
-		this._pendingSendChatResources.add(chatResourceKey);
-		let updatedSession: ISession;
+		const attempt = { session };
+		this._onDidChangeSendRequest.fire({ attempt, phase: 'started' });
 		try {
-			updatedSession = await provider.sendRequest(session.sessionId, chat.resource, sendOptions);
-		} finally {
-			this._pendingSendChatResources.delete(chatResourceKey);
-		}
-		if (updatedSession.sessionId !== session.sessionId) {
-			this.logService.info(`[SessionsManagement] sendRequest: active session replaced: ${session.sessionId} -> ${updatedSession.sessionId}`);
-		}
+			const sendOptions = this._augmentOptionsForTroubleshoot(session, options);
+			const chatResourceKey = chat.resource.toString();
+			this._pendingSendChatResources.add(chatResourceKey);
+			let updatedSession: ISession;
+			try {
+				updatedSession = await provider.sendRequest(session.sessionId, chat.resource, sendOptions);
+			} finally {
+				this._pendingSendChatResources.delete(chatResourceKey);
+			}
+			if (updatedSession.sessionId !== session.sessionId) {
+				this.logService.info(`[SessionsManagement] sendRequest: active session replaced: ${session.sessionId} -> ${updatedSession.sessionId}`);
+			}
 
-		this._onDidSendRequest.fire({ session: updatedSession, chat, isNewSession: false, isNewChat: true, options });
+			this._onDidSendRequest.fire({ session: updatedSession, chat, isNewSession: false, isNewChat: true, options });
+		} finally {
+			this._onDidChangeSendRequest.fire({ attempt, phase: 'finished' });
+		}
 	}
 
 	/**
@@ -885,12 +920,20 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 	}
 
 	async archiveSession(session: ISession): Promise<void> {
-		await this._getProvider(session)?.archiveSession(session.sessionId);
+		const provider = this._getProvider(session);
+		if (!provider) {
+			return;
+		}
+		await provider.archiveSession(session.sessionId);
 		this._onDidArchiveSession.fire(session);
 	}
 
 	async unarchiveSession(session: ISession): Promise<void> {
-		await this._getProvider(session)?.unarchiveSession(session.sessionId);
+		const provider = this._getProvider(session);
+		if (!provider) {
+			return;
+		}
+		await provider.unarchiveSession(session.sessionId);
 		this._onDidUnarchiveSession.fire(session);
 	}
 
@@ -911,7 +954,11 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 	}
 
 	async deleteSession(session: ISession): Promise<void> {
-		await this._getProvider(session)?.deleteSession(session.sessionId);
+		const provider = this._getProvider(session);
+		if (!provider) {
+			return;
+		}
+		await provider.deleteSession(session.sessionId);
 		this._onDidDeleteSession.fire(session);
 	}
 
@@ -931,6 +978,7 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 		}
 
 		let firstError: unknown;
+		let failed = false;
 		for (const [provider, providerSessions] of byProvider) {
 			try {
 				await provider.deleteSessions(providerSessions.map(session => session.sessionId));
@@ -938,11 +986,14 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 					this._onDidDeleteSession.fire(session);
 				}
 			} catch (error) {
-				firstError ??= error;
+				if (!failed) {
+					failed = true;
+					firstError = error;
+				}
 			}
 		}
 
-		if (firstError !== undefined) {
+		if (failed) {
 			throw firstError;
 		}
 	}
@@ -955,12 +1006,20 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 	}
 
 	async renameChat(session: ISession, chatUri: URI, title: string): Promise<void> {
-		await this._getProvider(session)?.renameChat(session.sessionId, chatUri, title);
+		const provider = this._getProvider(session);
+		if (!provider) {
+			return;
+		}
+		await provider.renameChat(session.sessionId, chatUri, title);
 		this._onDidRenameChat.fire(session);
 	}
 
 	async renameSession(session: ISession, title: string): Promise<void> {
-		await this._getProvider(session)?.renameSession(session.sessionId, title);
+		const provider = this._getProvider(session);
+		if (!provider) {
+			return;
+		}
+		await provider.renameSession(session.sessionId, title);
 		this._onDidRenameSession.fire(session);
 	}
 }

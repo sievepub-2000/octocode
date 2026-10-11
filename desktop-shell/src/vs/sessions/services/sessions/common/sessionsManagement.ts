@@ -137,6 +137,17 @@ export interface ISendRequestSentEvent {
 	readonly options: ISendRequestOptions;
 }
 
+/** A single management send invocation; identity distinguishes concurrent sends. */
+export interface ISendRequestAttempt {
+	readonly session: ISession;
+}
+
+/** Lifecycle of a send announced by {@link ISessionsManagementService.onWillSendRequest}. */
+export interface ISendRequestLifecycleEvent {
+	readonly attempt: ISendRequestAttempt;
+	readonly phase: 'started' | 'finished';
+}
+
 /**
  * Payload for a failed fire-and-forget new-session send.
  */
@@ -296,6 +307,9 @@ export interface ISessionsManagementService {
 	 * {@link sendNewChatRequest} or {@link sendRequest}.
 	 */
 	readonly onDidSendRequest: Event<ISendRequestSentEvent>;
+
+	/** Optional for older adapters; concrete management emits finished on success or failure. */
+	readonly onDidChangeSendRequest?: Event<ISendRequestLifecycleEvent>;
 
 	/** Fires when a background new-session send fails after its caller has returned. */
 	readonly onDidFailBackgroundSend: Event<IBackgroundSendFailedEvent>;
