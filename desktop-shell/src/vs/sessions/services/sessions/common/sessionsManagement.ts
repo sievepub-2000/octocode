@@ -138,6 +138,15 @@ export interface ISendRequestSentEvent {
 }
 
 /**
+ * Payload for a failed fire-and-forget new-session send.
+ */
+export interface IBackgroundSendFailedEvent {
+	readonly session: ISession;
+	/** The exact original options object, matching {@link ISendRequestSentEvent.options}. */
+	readonly options: ISendRequestOptions;
+}
+
+/**
  * Payload for {@link ISessionsManagementService.onDidToggleSessionStickiness}.
  */
 export interface IToggleSessionStickinessEvent {
@@ -287,6 +296,9 @@ export interface ISessionsManagementService {
 	 * {@link sendNewChatRequest} or {@link sendRequest}.
 	 */
 	readonly onDidSendRequest: Event<ISendRequestSentEvent>;
+
+	/** Fires when a background new-session send fails after its caller has returned. */
+	readonly onDidFailBackgroundSend: Event<IBackgroundSendFailedEvent>;
 
 	/** Fires after a session was successfully archived via {@link archiveSession}. */
 	readonly onDidArchiveSession: Event<ISession>;

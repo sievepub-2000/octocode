@@ -781,12 +781,17 @@ export class NewChatWidget extends Disposable {
 		// separately, keyed by the options object it was started with, so one
 		// send's outcome never clears another's comments.
 		if (background) {
-			this._pendingBackgroundSends.set(sendOptions, Event.once(
+			const pendingSend = new DisposableStore();
+			this._pendingBackgroundSends.set(sendOptions, pendingSend);
+			pendingSend.add(Event.once(
 				Event.filter(this.sessionsManagementService.onDidSendRequest, event => event.options === sendOptions)
 			)(() => {
 				clearFeedback();
 				this._pendingBackgroundSends.deleteAndDispose(sendOptions);
 			}));
+			pendingSend.add(Event.once(
+				Event.filter(this.sessionsManagementService.onDidFailBackgroundSend, event => event.options === sendOptions)
+			)(() => this._pendingBackgroundSends.deleteAndDispose(sendOptions)));
 		}
 
 		try {

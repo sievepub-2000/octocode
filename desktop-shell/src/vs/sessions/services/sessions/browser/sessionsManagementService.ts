@@ -21,7 +21,7 @@ import { IChatRequestVariableEntry } from '../../../../workbench/contrib/chat/co
 import { IPathService } from '../../../../workbench/services/path/common/pathService.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { getSessionReferenceResource } from './sessionReference.js';
-import { ICreateNewChatInSessionOptions, ICreateNewSessionOptions, IProviderSessionType, ISendRequestOptions, ISendRequestSentEvent, ISessionsChangeEvent, ISessionsManagementService, WorkspaceNotTrustedError } from '../common/sessionsManagement.js';
+import { IBackgroundSendFailedEvent, ICreateNewChatInSessionOptions, ICreateNewSessionOptions, IProviderSessionType, ISendRequestOptions, ISendRequestSentEvent, ISessionsChangeEvent, ISessionsManagementService, WorkspaceNotTrustedError } from '../common/sessionsManagement.js';
 import { ISessionsProvidersChangeEvent, ISessionsProvidersService } from './sessionsProvidersService.js';
 import { IDeleteChatOptions, ISessionChangeEvent, ISessionsProvider } from '../common/sessionsProvider.js';
 import { IChat, ISession, ISessionWorkspace, ISideChatSelection, SessionStatus, ISessionType } from '../common/session.js';
@@ -45,6 +45,8 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 	readonly onWillSendRequest: Event<ISession> = this._onWillSendRequest.event;
 	private readonly _onDidSendRequest = this._register(new Emitter<ISendRequestSentEvent>());
 	readonly onDidSendRequest: Event<ISendRequestSentEvent> = this._onDidSendRequest.event;
+	private readonly _onDidFailBackgroundSend = this._register(new Emitter<IBackgroundSendFailedEvent>());
+	readonly onDidFailBackgroundSend: Event<IBackgroundSendFailedEvent> = this._onDidFailBackgroundSend.event;
 
 	private readonly _onDidArchiveSession = this._register(new Emitter<ISession>());
 	readonly onDidArchiveSession: Event<ISession> = this._onDidArchiveSession.event;
@@ -575,6 +577,7 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 			// failure the graduating draft is stranded, so dispose it through
 			// its provider (no-op if already graduated/removed).
 			this._sendNewChatRequestInBackground(provider, session, options).catch(e => {
+				this._onDidFailBackgroundSend.fire({ session, options });
 				provider.deleteNewSession(session.sessionId);
 				this.logService.error('[SessionsManagement] Failed to send background request:', e);
 			});
