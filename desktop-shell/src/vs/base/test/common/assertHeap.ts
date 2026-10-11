@@ -28,7 +28,7 @@ suiteTeardown(async () => {
 			try {
 				doAssert(counts[i]);
 			} catch (e) {
-				throw new Error(`Unexpected number of ${name} instances (${counts[i]}) after "${snap.test}":\n\n${e.message}\n\nSnapshot saved at: ${snap.file}`);
+				throw new Error(`Unexpected number of ${name} instances (${counts[i]}) after "${snap.test}":\n\n${e instanceof Error ? e.message : String(e)}\n\nSnapshot saved at: ${snap.file}`, { cause: e });
 			}
 		}
 	}));
@@ -78,7 +78,10 @@ export async function assertHeap(opts: ISnapshotAssertOptions) {
 	}
 
 	const snapshotOpts: ISnapshotAssertOptions = { classes: { ...opts.classes } };
-	const { done, file } = await __analyzeSnapshotInTests(currentTest.fullTitle(), Object.keys(snapshotOpts.classes));
-	snapshotsToAssert.push({ counts: done, file, test: currentTest.fullTitle(), opts: snapshotOpts });
+	const test = currentTest.fullTitle();
+	const { done, file } = await __analyzeSnapshotInTests(test, Object.keys(snapshotOpts.classes));
+	// Observe early rejection without changing the original promise used by teardown.
+	void done.catch(() => undefined);
+	snapshotsToAssert.push({ counts: done, file, test, opts: snapshotOpts });
 }
 
