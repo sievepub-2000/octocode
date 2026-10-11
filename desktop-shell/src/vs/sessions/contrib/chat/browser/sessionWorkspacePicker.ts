@@ -8,6 +8,7 @@ import * as touch from '../../../../base/browser/touch.js';
 import { status } from '../../../../base/browser/ui/aria/aria.js';
 import { IAction, toAction } from '../../../../base/common/actions.js';
 import { Codicon } from '../../../../base/common/codicons.js';
+import { toErrorMessage } from '../../../../base/common/errorMessage.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { disposableTimeout } from '../../../../base/common/async.js';
 import { Disposable, DisposableStore, IDisposable, MutableDisposable } from '../../../../base/common/lifecycle.js';
@@ -83,7 +84,7 @@ export interface IWorkspacePickerItem {
 	/** Command to execute when this item is selected. */
 	readonly commandId?: string;
 	/** Inline action to run when this item is selected. */
-	readonly run?: () => void;
+	readonly run?: () => unknown;
 }
 
 export interface IWorkspacePickerOptions {
@@ -255,6 +256,11 @@ export class WorkspacePicker extends Disposable {
 				this._userPickedTab = false;
 			}
 		}));
+	}
+
+	override dispose(): void {
+		this._selectionGeneration++;
+		super.dispose();
 	}
 
 	/**
@@ -508,11 +514,21 @@ export class WorkspacePicker extends Disposable {
 		const generation = ++this._selectionGeneration;
 		this._reportPickerClosed(item);
 		if (item.run) {
-			item.run();
-			return true;
+			try {
+				await item.run();
+				return true;
+			} catch (error) {
+				this.notificationService.error(toErrorMessage(error));
+				return false;
+			}
 		} else if (item.commandId) {
-			void this.commandService.executeCommand(item.commandId);
-			return true;
+			try {
+				await this.commandService.executeCommand(item.commandId);
+				return true;
+			} catch (error) {
+				this.notificationService.error(toErrorMessage(error));
+				return false;
+			}
 		} else if (item.folderUri && item.providerId && this._isProviderUnavailable(item.providerId)) {
 			// Workspace belongs to an unavailable remote — ignore selection
 			return false;

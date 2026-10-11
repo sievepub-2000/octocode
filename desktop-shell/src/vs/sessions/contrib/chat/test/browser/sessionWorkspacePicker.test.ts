@@ -285,6 +285,7 @@ function createTestPicker(
 	workspacesService: IWorkspacesService = { getRecentlyOpened: async () => ({ workspaces: [], files: [] }), onDidChangeRecentlyOpened: Event.None } as unknown as IWorkspacesService,
 	recentWorkspacesService?: ISessionsRecentWorkspacesService,
 	options?: IWorkspacePickerOptions,
+	commandService?: Partial<ICommandService>,
 ): WorkspacePicker {
 	const instantiationService = disposables.add(new TestInstantiationService());
 	const storage = storageService ?? disposables.add(new TestStorageService());
@@ -300,7 +301,7 @@ function createTestPicker(
 	instantiationService.stub(IPreferencesService, {});
 	instantiationService.stub(IOutputService, {});
 	instantiationService.stub(IConfigurationService, new TestConfigurationService({ [RemoteAgentHostsEnabledSettingId]: true }));
-	instantiationService.stub(ICommandService, { executeCommand: async () => { } });
+	instantiationService.stub(ICommandService, commandService ?? { executeCommand: async () => { } });
 	instantiationService.stub(IFileDialogService, fileDialogService);
 	instantiationService.stub(IContextKeyService, new MockContextKeyService());
 	instantiationService.stub(IMenuService, {
@@ -809,6 +810,148 @@ suite('WorkspacePicker - Connection Status', () => {
 			applied: false,
 			selected: currentFolder.toString(),
 			selectedEvents: [],
+		});
+	});
+
+	test('reports an asynchronously rejected inline action', async () => {
+		const notifications = new RecordingNotificationService();
+		const finish = new DeferredPromise<void>();
+		const failure = new Error('Inline action failed');
+		const picker = createTestPicker(disposables, providersService, undefined, notifications, DispatchingWorkspacePicker) as DispatchingWorkspacePicker;
+		const pending = picker.dispatchItem({
+			run: async () => {
+				await finish.p;
+				throw failure;
+			},
+		});
+		await finish.complete();
+
+		assert.deepStrictEqual({ applied: await pending, errors: notifications.errors }, {
+			applied: false,
+			errors: [failure.message],
+		});
+	});
+
+	test('reports an asynchronously rejected command', async () => {
+		const notifications = new RecordingNotificationService();
+		const finish = new DeferredPromise<void>();
+		const failure = new Error('Command failed');
+		const commands: string[] = [];
+		const picker = createTestPicker(
+			disposables,
+			providersService,
+			undefined,
+			notifications,
+			DispatchingWorkspacePicker,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				executeCommand: async id => {
+					commands.push(id);
+					await finish.p;
+					throw failure;
+				},
+			},
+		) as DispatchingWorkspacePicker;
+		const pending = picker.dispatchItem({ commandId: 'test.workspacePicker.reject' });
+		await finish.complete();
+
+		assert.deepStrictEqual({ applied: await pending, errors: notifications.errors, commands }, {
+			applied: false,
+			errors: [failure.message],
+			commands: ['test.workspacePicker.reject'],
+		});
+	});
+
+	test('disposing during browse preserves selection and recent workspaces', async () => {
+		const currentFolder = URI.file('/local/current');
+		const proposedFolder = URI.file('/local/proposed');
+		const result = new DeferredPromise<ISessionWorkspace | undefined>();
+		const started = new DeferredPromise<void>();
+		const action = {
+			...makeBrowseAction('local-1', SESSION_WORKSPACE_GROUP_LOCAL),
+			run: async () => { await started.complete(); return result.p; },
+		};
+		const provider = createMockProvider('local-1', { browseActions: [action] });
+		providersService.setProviders([provider]);
+		const storage = disposables.add(new TestStorageService());
+		seedStorage(storage, [{ uri: currentFolder, providerId: provider.id, checked: true }]);
+		const before = storage.get(STORAGE_KEY_RECENT_WORKSPACES, StorageScope.PROFILE);
+		const picker = createTestPicker(disposables, providersService, storage, undefined, DispatchingWorkspacePicker) as DispatchingWorkspacePicker;
+		const pending = picker.dispatchItem({ browseAction: action });
+		await started.p;
+		picker.dispose();
+		await result.complete(provider.resolveWorkspace(proposedFolder));
+
+		assert.deepStrictEqual({
+			applied: await pending,
+			selected: picker.selectedFolderUri?.toString(),
+			storedRecents: storage.get(STORAGE_KEY_RECENT_WORKSPACES, StorageScope.PROFILE),
+		}, {
+			applied: false,
+			selected: currentFolder.toString(),
+			storedRecents: before,
+		});
+	});
+
+	test('disposing during trust confirmation preserves selection and recent workspaces', async () => {
+		const provider = createMockProvider('local-1');
+		providersService.setProviders([provider]);
+		const currentFolder = URI.file('/local/current');
+		const proposedFolder = URI.file('/local/proposed');
+		const confirmation = new DeferredPromise<boolean>();
+		const started = new DeferredPromise<void>();
+		const storage = disposables.add(new TestStorageService());
+		seedStorage(storage, [{ uri: currentFolder, providerId: provider.id, checked: true }]);
+		const before = storage.get(STORAGE_KEY_RECENT_WORKSPACES, StorageScope.PROFILE);
+		const picker = createTestPicker(disposables, providersService, storage, undefined, DispatchingWorkspacePicker, undefined, undefined, undefined, {
+			canSelectWorkspace: async () => { await started.complete(); return confirmation.p; },
+		}) as DispatchingWorkspacePicker;
+		const pending = picker.dispatchFolder(proposedFolder, provider.id);
+		await started.p;
+		picker.dispose();
+		await confirmation.complete(true);
+
+		assert.deepStrictEqual({
+			applied: await pending,
+			selected: picker.selectedFolderUri?.toString(),
+			storedRecents: storage.get(STORAGE_KEY_RECENT_WORKSPACES, StorageScope.PROFILE),
+		}, {
+			applied: false,
+			selected: currentFolder.toString(),
+			storedRecents: before,
+		});
+	});
+
+	test('hiding the popup preserves an in-flight browse choice', async () => {
+		const folder = URI.file('/local/browsed');
+		const result = new DeferredPromise<ISessionWorkspace | undefined>();
+		const started = new DeferredPromise<void>();
+		const action = {
+			...makeBrowseAction('local-1', SESSION_WORKSPACE_GROUP_LOCAL),
+			run: async () => { await started.complete(); return result.p; },
+		};
+		const provider = createMockProvider('local-1', { browseActions: [action] });
+		providersService.setProviders([provider]);
+		const storage = disposables.add(new TestStorageService());
+		const picker = createTestPicker(disposables, providersService, storage, undefined, DispatchingWorkspacePicker) as DispatchingWorkspacePicker;
+		const expectedRecents = [{ uri: folder.toJSON(), providerId: provider.id, checked: true }];
+		// The private hide hook closes presentation only; disposal cancels selection.
+		const popup = picker as unknown as { _hidePicker(): void };
+		popup._hidePicker();
+		const pending = picker.dispatchItem({ browseAction: action });
+		await started.p;
+		popup._hidePicker();
+		await result.complete(provider.resolveWorkspace(folder));
+		const applied = await pending;
+		const storedRecents = JSON.parse(storage.get(STORAGE_KEY_RECENT_WORKSPACES, StorageScope.PROFILE)!);
+
+		assert.deepStrictEqual({ applied, selected: picker.selectedFolderUri?.toString(), storedRecents }, {
+			applied: true,
+			selected: folder.toString(),
+			storedRecents: expectedRecents,
 		});
 	});
 
