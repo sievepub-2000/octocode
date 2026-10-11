@@ -43,6 +43,7 @@ export class ChatTipContentPart extends Disposable {
 	constructor(
 		tip: IChatTip,
 		private readonly _renderer: IMarkdownRenderer,
+		private readonly _handleCommandLink: ((link: string) => boolean) | undefined,
 		@IChatTipService private readonly _chatTipService: IChatTipService,
 		@IContextMenuService private readonly _contextMenuService: IContextMenuService,
 		@IMenuService private readonly _menuService: IMenuService,
@@ -140,9 +141,25 @@ export class ChatTipContentPart extends Disposable {
 	}
 
 	private async _handleTipAction(link: string, mdStr: IMarkdownString): Promise<void> {
+		if (this._store.isDisposed) {
+			return;
+		}
 		if (link.startsWith('command:') && this._shouldTriggerSetup()) {
 			const setupSucceeded = await this._commandService.executeCommand<boolean | undefined>(CHAT_SETUP_ACTION_ID);
 			if (!setupSucceeded) {
+				return;
+			}
+		}
+		if (this._store.isDisposed) {
+			return;
+		}
+
+		if (link.startsWith('command:') && this._handleCommandLink) {
+			const commandId = link.slice('command:'.length);
+			const isAllowed = mdStr.isTrusted === true || (mdStr.isTrusted
+				&& Array.isArray(mdStr.isTrusted.enabledCommands)
+				&& mdStr.isTrusted.enabledCommands.includes(commandId));
+			if (isAllowed && this._handleCommandLink(link)) {
 				return;
 			}
 		}

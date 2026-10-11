@@ -43,7 +43,6 @@ import { IChatPetService } from '../../../../workbench/contrib/chat/browser/chat
 import { IChatTipService } from '../../../../workbench/contrib/chat/browser/chatTipService.js';
 import { ChatContextKeys } from '../../../../workbench/contrib/chat/common/actions/chatContextKeys.js';
 import { ChatModeKind } from '../../../../workbench/contrib/chat/common/constants.js';
-import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 
 // #region --- New Chat Widget ---
 
@@ -117,7 +116,6 @@ export class NewChatWidget extends Disposable {
 		@IAgentFeedbackService private readonly agentFeedbackService: IAgentFeedbackService,
 		@IChatPetService private readonly chatPetService: IChatPetService,
 		@IChatTipService private readonly chatTipService: IChatTipService,
-		@IOpenerService private readonly openerService: IOpenerService,
 	) {
 		super();
 		this._workspacePickerVisibleKey = SessionWorkspacePickerVisibleContext.bindTo(contextKeyService);
@@ -196,28 +194,6 @@ export class NewChatWidget extends Disposable {
 		const chatModeKindKey = ChatContextKeys.chatModeKind.bindTo(contextKeyService);
 		chatModeKindKey.set(ChatModeKind.Agent);
 		this._register(toDisposable(() => chatModeKindKey.reset()));
-
-		// Route tip command links to this composer's own pickers
-		// so they do not fall through to IChatWidgetService.lastFocusedWidget
-		// (which this composer is not registered with).
-		this._register(this.openerService.registerOpener({
-			open: async (resource: URI | string): Promise<boolean> => {
-				if (!this._chatTipPart.value) {
-					return false;
-				}
-				const link = typeof resource === 'string' ? resource : resource.toString();
-				if (link === 'command:workbench.action.chat.openModelPicker') {
-					this._newChatInput.openModelPicker();
-					return true;
-				}
-				if (link === 'command:workbench.action.chat.openPlan') {
-					// Plan mode is not available in the new-session composer; consume
-					// the link without action so it does not misfire on a stale widget.
-					return true;
-				}
-				return false;
-			}
-		}));
 
 		this._register(this._workspacePicker.onDidSelectWorkspace(async folderUri => {
 			await this._onWorkspaceSelected(folderUri);
@@ -428,7 +404,15 @@ export class NewChatWidget extends Disposable {
 
 		const store = new DisposableStore();
 		const renderer = this.instantiationService.createInstance(ChatContentMarkdownRenderer);
-		const tipPart = store.add(this.instantiationService.createInstance(ChatTipContentPart, tip, renderer));
+		// Route these tip actions to this composer's own input, without a global opener.
+		const tipPart = store.add(this.instantiationService.createInstance(ChatTipContentPart, tip, renderer, link => {
+			if (link === 'command:workbench.action.chat.openModelPicker') {
+				this._newChatInput.openModelPicker();
+				return true;
+			}
+			// Plan mode is unavailable in this composer; retain the existing no-op.
+			return link === 'command:workbench.action.chat.openPlan';
+		}));
 		store.add(tipPart.onDidHide(() => {
 			this._clearChatTip();
 			// Restore focus to the input after the tip DOM is removed so keyboard
