@@ -315,8 +315,13 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 		if (session && session.sessionId !== current.sessionId) {
 			return;
 		}
-		this._newSession.set(undefined, undefined);
 		this._getProvider(current)?.deleteNewSession(current.sessionId);
+		// Synchronous cleanup may have removed this draft or published another.
+		const latest = this._newSession.get();
+		if (latest && latest !== current) {
+			return;
+		}
+		this._newSession.set(undefined, undefined);
 		this._onDidDiscardNewSession.fire(current);
 	}
 
@@ -337,7 +342,7 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 			}
 			workspace = provider.resolveWorkspace(folderUri);
 			if (!workspace) {
-				throw new Error(`Sessions provider '${options.providerId}' cannot resolve folder '${folderUri.toString()}'`);
+				throw new Error(`Sessions provider '${options.providerId}' cannot resolve the requested folder`);
 			}
 			if (options.sessionTypeId && !provider.getSessionTypes(folderUri).some(type => type.id === options.sessionTypeId)) {
 				throw new Error(`Sessions provider '${options.providerId}' does not advertise session type '${options.sessionTypeId}'`);
@@ -359,7 +364,7 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 				break;
 			}
 			if (!provider || !workspace) {
-				throw new Error(`No sessions provider can resolve folder '${folderUri.toString()}'`);
+				throw new Error('No sessions provider can resolve the requested folder');
 			}
 		}
 		let sessionTypeId = options?.sessionTypeId;
@@ -370,6 +375,21 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 			}
 		}
 		return { provider, sessionTypeId, workspace };
+	}
+
+	private _disposeReplacedNewSession(previous: ISession, session: ISession, provider: ISessionsProvider): void {
+		try {
+			this._getProvider(previous)?.deleteNewSession(previous.sessionId);
+		} catch (error) {
+			// This call owns the unpublished replacement, not the previous draft.
+			// Roll it back without changing the current pointer or masking the error.
+			try {
+				provider.deleteNewSession(session.sessionId);
+			} catch (cleanupError) {
+				this.logService.error('[SessionsManagement] Failed to dispose replacement draft:', cleanupError);
+			}
+			throw error;
+		}
 	}
 
 	createNewSession(folderUri: URI, options?: ICreateNewSessionOptions): ISession {
@@ -383,7 +403,7 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 		// because switching workspace can switch providers. Done after a
 		// successful create so a throw above leaves the previous one intact.
 		if (previousNewSession && previousNewSession.sessionId !== session.sessionId) {
-			this._getProvider(previousNewSession)?.deleteNewSession(previousNewSession.sessionId);
+			this._disposeReplacedNewSession(previousNewSession, session, provider);
 			// Terminal ownership must move before the replacement is published:
 			// publishing eagerly ensures a terminal for the new draft.
 			this._onDidReplaceNewDraftSession.fire({ from: previousNewSession, to: session });
@@ -453,15 +473,14 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 
 		const previousNewSession = this._newSession.get();
 		const session = provider.createQuickChat(sessionTypeId);
+
+		// Clean up before publishing or persisting the replacement. On failure,
+		// roll back only the draft created by this call and preserve the error.
+		if (previousNewSession && previousNewSession.sessionId !== session.sessionId) {
+			this._disposeReplacedNewSession(previousNewSession, session, provider);
+		}
 		this._newSession.set(session, undefined);
 		this.storageService.store(LAST_USED_QUICK_CHAT_SESSION_TYPE_STORAGE_KEY, sessionTypeId, StorageScope.PROFILE, StorageTarget.USER);
-
-		// Mirror `createNewSession`: dispose the previous new session this
-		// composer just replaced, using its own provider, after a successful
-		// create so a throw above leaves the previous one intact.
-		if (previousNewSession && previousNewSession.sessionId !== session.sessionId) {
-			this._getProvider(previousNewSession)?.deleteNewSession(previousNewSession.sessionId);
-		}
 		return session;
 	}
 
@@ -474,7 +493,7 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 		// `forceNew` skips reuse so callers can reset the composer right after
 		// sending a chat (which may still transiently report `Untitled`).
 		if (!options?.forceNew) {
-			const existingUntitled = session.chats.get().find(c => c.status.get() === SessionStatus.Untitled);
+			const existingUntitled = session.chats.get().find(c => c.status.get() === SessionStatus.Untitled && !this._pendingSendChatResources.has(c.resource.toString()));
 			if (existingUntitled) {
 				return existingUntitled;
 			}
@@ -635,8 +654,8 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 	 * this request and never sets it as pending/active. Intended for callers
 	 * outside the composer that want to kick off a session programmatically.
 	 *
-	 * If the send or any configuration setter fails, the stranded draft is
-	 * disposed through its provider and the error is rethrown.
+	 * If the send or any configuration setter fails, draft cleanup is attempted
+	 * through its provider and the original error is rethrown.
 	 */
 	async createAndSendNewChatRequest(folderUri: URI, options: ISendRequestOptions, createOptions?: ICreateNewSessionOptions, token: CancellationToken = CancellationToken.None): Promise<ISession | undefined> {
 		const { provider, sessionTypeId, workspace } = this._resolveProviderForNewSession(folderUri, createOptions);

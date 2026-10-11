@@ -48,7 +48,19 @@ export interface IProviderSessionType {
 }
 
 /**
- * Options for {@link ISessionsManagementService.createNewSession}.
+ * Provider/type selection for new workspace sessions and workspace-less quick chats.
+ * {@link ISessionsManagementService.createNewSession} and
+ * {@link ISessionsManagementService.createQuickChat} use only `providerId` and
+ * `sessionTypeId`. The configuration fields below are applied only by
+ * {@link ISessionsManagementService.createAndSendNewChatRequest} and
+ * {@link ISessionsManagementService.createAndSendQuickChatRequest}.
+ *
+ * If an implemented configuration setter or the send fails, the service attempts
+ * to dispose the draft through its provider and rejects with the original error.
+ * A cleanup failure is logged separately; provider/backend side effects are not
+ * transactionally rolled back. Missing optional setters are skipped.
+ * Repository configuration applies only to workspace-bound session types that
+ * advertise `supportsWorktreeConfiguration`; quick chats skip those fields.
  */
 export interface ICreateNewSessionOptions {
 	/**
@@ -56,17 +68,21 @@ export interface ICreateNewSessionOptions {
 	 * iterates registered providers and picks the first one whose
 	 * {@link ISessionsProvider.resolveWorkspace} succeeds for the folder URI
 	 * (and, when `sessionTypeId` is given, whose `getSessionTypes` includes it).
+	 * Quick chats instead select the first provider (by `order`) advertising
+	 * `supportsQuickChats` and, when specified, the requested session type.
 	 */
 	readonly providerId?: string;
 	/**
 	 * The session type to use. When omitted, defaults to the first type the
-	 * chosen provider advertises for the folder URI.
+	 * chosen provider advertises for the folder URI. Quick chats prefer the
+	 * last-used type when still advertised, then the provider's first type.
 	 */
 	readonly sessionTypeId?: string;
 	/**
 	 * Optional model identifier to apply to the new session via
-	 * {@link ISessionsProvider.setModel}. If the provider throws, the
-	 * stranded draft is disposed and the error propagates.
+	 * {@link ISessionsProvider.setModel}. An unavailable model rejects;
+	 * a pending model waits for resolution, cancellation, or target removal.
+	 * Setter/send failures follow the cleanup contract above.
 	 */
 	readonly modelId?: string;
 	/**
@@ -83,20 +99,25 @@ export interface ICreateNewSessionOptions {
 	 */
 	readonly permissionLevel?: string;
 	/**
-	 * Optional worktree isolation mode (`worktree` or `workspace`) to apply
-	 * via {@link ISessionsProvider.setIsolationMode}. Skipped if the
-	 * provider does not implement the setter.
+	 * Optional provider-defined repository isolation value to apply via
+	 * {@link ISessionsProvider.setIsolationMode}. Agent-host providers map
+	 * `workspace` to `folder` and also support `worktree`; valid values depend
+	 * on the provider's configuration schema. Applied only to workspace-bound
+	 * session types advertising `supportsWorktreeConfiguration`.
 	 */
 	readonly isolationMode?: string;
 	/**
 	 * Optional git branch to apply via {@link ISessionsProvider.setBranch}.
-	 * Skipped if the provider does not implement the setter.
+	 * Applied only to workspace-bound session types advertising
+	 * `supportsWorktreeConfiguration` and implementing the setter.
 	 */
 	readonly branch?: string;
 	/**
 	 * Optional branch tracking preference to apply via
 	 * {@link ISessionsProvider.setWorktreeBranchTrack}. This is intended for
 	 * programmatic session creation and is not surfaced in the new-session UI.
+	 * Applied only to workspace-bound session types advertising
+	 * `supportsWorktreeConfiguration` and implementing the setter.
 	 */
 	readonly worktreeBranchTrack?: boolean;
 }
@@ -173,6 +194,10 @@ export interface IActiveSession extends ISession {
 	/** The currently active chat within this session. */
 	readonly activeChat: IObservable<IChat>;
 
+	/**
+	 * Whether the provider-reported session status differs from `Untitled`.
+	 * This view state does not prove eager backend creation or send completion.
+	 */
 	readonly isCreated: IObservable<boolean>;
 
 	/** Whether this session is sticky in the sessions part's grid. */
@@ -374,7 +399,7 @@ export interface ISessionsManagementService {
 	 * When `options.providerId` is omitted, picks the first registered provider
 	 * (by `order`) that sets {@link ISessionsProvider.supportsQuickChats}. When
 	 * `options.sessionTypeId` is omitted, defaults to the chosen provider's
-	 * first advertised quick-chat session type.
+	 * last-used type when still advertised, then its first type.
 	 *
 	 * Tracks the created session as the new session and returns it. Does not
 	 * make it active/visible — the `ISessionsService` shows it.
@@ -382,8 +407,9 @@ export interface ISessionsManagementService {
 	createQuickChat(options?: ICreateNewSessionOptions): ISession;
 
 	/**
-	 * Create (or reuse an existing untitled) chat in the given session via its
-	 * provider so it can be shown as the new-chat-in-session view. Pass
+	 * Create (or reuse an untitled chat not currently being sent by this service)
+	 * in the given session via its provider so it can be shown as the
+	 * new-chat-in-session view. Pass
 	 * {@link ICreateNewChatInSessionOptions.forceNew} to always create a fresh
 	 * chat. Returns the chat, or `undefined` when the provider could not be
 	 * resolved.
@@ -422,7 +448,9 @@ export interface ISessionsManagementService {
 	 * - When `session` is provided, discards only if it is the current new
 	 *   session (so closing an unrelated session never drops the draft).
 	 *
-	 * No-op when there is no matching new session.
+	 * No-op when there is no matching new session. The same current draft is
+	 * cleared only after synchronous provider cleanup succeeds; cleanup errors
+	 * propagate. Completion of provider/backend asynchronous cleanup is separate.
 	 */
 	discardNewSession(session?: ISession): void;
 
@@ -443,14 +471,18 @@ export interface ISessionsManagementService {
 	 * commits it, while the user's current view is left untouched. Intended for
 	 * callers outside the new-session composer that want to kick off a session
 	 * programmatically. Returns the committed session, or `undefined` if the
-	 * service was disposed during the send. Rejects (after disposing the
-	 * stranded draft) if the send fails.
+	 * service was disposed during the send. A configuration or send failure
+	 * attempts draft cleanup and rejects with the original error; secondary
+	 * cleanup errors are logged separately.
 	 */
 	createAndSendNewChatRequest(folderUri: URI, options: ISendRequestOptions, createOptions?: ICreateNewSessionOptions, token?: CancellationToken): Promise<ISession | undefined>;
 
 	/**
 	 * Create a workspace-less quick chat and send a request without navigating
 	 * into it. The quick chat appears in the sessions list after commit.
+	 * `isolationMode`, `branch`, and `worktreeBranchTrack` are ignored because
+	 * the session has no workspace. Other configuration/send failures follow
+	 * the draft cleanup contract on {@link ICreateNewSessionOptions}.
 	 */
 	createAndSendQuickChatRequest(options: ISendRequestOptions, createOptions?: ICreateNewSessionOptions, token?: CancellationToken): Promise<ISession | undefined>;
 

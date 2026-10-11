@@ -34,6 +34,7 @@ import { ISessionChangeEvent, ISendRequestOptions, ISessionModelsSnapshot, ISess
 import { SessionsManagementService } from '../../browser/sessionsManagementService.js';
 import { ISessionsManagementService, ISendRequestLifecycleEvent, ICreateNewSessionOptions, inheritableSessionTarget, WorkspaceNotTrustedError } from '../../common/sessionsManagement.js';
 import { SessionsService } from '../../browser/sessionsService.js';
+import { SessionsNavigation } from '../../browser/sessionNavigation.js';
 import { ISessionsPartService } from '../../browser/sessionsPartService.js';
 import { CustomViewService, ICustomViewService } from '../../../customView/browser/customViewService.js';
 import { ISessionsProvidersService } from '../../browser/sessionsProvidersService.js';
@@ -337,6 +338,293 @@ suite('SessionsManagementService', () => {
 
 		// The active session should remain unchanged
 		assert.strictEqual(view.activeSession.get()?.sessionId, 'original');
+	});
+
+	suite('residual cleanup and composer guards', () => {
+		function workspace(uri: URI): ISessionWorkspace {
+			return { uri, label: 'Residual test', icon: Codicon.folder, folders: [], requiresWorkspaceTrust: false, isVirtualWorkspace: false };
+		}
+
+		test('discard preserves tracking on cleanup throw unless the provider already removed the draft', async () => {
+			const draft = stubSession({ sessionId: 'residual-discard', providerId: 'test' });
+			const primary = new Error('synthetic discard cleanup failure');
+			const changes = disposables.add(new Emitter<ISessionChangeEvent>());
+			let removeBeforeThrow = false;
+			const provider = new class extends TestSessionsProvider {
+				override readonly onDidChangeSessions = changes.event;
+				override resolveWorkspace(uri: URI): ISessionWorkspace { return workspace(uri); }
+				override deleteNewSession(): void {
+					if (removeBeforeThrow) {
+						changes.fire({ added: [], removed: [draft], changed: [] });
+					}
+					throw primary;
+				}
+			}(draft);
+			const { service, view } = createSessionsManagementService(draft, disposables, provider);
+			service.createNewSession(URI.parse('test:///residual-folder'));
+			await view.openSession(draft.resource);
+			const discarded: ISession[] = [];
+			disposables.add(service.onDidDiscardNewSession(session => discarded.push(session)));
+			assert.throws(function () { view.closeSession(draft); }, function (error: unknown): boolean { return error === primary; });
+			assert.strictEqual(service.newSession.get(), draft);
+			assert.strictEqual(view.activeSession.get()?.sessionId, draft.sessionId);
+			assert.deepStrictEqual(discarded, []);
+			removeBeforeThrow = true;
+			assert.throws(function () { service.discardNewSession(draft); }, function (error: unknown): boolean { return error === primary; });
+			assert.strictEqual(service.newSession.get(), undefined);
+			assert.deepStrictEqual(discarded, []);
+		});
+
+		test('discard does not clear a synchronously published replacement and emits after successful provider removal', () => {
+			const first = stubSession({ sessionId: 'residual-reentry-first', providerId: 'test' });
+			const next = stubSession({ sessionId: 'residual-reentry-next', providerId: 'test' });
+			const changes = disposables.add(new Emitter<ISessionChangeEvent>());
+			let created = false;
+			let reenter: (() => void) | undefined;
+			const provider = new class extends TestSessionsProvider {
+				override readonly onDidChangeSessions = changes.event;
+				override resolveWorkspace(uri: URI): ISessionWorkspace { return workspace(uri); }
+				override createNewSession(): ISession {
+					const result = created ? next : first;
+					created = true;
+					return result;
+				}
+				override deleteNewSession(sessionId: string): void {
+					if (sessionId === first.sessionId && reenter) {
+						const callback = reenter;
+						reenter = undefined;
+						callback();
+					} else if (sessionId === next.sessionId) {
+						changes.fire({ added: [], removed: [next], changed: [] });
+					}
+				}
+			}(first);
+			const { service } = createSessionsManagementService(first, disposables, provider);
+			const folder = URI.parse('test:///residual-folder');
+			service.createNewSession(folder);
+			const discarded: ISession[] = [];
+			disposables.add(service.onDidDiscardNewSession(session => discarded.push(session)));
+			reenter = () => { service.createNewSession(folder); };
+			service.discardNewSession(first);
+			assert.strictEqual(service.newSession.get(), next);
+			assert.deepStrictEqual(discarded, []);
+			service.discardNewSession(next);
+			assert.strictEqual(service.newSession.get(), undefined);
+			assert.deepStrictEqual(discarded, [next]);
+		});
+
+		test('workspace replacement failure cleans only its unpublished draft and retains the primary error', () => {
+			for (const secondaryFails of [false, true]) {
+				const previous = stubSession({ sessionId: `residual-workspace-old-${secondaryFails}`, providerId: 'old-provider' });
+				const replacement = stubSession({ sessionId: `residual-workspace-new-${secondaryFails}`, providerId: 'new-provider' });
+				const primary = new Error('synthetic old workspace cleanup failure');
+				const secondary = new Error('synthetic replacement cleanup failure');
+				const calls: string[] = [];
+				const logged: unknown[][] = [];
+				const logService = new class extends NullLogService {
+					override error(...args: unknown[]): void { logged.push(args); }
+				};
+				const oldProvider = new class extends TestSessionsProvider {
+					override readonly id = 'old-provider';
+					override resolveWorkspace(uri: URI): ISessionWorkspace { return workspace(uri); }
+					override deleteNewSession(id: string): void { calls.push(`old:${id}`); throw primary; }
+				}(previous);
+				const newProvider = new class extends TestSessionsProvider {
+					override readonly id = 'new-provider';
+					override resolveWorkspace(uri: URI): ISessionWorkspace { return workspace(uri); }
+					override deleteNewSession(id: string): void {
+						calls.push(`new:${id}`);
+						if (secondaryFails) { throw secondary; }
+					}
+				}(replacement);
+				const { service } = createSessionsManagementService(previous, disposables, oldProvider, undefined, undefined, { providers: [oldProvider, newProvider], logService });
+				const replacements: unknown[] = [];
+				disposables.add(service.onDidReplaceNewDraftSession(event => replacements.push(event)));
+				const folder = URI.parse('test:///residual-folder');
+				service.createNewSession(folder, { providerId: oldProvider.id });
+				assert.throws(function () { service.createNewSession(folder, { providerId: newProvider.id }); }, function (error: unknown): boolean { return error === primary; });
+				assert.strictEqual(service.newSession.get(), previous);
+				assert.deepStrictEqual(calls, [`old:${previous.sessionId}`, `new:${replacement.sessionId}`]);
+				assert.deepStrictEqual(replacements, []);
+				assert.strictEqual(logged.some(args => args.includes(secondary)), secondaryFails);
+			}
+		});
+
+		test('quick replacement failure does not publish or persist and retains the primary cleanup error', () => {
+			const storeObserver = sinon.spy(InMemoryStorageService.prototype, 'store');
+			try {
+				for (const secondaryFails of [false, true]) {
+					const previous = stubSession({ sessionId: `residual-quick-old-${secondaryFails}`, providerId: 'old-provider' });
+					const replacement = stubSession({ sessionId: `residual-quick-new-${secondaryFails}`, providerId: 'quick-provider' });
+					const primary = new Error('synthetic old quick cleanup failure');
+					const secondary = new Error('synthetic new quick cleanup failure');
+					const calls: string[] = [];
+					const published: ISession[] = [];
+					const logged: unknown[][] = [];
+					const logService = new class extends NullLogService {
+						override error(...args: unknown[]): void { logged.push(args); }
+					};
+					const oldProvider = new class extends TestSessionsProvider {
+						override readonly id = 'old-provider';
+						override resolveWorkspace(uri: URI): ISessionWorkspace { return workspace(uri); }
+						override deleteNewSession(id: string): void { calls.push(`old:${id}`); throw primary; }
+					}(previous);
+					const quickProvider = new class extends TestSessionsProvider {
+						override readonly id = 'quick-provider';
+						override readonly supportsQuickChats = true;
+						override createQuickChat(): ISession { return replacement; }
+						override deleteNewSession(id: string): void {
+							calls.push(`quick:${id}`);
+							if (secondaryFails) { throw secondary; }
+						}
+					}(replacement);
+					const { service } = createSessionsManagementService(previous, disposables, oldProvider, undefined, undefined, { providers: [oldProvider, quickProvider], logService });
+					service.createNewSession(URI.parse('test:///residual-folder'), { providerId: oldProvider.id });
+					disposables.add(autorun(reader => {
+						const current = service.newSession.read(reader);
+						if (current === replacement) { published.push(current); }
+					}));
+					assert.throws(function () { service.createQuickChat({ providerId: quickProvider.id }); }, function (error: unknown): boolean { return error === primary; });
+					assert.strictEqual(service.newSession.get(), previous);
+					assert.deepStrictEqual(published, []);
+					assert.deepStrictEqual(calls, [`old:${previous.sessionId}`, `quick:${replacement.sessionId}`]);
+					assert.strictEqual(logged.some(args => args.includes(secondary)), secondaryFails);
+				}
+				assert.strictEqual(storeObserver.getCalls().filter(call => call.args[0] === 'sessions.quickChat.lastUsedSessionType').length, 0);
+			} finally {
+				storeObserver.restore();
+			}
+		});
+
+		test('successful replacement cleans before publication and keeps workspace terminal-transfer ordering', () => {
+			const first = stubSession({ sessionId: 'residual-order-first', providerId: 'test' });
+			const second = stubSession({ sessionId: 'residual-order-second', providerId: 'test' });
+			const quick = stubSession({ sessionId: 'residual-order-quick', providerId: 'test' });
+			let createIndex = 0;
+			const order: string[] = [];
+			let currentDraft = (): ISession | undefined => undefined;
+			const provider = new class extends TestSessionsProvider {
+				override readonly supportsQuickChats = true;
+				override resolveWorkspace(uri: URI): ISessionWorkspace { return workspace(uri); }
+				override createNewSession(): ISession { return [first, second][createIndex++]; }
+				override createQuickChat(): ISession { return quick; }
+				override deleteNewSession(id: string): void { order.push(`delete:${id}:current=${currentDraft()?.sessionId}`); }
+			}(first);
+			const { service } = createSessionsManagementService(first, disposables, provider);
+			currentDraft = () => service.newSession.get();
+			disposables.add(service.onDidReplaceNewDraftSession(({ from, to }) => {
+				order.push(`replace:${from.sessionId}->${to.sessionId}:current=${currentDraft()?.sessionId}`);
+			}));
+			disposables.add(autorun(reader => {
+				const current = service.newSession.read(reader);
+				if (current) { order.push(`publish:${current.sessionId}`); }
+			}));
+			const folder = URI.parse('test:///residual-folder');
+			service.createNewSession(folder);
+			order.length = 0;
+			service.createNewSession(folder);
+			assert.deepStrictEqual(order, [`delete:${first.sessionId}:current=${first.sessionId}`, `replace:${first.sessionId}->${second.sessionId}:current=${first.sessionId}`, `publish:${second.sessionId}`]);
+			order.length = 0;
+			service.createQuickChat();
+			assert.deepStrictEqual(order, [`delete:${second.sessionId}:current=${second.sessionId}`, `publish:${quick.sessionId}`]);
+			assert.strictEqual(service.newSession.get(), quick);
+		});
+
+		test('resolution errors and view fallback output omit synthetic folder URI without changing the input', async () => {
+			const draft = stubSession({ sessionId: 'residual-uri', providerId: 'test' });
+			const folder = URI.from({ scheme: 'unsupported-test', authority: 'fixture-user:FAKE_TOKEN@invalid.local', path: '/synthetic-private-path', query: 'secret=FAKE_QUERY', fragment: 'FAKE_FRAGMENT' });
+			const before = folder.toString();
+			const seen: URI[] = [];
+			const traces: string[] = [];
+			const provider = new class extends TestSessionsProvider {
+				override resolveWorkspace(uri: URI): undefined { seen.push(uri); return undefined; }
+			}(draft);
+			const logService = new class extends NullLogService {
+				override trace(message: string): void { traces.push(message); }
+			};
+			const { service, view } = createSessionsManagementService(draft, disposables, provider, undefined, undefined, { logService });
+			assert.throws(function () { service.createNewSession(folder); }, function (error: unknown): boolean { return error instanceof Error && error.message === 'No sessions provider can resolve the requested folder'; });
+			assert.throws(function () { service.createNewSession(folder, { providerId: provider.id }); }, function (error: unknown): boolean { return error instanceof Error && error.message === 'Sessions provider \'test\' cannot resolve the requested folder'; });
+			const fallback = await view.openNewSession({ folderUri: folder });
+			assert.strictEqual(fallback.session, undefined);
+			assert.ok(traces.includes('[SessionsView] openNewSession: createNewSession failed, falling back to composer view'));
+			for (const trace of traces) {
+				assert.ok(!trace.includes(before));
+				for (const sensitive of ['FAKE_TOKEN', 'FAKE_QUERY', 'FAKE_FRAGMENT', 'synthetic-private-path']) {
+					assert.ok(!trace.includes(sensitive));
+				}
+			}
+			assert.ok(seen.length >= 3);
+			assert.ok(seen.every(uri => uri === folder));
+			assert.strictEqual(folder.toString(), before);
+		});
+
+		test('default new-chat gesture avoids a pending Untitled chat and releases tracking on success and failure', async () => {
+			for (const fails of [false, true]) {
+				const busy: IChat = { ...stubChat, resource: URI.parse(`test:///residual-busy-${fails}`), status: constObservable(SessionStatus.Untitled) };
+				const fresh: IChat = { ...stubChat, resource: URI.parse(`test:///residual-fresh-${fails}`), status: constObservable(SessionStatus.Untitled) };
+				const chats = observableValue<readonly IChat[]>('residualChats', [busy]);
+				const session = stubSession({ sessionId: `residual-busy-session-${fails}`, providerId: 'test', status: constObservable(SessionStatus.Completed), chats, mainChat: constObservable(busy), capabilities: constObservable({ supportsMultipleChats: true }) });
+				let complete!: (session: ISession) => void;
+				let reject!: (error: Error) => void;
+				const pending = new Promise<ISession>((resolve, fail) => { complete = resolve; reject = fail; });
+				let createCount = 0;
+				const provider = new class extends TestSessionsProvider {
+					override sendRequest(): Promise<ISession> { return pending; }
+					override async createNewChat(): Promise<IChat> {
+						createCount++;
+						chats.set([...chats.get(), fresh], undefined);
+						return fresh;
+					}
+				}(session);
+				const { service, view } = createSessionsManagementService(session, disposables, provider);
+				const send = service.sendRequest(session, busy, { query: 'synthetic pending send' });
+				const observed = send.then(() => undefined, (error: unknown) => error);
+				try {
+					await view.openNewChatInSession(session);
+					assert.strictEqual(createCount, 1);
+					assert.strictEqual(view.activeSession.get()?.activeChat.get().resource.toString(), fresh.resource.toString());
+					const failure = new Error('synthetic pending send failure');
+					if (fails) { reject(failure); } else { complete(session); }
+					assert.strictEqual(await observed, fails ? failure : undefined);
+					assert.strictEqual(await service.createNewChatInSession(session), busy);
+					assert.strictEqual(createCount, 1);
+				} finally {
+					complete(session);
+					await observed;
+				}
+			}
+		});
+	});
+
+	test('provider removal reaches navigation through management and view', async () => {
+		const sessions = ['residual-nav-1', 'residual-nav-2', 'residual-nav-3'].map(sessionId => {
+			const chat: IChat = { ...stubChat, resource: URI.parse(`test:///${sessionId}/chat`), status: constObservable(SessionStatus.Completed) };
+			return stubSession({ sessionId, providerId: 'test', status: constObservable(SessionStatus.Completed), chats: constObservable([chat]), mainChat: constObservable(chat) });
+		});
+		let available = [...sessions];
+		const changes = disposables.add(new Emitter<ISessionChangeEvent>());
+		const provider = new class extends TestSessionsProvider {
+			override readonly onDidChangeSessions = changes.event;
+			override getSessions(): ISession[] { return [...available]; }
+			override async setSessionReadState(): Promise<void> { }
+		}(sessions[0]);
+		const removalObserver = sinon.spy(SessionsNavigation.prototype, 'onDidRemoveSessions');
+		try {
+			const { view } = createSessionsManagementService(sessions[0], disposables, provider);
+			for (const session of sessions) {
+				await view.openSession(session.resource);
+			}
+			const event: ISessionChangeEvent = { added: [], removed: [sessions[1]], changed: [] };
+			available = [sessions[0], sessions[2]];
+			changes.fire(event);
+			assert.strictEqual(removalObserver.callCount, 1);
+			assert.strictEqual(removalObserver.firstCall.args[0], event);
+			await view.openPreviousSession();
+			assert.strictEqual(view.activeSession.get()?.sessionId, sessions[0].sessionId);
+		} finally {
+			removalObserver.restore();
+		}
 	});
 
 	test('getSessionForChatResource returns the session that owns the chat', () => {

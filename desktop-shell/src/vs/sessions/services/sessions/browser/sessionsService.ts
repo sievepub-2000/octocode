@@ -771,7 +771,7 @@ export class SessionsService extends Disposable implements ISessionsService {
 				// When the folder cannot be resolved (e.g. the active session's
 				// workspace uses an unsupported scheme like 'unknown:/'), fall
 				// through to the folder-less composer view.
-				this.logService.trace(`[SessionsView] openNewSession: createNewSession failed for folder ${folderUri.toString()}, falling back to composer view`);
+				this.logService.trace('[SessionsView] openNewSession: createNewSession failed, falling back to composer view');
 			}
 		}
 
