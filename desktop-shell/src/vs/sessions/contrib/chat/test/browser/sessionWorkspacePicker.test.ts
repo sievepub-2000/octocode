@@ -7,7 +7,7 @@ import assert from 'assert';
 import { DeferredPromise, timeout } from '../../../../../base/common/async.js';
 import { Codicon } from '../../../../../base/common/codicons.js';
 import { Emitter, Event } from '../../../../../base/common/event.js';
-import { Disposable, DisposableStore } from '../../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, IDisposable } from '../../../../../base/common/lifecycle.js';
 import { constObservable, ISettableObservable, observableValue } from '../../../../../base/common/observable.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
@@ -41,13 +41,20 @@ import { IWorkspacesService } from '../../../../../platform/workspaces/common/wo
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
 import { ICommandService } from '../../../../../platform/commands/common/commands.js';
-import { IContextViewService } from '../../../../../platform/contextview/browser/contextView.js';
+import { IContextViewDelegate, IContextViewService } from '../../../../../platform/contextview/browser/contextView.js';
 import { IFileDialogService } from '../../../../../platform/dialogs/common/dialogs.js';
 import { IContextKeyService } from '../../../../../platform/contextkey/common/contextkey.js';
-import { MockContextKeyService } from '../../../../../platform/keybinding/test/common/mockKeybindingService.js';
+import { MockContextKeyService, MockKeybindingService } from '../../../../../platform/keybinding/test/common/mockKeybindingService.js';
 import { IMenuService } from '../../../../../platform/actions/common/actions.js';
 import { INotification, INotificationHandle, INotificationService, NoOpNotification, NotificationMessage } from '../../../../../platform/notification/common/notification.js';
 import { TestNotificationService } from '../../../../../platform/notification/test/common/testNotificationService.js';
+import { getSingletonServiceDescriptors } from '../../../../../platform/instantiation/common/extensions.js';
+import { IKeybindingService } from '../../../../../platform/keybinding/common/keybinding.js';
+import { IHoverService } from '../../../../../platform/hover/browser/hover.js';
+import { NullHoverService } from '../../../../../platform/hover/test/browser/nullHoverService.js';
+import { ILayoutService } from '../../../../../platform/layout/browser/layoutService.js';
+import { IOpenerService } from '../../../../../platform/opener/common/opener.js';
+import { NullOpenerService } from '../../../../../platform/opener/test/common/nullOpenerService.js';
 
 // ---- Storage key (must match the one in sessionWorkspacePicker.ts) ----------
 const STORAGE_KEY_RECENT_WORKSPACES = 'sessions.recentlyPickedWorkspaces';
@@ -264,6 +271,63 @@ class TestAutomationsWorkspacePicker extends AutomationsWorkspacePicker {
 	}
 }
 
+class FlatBrowserWorkspacePicker extends WorkspacePicker {
+	protected override _showTabs(): boolean {
+		return false;
+	}
+}
+
+/** Uses the platform tabbed-widget test's context-view lifecycle with real list DOM. */
+class WorkspacePickerBrowserContextView extends Disposable implements Partial<IContextViewService> {
+	declare readonly _serviceBrand: undefined;
+	private _container: HTMLElement | undefined;
+	private _delegate: IContextViewDelegate | undefined;
+	private _renderDisposable: IDisposable | undefined;
+
+	constructor(private readonly host: HTMLElement) {
+		super();
+	}
+
+	showContextView(delegate: IContextViewDelegate): { close: () => void } {
+		this.hideContextView();
+		this._delegate = delegate;
+		const container = document.createElement('div');
+		container.className = 'context-view';
+		this._container = container;
+		this.host.appendChild(container);
+		const renderDisposable = delegate.render(container);
+		if (this._delegate === delegate) {
+			this._renderDisposable = renderDisposable;
+		} else {
+			renderDisposable.dispose();
+		}
+		return { close: () => this.hideContextView() };
+	}
+
+	hideContextView(): void {
+		const delegate = this._delegate;
+		const renderDisposable = this._renderDisposable;
+		const container = this._container;
+		this._delegate = undefined;
+		this._renderDisposable = undefined;
+		this._container = undefined;
+		delegate?.onHide?.();
+		renderDisposable?.dispose();
+		container?.remove();
+	}
+
+	getContextViewElement(): HTMLElement {
+		return this._container ?? this.host;
+	}
+
+	layout(): void { }
+
+	override dispose(): void {
+		this.hideContextView();
+		super.dispose();
+	}
+}
+
 // ---- Test helpers -----------------------------------------------------------
 
 function seedStorage(storageService: IStorageService, entries: { uri: URI; providerId: string; checked: boolean }[]): void {
@@ -286,6 +350,7 @@ function createTestPicker(
 	recentWorkspacesService?: ISessionsRecentWorkspacesService,
 	options?: IWorkspacePickerOptions,
 	commandService?: Partial<ICommandService>,
+	configureServices?: (instantiationService: TestInstantiationService) => void,
 ): WorkspacePicker {
 	const instantiationService = disposables.add(new TestInstantiationService());
 	const storage = storageService ?? disposables.add(new TestStorageService());
@@ -312,6 +377,8 @@ function createTestPicker(
 	instantiationService.stub(IWorkspacesService, workspacesService);
 	instantiationService.stub(ISessionsRecentWorkspacesService, recentWorkspacesService ?? disposables.add(instantiationService.createInstance(SessionsRecentWorkspacesService)));
 	instantiationService.stub(ITelemetryService, NullTelemetryService);
+
+	configureServices?.(instantiationService);
 
 	return disposables.add(instantiationService.createInstance(pickerCtor, options ?? {}));
 }
@@ -865,6 +932,54 @@ suite('WorkspacePicker - Connection Status', () => {
 		});
 	});
 
+	for (const choice of ['recent', 'browse'] as const) {
+		test(`reports a rejected workspace admission for a ${choice} choice`, async () => {
+			const currentFolder = URI.file('/local/current');
+			const proposedFolder = URI.file('/local/proposed');
+			const finish = new DeferredPromise<void>();
+			const started = new DeferredPromise<void>();
+			const failure = new Error('Workspace admission failed');
+			const notifications = new RecordingNotificationService();
+			const action: ISessionWorkspaceBrowseAction = {
+				...makeBrowseAction('local-1', SESSION_WORKSPACE_GROUP_LOCAL),
+				run: async () => provider.resolveWorkspace(proposedFolder),
+			};
+			const provider = createMockProvider('local-1', { browseActions: [action] });
+			providersService.setProviders([provider]);
+			const storage = disposables.add(new TestStorageService());
+			seedStorage(storage, [{ uri: currentFolder, providerId: provider.id, checked: true }]);
+			const before = storage.get(STORAGE_KEY_RECENT_WORKSPACES, StorageScope.PROFILE);
+			const picker = createTestPicker(disposables, providersService, storage, notifications, DispatchingWorkspacePicker, undefined, undefined, undefined, {
+				canSelectWorkspace: async () => {
+					await started.complete();
+					await finish.p;
+					throw failure;
+				},
+			}) as DispatchingWorkspacePicker;
+			const events: Array<URI | undefined> = [];
+			disposables.add(picker.onDidSelectWorkspace(e => events.push(e)));
+			const pending = choice === 'recent'
+				? picker.dispatchFolder(proposedFolder, provider.id)
+				: picker.dispatchItem({ browseAction: action });
+			await started.p;
+			await finish.complete();
+
+			assert.deepStrictEqual({
+				applied: await pending,
+				errors: notifications.errors,
+				selected: picker.selectedFolderUri?.toString(),
+				storedRecents: storage.get(STORAGE_KEY_RECENT_WORKSPACES, StorageScope.PROFILE),
+				events,
+			}, {
+				applied: false,
+				errors: [failure.message],
+				selected: currentFolder.toString(),
+				storedRecents: before,
+				events: [],
+			});
+		});
+	}
+
 	test('disposing during browse preserves selection and recent workspaces', async () => {
 		const currentFolder = URI.file('/local/current');
 		const proposedFolder = URI.file('/local/proposed');
@@ -1322,6 +1437,75 @@ suite('AutomationsWorkspacePicker', () => {
 			trustRequests: [{ folderUri: candidateFolder.toString(), providerId: provider.id }],
 			modelFolderUri: selectedFolder.toString(),
 			pickerFolderUri: selectedFolder.toString(),
+		});
+	});
+
+	test('a rejected automation workspace trust keeps the previous workspace and recent records', async () => {
+		const providersService = disposables.add(new MockSessionsProvidersService());
+		const provider = createMockProvider('local-1');
+		const selectedFolder = URI.file('/local/selected');
+		const candidateFolder = URI.file('/local/candidate');
+		const storage = disposables.add(new TestStorageService());
+		seedStorage(storage, [
+			{ uri: selectedFolder, providerId: provider.id, checked: true },
+			{ uri: candidateFolder, providerId: provider.id, checked: false },
+		]);
+		providersService.setProviders([provider]);
+		const before = storage.get(STORAGE_KEY_RECENT_WORKSPACES, StorageScope.PROFILE);
+		const notifications = new RecordingNotificationService();
+		const started = new DeferredPromise<void>();
+		const finish = new DeferredPromise<void>();
+		const failure = new Error('Automation workspace trust failed');
+		const requests: Array<{ folderUri: string; providerId: string | undefined }> = [];
+		const picker = createTestPicker(
+			disposables,
+			providersService,
+			storage,
+			notifications,
+			TestAutomationsWorkspacePicker,
+			{},
+			undefined,
+			undefined,
+			{
+				canSelectWorkspace: async (folderUri, providerId) => {
+					requests.push({ folderUri: folderUri.toString(), providerId });
+					await started.complete();
+					await finish.p;
+					throw failure;
+				},
+			},
+		) as TestAutomationsWorkspacePicker;
+		const model = new AutomationIsolationModel({
+			isQuickChat: false,
+			folderUri: selectedFolder,
+			isolationMode: 'workspace',
+			branch: undefined,
+		});
+		picker.setTargetModel(model);
+		const events: Array<string | undefined> = [];
+		disposables.add(picker.onDidSelectWorkspace(uri => events.push(uri?.toString())));
+
+		const pending = picker.select('local/candidate');
+		await started.p;
+		await finish.complete();
+		await pending;
+
+		assert.deepStrictEqual({
+			requests,
+			errors: notifications.errors,
+			modelFolderUri: model.folderUri?.toString(),
+			pickerFolderUri: picker.selectedFolderUri?.toString(),
+			isQuickChat: model.isQuickChat,
+			storedRecents: storage.get(STORAGE_KEY_RECENT_WORKSPACES, StorageScope.PROFILE),
+			events,
+		}, {
+			requests: [{ folderUri: candidateFolder.toString(), providerId: provider.id }],
+			errors: [failure.message],
+			modelFolderUri: selectedFolder.toString(),
+			pickerFolderUri: selectedFolder.toString(),
+			isQuickChat: false,
+			storedRecents: before,
+			events: [],
 		});
 	});
 
@@ -1790,4 +1974,92 @@ suite('WorkspacePicker - Tab discovery', () => {
 		// browse actions and the always-present Remote group contribute tabs.
 		assert.deepStrictEqual(picker.getAvailableTabs(), [SESSION_WORKSPACE_GROUP_REMOTE]);
 	});
+});
+
+suite('WorkspacePicker - Browser accessibility', () => {
+	const disposables = new DisposableStore();
+	teardown(() => disposables.clear());
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	for (const mode of ['flat', 'tabbed'] as const) {
+		test(`${mode} browse rows keep the host in their accessible name and dispatch the selected action`, async () => {
+			const host = document.createElement('div');
+			host.style.width = '500px';
+			host.style.height = '400px';
+			document.body.appendChild(host);
+			disposables.add({ dispose: () => host.remove() });
+			const contextView = disposables.add(new WorkspacePickerBrowserContextView(host));
+			const providersService = disposables.add(new MockSessionsProvidersService());
+			const calls: string[] = [];
+			const chosen = new DeferredPromise<void>();
+			const actions = ['Fixture Host A', 'Fixture Host B'].map((description, index) => ({
+				...makeBrowseAction(index === 0 ? 'agenthost-remote-1' : 'agenthost-fixture-b', SESSION_WORKSPACE_GROUP_REMOTE),
+				description,
+				run: async () => { calls.push(description); await chosen.complete(); return undefined; },
+			}));
+			const first = createMockProvider('agenthost-remote-1', {
+				connectionStatus: observableValue<RemoteAgentHostConnectionStatus>('firstStatus', RemoteAgentHostConnectionStatus.connected),
+				browseActions: [actions[0]],
+			});
+			providersService.setProviders([
+				{
+					...first,
+					resolveWorkspace: uri => {
+						const workspace = first.resolveWorkspace(uri);
+						return workspace ? { ...workspace, group: SESSION_WORKSPACE_GROUP_REMOTE } : undefined;
+					},
+				},
+				createMockProvider('agenthost-fixture-b', {
+					connectionStatus: observableValue<RemoteAgentHostConnectionStatus>('secondStatus', RemoteAgentHostConnectionStatus.connected),
+					browseActions: [actions[1]],
+				}),
+				createMockProvider('local-1', { browseActions: [makeBrowseAction('local-1', SESSION_WORKSPACE_GROUP_LOCAL)] }),
+			]);
+			const storage = disposables.add(new TestStorageService());
+			seedStorage(storage, [{ uri: URI.file('/remote/current'), providerId: first.id, checked: true }]);
+			const picker = createTestPicker(
+				disposables, providersService, storage, undefined,
+				mode === 'flat' ? FlatBrowserWorkspacePicker : WorkspacePicker,
+				undefined, undefined, undefined, undefined, undefined,
+				instantiationService => {
+					instantiationService.stub(IContextViewService, contextView);
+					instantiationService.set(IKeybindingService, new MockKeybindingService());
+					instantiationService.set(IHoverService, NullHoverService);
+					instantiationService.set(IOpenerService, NullOpenerService);
+					instantiationService.stub(ILayoutService, {
+						getContainer: () => host,
+						mainContainer: host,
+					});
+					// Instantiate the registered production service in this test's own DI scope.
+					const registration = getSingletonServiceDescriptors().find(([id]) => id === IActionWidgetService);
+					assert.ok(registration, 'Expected the registered action-widget service');
+					const widget = disposables.add(instantiationService.createInstance<IActionWidgetService & IDisposable>(registration[1]));
+					instantiationService.stub(IActionWidgetService, widget);
+				},
+			);
+			try {
+				picker.render(host);
+				picker.showPicker();
+				assert.strictEqual(host.querySelector('.sessions-workspace-picker-tabbar') !== null, mode === 'tabbed');
+				const rows = Array.from(host.querySelectorAll<HTMLElement>('.actionList .monaco-list-row[role="option"]'));
+				const hostRows = ['Fixture Host A', 'Fixture Host B'].map(description => {
+					const matches = rows.filter(row => row.textContent?.includes(description));
+					assert.strictEqual(matches.length, 1, `Expected one browse row for ${description}`);
+					return matches[0];
+				});
+				const names = hostRows.map(row => row.getAttribute('aria-label'));
+				assert.ok(names[0]?.includes('Fixture Host A'), 'First option must announce its host');
+				assert.ok(names[1]?.includes('Fixture Host B'), 'Second option must announce its host');
+				assert.ok(!names[0]?.includes('Fixture Host B') && !names[1]?.includes('Fixture Host A'), 'Host names must stay with their own rows');
+				assert.notStrictEqual(names[0], names[1]);
+				hostRows[1].click();
+				await chosen.p;
+				assert.deepStrictEqual(calls, ['Fixture Host B']);
+			} finally {
+				contextView.hideContextView();
+				picker.dispose();
+				host.remove();
+			}
+		});
+	}
 });

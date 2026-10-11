@@ -460,7 +460,6 @@ export class WorkspacePicker extends Disposable {
 			undefined,
 			[],
 			{
-				getAriaLabel: (item) => item.label ?? '',
 				getWidgetAriaLabel: () => localize('workspacePicker.ariaLabel', "Workspace Picker"),
 			},
 			this._buildListOptions(items, undefined),
@@ -481,7 +480,6 @@ export class WorkspacePicker extends Disposable {
 
 		const delegate = this._buildDelegate(triggerElement, () => this._hidePicker());
 		const accessibilityProvider = {
-			getAriaLabel: (item: IActionListItem<IWorkspacePickerItem>) => item.label ?? '',
 			getWidgetAriaLabel: () => localize('workspacePicker.ariaLabel', "Workspace Picker"),
 		};
 
@@ -727,8 +725,13 @@ export class WorkspacePicker extends Disposable {
 	}
 
 	private async _canSelectWorkspace(folderUri: URI, providerId: string | undefined): Promise<boolean> {
-		return !this.options.canSelectWorkspace
-			|| await this.options.canSelectWorkspace(folderUri, providerId);
+		try {
+			return !this.options.canSelectWorkspace
+				|| await this.options.canSelectWorkspace(folderUri, providerId);
+		} catch (error) {
+			this.notificationService.error(toErrorMessage(error));
+			return false;
+		}
 	}
 
 	/**
