@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { timeout } from '../../common/async.js';
-import { Cache, LRUCachedFunction, WeakCachedFunction } from '../../common/cache.js';
+import { Cache, CacheResult, LRUCachedFunction, WeakCachedFunction } from '../../common/cache.js';
 import { CancellationToken } from '../../common/cancellation.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from './utils.js';
 
@@ -177,5 +177,50 @@ suite('WeakCachedFunction key contract', function () {
 			});
 			assert.strictEqual(calls, 0);
 		}
+	});
+});
+
+suite('Cache - Result ownership', () => {
+	const store = ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('repeated disposal of an old result preserves a new entry with the same task Promise', async () => {
+		let calls = 0;
+		const promise = Promise.resolve(7);
+		const cache = new Cache<number>(() => { calls++; return promise; });
+		const first = store.add(cache.get());
+		first.dispose();
+		const second = store.add(cache.get());
+		assert.strictEqual(first.promise, second.promise, 'Promise identity cannot stand in for entry ownership');
+		first.dispose();
+		const actual = store.add(cache.get());
+		assert.strictEqual(actual, second);
+		assert.strictEqual(calls, 2);
+		assert.strictEqual(await actual.promise, 7);
+	});
+
+	test('an old result cannot invalidate the replacement created by its cancellation listener', async () => {
+		let calls = 0;
+		let cancellations = 0;
+		let replacement: CacheResult<number> | undefined;
+		const cache = new Cache<number>(token => {
+			const value = ++calls;
+			store.add(token.onCancellationRequested(() => {
+				cancellations++;
+				if (value === 1) {
+					replacement = store.add(cache.get());
+				}
+			}));
+			return Promise.resolve(value);
+		});
+		const first = store.add(cache.get());
+		first.dispose();
+		assert.ok(replacement);
+		assert.strictEqual(cancellations, 1);
+		first.dispose();
+		const actual = store.add(cache.get());
+		assert.strictEqual(actual, replacement);
+		assert.strictEqual(calls, 2);
+		assert.strictEqual(cancellations, 1);
+		assert.strictEqual(await actual.promise, 2);
 	});
 });

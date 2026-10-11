@@ -30,16 +30,19 @@ export class Cache<T> {
 			throw error;
 		}
 
-		this.result = {
+		const result: CacheResult<T> = {
 			promise,
 			dispose: () => {
-				this.result = null;
+				if (this.result === result) {
+					this.result = null;
+				}
 				cts.cancel();
 				cts.dispose();
 			}
 		};
 
-		return this.result;
+		this.result = result;
+		return result;
 	}
 }
 
