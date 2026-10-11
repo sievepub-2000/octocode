@@ -49,6 +49,12 @@ async function fixture(analyze: (test: string, classes: readonly string[]) => Pr
 }
 
 suite('assertHeap compiled helper with isolated counts data', function () {
+	suiteSetup(function () {
+		if (typeof vm.SourceTextModule !== 'function') {
+			this.skip();
+		}
+	});
+
 	ensureNoDisposablesAreLeakedInTestSuite();
 	test('failed analyzer or assertion teardown does not repeat its batch', async function () {
 		for (const failureAt of ['counts', 'assertion']) {
