@@ -517,6 +517,10 @@ suite('Buffer', () => {
 			// eslint-disable-next-line local/code-no-any-casts
 			buff.set({} as any);
 		});
+
+		// A valid input must still respect the target view's bounds.
+		assert.throws(() => buff.set(VSBuffer.fromString('abc'), 4), RangeError);
+		assert.throws(() => buff.set(new Uint8Array([1]), -1), RangeError);
 	});
 
 	test('equals', () => {

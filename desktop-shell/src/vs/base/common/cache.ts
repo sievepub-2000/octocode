@@ -54,6 +54,7 @@ interface ICacheOptions<TArg> {
 */
 export class LRUCachedFunction<TArg, TComputed> {
 	private lastCache: TComputed | undefined = undefined;
+	private hasCache = false;
 	private lastArgKey: unknown | undefined = undefined;
 
 	private readonly _fn: (arg: TArg) => TComputed;
@@ -73,9 +74,11 @@ export class LRUCachedFunction<TArg, TComputed> {
 
 	public get(arg: TArg): TComputed {
 		const key = this._computeKey(arg);
-		if (this.lastArgKey !== key) {
+		if (!this.hasCache || this.lastArgKey !== key) {
+			const value = this._fn(arg);
 			this.lastArgKey = key;
-			this.lastCache = this._fn(arg);
+			this.lastCache = value;
+			this.hasCache = true;
 		}
 		return this.lastCache!;
 	}

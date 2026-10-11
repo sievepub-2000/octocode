@@ -38,64 +38,30 @@ suite('Assert', () => {
 		test('generic error', () => {
 			const originalError = new Error('Oh no!');
 
-			try {
-				commonAssert(
-					false,
-					originalError,
-				);
-			} catch (thrownError) {
-				assert.strictEqual(
-					thrownError,
-					originalError,
-					'Must throw the provided error instance.',
-				);
-
-				assert.strictEqual(
-					thrownError.message,
-					'Oh no!',
-					'Must throw the provided error instance.',
-				);
-			}
+			assert.throws(() => commonAssert(false, originalError), function (thrownError: Error) {
+				assert.strictEqual(thrownError, originalError, 'Must throw the provided error instance.');
+				assert.strictEqual(thrownError.message, 'Oh no!', 'Must contain the expected message.');
+				return true;
+			});
 		});
 
 		test('cancellation error', () => {
 			const originalError = new CancellationError();
 
-			try {
-				commonAssert(
-					false,
-					originalError,
-				);
-			} catch (thrownError) {
-				assert.strictEqual(
-					thrownError,
-					originalError,
-					'Must throw the provided error instance.',
-				);
-			}
+			assert.throws(() => commonAssert(false, originalError), function (thrownError: Error) {
+				assert.strictEqual(thrownError, originalError, 'Must throw the provided error instance.');
+				return true;
+			});
 		});
 
 		test('readonly error', () => {
 			const originalError = new ReadonlyError('World');
 
-			try {
-				commonAssert(
-					false,
-					originalError,
-				);
-			} catch (thrownError) {
-				assert.strictEqual(
-					thrownError,
-					originalError,
-					'Must throw the provided error instance.',
-				);
-
-				assert.strictEqual(
-					thrownError.message,
-					'World is read-only and cannot be changed',
-					'Must throw the provided error instance.',
-				);
-			}
+			assert.throws(() => commonAssert(false, originalError), function (thrownError: Error) {
+				assert.strictEqual(thrownError, originalError, 'Must throw the provided error instance.');
+				assert.strictEqual(thrownError.message, 'World is read-only and cannot be changed', 'Must contain the expected message.');
+				return true;
+			});
 		});
 	});
 

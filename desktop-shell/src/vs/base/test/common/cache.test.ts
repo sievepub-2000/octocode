@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { timeout } from '../../common/async.js';
-import { Cache } from '../../common/cache.js';
+import { Cache, LRUCachedFunction } from '../../common/cache.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from './utils.js';
 
 suite('Cache', () => {
@@ -64,5 +64,50 @@ suite('Cache', () => {
 				assert.strictEqual(counter1, 2);
 				assert.strictEqual(counter2, 1);
 			});
+	});
+});
+
+
+suite('LRUCachedFunction', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('computes the first undefined identity key', () => {
+		let calls = 0;
+		const cache = new LRUCachedFunction<undefined, number>(() => ++calls);
+		assert.strictEqual(cache.get(undefined), 1);
+		assert.strictEqual(cache.get(undefined), 1);
+		assert.strictEqual(calls, 1);
+	});
+
+	test('computes the first undefined custom key', () => {
+		let calls = 0;
+		const cache = new LRUCachedFunction({ getCacheKey: (_arg: string) => undefined }, () => ++calls);
+		assert.strictEqual(cache.get('first'), 1);
+		assert.strictEqual(cache.get('same key'), 1);
+		assert.strictEqual(calls, 1);
+	});
+
+	test('caches a computed undefined value', () => {
+		let calls = 0;
+		const cache = new LRUCachedFunction<undefined, undefined>(() => { calls++; return undefined; });
+		assert.strictEqual(cache.get(undefined), undefined);
+		assert.strictEqual(cache.get(undefined), undefined);
+		assert.strictEqual(calls, 1);
+	});
+
+	test('does not commit a key when the computation throws', () => {
+		let calls = 0;
+		const error = new Error('calculation failed');
+		const cache = new LRUCachedFunction((arg: string) => {
+			calls++;
+			if (arg === 'failing' && calls === 2) { throw error; }
+			return arg;
+		});
+		assert.strictEqual(cache.get('previous'), 'previous');
+		assert.throws(() => cache.get('failing'), function (e: unknown) { return e === error; });
+		assert.strictEqual(cache.get('previous'), 'previous');
+		assert.strictEqual(calls, 2);
+		assert.strictEqual(cache.get('failing'), 'failing');
+		assert.strictEqual(calls, 3);
 	});
 });
