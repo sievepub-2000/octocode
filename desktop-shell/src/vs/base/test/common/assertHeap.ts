@@ -55,7 +55,7 @@ const snapshotMinTime = 20_000;
  * to run on the number of retained instances of that class. For example:
  *
  * ```ts
- * assertSnapshot({
+ * assertHeap({
  *	classes: {
  *		ShouldNeverLeak: count => assert.strictEqual(count, 0),
  *		SomeSingleton: count => assert(count <= 1),
@@ -65,7 +65,7 @@ const snapshotMinTime = 20_000;
  */
 export async function assertHeap(opts: ISnapshotAssertOptions) {
 	if (!currentTest) {
-		throw new Error('assertSnapshot can only be used when a test is running');
+		throw new Error('assertHeap can only be used when a test is running');
 	}
 
 	// snapshotting can take a moment, ensure the test timeout is decently long

@@ -8,7 +8,7 @@ import { AHPFileSystemProvider } from './agentHostFileSystemProvider.js';
 import { fromAgentClientUri, toAgentClientUri } from './agentClientUri.js';
 
 /**
- * Read-only filesystem provider for accessing client-side files from the
+ * Filesystem provider for accessing client-side files from the
  * agent host. Registered under the `vscode-agent-client` scheme.
  *
  * This is the inverse of {@link AgentHostFileSystemProvider}: where that
@@ -20,7 +20,7 @@ import { fromAgentClientUri, toAgentClientUri } from './agentClientUri.js';
  * ```
  *
  * Connections are registered per client ID. The connection implementation
- * must proxy `browseDirectory`/`fetchContent` calls back to the client
+ * must proxy `resourceList`/`resourceRead` calls back to the client
  * (e.g. via a reverse JSON-RPC request over the WebSocket transport).
  */
 export class AgentHostClientFileSystemProvider extends AHPFileSystemProvider {

@@ -412,7 +412,7 @@ suite('Buffer', () => {
 			assert.strictEqual(unit[1], 20);
 			assert.strictEqual(u2[0], 20);
 
-			unit[1] = 17; // modify unit, NOT b2
+			unit[1] = 17; // modify unit, NOT u2
 			assert.strictEqual(unit[1], 17);
 			assert.strictEqual(u2[0], 20);
 		}
@@ -424,7 +424,7 @@ suite('Buffer', () => {
 			assert.strictEqual(unit[1], 20);
 			assert.strictEqual(u2[0], 20);
 
-			unit[1] = 17; // modify unit AND b2
+			unit[1] = 17; // modify unit AND u2
 			assert.strictEqual(unit[1], 17);
 			assert.strictEqual(u2[0], 17);
 		}
