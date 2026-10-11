@@ -47,7 +47,7 @@ const waitFor = async (id) => {
   const response = responses.get(id)
   if (!response) {
     if (failure) throw failure
-    throw new Error(`response ${id} timeout: ${stderr || stdout}`)
+    throw new Error(`response ${id} timeout: ${stderr.trim() ? stderr : stdout}`)
   }
   if (Object.hasOwn(response, "error") || !response.result || typeof response.result !== "object" || Array.isArray(response.result)) {
     throw new Error(`response ${id} failed: ${JSON.stringify(response)}`)
@@ -61,7 +61,7 @@ try {
   send({ jsonrpc: "2.0", method: "notifications/initialized" })
   send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })
   const result = await waitFor(2)
-  if (!Array.isArray(result.tools)) throw new Error(`tools/list failed: ${stderr || stdout}`)
+  if (!Array.isArray(result.tools)) throw new Error(`tools/list failed: ${stderr.trim() ? stderr : stdout}`)
   console.log(stdout.trim())
 } finally {
   if (child.exitCode === null && child.signalCode === null && !child.killed) child.kill()

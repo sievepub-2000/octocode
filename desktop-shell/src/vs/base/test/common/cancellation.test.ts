@@ -5,6 +5,8 @@
 import assert from 'assert';
 import { CancellationToken, CancellationTokenSource, CancellationTokenPool } from '../../common/cancellation.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from './utils.js';
+import { Emitter } from '../../common/event.js';
+import { toDisposable } from '../../common/lifecycle.js';
 
 suite('CancellationToken', function () {
 
@@ -275,5 +277,118 @@ suite('CancellationTokenPool', function () {
 
 		source1.dispose();
 		source2.dispose();
+	});
+});
+
+suite('CancellationTokenPool - Registration reentrancy', () => {
+	const store = ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('counts cancellation occurring during first listener registration without losing the event', () => {
+		let requested = false;
+		const errors: unknown[] = [];
+		const emitter = store.add(new Emitter<void>({
+			onDidAddFirstListener: () => { requested = true; emitter.fire(); },
+			onListenerError: error => errors.push(error),
+		}));
+		const token: CancellationToken = {
+			get isCancellationRequested() { return requested; },
+			onCancellationRequested: (listener, thisArgs, disposables) => {
+				if (requested) {
+					return CancellationToken.Cancelled.onCancellationRequested(listener, thisArgs, disposables);
+				}
+				return emitter.event(listener, thisArgs, disposables);
+			},
+		};
+		const pool = store.add(new CancellationTokenPool());
+		assert.strictEqual(token.isCancellationRequested, false, 'Cancellation has not occurred before registration');
+		pool.add(token);
+		assert.strictEqual(token.isCancellationRequested, true);
+		assert.deepStrictEqual(errors, [], 'The actual Emitter must not receive a TDZ listener error');
+		assert.strictEqual(pool.token.isCancellationRequested, true);
+		assert.strictEqual(emitter.hasListeners(), false);
+	});
+
+	test('preserves a receiver-aware token and waits for the remaining registered token', () => {
+		let requested = false;
+		let registrationsDisposed = 0;
+		const token: CancellationToken = {
+			get isCancellationRequested() { return requested; },
+			onCancellationRequested(listener, thisArgs, disposables) {
+				assert.strictEqual(this, token, 'Retain the original public method receiver');
+				if (requested) {
+					return CancellationToken.Cancelled.onCancellationRequested(listener, thisArgs, disposables);
+				}
+				const registration = toDisposable(() => { registrationsDisposed++; });
+				disposables?.push(registration);
+				requested = true;
+				listener.call(thisArgs, undefined);
+				return registration;
+			},
+		};
+		const pending = new CancellationTokenSource();
+		store.add({ dispose: () => pending.dispose() });
+		const pool = store.add(new CancellationTokenPool());
+		let cancellations = 0;
+		store.add(pool.token.onCancellationRequested(() => { cancellations++; }));
+		pool.add(pending.token);
+		pool.add(token);
+		assert.strictEqual(registrationsDisposed, 1);
+		assert.strictEqual(pool.token.isCancellationRequested, false, 'One pending token still owns the pooled operation');
+		pending.cancel();
+		assert.strictEqual(pool.token.isCancellationRequested, true);
+		assert.strictEqual(cancellations, 1);
+		assert.strictEqual(registrationsDisposed, 1);
+	});
+});
+
+suite('CancellationTokenPool disposal', function () {
+	const store = ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('ignores uncancelled tokens after disposal without subscribing or reviving', function () {
+		const pool = store.add(new CancellationTokenPool());
+		const source = store.add(new CancellationTokenSource());
+		const sourceToken = source.token;
+		const poolToken = pool.token;
+		let registrations = 0;
+		let cancellations = 0;
+		const observed: CancellationToken = {
+			get isCancellationRequested() { return sourceToken.isCancellationRequested; },
+			onCancellationRequested(listener, thisArgs, disposables) {
+				registrations++;
+				return sourceToken.onCancellationRequested(listener, thisArgs, disposables);
+			}
+		};
+		store.add(poolToken.onCancellationRequested(() => cancellations++));
+		pool.dispose();
+		pool.add(observed);
+		source.cancel();
+		pool.dispose();
+		pool.add(observed);
+		assert.strictEqual(registrations, 0);
+		assert.strictEqual(cancellations, 0);
+		assert.strictEqual(pool.token, poolToken);
+		assert.strictEqual(poolToken.isCancellationRequested, false);
+	});
+
+	test('ignores already cancelled tokens after disposal without changing the pool token', function () {
+		const pool = store.add(new CancellationTokenPool());
+		const source = store.add(new CancellationTokenSource());
+		source.cancel();
+		const sourceToken = source.token;
+		const poolToken = pool.token;
+		let registrations = 0;
+		const observed: CancellationToken = {
+			get isCancellationRequested() { return sourceToken.isCancellationRequested; },
+			onCancellationRequested(listener, thisArgs, disposables) {
+				registrations++;
+				return sourceToken.onCancellationRequested(listener, thisArgs, disposables);
+			}
+		};
+		pool.dispose();
+		pool.add(observed);
+		pool.add(CancellationToken.Cancelled);
+		assert.strictEqual(registrations, 0);
+		assert.strictEqual(pool.token, poolToken);
+		assert.strictEqual(poolToken.isCancellationRequested, false);
 	});
 });

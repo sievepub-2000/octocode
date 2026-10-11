@@ -151,7 +151,7 @@ export function cancelOnDispose(store: DisposableStore): CancellationToken {
  * A pool that aggregates multiple cancellation tokens. The pool's own token
  * (accessible via `pool.token`) is cancelled only after every token added
  * to the pool has been cancelled. Adding tokens after the pool token has
- * been cancelled has no effect.
+ * been cancelled or the pool has been disposed has no effect.
  */
 export class CancellationTokenPool {
 
@@ -168,7 +168,7 @@ export class CancellationTokenPool {
 
 	/**
 	 * Add a token to the pool. If the token is already cancelled it is counted
-	 * immediately. Tokens added after the pool token has been cancelled are ignored.
+	 * immediately. Tokens added after cancellation or disposal are ignored.
 	 */
 	add(token: CancellationToken): void {
 		if (this._isDone) {
@@ -183,12 +183,15 @@ export class CancellationTokenPool {
 			return;
 		}
 
-		const d = token.onCancellationRequested(() => {
-			d.dispose();
+		const d = Event.once<void>(listener => token.onCancellationRequested(listener))(() => {
 			this._cancelled++;
 			this._check();
 		});
-		this._listeners.add(d);
+		if (this._listeners.isDisposed) {
+			d.dispose();
+		} else {
+			this._listeners.add(d);
+		}
 	}
 
 	private _check(): void {
@@ -200,6 +203,7 @@ export class CancellationTokenPool {
 	}
 
 	dispose(): void {
+		this._isDone = true;
 		this._listeners.dispose();
 		this._source.dispose();
 	}

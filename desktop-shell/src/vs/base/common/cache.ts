@@ -21,7 +21,14 @@ export class Cache<T> {
 		}
 
 		const cts = new CancellationTokenSource();
-		const promise = this.task(cts.token);
+		let promise: Promise<T>;
+		try {
+			promise = this.task(cts.token);
+		} catch (error) {
+			cts.cancel();
+			cts.dispose();
+			throw error;
+		}
 
 		this.result = {
 			promise,
@@ -123,7 +130,11 @@ export class CachedFunction<TArg, TComputed> {
 }
 
 /**
- * Uses an unbounded cache to memoize the results of the given function.
+ * Memoizes using weak keys: objects (including functions) or non-registered symbols.
+ * Without `getCacheKey`, the argument itself must be a weak key. A custom key
+ * function may map other argument types to weak keys. Invalid keys throw before
+ * the value function is called. `WeakKey` typing cannot distinguish registered
+ * symbols; symbols created with `Symbol.for` are not valid keys.
 */
 export class WeakCachedFunction<TArg, TComputed> {
 	private readonly _map = new WeakMap<WeakKey, TComputed>();
@@ -144,7 +155,12 @@ export class WeakCachedFunction<TArg, TComputed> {
 	}
 
 	public get(arg: TArg): TComputed {
-		const key = this._computeKey(arg) as WeakKey;
+		const key = this._computeKey(arg);
+		if (key === null
+			|| (typeof key !== 'object' && typeof key !== 'function' && typeof key !== 'symbol')
+			|| (typeof key === 'symbol' && Symbol.keyFor(key) !== undefined)) {
+			throw new TypeError('WeakCachedFunction cache key must be an object, function, or non-registered symbol');
+		}
 		if (this._map.has(key)) {
 			return this._map.get(key)!;
 		}

@@ -15,7 +15,8 @@ setup(function () {
 });
 
 suiteTeardown(async () => {
-	await Promise.all(snapshotsToAssert.map(async snap => {
+	const snapshots = snapshotsToAssert.splice(0);
+	await Promise.all(snapshots.map(async snap => {
 		const counts = await snap.counts;
 
 		const asserts = Object.entries(snap.opts.classes);
@@ -31,8 +32,6 @@ suiteTeardown(async () => {
 			}
 		}
 	}));
-
-	snapshotsToAssert.length = 0;
 });
 
 export interface ISnapshotAssertOptions {
@@ -78,7 +77,8 @@ export async function assertHeap(opts: ISnapshotAssertOptions) {
 		return; // running in browser, no-op
 	}
 
-	const { done, file } = await __analyzeSnapshotInTests(currentTest.fullTitle(), Object.keys(opts.classes));
-	snapshotsToAssert.push({ counts: done, file, test: currentTest.fullTitle(), opts });
+	const snapshotOpts: ISnapshotAssertOptions = { classes: { ...opts.classes } };
+	const { done, file } = await __analyzeSnapshotInTests(currentTest.fullTitle(), Object.keys(snapshotOpts.classes));
+	snapshotsToAssert.push({ counts: done, file, test: currentTest.fullTitle(), opts: snapshotOpts });
 }
 

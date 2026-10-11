@@ -5,7 +5,8 @@
 
 import assert from 'assert';
 import { timeout } from '../../common/async.js';
-import { Cache, LRUCachedFunction } from '../../common/cache.js';
+import { Cache, LRUCachedFunction, WeakCachedFunction } from '../../common/cache.js';
+import { CancellationToken } from '../../common/cancellation.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from './utils.js';
 
 suite('Cache', () => {
@@ -109,5 +110,72 @@ suite('LRUCachedFunction', () => {
 		assert.strictEqual(calls, 2);
 		assert.strictEqual(cache.get('failing'), 'failing');
 		assert.strictEqual(calls, 3);
+	});
+});
+
+suite('Cache - Synchronous task failure', () => {
+	const store = ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('cancels the inaccessible task token when a legal task throws before returning its Promise', () => {
+		const failure = new Error('synchronous task failure');
+		let token: CancellationToken | undefined;
+		let cancellations = 0;
+		const cache = new Cache<number>(candidate => {
+			token = candidate;
+			store.add(candidate.onCancellationRequested(() => { cancellations++; }));
+			throw failure;
+		});
+		assert.throws(() => cache.get(), function (error: unknown) { return error === failure; });
+		assert.ok(token);
+		assert.strictEqual(token.isCancellationRequested, true);
+		assert.strictEqual(cancellations, 1);
+	});
+
+});
+
+suite('WeakCachedFunction key contract', function () {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('reuses undefined values for object, function and non-registered symbol keys', function () {
+		const keys: WeakKey[] = [{}, function key() { }, Symbol('weak-key-fixture')];
+		let calls = 0;
+		const cache = new WeakCachedFunction<WeakKey, undefined>(() => { calls++; return undefined; });
+		for (const key of keys) {
+			assert.strictEqual(cache.get(key), undefined);
+			assert.strictEqual(cache.get(key), undefined);
+		}
+		assert.strictEqual(calls, keys.length);
+	});
+
+	test('allows primitive arguments with a custom object key', function () {
+		const key = {};
+		let calls = 0;
+		const cache = new WeakCachedFunction<string, string>({ getCacheKey: () => key }, arg => { calls++; return arg; });
+		assert.strictEqual(cache.get('first'), 'first');
+		assert.strictEqual(cache.get('second'), 'first');
+		assert.strictEqual(calls, 1);
+	});
+
+	test('rejects invalid identity keys before invoking the value function', function () {
+		const keys: unknown[] = [null, undefined, 'key', 1, true, 1n, Symbol.for('octocode-w41-invalid-fixture'), Symbol.for('')];
+		let calls = 0;
+		const cache = new WeakCachedFunction<unknown, number>(() => ++calls);
+		for (const key of keys) {
+			assert.throws(function () { cache.get(key); }, function (error: unknown): boolean {
+				return error instanceof TypeError && error.message === 'WeakCachedFunction cache key must be an object, function, or non-registered symbol';
+			});
+			assert.strictEqual(calls, 0);
+		}
+	});
+
+	test('rejects invalid custom keys before invoking the value function', function () {
+		for (const key of [null, undefined, 'key', Symbol.for('octocode-w41-invalid-custom-fixture'), Symbol.for('')]) {
+			let calls = 0;
+			const cache = new WeakCachedFunction<string, number>({ getCacheKey: () => key }, () => ++calls);
+			assert.throws(function () { cache.get('legal primitive argument'); }, function (error: unknown): boolean {
+				return error instanceof TypeError && error.message === 'WeakCachedFunction cache key must be an object, function, or non-registered symbol';
+			});
+			assert.strictEqual(calls, 0);
+		}
 	});
 });
