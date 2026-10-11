@@ -2063,3 +2063,133 @@ suite('WorkspacePicker - Browser accessibility', () => {
 		});
 	}
 });
+
+suite('WorkspacePicker - Trigger and accepted action lifetime', () => {
+	const disposables = new DisposableStore();
+	teardown(() => disposables.clear());
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	function createBrowserPair(mode: 'flat' | 'tabbed') {
+		const host = document.createElement('div');
+		host.style.width = '500px';
+		host.style.height = '400px';
+		document.body.appendChild(host);
+		disposables.add({ dispose: () => host.remove() });
+		const contextView = disposables.add(new WorkspacePickerBrowserContextView(host));
+		const providers = disposables.add(new MockSessionsProvidersService());
+		providers.setProviders([
+			createMockProvider('agenthost-remote-1', {
+				connectionStatus: observableValue<RemoteAgentHostConnectionStatus>('remote', RemoteAgentHostConnectionStatus.connected),
+				browseActions: [makeBrowseAction('agenthost-remote-1', SESSION_WORKSPACE_GROUP_REMOTE)],
+			}),
+			createMockProvider('local-1', { browseActions: [makeBrowseAction('local-1', SESSION_WORKSPACE_GROUP_LOCAL)] }),
+		]);
+		let sharedActionWidget: (IActionWidgetService & IDisposable) | undefined;
+		const create = () => createTestPicker(
+			disposables, providers, undefined, undefined,
+			mode === 'flat' ? FlatBrowserWorkspacePicker : WorkspacePicker,
+			undefined, undefined, undefined, undefined, undefined,
+			services => {
+				services.stub(IContextViewService, contextView);
+				services.set(IKeybindingService, new MockKeybindingService());
+				services.set(IHoverService, NullHoverService);
+				services.set(IOpenerService, NullOpenerService);
+				services.stub(ILayoutService, { getContainer: () => host, mainContainer: host });
+				if (!sharedActionWidget) {
+					const registration = getSingletonServiceDescriptors().find(([id]) => id === IActionWidgetService);
+					assert.ok(registration);
+					sharedActionWidget = disposables.add(services.createInstance<IActionWidgetService & IDisposable>(registration[1]));
+				}
+				services.stub(IActionWidgetService, sharedActionWidget);
+			},
+		);
+		return { host, contextView, first: create(), second: create() };
+	}
+
+	for (const mode of ['flat', 'tabbed'] as const) {
+		test(`${mode} closes a removed trigger's popup and preserves another picker's popup`, () => {
+			const { host, first, second } = createBrowserPair(mode);
+			const firstContainer = host.appendChild(document.createElement('div'));
+			const secondContainer = host.appendChild(document.createElement('div'));
+			let selections = 0;
+			disposables.add(first.onDidSelectWorkspace(() => selections++));
+			first.render(firstContainer);
+			const oldAnchor = firstContainer.querySelector<HTMLElement>('.action-label')!;
+			assert.ok(oldAnchor);
+			first.showPicker();
+			const firstPopup = host.querySelector<HTMLElement>('.context-view')!;
+			assert.ok(firstPopup?.querySelector('.actionList'));
+			assert.strictEqual(host.querySelector('.sessions-workspace-picker-tabbar') !== null, mode === 'tabbed');
+			first.render(firstContainer);
+			assert.strictEqual(oldAnchor.isConnected, false);
+			assert.strictEqual(firstPopup.isConnected, false, 'The popup must close with its removed anchor');
+			assert.strictEqual(selections, 0, 'Replacing a trigger must not clear or pick a workspace');
+			first.showPicker();
+			assert.ok(host.querySelector('.context-view .actionList'), 'The replacement trigger can open a fresh picker');
+			second.render(secondContainer);
+			second.showPicker(true);
+			const secondPopup = host.querySelector<HTMLElement>('.context-view')!;
+			assert.ok(secondPopup?.querySelector('.actionList'));
+			first.render(firstContainer);
+			assert.strictEqual(secondPopup.isConnected, true, 'An unrelated picker must keep its popup');
+			assert.strictEqual(host.querySelector('.context-view'), secondPopup);
+			assert.strictEqual(selections, 0);
+		});
+	}
+
+	function createAcceptedOptions() {
+		const providers = disposables.add(new MockSessionsProvidersService());
+		const provider = createMockProvider('agenthost-remote-1', {
+			connectionStatus: observableValue<RemoteAgentHostConnectionStatus>('remote', RemoteAgentHostConnectionStatus.connected),
+			browseActions: [makeBrowseAction('agenthost-remote-1', SESSION_WORKSPACE_GROUP_REMOTE)],
+		});
+		providers.setProviders([provider]);
+		let optionsInvocations = 0;
+		const picker = createTestPicker(
+			disposables, providers, undefined, undefined, DispatchingWorkspacePicker,
+			undefined, undefined, undefined, undefined, undefined,
+			services => {
+				// Observe the genuine delayed invokeFunction boundary without opening
+				// a QuickPick, running remote options, or using real host records.
+				services.invokeFunction = () => { optionsInvocations++; return undefined as never; };
+			},
+		) as DispatchingWorkspacePicker;
+		const container = document.createElement('div');
+		document.body.appendChild(container);
+		disposables.add({ dispose: () => container.remove() });
+		picker.render(container);
+		Reflect.set(picker, '_activeTab', SESSION_WORKSPACE_GROUP_REMOTE);
+		const manage = picker.getItems().find(row => row.item?.commandId === `workspacePicker.remote.${provider.id}`);
+		assert.ok(manage?.item?.run, 'Use the actual Manage row producer and its accepted inline action');
+		return {
+			picker, providers, container,
+			accept: () => picker.dispatchItem(manage!.item!),
+			get optionsInvocations() { return optionsInvocations; },
+		};
+	}
+
+	test('an accepted remote-options action survives trigger re-render at the same one-tick delay', () => runWithFakedTimers<void>({ useFakeTimers: true }, async () => {
+		const fixture = createAcceptedOptions();
+		const accepted = fixture.accept();
+		fixture.picker.render(fixture.container);
+		assert.strictEqual(fixture.optionsInvocations, 0, 'Do not open synchronously during widget teardown');
+		assert.strictEqual(await accepted, true);
+		await timeout(2);
+		assert.strictEqual(fixture.optionsInvocations, 1);
+	}));
+
+	for (const invalidation of ['dispose', 'provider removal'] as const) {
+		test(`accepted remote options do not resume after ${invalidation}`, () => runWithFakedTimers<void>({ useFakeTimers: true }, async () => {
+			const fixture = createAcceptedOptions();
+			const accepted = fixture.accept();
+			if (invalidation === 'dispose') {
+				fixture.picker.dispose();
+			} else {
+				fixture.providers.setProviders([]);
+			}
+			assert.strictEqual(await accepted, true);
+			await timeout(2);
+			assert.strictEqual(fixture.optionsInvocations, 0);
+		}));
+	}
+});

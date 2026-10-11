@@ -147,6 +147,7 @@ export class WorkspacePicker extends Disposable {
 	/** All live trigger elements. Label updates fan out to every entry. */
 	private readonly _triggerElements = new Set<HTMLElement>();
 	private readonly _renderDisposables = this._register(new DisposableStore());
+	private _openPickerAnchor: { readonly element: HTMLElement } | undefined;
 	private readonly _tabbedWidget: TabbedActionListWidget;
 	private readonly _pickerGroupContext: IContextKey<string>;
 
@@ -318,6 +319,9 @@ export class WorkspacePicker extends Disposable {
 
 		triggerDisposables.add({
 			dispose: () => {
+				if (this._openPickerAnchor?.element === trigger) {
+					this._hidePicker();
+				}
 				this._triggerElements.delete(trigger);
 				if (this._triggerElement === trigger) {
 					// Demote to any other live trigger so subclasses that read
@@ -419,12 +423,17 @@ export class WorkspacePicker extends Disposable {
 	 * tabbed presentations.
 	 */
 	private _buildDelegate(triggerElement: HTMLElement, hide: () => void): IActionListDelegate<IWorkspacePickerItem> {
+		const pickerAnchor = { element: triggerElement };
+		this._openPickerAnchor = pickerAnchor;
 		return {
 			onSelect: (item) => {
 				hide();
 				void this._dispatchPickerItem(item);
 			},
 			onHide: () => {
+				if (this._openPickerAnchor === pickerAnchor) {
+					this._openPickerAnchor = undefined;
+				}
 				triggerElement.setAttribute('aria-expanded', 'false');
 				triggerElement.focus();
 			},
@@ -928,10 +937,12 @@ export class WorkspacePicker extends Disposable {
 	private _showRemoteHostOptionsDelayed(provider: IAgentHostSessionsProvider): void {
 		// Defer one tick so the action widget fully tears down (focus/DOM cleanup)
 		// before the QuickPick opens and claims focus.
-		const timeout = setTimeout(() => {
+		disposableTimeout(() => {
+			if (this.sessionsProvidersService.getProvider(provider.id) !== provider) {
+				return;
+			}
 			this.instantiationService.invokeFunction(accessor => showRemoteHostOptions(accessor, provider));
-		}, 1);
-		this._renderDisposables.add({ dispose: () => clearTimeout(timeout) });
+		}, 1, this._store);
 	}
 
 	protected _updateTriggerLabel(): void {
