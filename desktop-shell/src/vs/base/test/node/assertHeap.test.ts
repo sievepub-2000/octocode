@@ -227,4 +227,21 @@ suite('assertHeap compiled helper with isolated counts data', function () {
 			await observedSecond;
 		}
 	});
+
+	test('preserves an unprintable ordinary assertion reason and its snapshot context', async function () {
+		const failure: object = Object.create(null);
+		const f = await fixture(async () => ({ done: Promise.resolve([0]), file: 'unprintable-cause-fixture.json' }));
+		await f.run({ classes: { UnprintableClass: () => { throw failure; } } });
+		try {
+			await assert.rejects(f.teardown(), function (error: unknown): boolean {
+				return typeof error === 'object' && error !== null && Object.hasOwn(error, 'cause')
+					&& Reflect.get(error, 'cause') === failure && String(error).includes('UnprintableClass')
+					&& String(error).includes('after "assertHeap vm counts fixture"')
+					&& String(error).includes('unprintable-cause-fixture.json');
+			});
+			await f.teardown();
+		} finally {
+			await f.teardown().catch(() => undefined);
+		}
+	});
 });

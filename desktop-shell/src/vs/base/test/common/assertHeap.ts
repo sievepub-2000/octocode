@@ -28,7 +28,13 @@ suiteTeardown(async () => {
 			try {
 				doAssert(counts[i]);
 			} catch (e) {
-				throw new Error(`Unexpected number of ${name} instances (${counts[i]}) after "${snap.test}":\n\n${e instanceof Error ? e.message : String(e)}\n\nSnapshot saved at: ${snap.file}`, { cause: e });
+				let detail: string;
+				try {
+					detail = String(e instanceof Error ? e.message : e);
+				} catch {
+					detail = '[unprintable assertion failure]';
+				}
+				throw new Error(`Unexpected number of ${name} instances (${counts[i]}) after "${snap.test}":\n\n${detail}\n\nSnapshot saved at: ${snap.file}`, { cause: e });
 			}
 		}
 	}));
