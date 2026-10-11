@@ -1,0 +1,84 @@
+diff --git a/dist/builders-mk_DIY8_.js b/dist/builders-mk_DIY8_.js
+index 6de58c49310e..5ed126823495 100644
+--- a/dist/builders-mk_DIY8_.js
++++ b/dist/builders-mk_DIY8_.js
+@@ -3068,10 +3068,9 @@
+ 			next = "";
+ 			if (mapping.generatedLine !== previousGeneratedLine) {
+ 				previousGeneratedColumn = 0;
+-				while (mapping.generatedLine !== previousGeneratedLine) {
+-					next += ";";
+-					previousGeneratedLine++;
+-				}
++				var lineDelta = mapping.generatedLine - previousGeneratedLine;
++				next += lineDelta === 1 ? ";" : ";".repeat(lineDelta);
++				previousGeneratedLine = mapping.generatedLine;
+ 			} else if (i > 0) {
+ 				if (!util.compareByGeneratedPositionsInflated(mapping, mappings[i - 1])) continue;
+ 				next += ",";
+@@ -3278,6 +3277,8 @@
+ 	var ArraySet = require_array_set().ArraySet;
+ 	var base64VLQ = require_base64_vlq();
+ 	var quickSort = require_quick_sort().quickSort;
++	// GHSA-68fv-2mgg-jv7q: bound indexed line offsets, including nested sections.
++	var MAX_SECTION_OFFSET_LINE = 1e7;
+ 	function SourceMapConsumer(aSourceMap, aSourceMapURL) {
+ 		var sourceMap = aSourceMap;
+ 		if (typeof aSourceMap === "string") sourceMap = util.parseSourceMapInput(aSourceMap);
+@@ -3879,21 +3880,32 @@
+ 			line: -1,
+ 			column: 0
+ 		};
++		var maxOffsetLine = 0;
+ 		this._sections = sections.map(function(s) {
+ 			if (s.url) throw new Error("Support for url field in sections not implemented.");
+ 			var offset = util.getArg(s, "offset");
+ 			var offsetLine = util.getArg(offset, "line");
+ 			var offsetColumn = util.getArg(offset, "column");
++			if (!isValidOffset(offsetLine) || !isValidOffset(offsetColumn)) throw new Error("Section offset line and column must be non-negative integers.");
++			if (offsetLine > MAX_SECTION_OFFSET_LINE) throw new Error("Section offset line must not exceed " + MAX_SECTION_OFFSET_LINE + ".");
+ 			if (offsetLine < lastOffset.line || offsetLine === lastOffset.line && offsetColumn < lastOffset.column) throw new Error("Section offsets must be ordered and non-overlapping.");
+ 			lastOffset = offset;
++			var consumer = new SourceMapConsumer(util.getArg(s, "map"), aSourceMapURL);
++			var totalOffsetLine = offsetLine + (consumer._maxOffsetLine || 0);
++			if (totalOffsetLine > MAX_SECTION_OFFSET_LINE) throw new Error("Section offset line must not exceed " + MAX_SECTION_OFFSET_LINE + ", including offsets of nested sections.");
++			if (totalOffsetLine > maxOffsetLine) maxOffsetLine = totalOffsetLine;
+ 			return {
+ 				generatedOffset: {
+ 					generatedLine: offsetLine + 1,
+ 					generatedColumn: offsetColumn + 1
+ 				},
+-				consumer: new SourceMapConsumer(util.getArg(s, "map"), aSourceMapURL)
++				consumer: consumer
+ 			};
+ 		});
++		this._maxOffsetLine = maxOffsetLine;
++	}
++	function isValidOffset(aValue) {
++		return typeof aValue === "number" && aValue >= 0 && aValue <= 9007199254740991 && Math.floor(aValue) === aValue;
+ 	}
+ 	IndexedSourceMapConsumer.prototype = Object.create(SourceMapConsumer.prototype);
+ 	IndexedSourceMapConsumer.prototype.constructor = SourceMapConsumer;
+@@ -3906,7 +3918,10 @@
+ 	*/
+ 	Object.defineProperty(IndexedSourceMapConsumer.prototype, "sources", { get: function() {
+ 		var sources = [];
+-		for (var i = 0; i < this._sections.length; i++) for (var j = 0; j < this._sections[i].consumer.sources.length; j++) sources.push(this._sections[i].consumer.sources[j]);
++		for (var i = 0; i < this._sections.length; i++) {
++			var sectionSources = this._sections[i].consumer.sources;
++			for (var j = 0; j < sectionSources.length; j++) sources.push(sectionSources[j]);
++		}
+ 		return sources;
+ 	} });
+ 	/**
+@@ -4111,6 +4126,10 @@
+ 				return;
+ 			}
+ 			while (lastGeneratedLine < mapping.generatedLine) {
++				if (remainingLinesIndex >= remainingLines.length) {
++					lastGeneratedLine = mapping.generatedLine;
++					break;
++				}
+ 				node.add(shiftNextLine());
+ 				lastGeneratedLine++;
+ 			}
