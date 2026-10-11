@@ -22,7 +22,7 @@ function deferred<T>() {
 	return { promise, resolve, reject };
 }
 
-async function fixture(analyze: (test: string, classes: readonly string[]) => Promise<SnapshotData>) {
+async function fixture(analyze?: (test: string, classes: readonly string[]) => Promise<SnapshotData>) {
 	assert.strictEqual(typeof vm.SourceTextModule, 'function', 'ESM vm tests require --experimental-vm-modules');
 	const helperURL = new URL('../common/assertHeap.js', import.meta.url);
 	const entireCompiledHelper = readFileSync(helperURL, 'utf8');
@@ -32,7 +32,7 @@ async function fixture(analyze: (test: string, classes: readonly string[]) => Pr
 	const context = vm.createContext({
 		setup(hook: typeof setupHook) { setupHook = hook; },
 		suiteTeardown(hook: typeof teardownHook) { teardownHook = hook; },
-		__analyzeSnapshotInTests: analyze,
+		...(analyze ? { __analyzeSnapshotInTests: analyze } : {}),
 	});
 	const helper = new vm.SourceTextModule(entireCompiledHelper, { context, identifier: helperURL.href });
 	await helper.link(function (specifier) { throw new Error(`Unexpected helper import: ${specifier}`); });
@@ -125,6 +125,13 @@ suite('assertHeap compiled helper with isolated counts data', function () {
 			started.resolve({ done: Promise.resolve([7]), file: 'fixture-only-snapshot.json' });
 			await pending;
 		}
+	});
+
+	test('does not change the test timeout when the analyzer is unavailable', async function () {
+		const f = await fixture();
+		await f.run({ classes: {} });
+		assert.strictEqual(f.timeout(), 1000);
+		await f.teardown();
 	});
 
 	test('retains the 20s helper timeout and Promise.all first-error behavior', async function () {

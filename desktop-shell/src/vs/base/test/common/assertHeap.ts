@@ -67,14 +67,14 @@ export async function assertHeap(opts: ISnapshotAssertOptions) {
 		throw new Error('assertHeap can only be used when a test is running');
 	}
 
+	if (typeof __analyzeSnapshotInTests === 'undefined') {
+		return; // running in browser, no-op
+	}
+
 	// snapshotting can take a moment, ensure the test timeout is decently long
 	// so it doesn't immediately fail.
 	if (currentTest.timeout() < snapshotMinTime) {
 		currentTest.timeout(snapshotMinTime);
-	}
-
-	if (typeof __analyzeSnapshotInTests === 'undefined') {
-		return; // running in browser, no-op
 	}
 
 	const snapshotOpts: ISnapshotAssertOptions = { classes: { ...opts.classes } };
