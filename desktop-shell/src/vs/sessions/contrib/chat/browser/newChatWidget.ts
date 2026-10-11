@@ -60,6 +60,7 @@ export class NewChatWidget extends Disposable {
 	/** Recreates the draft once a better/late-registering provider can serve the folder (see {@link _createNewSession}). */
 	private readonly _pendingPreferredUpgrade = new MutableDisposable<IDisposable>();
 	private readonly _newSessionCreation = new MutableDisposable<IDisposable>();
+	private _workspaceSelectionGeneration = 0;
 
 	/**
 	 * The currently mounted no-agent-host empty state, if any. Set by
@@ -189,14 +190,14 @@ export class NewChatWidget extends Disposable {
 		this._register(toDisposable(() => newChatInput.saveState()));
 		this._newChatInput = this._register(newChatInput);
 
-		// Comment 3: Bind Agent mode in the scoped context so that Agent-only tips
+		// Bind Agent mode in the scoped context so that Agent-only tips
 		// (messageQueueing, subagents, etc.) are eligible and chatModeKind-based
 		// when-clauses evaluate correctly against this composer's actual mode.
 		const chatModeKindKey = ChatContextKeys.chatModeKind.bindTo(contextKeyService);
 		chatModeKindKey.set(ChatModeKind.Agent);
 		this._register(toDisposable(() => chatModeKindKey.reset()));
 
-		// Comment 4: Route tip command links to this composer's own pickers
+		// Route tip command links to this composer's own pickers
 		// so they do not fall through to IChatWidgetService.lastFocusedWidget
 		// (which this composer is not registered with).
 		this._register(this.openerService.registerOpener({
@@ -251,7 +252,7 @@ export class NewChatWidget extends Disposable {
 			}
 		}));
 
-		// Comment 2: Re-evaluate the tip when the selected model changes, because
+		// Re-evaluate the tip when the selected model changes, because
 		// some tips (e.g. tip.switchToAuto) are only eligible for specific models.
 		let previousModelId: string | undefined;
 		this._register(autorun(reader => {
@@ -529,6 +530,10 @@ export class NewChatWidget extends Disposable {
 		const creationCts = new CancellationTokenSource();
 		const creationLifecycle = toDisposable(() => creationCts.dispose(true));
 		this._newSessionCreation.value = creationLifecycle;
+		if (this._newSessionCreation.value !== creationLifecycle) {
+			creationLifecycle.dispose();
+			return { session: undefined, trustDeclined: false };
+		}
 		const userPick = this._newChatInput.sessionTypePicker.getUserPickedSessionType();
 		// Session creation is async, so a provider can start serving the folder
 		// (e.g. the local agent host finishing its handshake) between the call
@@ -549,6 +554,8 @@ export class NewChatWidget extends Disposable {
 		if (isCurrentCreation) {
 			this._newSessionCreation.clear();
 		} else {
+			// A disposed holder ignores newly assigned lifecycles; release this one too.
+			creationLifecycle.dispose();
 			return result;
 		}
 		if (result.trustDeclined) {
@@ -608,6 +615,7 @@ export class NewChatWidget extends Disposable {
 		if (created) {
 			const active = this._session.get();
 			if (active?.sessionId !== created.sessionId || active.isCreated.get()) {
+				this._pendingPreferredUpgrade.clear();
 				return; // the draft was sent or is no longer the active session
 			}
 			if (userPick) {
@@ -665,7 +673,12 @@ export class NewChatWidget extends Disposable {
 	private _renderEmptyState(container: HTMLElement): IDisposable {
 		this._workspacePickerVisibleKey.set(false);
 		const emptyState = this.instantiationService.createInstance(NoAgentHostEmptyState);
-		emptyState.render(container);
+		try {
+			emptyState.render(container);
+		} catch (error) {
+			emptyState.dispose();
+			throw error;
+		}
 		this._activeEmptyState = emptyState;
 		return {
 			dispose: () => {
@@ -880,6 +893,7 @@ export class NewChatWidget extends Disposable {
 	 * by every path that creates a concrete session for a folder.
 	 */
 	private async _onWorkspaceSelected(folderUri: URI | undefined): Promise<void> {
+		const selectionGeneration = ++this._workspaceSelectionGeneration;
 		// Cancel any in-flight upgrade for a previous selection.
 		this._pendingPreferredUpgrade.clear();
 
@@ -894,6 +908,9 @@ export class NewChatWidget extends Disposable {
 		}
 
 		const result = await this._createNewSession(folderUri);
+		if (this._store.isDisposed || selectionGeneration !== this._workspaceSelectionGeneration) {
+			return;
+		}
 		if (result.trustDeclined) {
 			// Don't leave the picker showing the declined folder as selected.
 			this._workspacePicker.removeFromRecents(folderUri);

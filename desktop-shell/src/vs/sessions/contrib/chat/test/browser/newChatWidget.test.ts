@@ -39,6 +39,7 @@ import { ISessionsProvidersService } from '../../../../services/sessions/browser
 import { SessionsManagementService } from '../../../../services/sessions/browser/sessionsManagementService.js';
 import { AGENT_FEEDBACK_NEW_SESSION_RESOURCE, AgentFeedbackKind, AgentFeedbackState, IAgentFeedback, IAgentFeedbackService } from '../../../agentFeedback/browser/agentFeedbackService.js';
 import { IAquariumService } from '../../../aquarium/browser/aquariumOverlay.js';
+import { NoAgentHostEmptyState } from '../../browser/noAgentHostEmptyState.js';
 import { NewChatInputWidget } from '../../browser/newChatInput.js';
 import { ISessionModelSelectionState, normalizeModelPickerOptions } from '../../browser/sessionModelSelectionModel.js';
 import { IPreferredSessionType } from '../../browser/sessionTypePicker.js';
@@ -47,6 +48,7 @@ import { WorkspacePicker } from '../../browser/sessionWorkspacePicker.js';
 import { WebWorkspacePicker } from '../../browser/webWorkspacePicker.js';
 
 interface INewChatWidgetHarness {
+	_workspaceSelectionGeneration: number;
 	readonly _pendingPreferredUpgrade: MutableDisposable<IDisposable>;
 	readonly _newSessionCreation: MutableDisposable<IDisposable>;
 	readonly sessionsManagementService: { readonly onDidChangeSessionTypes: Event<void> };
@@ -83,6 +85,7 @@ function createHarness(
 	const harness: INewChatWidgetHarness = {
 		_pendingPreferredUpgrade: pendingPreferredUpgrade,
 		_newSessionCreation: newSessionCreation,
+		_workspaceSelectionGeneration: 0,
 		sessionsManagementService: { onDidChangeSessionTypes },
 		sessionsService: { unsetNewSession: () => { } },
 		_session: observableValue<IActiveSession | undefined>('session', undefined),
@@ -189,6 +192,47 @@ suite('NewChatWidget', () => {
 		await Promise.all([first, second]);
 
 		assert.deepStrictEqual({ tokenCount: tokens.length, firstCancelledWhenSecondStarted }, { tokenCount: 2, firstCancelledWhenSecondStarted: true });
+	});
+
+	test('does not start creation when its lifecycle holder was already disposed', async () => {
+		const changed = disposables.add(new Emitter<void>());
+		const upgrade = disposables.add(new MutableDisposable<IDisposable>());
+		const creation = disposables.add(new MutableDisposable<IDisposable>());
+		let createCalls = 0;
+		const harness = createHarness(upgrade, creation, changed.event, async () => {
+			createCalls++;
+			return { session: undefined, trustDeclined: false };
+		});
+		creation.dispose();
+		const result = await harness._createNewSession(URI.file('/project'));
+		assert.deepStrictEqual(result, { session: undefined, trustDeclined: false });
+		assert.strictEqual(createCalls, 0);
+		assert.strictEqual(changed.hasListeners(), false);
+		assert.strictEqual(upgrade.value, undefined);
+	});
+
+	test('retires the preferred upgrade listener when its draft is inactive or created', () => {
+		const created = new class extends mock<ISession>() {
+			override readonly sessionId = 'draft';
+		};
+		const sent = new class extends mock<IActiveSession>() {
+			override readonly sessionId = created.sessionId;
+			override readonly isCreated = constObservable(true);
+		};
+		for (const active of [undefined, sent]) {
+			const changed = disposables.add(new Emitter<void>());
+			const upgrade = disposables.add(new MutableDisposable<IDisposable>());
+			const creation = disposables.add(new MutableDisposable<IDisposable>());
+			const harness = createHarness(upgrade, creation, changed.event, async () => {
+				assert.fail('A retired draft must not be recreated');
+			});
+			Reflect.set(harness, '_session', constObservable<IActiveSession | undefined>(active));
+			harness._scheduleRecreateOnProviderChange(URI.file('/project'), undefined, created, false);
+			assert.strictEqual(changed.hasListeners(), true);
+			changed.fire();
+			assert.strictEqual(upgrade.value, undefined);
+			assert.strictEqual(changed.hasListeners(), false);
+		}
 	});
 });
 
@@ -345,9 +389,13 @@ suite('NewChatWidget model tips', () => {
 		assert.strictEqual(typeof service.onDidSendRequest, 'function');
 		assert.strictEqual(typeof service.onDidFailBackgroundSend, 'function');
 		const pending = Reflect.get(widget, '_pendingBackgroundSends') as DisposableMap<ISendRequestOptions, DisposableStore>;
+		assert.ok(pending instanceof DisposableMap, 'Expected the actual pending send map');
 		const sentEmitter = Reflect.get(service, '_onDidSendRequest') as Emitter<ISendRequestSentEvent>;
 		const failedEmitter = Reflect.get(service, '_onDidFailBackgroundSend') as Emitter<IBackgroundSendFailedEvent>;
+		assert.ok(sentEmitter instanceof Emitter, 'Expected the actual success emitter');
+		assert.ok(failedEmitter instanceof Emitter, 'Expected the actual failure emitter');
 		const send = Reflect.get(widget, '_send') as (query: string, context: undefined, background: boolean) => Promise<boolean>;
+		assert.strictEqual(typeof send, 'function', 'Expected the actual widget send method');
 		return {
 			widget, service, session, chat, pending, creations, sends, sendStarted, deletedDrafts,
 			send: (query: string) => send.call(widget, query, undefined, true),
@@ -448,5 +496,39 @@ suite('NewChatWidget model tips', () => {
 		await failed;
 		assert.strictEqual(lateDeletes, 0);
 		fixture.assertState(0);
+	});
+
+	test('does not clear a newer same-folder selection for an older trust decline', async () => {
+		const { widget } = createWidget();
+		const folder = URI.file('/project');
+		const older = new DeferredPromise<IOpenNewSessionResult>();
+		const newer = new DeferredPromise<IOpenNewSessionResult>();
+		let calls = 0;
+		Reflect.set(widget, '_createNewSession', () => ++calls === 1 ? older.p : newer.p);
+		const removed: URI[] = [];
+		const picker = Reflect.get(widget, '_workspacePicker') as WorkspacePicker;
+		picker.removeFromRecents = uri => removed.push(uri);
+		const select = Reflect.get(widget, '_onWorkspaceSelected') as (uri: URI | undefined) => Promise<void>;
+		const first = select.call(widget, folder);
+		const second = select.call(widget, folder);
+		newer.complete({ session: undefined, trustDeclined: false });
+		await second;
+		older.complete({ session: undefined, trustDeclined: true });
+		await first;
+		assert.strictEqual(calls, 2);
+		assert.deepStrictEqual(removed, []);
+	});
+
+	test('disposes a created empty state when its render throws', () => {
+		const error = new Error('empty-state render failed');
+		let disposed = 0;
+		const { widget } = createWidget(undefined, services => services.stubInstance(NoAgentHostEmptyState, {
+			render: () => { throw error; },
+			dispose: () => { disposed++; },
+		}));
+		const render = Reflect.get(widget, '_renderEmptyState') as (parent: HTMLElement) => IDisposable;
+		assert.throws(() => render.call(widget, document.createElement('div')), function (thrown: unknown): boolean { return thrown === error; });
+		assert.strictEqual(disposed, 1);
+		assert.strictEqual(Reflect.get(widget, '_activeEmptyState'), undefined);
 	});
 });
