@@ -102,6 +102,20 @@ $effectiveConfig = Get-ChildItem -LiteralPath (Join-Path $globalStorage 'harness
 if (!$effectiveConfig) { $failures.Add("missing materialized model config under: $globalStorage\harness-runtime\sessions") }
 # Presence is checked here; freshness and cold-start health need a separate live test.
 $rust = Join-Path $install 'environments\rust\cargo\bin\rustc.exe'
+$rustVersion = 'not provisioned (not tested)'
+if (Test-Path -LiteralPath $rust) {
+    $previousRustupHome = $env:RUSTUP_HOME
+    $previousCargoHome = $env:CARGO_HOME
+    try {
+        $env:RUSTUP_HOME = Join-Path $install 'environments\rust\rustup'
+        $env:CARGO_HOME = Join-Path $install 'environments\rust\cargo'
+        $rustVersion = @(& $rust --version 2>&1 | ForEach-Object { [string]$_ }) -join "`n"
+        if ($LASTEXITCODE -ne 0) { $failures.Add("bundled Rust version probe failed: $rustVersion") }
+    } finally {
+        $env:RUSTUP_HOME = $previousRustupHome
+        $env:CARGO_HOME = $previousCargoHome
+    }
+}
 
 $result = [pscustomobject]@{
     Pass = $failures.Count -eq 0
@@ -122,7 +136,7 @@ $result = [pscustomobject]@{
     WorkspaceCrud = $crud
     BundledToolchain = [ordered]@{
         node = $(if ($nodeAvailable) { & $node --version 2>&1 } else { 'missing (not tested)' })
-        rust = $(if (Test-Path -LiteralPath $rust) { & $rust --version 2>&1 } else { 'not provisioned (not tested)' })
+        rust = $rustVersion
     }
     Installer = @(Get-ChildItem 'D:\gpt-workspace\octocode\source\desktop-shell\.build\win32-x64\system-setup' -File -ErrorAction SilentlyContinue |
         ForEach-Object { [pscustomobject]@{ name = $_.Name; bytes = $_.Length; sha256 = (Get-FileHash $_.FullName -Algorithm SHA256).Hash } })
@@ -133,3 +147,4 @@ $result = [pscustomobject]@{
 }
 $result | ConvertTo-Json -Depth 6
 if (-not $result.Pass) { exit 1 }
+exit 0

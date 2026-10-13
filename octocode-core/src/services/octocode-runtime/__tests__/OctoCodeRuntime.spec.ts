@@ -174,6 +174,7 @@ describe("continuation lifecycle", () => {
 				return {
 					session_id: "a2",
 					task_id: "task-a2",
+					working_directory: "D:/project/.octocode/sessions/a2",
 					route: { model: { model: "qwen" } },
 					prompt: "continue",
 					display_prompt: "continue A",
@@ -202,7 +203,7 @@ describe("continuation lifecycle", () => {
 		await expect(runtime.prepareHandoff("a")).resolves.toMatchObject({
 			sessionId: "a2",
 			taskId: "task-a2",
-			workingDirectory: "D:/project",
+			workingDirectory: "D:/project/.octocode/sessions/a2",
 			permissionProfile: "directory",
 		})
 		expect(runningSessions.get("b")).toBe("task-b")

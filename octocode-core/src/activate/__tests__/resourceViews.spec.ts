@@ -88,4 +88,13 @@ describe("ResourceTreeProvider", () => {
 		tree.dispose()
 		expect(dispose).toHaveBeenCalledOnce()
 	})
+
+	it("does not subscribe or refresh after its window closes during MCP startup", async () => {
+		const onDidChangeServers = vi.fn(() => ({ dispose: vi.fn() }))
+		const provider = { getMcpHub: () => ({ onDidChangeServers }) } as unknown as ClineProvider
+		const tree = new ResourceTreeProvider("mcp", provider)
+		tree.dispose()
+		await new Promise((resolve) => setTimeout(resolve, 20))
+		expect(onDidChangeServers).not.toHaveBeenCalled()
+	})
 })

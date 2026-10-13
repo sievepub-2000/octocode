@@ -26,6 +26,7 @@ class ResourceItem implements vscode.TreeItem {
 export class ResourceTreeProvider implements vscode.TreeDataProvider<ResourceItem> {
 	private readonly changed = new vscode.EventEmitter<ResourceItem | undefined>()
 	private mcpSubscription?: vscode.Disposable
+	private disposed = false
 	readonly onDidChangeTreeData = this.changed.event
 
 	constructor(
@@ -40,6 +41,7 @@ export class ResourceTreeProvider implements vscode.TreeDataProvider<ResourceIte
 	private async bindMcpChanges(): Promise<void> {
 		try {
 			await pWaitFor(() => Boolean(this.provider.getMcpHub()), { timeout: 60_000 })
+			if (this.disposed) return
 			this.mcpSubscription = this.provider.getMcpHub()?.onDidChangeServers(() => this.refresh())
 			this.refresh()
 		} catch {
@@ -48,6 +50,7 @@ export class ResourceTreeProvider implements vscode.TreeDataProvider<ResourceIte
 	}
 
 	refresh(): void {
+		if (this.disposed) return
 		this.changed.fire(undefined)
 	}
 
@@ -82,6 +85,7 @@ export class ResourceTreeProvider implements vscode.TreeDataProvider<ResourceIte
 	}
 
 	dispose(): void {
+		this.disposed = true
 		this.mcpSubscription?.dispose()
 		this.changed.dispose()
 	}

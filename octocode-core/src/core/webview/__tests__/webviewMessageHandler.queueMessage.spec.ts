@@ -15,8 +15,9 @@ const enqueue = vi.fn()
 const editQueue = vi.fn()
 const pushQueuedMessage = vi.fn()
 const cancelTask = vi.fn()
+const call = vi.fn().mockResolvedValue({ working_directory: "/mock/workspace/.octocode/sessions/task-1" })
 vi.mock("../../../services/octocode-runtime/OctoCodeRuntime", () => ({
-	getOctoCodeRuntime: () => ({ enqueue, editQueue, pushQueuedMessage, cancelTask }),
+	getOctoCodeRuntime: () => ({ enqueue, editQueue, pushQueuedMessage, cancelTask, call }),
 }))
 
 /**
@@ -85,6 +86,7 @@ describe("webviewMessageHandler - queueMessage", () => {
 		})
 
 		expect(enqueue).toHaveBeenCalledWith("task-1", "later", ["img"], { apiProvider: "openai" }, "full")
+		expect(call).toHaveBeenCalledWith("session.working_directory", { id: "task-1" })
 		expect((provider as unknown as { startRuntimeTask: Mock }).startRuntimeTask).not.toHaveBeenCalled()
 	})
 
