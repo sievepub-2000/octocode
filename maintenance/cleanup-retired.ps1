@@ -2,23 +2,53 @@ param([switch]$Apply)
 $ErrorActionPreference='Stop'
 $project='D:\gpt-workspace\octocode'
 $source=Join-Path $project 'source'
+. (Join-Path $source 'build-product-safety.ps1')
 $retired=Join-Path $source 'optimization-20260911'
-$evidence=Join-Path $project 'verification\release-20260921'
+$current=Get-Content -LiteralPath (Join-Path $project 'releases\release-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+function Get-CurrentInstallerFile($Manifest){
+    if($Manifest.shellVersion -isnot [string] -or $Manifest.shellVersion -notmatch '\A[0-9]+\.[0-9]+\.[0-9]+\z'){throw 'Invalid current shellVersion'}
+    if($Manifest.installer.sha256 -isnot [string] -or $Manifest.installer.sha256 -notmatch '\A[a-fA-F0-9]{64}\z'){throw 'Invalid current installer hash'}
+    $file=$Manifest.installer.file
+    if($file -isnot [string] -or $file -notmatch '\AOctoCodeSetup-(latest|[0-9]+\.[0-9]+\.[0-9]+)\.exe\z'){throw 'Invalid current installer filename'}
+    return $file
+}
+$installerFile=Get-CurrentInstallerFile $current
+$evidence=Join-Path $project ('verification\release-'+$current.shellVersion)
+function Test-CurrentUpgradeProof($Proof,$Manifest,[string]$InstalledFileVersion){
+    return ($null -ne $Proof -and
+        $Proof.step -is [string] -and $Proof.step -ceq 'Upgrade' -and
+        ($Proof.exitCode -is [int] -or $Proof.exitCode -is [long]) -and $Proof.exitCode -eq 0 -and
+        $Proof.preservation -is [string] -and $Proof.preservation -ceq 'PASS' -and
+        $Proof.shellVersion -is [string] -and $Proof.shellVersion -ceq $Manifest.shellVersion -and
+        $Proof.installerSha256 -is [string] -and $Proof.installerSha256 -ieq $Manifest.installer.sha256 -and
+        ![string]::IsNullOrWhiteSpace($InstalledFileVersion) -and $InstalledFileVersion -ceq $Manifest.shellVersion)
+}
+function Assert-CleanupTarget([string]$Target){
+    $resolved=[IO.Path]::GetFullPath($Target)
+    if(!$resolved.StartsWith($project+'\',[StringComparison]::OrdinalIgnoreCase)){throw "Cleanup outside project: $resolved"}
+    if((Get-Item -LiteralPath $resolved -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw "Unexpected top-level link: $resolved"}
+    Assert-PhysicalBuildPath -Path $resolved -ScopeDirectory $project -InspectChildren
+}
 $targets=@()
-$targets+=Get-ChildItem (Join-Path $project 'backups') -Force | Where-Object Name -ne 'current-config' | ForEach-Object FullName
-$targets+=Get-ChildItem (Join-Path $project 'releases') -Force | Where-Object {$_.Name -notin @('OctoCodeSetup-latest.exe','release-manifest.json') -and $_.Extension -ne '.md'} | ForEach-Object FullName
+$targets+=Get-ChildItem (Join-Path $project 'backups') -Force | Where-Object { $_.Name -ne 'current-config' -and $_.Name -notlike 'current-config-previous-*' } | ForEach-Object FullName
+$targets+=Get-ChildItem (Join-Path $project 'releases') -Force | Where-Object {$_.Name -notin @('OctoCodeSetup-latest.exe','release-manifest.json',$installerFile) -and $_.Extension -ne '.md'} | ForEach-Object FullName
 $targets+=@($retired,(Join-Path $source 'desktop-shell\work\audit-bundle'),(Join-Path $source 'desktop-shell\work\build-portable.mjs')) | Where-Object {Test-Path -LiteralPath $_}
 $targets+=Get-ChildItem (Join-Path $project 'backups\current-config') -Directory -Filter 'restore-check-*' | ForEach-Object FullName
 foreach($target in $targets){
-    $resolved=[IO.Path]::GetFullPath($target)
-    if(!$resolved.StartsWith($project+'\',[StringComparison]::OrdinalIgnoreCase)){throw "Cleanup outside project: $resolved"}
-    if((Get-Item -LiteralPath $resolved -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw "Unexpected top-level link: $resolved"}
+    Assert-CleanupTarget $target
 }
+New-Item -ItemType Directory -Path $evidence -Force | Out-Null
 $targets | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $evidence 'retired-cleanup-plan.json')
 if(!$Apply){$targets;exit}
-if(!(Test-Path (Join-Path $evidence 'installed-acceptance-pass.json'))){throw 'Final installation acceptance has not passed'}
-$current=Get-Content (Join-Path $project 'releases\release-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-if((Get-FileHash (Join-Path $project 'releases\OctoCodeSetup-latest.exe')).Hash -ne $current.installer.sha256){throw 'Current installer hash mismatch'}
+$installedExe=Get-Item -LiteralPath 'D:\Program Files\OctoCode\OctoCode.exe' -ErrorAction Stop
+$upgradePassed=$false
+foreach($proofFile in @(Get-ChildItem -LiteralPath $evidence -File -Filter 'native-Upgrade-*.log.json')){
+    try {$proof=Get-Content -LiteralPath $proofFile.FullName -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop}
+    catch {continue}
+    if(Test-CurrentUpgradeProof $proof $current $installedExe.VersionInfo.FileVersion){$upgradePassed=$true;break}
+}
+if(!$upgradePassed){throw 'No successful Upgrade proof bound to current shell version, installer hash and installed executable'}
+if((Get-FileHash -LiteralPath (Join-Path $project ('releases\'+$installerFile)) -Algorithm SHA256).Hash -ne $current.installer.sha256){throw 'Current installer hash mismatch'}
 $reports=Join-Path $project 'reports'
 New-Item -ItemType Directory -Path $reports -Force | Out-Null
 foreach($report in (Get-ChildItem (Join-Path $project 'releases') -File -Filter '*.md')){
@@ -42,6 +72,7 @@ foreach($name in @('desktop-shell','octo-harness')){
 }
 foreach($target in $targets){
     if(!(Test-Path -LiteralPath $target)){continue}
+    Assert-CleanupTarget $target
     $entry=Get-Item -LiteralPath $target -Force
     if($entry.PSIsContainer){
         # Detach directory links without visiting or removing their destinations.

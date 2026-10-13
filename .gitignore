@@ -10,6 +10,7 @@
 /work/*
 !/work/octo-env.ps1
 !/maintenance/
+__pycache__/
 !/docs/
 /docs/*
 !/docs/releases/

@@ -1,4 +1,7 @@
 """Import reviewed operational facts, then verify update/read-back via the real MCP."""
+if not __debug__:
+    raise RuntimeError('This verification requires Python assertions; do not use -O/-OO or PYTHONOPTIMIZE')
+
 import asyncio, json, pathlib
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -35,18 +38,20 @@ Qwen nonconvergence during alibaba/open-code-review remains assigned to Claude.
 Do not treat short successful inference or unit tests as proof of full review convergence.
 '''
 
-async def main():
+async def main(timeout=60):
     params = StdioServerParameters(command=str(app / 'environments/node/node.exe'), args=[str(app / 'environments/llmwiki/node_modules/@llmwiki/core/dist/mcp/bin.js'), str(root / 'runtime/workspace/.wiki')])
-    async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            page = 'concepts/octocode-operations.md'
-            result = await session.call_tool('wiki_write_page', {'pagePath': page, 'title': 'OctoCode operational source of truth', 'type': 'concept', 'body': body})
-            assert not result.isError
-            result = await session.call_tool('wiki_read_page', {'path': page})
-            assert not result.isError
-            text = '\n'.join(getattr(c, 'text', '') for c in result.content)
-            assert 'app.omlx.dev-updater' in text and 'octocode.workspace.path' in text
-            print(json.dumps({'page': page, 'readBack': 'PASS', 'secretsIncluded': False}))
+    async with asyncio.timeout(timeout):
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                page = 'concepts/octocode-operations.md'
+                result = await session.call_tool('wiki_write_page', {'pagePath': page, 'title': 'OctoCode operational source of truth', 'type': 'concept', 'body': body})
+                assert not result.isError
+                result = await session.call_tool('wiki_read_page', {'path': page})
+                assert not result.isError
+                text = '\n'.join(getattr(c, 'text', '') for c in result.content)
+                assert 'app.omlx.dev-updater' in text and 'octocode.workspace.path' in text
+                print(json.dumps({'page': page, 'readBack': 'PASS', 'secretsIncluded': False}))
 
-asyncio.run(main())
+if __name__ == '__main__':
+    asyncio.run(main())

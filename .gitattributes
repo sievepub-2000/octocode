@@ -1,2 +1,2 @@
 # Unified diff context lines intentionally contain a single space.
-maintenance/omlx/*.patch -whitespace
+maintenance/omlx/*.patch text eol=lf -whitespace

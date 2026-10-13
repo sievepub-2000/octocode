@@ -31,19 +31,30 @@ Require-Path (Join-Path $install 'OctoCode.exe') 'product executable' | Out-Null
 Require-Path $extension 'installed extension' | Out-Null
 Require-Path (Join-Path $binaries 'octocode-host.exe') 'Rust host' | Out-Null
 Require-Path (Join-Path $binaries 'octocode-harness.exe') 'unified harness' | Out-Null
-Require-Path (Join-Path $install 'environments\node\node.exe') 'bundled Node runtime' | Out-Null
+$nodeAvailable = Require-Path $node 'bundled Node runtime'
 Require-Path (Join-Path $install 'workspace') 'default workspace' | Out-Null
 
 # The harness must be the product binary built from this tree, not a renamed copy.
+$harnessExitCode = $null
 $harnessVersion = if (Test-Path -LiteralPath (Join-Path $binaries 'octocode-harness.exe')) {
-    (& (Join-Path $binaries 'octocode-harness.exe') --version) -join ''
+    $previousPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Stop'
+        $harnessOutput = & (Join-Path $binaries 'octocode-harness.exe') --version
+        $harnessExitCode = $LASTEXITCODE
+        if ($harnessExitCode -ne 0) { $failures.Add("harness version probe failed (exit $harnessExitCode)") }
+        $harnessOutput -join ''
+    } catch {
+        $failures.Add("harness version probe could not run: $($_.Exception.GetType().Name)")
+        ''
+    } finally { $ErrorActionPreference = $previousPreference }
 } else { '' }
 if ($harnessVersion -notmatch '^octocode-harness ') {
     $failures.Add("harness does not self-identify as the product binary: '$harnessVersion'")
 }
 
 # A duplicate built-in copy of the extension makes it ambiguous which one runs.
-$duplicate = @(Get-ChildItem -LiteralPath (Join-Path $install 'resources\app\extensions') -Directory -ErrorAction SilentlyContinue |
+$duplicate = @(if ($nodeAvailable) { Get-ChildItem -LiteralPath (Join-Path $install 'resources\app\extensions') -Directory -ErrorAction SilentlyContinue |
     Where-Object Name -ne 'node_modules' |
     Where-Object {
         try {
@@ -54,29 +65,31 @@ $duplicate = @(Get-ChildItem -LiteralPath (Join-Path $install 'resources\app\ext
             return $false
         }
         $identity -ieq 'octocode.octocode'
-    })
+    } })
 if ($duplicate) { $failures.Add("duplicate built-in extension: $($duplicate.Name -join ', ')") }
 
 # Workspace must be writable by the running user, or every file tool fails.
 $probe = Join-Path $install ('workspace\.acceptance-probe-' + [guid]::NewGuid().ToString('N') + '.txt')
-$crud = [ordered]@{}
+$crud = [ordered]@{ Create = $false; Update = $false; Delete = $false }
 try {
     [IO.File]::WriteAllText($probe, 'create', [Text.UTF8Encoding]::new($false))
     $crud.Create = (Get-Content -LiteralPath $probe -Raw) -eq 'create'
     [IO.File]::WriteAllText($probe, 'update', [Text.UTF8Encoding]::new($false))
     $crud.Update = (Get-Content -LiteralPath $probe -Raw) -eq 'update'
+    Remove-Item -LiteralPath $probe -Force -ErrorAction Stop
+    $crud.Delete = -not (Test-Path -LiteralPath $probe)
 } catch {
     $crud.Create = $false
     $crud.Update = $false
 } finally {
     if (Test-Path -LiteralPath $probe) { Remove-Item -LiteralPath $probe -Force }
 }
-$crud.Delete = -not (Test-Path -LiteralPath $probe)
 foreach ($operation in $crud.Keys) { if (-not $crud[$operation]) { $failures.Add("workspace $operation failed") } }
 
 $logRoot = Join-Path $userData 'logs'
 $latestLog = Get-ChildItem -LiteralPath $logRoot -Directory -ErrorAction SilentlyContinue |
     Sort-Object Name -Descending | Select-Object -First 1
+if (!$latestLog) { $failures.Add("missing installed log directory: $logRoot") }
 $severe = if ($latestLog) {
     @(Get-ChildItem -LiteralPath $latestLog.FullName -File -Recurse -ErrorAction SilentlyContinue |
         Select-String -Pattern '\[(error|warning)\]' -CaseSensitive:$false |
@@ -86,13 +99,16 @@ $severe = if ($latestLog) {
 foreach ($entry in $severe) { $failures.Add($entry) }
 $effectiveConfig = Get-ChildItem -LiteralPath (Join-Path $globalStorage 'harness-runtime\sessions') -Filter config.toml -File -Recurse -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if (!$effectiveConfig) { $failures.Add("missing materialized model config under: $globalStorage\harness-runtime\sessions") }
+# Presence is checked here; freshness and cold-start health need a separate live test.
 $rust = Join-Path $install 'environments\rust\cargo\bin\rustc.exe'
 
 [pscustomobject]@{
     Pass = $failures.Count -eq 0
     Failures = @($failures)
     HarnessVersion = $harnessVersion
-    ExtensionVersion = $(if (Test-Path -LiteralPath (Join-Path $extension 'package.json')) {
+    HarnessProbeExitCode = $harnessExitCode
+    ExtensionVersion = $(if ($nodeAvailable -and (Test-Path -LiteralPath (Join-Path $extension 'package.json'))) {
         (& $node -p "require(process.argv[1]).version" (Join-Path $extension 'package.json') 2>$null) -join ''
     } else { $null })
     ExpectedVersion = $expectedVersion
@@ -105,7 +121,7 @@ $rust = Join-Path $install 'environments\rust\cargo\bin\rustc.exe'
         Select-Object FullName, Length)
     WorkspaceCrud = $crud
     BundledToolchain = [ordered]@{
-        node = (& (Join-Path $install 'environments\node\node.exe') --version 2>&1)
+        node = $(if ($nodeAvailable) { & $node --version 2>&1 } else { 'missing (not tested)' })
         rust = $(if (Test-Path -LiteralPath $rust) { & $rust --version 2>&1 } else { 'not provisioned (not tested)' })
     }
     Installer = @(Get-ChildItem 'D:\gpt-workspace\octocode\source\desktop-shell\.build\win32-x64\system-setup' -File -ErrorAction SilentlyContinue |

@@ -2,6 +2,7 @@
 """Install signed Dev releases only when existing overrides remain compatible."""
 import argparse, datetime, fcntl, hashlib, json, os, pathlib, plistlib
 import shutil, subprocess, tempfile, time, urllib.request
+from contextlib import contextmanager
 
 ROOT = pathlib.Path.home() / 'llmserver/servers/omlx/runtime'
 APP = pathlib.Path('/Applications/oMLX.app')
@@ -98,12 +99,31 @@ def install(candidate):
     # The new App is verified. A cleanup failure must not restore a partly deleted old App.
     shutil.rmtree(old)
 
+def failure_message(error):
+    if isinstance(error, subprocess.CalledProcessError):
+        # argv can include authenticated proxy URLs; never persist argv/output.
+        program = pathlib.Path(str(error.cmd[0])).name if isinstance(error.cmd, (list, tuple)) and error.cmd else 'command'
+        return f'{program} failed with exit code {error.returncode}'
+    return str(error)
+
+
+@contextmanager
+def update_lock():
+    with (ROOT / 'dev-update.lock').open('w') as lock:
+        # A competing invocation must not publish status for the lock owner.
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            yield
+        except Exception as error:
+            (ROOT / 'dev-update-status.json').write_text(json.dumps({'checkedAt': datetime.datetime.now().astimezone().isoformat(), 'status': 'failed', 'error': failure_message(error)}, indent=2))
+            raise
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--check', action='store_true')
     args = parser.parse_args()
-    with (ROOT / 'dev-update.lock').open('w') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    with update_lock():
         compatible(APP)
         request = urllib.request.Request('https://api.github.com/repos/jundot/omlx/releases?per_page=20', headers={'User-Agent': 'oMLX-dev-updater'})
         with urllib.request.urlopen(request, timeout=30) as response:
@@ -117,6 +137,7 @@ def main():
                 if current['active_requests'] or current['waiting_requests']:
                     raise RuntimeError('Inference active; update deferred until next check')
                 asset = next(a for a in latest['assets'] if a['name'].endswith('-macos26-27.dmg'))
+                (ROOT / 'updates').mkdir(parents=True, exist_ok=True)
                 with tempfile.TemporaryDirectory(prefix='dev-update-', dir=ROOT / 'updates') as temp:
                     dmg = pathlib.Path(temp) / 'update.dmg'
                     proxy = urllib.request.getproxies().get('https')
@@ -133,12 +154,9 @@ def main():
                     finally:
                         run('hdiutil', 'detach', str(mount))
                 result['status'] = 'updated'
+                result['installed'] = version(APP)
         (ROOT / 'dev-update-status.json').write_text(json.dumps(result, indent=2))
         print(json.dumps(result))
 
 if __name__ == '__main__':
-    try:
-        main()
-    except Exception as error:
-        (ROOT / 'dev-update-status.json').write_text(json.dumps({'checkedAt': datetime.datetime.now().astimezone().isoformat(), 'status': 'failed', 'error': str(error)}, indent=2))
-        raise
+    main()

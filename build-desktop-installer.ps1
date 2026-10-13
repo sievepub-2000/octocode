@@ -5,11 +5,24 @@ $node = Join-Path $nodeRoot "node.exe"
 $gulp = Join-Path $root "node_modules\gulp\bin\gulp.js"
 $logs = Join-Path $root "work\verification"
 . (Join-Path $PSScriptRoot 'build-log-policy.ps1')
+. (Join-Path $PSScriptRoot 'build-product-safety.ps1')
 $log = Join-Path $logs "vscode-win32-x64-system-setup-$([DateTime]::UtcNow.ToString('yyyyMMddHHmmss')).log"
 $env:PATH = "$nodeRoot;$env:PATH"
 $env:OCTOCODE_ISCC = "D:\Program Files\develop\Inno Setup 7\ISCC.exe"
 if (-not (Test-Path -LiteralPath $env:OCTOCODE_ISCC)) { throw "Inno Setup 7 compiler missing" }
 $productRoot = [IO.Path]::GetFullPath('D:\gpt-workspace\octocode\source\VSCode-win32-x64').TrimEnd('\')
+Assert-StoppedBuildProduct -ProductRoot $productRoot
+Assert-PhysicalBuildPath -Path $productRoot -ScopeDirectory $PSScriptRoot -InspectChildren
+# A product used as an interactive workspace must not be rewritten or packaged.
+$userData = Join-Path $productRoot 'data\user-data'
+$forbiddenRuntimeState = @(
+	'logs', 'Backups', 'User\History', 'User\workspaceStorage',
+	'User\globalStorage\octocode.octocode\octocode.db',
+	'User\globalStorage\octocode.octocode\octocode.db.runtime-lock',
+	'code.lock', 'DevToolsActivePort'
+)
+$foundRuntimeState = @($forbiddenRuntimeState | Where-Object { Test-Path -LiteralPath (Join-Path $userData $_) })
+if ($foundRuntimeState) { throw "Product tree contains runtime state; rebuild it before packaging: $($foundRuntimeState -join ', ')" }
 $manifest = Join-Path (Split-Path $PSScriptRoot -Parent) 'updates\stable\latest.json'
 if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { throw "Stable update manifest missing: $manifest" }
 $stable = Get-Content -LiteralPath $manifest -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -35,6 +48,7 @@ if ($temporaryExtension.FullName -ine $expectedPath -or
 	($temporaryExtension.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
 	throw 'Temporary extension path is not a physical child of the product tree'
 }
+Assert-PhysicalBuildPath -Path $temporaryExtension.FullName -ScopeDirectory $PSScriptRoot -InspectChildren
 $coreBinaries = Join-Path (Split-Path $root -Parent) 'octocode-core\src\bin\win32-x64'
 foreach ($binary in @('octocode-host.exe', 'octocode-harness.exe')) {
 	$built = Join-Path $coreBinaries $binary
@@ -55,10 +69,6 @@ $settings | Add-Member -MemberType NoteProperty -Name 'octocode.update.manifestU
 $settings | Add-Member -MemberType NoteProperty -Name 'octocode.update.mode' -Value 'start' -Force
 New-Item -ItemType Directory -Path (Split-Path $settingsPath -Parent) -Force | Out-Null
 [IO.File]::WriteAllText($settingsPath, ($settings | ConvertTo-Json -Depth 20), [Text.UTF8Encoding]::new($false))
-$runningProduct = @(Get-CimInstance Win32_Process | Where-Object {
-	$_.ExecutablePath -and [IO.Path]::GetFullPath($_.ExecutablePath).StartsWith($productRoot + '\', [StringComparison]::OrdinalIgnoreCase)
-})
-if ($runningProduct) { throw "Product tree is running; stop it before packaging: $($runningProduct.ProcessId -join ', ')" }
 # Installer-only builds must use the authoritative helpers, too.
 foreach ($name in @('initialize', 'uninitialize', 'self-test', 'mcp-self-test')) {
 	$source = Join-Path $root "build\win32\octocode-$name.ps1"
@@ -71,19 +81,6 @@ foreach ($name in @('initialize', 'uninitialize', 'self-test', 'mcp-self-test'))
 }
 $uninitialize = Get-Content (Join-Path $productRoot 'environments\scripts\uninitialize.ps1') -Raw
 if ($uninitialize -match '--unregister' -or $uninitialize -notmatch '--terminate') { throw 'Unsafe WSL uninstall helper' }
-$userData = Join-Path $productRoot 'data\user-data'
-$forbiddenRuntimeState = @(
-	'logs',
-	'Backups',
-	'User\History',
-	'User\workspaceStorage',
-	'User\globalStorage\octocode.octocode\octocode.db',
-	'User\globalStorage\octocode.octocode\octocode.db.runtime-lock',
-	'code.lock',
-	'DevToolsActivePort'
-)
-$foundRuntimeState = @($forbiddenRuntimeState | Where-Object { Test-Path -LiteralPath (Join-Path $userData $_) })
-if ($foundRuntimeState) { throw "Product tree contains runtime state; rebuild it before packaging: $($foundRuntimeState -join ', ')" }
 New-Item -ItemType Directory -Force -Path $logs | Out-Null
 Set-Location -LiteralPath $root
 $previousPreference = $ErrorActionPreference
@@ -103,7 +100,7 @@ $outputDirectory = Join-Path $root ".build\win32-x64\system-setup"
 $sidecar = Join-Path $outputDirectory 'product.json'
 if (Test-Path -LiteralPath $sidecar) { Remove-Item -LiteralPath $sidecar -Force }
 $expectedInstaller = Join-Path $outputDirectory "OctoCodeSetup.exe"
-$payload = @(Get-ChildItem $outputDirectory -File | Sort-Object Name)
+$payload = @(Get-ChildItem -LiteralPath $outputDirectory -File -Force | Sort-Object Name)
 if ($payload.Count -ne 1 -or -not $payload[0].FullName.Equals($expectedInstaller, [StringComparison]::OrdinalIgnoreCase)) {
 	throw "Installer must be one complete EXE; found: $($payload.Name -join ', ')"
 }
@@ -112,5 +109,5 @@ $installer = $payload[0]
 	log = $log
 	installer = $installer.FullName
 	totalBytes = ($payload | Measure-Object Length -Sum).Sum
-	files = @($payload | ForEach-Object { [pscustomobject]@{ path = $_.FullName; length = $_.Length; sha256 = (Get-FileHash $_.FullName -Algorithm SHA256).Hash } })
+	files = @($payload | ForEach-Object { [pscustomobject]@{ path = $_.FullName; length = $_.Length; sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash } })
 }

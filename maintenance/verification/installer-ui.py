@@ -1,4 +1,7 @@
 """Inspect only the OctoCode installer on machine 3's interactive desktop."""
+if not __debug__:
+    raise RuntimeError('This verification requires Python assertions; do not use -O/-OO or PYTHONOPTIMIZE')
+
 import argparse
 import json
 import pathlib
@@ -22,10 +25,10 @@ def belongs(handle):
         return 'octocodesetup' in p.name().lower() or (p.name().lower().endswith('.tmp') and any('octocodesetup' in a.name().lower() for a in p.parents()))
     except (psutil.Error, OSError):
         return False
-if args.click:
+if args.click is not None:
     assert belongs(args.click) and win32gui.IsWindowEnabled(args.click)
     win32gui.SendMessage(args.click, win32con.BM_CLICK, 0, 0)
-if args.set:
+if args.set is not None:
     assert belongs(args.set) and win32gui.IsWindowEnabled(args.set)
     win32gui.SendMessage(args.set, win32con.WM_SETTEXT, 0, args.text)
 time.sleep(1)

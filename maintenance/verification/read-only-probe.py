@@ -25,6 +25,14 @@ events = []
 issued = False
 
 
+def assert_task_success(events, task_id):
+    task_events = [event for event in events if event.get('task_id') == task_id]
+    assert not any(event['kind'] == 'agent.error' for event in task_events), 'Current native task failed'
+    finished = next((event for event in reversed(task_events) if event['kind'] == 'agent.finished'), None)
+    payload = finished.get('payload', {}) if finished else {}
+    assert payload.get('success') is True and not payload.get('cancelled', False), 'Current native task did not finish successfully'
+
+
 class Model(BaseHTTPRequestHandler):
     def log_message(self, *_args):
         pass
@@ -171,11 +179,11 @@ with tempfile.TemporaryDirectory(prefix="octocode-readonly-") as directory:
             "supervision": {"max_interventions": 0},
         })
         deadline = time.monotonic() + 90
-        while not any(event["kind"] in ("agent.finished", "agent.error") for event in events):
+        while not any(event.get('task_id') == prepared['task_id'] and event["kind"] in ("agent.finished", "agent.error") for event in events):
             assert time.monotonic() < deadline, events[-5:]
             time.sleep(0.2)
         assert requests, "Model did not receive a tool catalog"
-        assert not any(event["kind"] == "agent.error" for event in events), "Native agent failed"
+        assert_task_success(events, prepared['task_id'])
         assert issued, "Model never attempted the controlled tool call"
         offered = {tool["function"]["name"] for request in requests for tool in request.get("tools", [])}
         # session_title is an internal conversation-label tool and cannot touch
@@ -229,9 +237,10 @@ with tempfile.TemporaryDirectory(prefix="octocode-readonly-") as directory:
                 "supervision": {"max_interventions": 0},
             })
             deadline = time.monotonic() + 90
-            while not any(event["kind"] in ("agent.finished", "agent.error") for event in events[prior_events:]):
+            while not any(event.get('task_id') == continued['task_id'] and event["kind"] in ("agent.finished", "agent.error") for event in events[prior_events:]):
                 assert time.monotonic() < deadline, events[-5:]
                 time.sleep(0.2)
+            assert_task_success(events[prior_events:], continued['task_id'])
             next_offered = {tool["function"]["name"] for request in requests[prior_requests:] for tool in request.get("tools", [])}
             assert "run_terminal_command" in next_offered, next_offered
             assert marker.exists(), "Subsequent authorized write was blocked"

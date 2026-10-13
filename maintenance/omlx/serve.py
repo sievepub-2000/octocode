@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
 """App-managed, version-checked overrides; the vendor-signed bundle stays intact."""
+if not __debug__:
+    raise RuntimeError('This verification requires Python assertions; do not use -O/-OO or PYTHONOPTIMIZE')
+
 import hashlib,importlib.util,json,pathlib,runpy,sys
+
+def read_base_path(path):
+    base = path.read_text(encoding='utf-8').strip()
+    if not base or not pathlib.Path(base).is_dir():
+        raise RuntimeError('Configured oMLX base path is empty or is not a directory')
+    return base
+
 root=pathlib.Path(__file__).resolve().parent
 manifest=json.loads((root/'manifest.json').read_text())
 vendor=pathlib.Path('/Applications/oMLX.app/Contents/Resources/omlx')
@@ -18,8 +28,7 @@ sys.modules['omlx.cache']=cache
 omlx.cache=cache
 spec.loader.exec_module(cache)
 assert pathlib.Path(sys.modules['omlx.cache.paged_ssd_cache'].__file__).resolve()==root/'cache/paged_ssd_cache.py'
-base=(pathlib.Path.home()/'Library/Application Support/oMLX/base-path').read_text().strip()
-assert pathlib.Path(base).is_dir(),base
+base=read_base_path(pathlib.Path.home()/'Library/Application Support/oMLX/base-path')
 print('OMLX_WARNING_FIX_ACTIVE '+str(root),flush=True)
 sys.argv=[sys.argv[0],'serve','--base-path',base,*sys.argv[1:]]
 runpy.run_module('omlx.cli',run_name='__main__')

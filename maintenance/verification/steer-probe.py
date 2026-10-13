@@ -12,6 +12,15 @@ finished = root / 'step-finished.txt'
 issued = False
 cancel_probe = '--cancel' in sys.argv
 
+
+def assert_task_success(events, task_id):
+    task_events = [event for event in events if event.get('task_id') == task_id]
+    assert not any(event['kind'] == 'agent.error' for event in task_events), 'Current native task failed'
+    finished = next((event for event in reversed(task_events) if event['kind'] == 'agent.finished'), None)
+    payload = finished.get('payload', {}) if finished else {}
+    assert payload.get('success') is True and not payload.get('cancelled', False), 'Current native task did not finish successfully'
+
+
 class Model(BaseHTTPRequestHandler):
     def log_message(self, *_): pass
     def do_POST(self):
@@ -105,7 +114,7 @@ try:
         sys.exit(0)
     rpc('agent.steer',{'task_id':tid,'id':'priority-1','text':needle,'images':[],'content':[{'type':'text','text':needle}]})
     rpc('agent.steer',{'task_id':tid,'id':'priority-1','text':needle,'images':[],'content':[{'type':'text','text':needle}]})
-    while not any(e['kind']=='agent.finished' for e in events):
+    while not any(e.get('task_id') == tid and e['kind'] in ('agent.finished', 'agent.error') for e in events):
         assert time.monotonic()<deadline, 'agent did not finish'
         time.sleep(.1)
     assert finished.exists(), 'current step was interrupted'
@@ -115,7 +124,7 @@ try:
     after_tool=[r for r in requests if any(m.get('role')=='tool' for m in r['messages'])]
     assert after_tool and needle in json.dumps(after_tool[0]['messages']), 'priority absent from next model step'
     assert json.dumps(after_tool[0]['messages']).count(needle)==1, 'retry duplicated the interjection'
-    assert next(e for e in events if e['kind']=='agent.finished')['payload']['success'], events[-3:]
+    assert_task_success(events, tid)
     print('PASS: host RPC -> stdin -> native interjection -> next model step; current tool completed; cwd verified',flush=True)
     # Resume the same conversation with a changed authoritative workspace.
     for round_no, chosen in enumerate([root / 'user-selected-workspace', root / 'user-selected-workspace', root]):
@@ -126,9 +135,10 @@ try:
         tid = prepared['task_id']
         rpc('agent.run', {'session_id':sid,'task_id':tid,'executable':str(harness),'harness_home':str(root/'home'),'cwd':str(chosen),'model':model,'prompt':'Verify the newly selected workspace.','resume':True,'permission_profile':'full','max_turns':8,'auto_compact_threshold_percent':0,'supervision':{'max_interventions':0}})
         deadline=time.monotonic()+120
-        while not any(e['kind']=='agent.finished' and e['task_id']==tid for e in events):
+        while not any(e.get('task_id') == tid and e['kind'] in ('agent.finished', 'agent.error') for e in events):
             assert time.monotonic()<deadline, 'resume did not finish'
             time.sleep(.1)
+        assert_task_success(events, tid)
         assert finished.exists(), 'resume did not execute its step'
         assert pathlib.Path(finished.read_text().strip()).resolve()==chosen.resolve(), 'resume reverted to historical cwd'
         print('PASS: resumed session follows changed workspace, not its historical cwd',flush=True)

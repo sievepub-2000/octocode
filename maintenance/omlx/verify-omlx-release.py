@@ -1,7 +1,19 @@
+if not __debug__:
+    raise RuntimeError('This verification requires Python assertions; do not use -O/-OO or PYTHONOPTIMIZE')
+
 import argparse, datetime, json, pathlib, subprocess, urllib.request
 
+def validate_since(value):
+    try:
+        parsed = datetime.datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
+    except ValueError as error:
+        raise argparse.ArgumentTypeError('Expected a valid local timestamp YYYY-MM-DD HH:MM:SS') from error
+    if parsed.strftime('%Y-%m-%d %H:%M:%S') != value:
+        raise argparse.ArgumentTypeError('Expected timestamp YYYY-MM-DD HH:MM:SS')
+    return value
+
 parser = argparse.ArgumentParser()
-parser.add_argument('--since', required=True, help='Local server timestamp YYYY-MM-DD HH:MM:SS')
+parser.add_argument('--since', required=True, type=validate_since, help='Local server timestamp YYYY-MM-DD HH:MM:SS')
 args = parser.parse_args()
 root = pathlib.Path.home() / 'llmserver/servers/omlx/runtime'
 lines = [line for line in (root / 'logs/server.log').read_text().splitlines() if line[:19] >= args.since and line[:4].isdigit()]

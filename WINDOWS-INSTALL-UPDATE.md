@@ -8,12 +8,10 @@
 
 ## 安装和离线升级
 
-双击项目 `releases\OctoCodeSetup-latest.exe`。覆盖安装同样使用此安装包：先保存并关闭应用，再运行安装包。不要先删除数据目录。静默部署示例：
+首次安装可双击项目 `releases\OctoCodeSetup-latest.exe`。本机已有安装的后续代码更新使用维护脚本的 `Upgrade`：先保存并正常关闭应用和所属任务，再验证并应用具体版本安装包；不卸载、不删除数据目录。维护脚本在运行前校验 `releases\release-manifest.json` 指定的安装包文件名、SHA-256、字节数和产品版本，并记录用户数据保留基线。使用独立 PowerShell 或 Python/SSH 编排，避免安装目录内的运行时锁定自身。原位更新命令：
 
 ```powershell
-$installer = 'D:\gpt-workspace\octocode\releases\OctoCodeSetup-latest.exe'
-$process = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="D:\Program Files\OctoCode" /TASKS="desktopicon,addtopath,associatewithfiles" /LOG="D:\gpt-workspace\octocode\verification\installation.log"' -WindowStyle Hidden -Wait -PassThru
-if ($process.ExitCode -ne 0) { throw "安装未通过，退出码：$($process.ExitCode)" }
+& 'D:\gpt-workspace\octocode\source\maintenance\install-current.ps1' -Step Upgrade
 ```
 
 安装器使用 Windows Restart Manager 请求正常关闭程序，不强制丢弃未保存内容。本版本在安装目录恰为 `D:\Program Files\OctoCode` 时，由原生安装器运行 `octocode-storage-layout.ps1`，校验并建立 data、workspace、environments 到 `D:\gpt-workspace\octocode\runtime` 的联接。2、3 号机遵循该项目布局；其他自选路径使用本地目录，不能将这一行为泛化为所有安装路径。已有数据与目标目录冲突时安装器拒绝覆盖；不要把已有数据根目录选为程序安装目录。
@@ -39,7 +37,7 @@ Start-Process -FilePath 'D:\Program Files\OctoCode\unins000.exe' -ArgumentList '
 
 工作区唯一来源是 `octocode.workspace.path`：用户设置优先；未设置时使用安装目录下的 workspace。快捷方式、历史会话和当前编辑器文件不作为第二套工作区来源。路径不可用时应报错，不得静默切换。主程序必须正常显示窗口；隐藏窗口启动仅适用于后台辅助进程。
 
-当前唯一模型为 `qwen38-flash-next`，默认思考模式，地址 `http://2.2.2.2:8000/v1`；不再使用 instruct 分支。3 号机有线源地址为 `2.2.2.1`。4 号机温度 0.85、MTP 深度 3。低/中档默认预算为 2048/8192；用户显式思考预算优先，高档未额外传预算不代表突破输出或服务端上限。凭据保存在客户端加密存储及服务端受限配置中，不打入通用安装包。
+2 号机当前模型为 `qwen38-flash-next`，地址 `http://192.168.10.4:8000/v1`，默认思考模式，不再使用 instruct 分支。原 3 号机曾使用模型地址 `http://2.2.2.2:8000/v1` 和有线源地址 `2.2.2.1`，这两项仅作历史记录，不适用于当前 2 号机配置。4 号机温度 0.85、MTP 深度 3。低/中档默认预算为 2048/8192；用户显式思考预算优先，高档未额外传预算不代表突破输出或服务端上限。凭据保存在客户端加密存储及服务端受限配置中，不打入通用安装包。
 
 `backups/current-config` 是受限访问的当前配置快照；SQLite 备份与隔离恢复由 `maintenance/verification/backup-current.py` 验证。原安装目录卸载干净与保留外部当前用户数据是两项独立检查。过期回退版本仅在当前安装验收后清理。
 
@@ -66,6 +64,10 @@ Start-Process -FilePath 'D:\Program Files\OctoCode\unins000.exe' -ArgumentList '
 
 ## 构建与验证
 
+本机已有 OctoCode 的后续代码发布均使用原位升级：停止运行任务并正常退出后，将已校验安装包应用到现有 `D:\Program Files\OctoCode`。维护脚本默认 `Upgrade`，要求现有程序存在；不得以卸载、清空 runtime、迁走用户数据或干净重装代替代码更新。首次安装与明确授权的恢复演练另行执行，不属于正常更新流程。
+
 桌面构建后运行项目 `source\build-desktop-installer.ps1`，该脚本从权威源同步安装、卸载和自检脚本，并拒绝将用户数据库或日志打包。产物应为一个完整 EXE。每次发布保存安装包 SHA-256。
 
-回归测试位于 `desktop-shell/src/vs/platform/update/test/electron-main`，覆盖安装类型识别、更新状态机、占位源、下载元数据和包篡改。真实安装生命周期记录位于项目 `verification\model-log-20260920\windows-*.log` 及相应结果 JSON。
+回归测试位于 `desktop-shell/src/vs/platform/update/test/electron-main`，覆盖安装类型识别、更新状态机、占位源、下载元数据和包篡改。历史安装生命周期证据与限制见已纳入版本控制的 [0.1.8 / desktop 1.132.2 验收报告](reports/machine2-release-0.1.8-acceptance.md#follow-up-acceptance-and-investigation)，该报告记录既有部署和隔离演练。
+
+本轮仅修正文档与补丁行尾属性，未部署、未执行真实安装、升级、卸载或重启验收；不得将上述历史记录作为本轮部署验收。

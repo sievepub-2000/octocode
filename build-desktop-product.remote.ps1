@@ -1,17 +1,21 @@
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot 'build-product-safety.ps1')
+. (Join-Path $PSScriptRoot 'build-log-policy.ps1')
 function Remove-BuildDirectory([string]$Directory) {
 	$resolved = [IO.Path]::GetFullPath($Directory)
-	$scope = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd('\') + '\'
-	if (!$resolved.StartsWith($scope, [StringComparison]::OrdinalIgnoreCase)) { throw "Cleanup escaped source directory: $resolved" }
-	if ((Get-Item -LiteralPath $resolved -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Cleanup target is a junction: $resolved" }
+	Assert-PhysicalBuildPath -Path $resolved -ScopeDirectory $PSScriptRoot -InspectChildren
 	Remove-Item -LiteralPath $resolved -Recurse -Force
 }
 $root = "D:\gpt-workspace\octocode\source\desktop-shell"
+$productRoot = 'D:\gpt-workspace\octocode\source\VSCode-win32-x64'
+Assert-StoppedBuildProduct -ProductRoot $productRoot
+if (Test-Path -LiteralPath $productRoot) {
+	Assert-PhysicalBuildPath -Path $productRoot -ScopeDirectory $PSScriptRoot -InspectChildren
+}
 $nodeRoot = Join-Path $root ".build\environments\node"
 $node = Join-Path $nodeRoot "node.exe"
 $core = Join-Path $PSScriptRoot 'octocode-core'
-$extensionVersion = (& $node -p 'require(process.argv[1]).version' (Join-Path $core 'src\package.json')).Trim()
-if ($extensionVersion -notmatch '^0\.1\.\d+$') { throw "Unexpected extension version: $extensionVersion" }
+$extensionVersion = Invoke-BuildVersionProbe -FilePath $node -Arguments @('-p', 'require(process.argv[1]).version', (Join-Path $core 'src\package.json')) -Pattern '^0\.1\.\d+$' -Label 'OctoCode extension'
 $gulp = Join-Path $root "node_modules\gulp\bin\gulp.js"
 $logs = Join-Path $root "work\verification"
 $env:PATH = "$nodeRoot;$env:PATH"
@@ -72,6 +76,7 @@ if ($LASTEXITCODE -ne 0) {
 	Get-Content -LiteralPath $typecheckLog -Tail 100
 	throw 'Desktop TypeScript check failed'
 }
+Assert-CleanBuildLog -Log $typecheckLog
 # The product task uses esbuild and generates its own out-build tree. Running the
 # legacy gulp-tsb compile first type-checks and emits thousands of test files,
 # then the product task discards that output. Keep the check; skip the duplicate emit.
@@ -90,12 +95,15 @@ foreach ($task in $tasks) {
 		Get-Content -LiteralPath $log -Tail 200
 		throw "Desktop product task failed: $task"
 	}
+	Assert-CleanBuildLog -Log $log
 	if ($task -eq "vscode-win32-x64") {
 		$environmentSource = Join-Path $root ".build\environments"
 		$productRoot = "D:\gpt-workspace\octocode\source\VSCode-win32-x64"
 		if (-not (Test-Path -LiteralPath (Join-Path $productRoot "OctoCode.exe"))) {
 			throw "Desktop product output missing: $productRoot"
 		}
+		Assert-StoppedBuildProduct -ProductRoot $productRoot
+		Assert-PhysicalBuildPath -Path $productRoot -ScopeDirectory $PSScriptRoot -InspectChildren
 		# OctoCode ships local-only by default: remove account-backed VS Code adapters.
 		$builtins = Join-Path $productRoot "resources\app\extensions"
 		foreach ($accountAdapter in @("github", "github-authentication", "microsoft-authentication")) {
@@ -202,10 +210,7 @@ export async function checkForUpdate(_currentVersion) {
 				throw "Packaged $binary does not match the fresh release build"
 			}
 		}
-		$harnessVersion = (& (Join-Path $extensionRoot "bin\win32-x64\octocode-harness.exe") --version) -join ''
-		if ($harnessVersion -notmatch '^octocode-harness ') {
-			throw "Packaged harness does not self-identify as the product binary: $harnessVersion"
-		}
+		$harnessVersion = Invoke-BuildVersionProbe -FilePath (Join-Path $extensionRoot "bin\win32-x64\octocode-harness.exe") -Arguments @('--version') -Pattern '^octocode-harness ' -Label 'OctoCode harness'
 		$duplicateBuiltin = Get-ChildItem -LiteralPath (Join-Path $productRoot "resources\app\extensions") -Directory -ErrorAction SilentlyContinue |
 			Where-Object Name -Match "^OctoCode(\.octocode)?$"
 		if ($duplicateBuiltin) { throw "Duplicate built-in OctoCode extension: $($duplicateBuiltin.FullName -join ', ')" }

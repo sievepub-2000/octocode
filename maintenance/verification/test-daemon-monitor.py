@@ -1,5 +1,8 @@
 """Exercise multiple active OctoCode sessions against an isolated daemon database."""
 
+if not __debug__:
+    raise RuntimeError('This verification requires Python assertions; do not use -O/-OO or PYTHONOPTIMIZE')
+
 import base64
 import importlib.util
 import json

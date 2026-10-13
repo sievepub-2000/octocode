@@ -1,4 +1,7 @@
 """Use the App Python/dependencies; execute the loader without starting a server."""
+if not __debug__:
+    raise RuntimeError('This verification requires Python assertions; do not use -O/-OO or PYTHONOPTIMIZE')
+
 import pathlib, runpy, sys
 from unittest.mock import patch
 root = pathlib.Path.home() / 'llmserver/servers/omlx/runtime/hotfixes/dev4-warnings'

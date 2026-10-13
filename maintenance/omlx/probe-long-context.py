@@ -1,3 +1,6 @@
+if not __debug__:
+    raise RuntimeError('This verification requires Python assertions; do not use -O/-OO or PYTHONOPTIMIZE')
+
 import datetime, json, pathlib, time, urllib.request
 root = pathlib.Path.home() / 'llmserver/servers/omlx/runtime'
 key = json.loads((root / 'settings.json').read_text())['auth']['api_key']
@@ -9,7 +12,7 @@ started = time.monotonic()
 with opener.open(request, timeout=240) as response:
     result = json.load(response)
 message = result['choices'][0]['message']
-assert '323' in message.get('content', ''), 'Wrong long-context answer'
+assert (message.get('content') or '').strip() == '323', 'Wrong long-context answer'
 assert result['usage']['prompt_tokens'] > 8192
 assert message.get('reasoning_content') or message.get('reasoning'), 'Thinking output absent'
 report = {'checkedAt': datetime.datetime.now().astimezone().isoformat(), 'seconds': round(time.monotonic() - started, 2), 'usage': result['usage'], 'answer': message['content'], 'thinkingPresent': True, 'finishReason': result['choices'][0]['finish_reason']}
