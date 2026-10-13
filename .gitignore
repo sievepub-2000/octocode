@@ -3,6 +3,7 @@
 !/.gitignore
 !/.gitattributes
 !/README.md
+!/release/
 !/*.ps1
 !/WINDOWS-INSTALL-UPDATE.md
 !/reports/

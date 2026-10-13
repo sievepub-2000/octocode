@@ -1,0 +1,14 @@
+{
+  "tag": "v1.132.4",
+  "publishedDate": "2026-10-14",
+  "platform": "win32-x64",
+  "shellVersion": "1.132.4",
+  "extensionVersion": "0.1.10",
+  "installer": {
+    "file": "OctoCodeSetup-1.132.4.exe",
+    "bytes": 1045435971,
+    "sha256": "53607C4B929B3F65D38331C2D1625372DB6B4D45894BA8D80BB205723E3511F6",
+    "url": "https://github.com/sievepub-2000/octocode/releases/download/v1.132.4/OctoCodeSetup-1.132.4.exe"
+  },
+  "acceptanceReport": "reports/release-acceptance-0.1.10-20261013.md"
+}
