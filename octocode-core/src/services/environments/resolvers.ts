@@ -1,4 +1,7 @@
 import * as https from "https"
+import { performance } from "node:perf_hooks"
+
+import { isTrustedHttpsUrl, resolveTrustedRedirect } from "../managed-binary/download"
 
 /**
  * Turns an environment id into a concrete download.
@@ -48,26 +51,55 @@ export const TRUSTED_TOOLCHAIN_DOMAINS = [
 	"cloud-images.ubuntu.com",
 ] as const
 
-function httpsGetJson<T>(url: string, timeoutMs = 15_000): Promise<T> {
+function httpsGetJson<T>(
+	url: string,
+	timeoutMs = 15_000,
+	redirectsRemaining = 5,
+	deadline = performance.now() + timeoutMs,
+): Promise<T> {
 	return new Promise((resolve, reject) => {
+		if (!isTrustedHttpsUrl(url, TRUSTED_TOOLCHAIN_DOMAINS)) {
+			return reject(new Error("Toolchain index URL is not a trusted HTTPS host (untrusted domain)"))
+		}
+		const remainingMs = deadline - performance.now()
+		if (remainingMs <= 0) return reject(new Error("Toolchain index request timed out"))
 		const request = https.get(
 			url,
-			{ headers: { "User-Agent": "OctoCode", Accept: "application/json" }, timeout: timeoutMs },
+			{ headers: { "User-Agent": "OctoCode", Accept: "application/json" }, timeout: remainingMs },
 			(response) => {
 				// Vendor indexes redirect freely; follow within the trusted set only.
 				if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400) {
-					const location = response.headers.location
-					response.resume()
-					if (!location) return reject(new Error(`Redirect without Location from ${url}`))
-					return resolve(httpsGetJson<T>(new URL(location, url).toString(), timeoutMs))
+					response.destroy()
+					try {
+						const nextUrl = resolveTrustedRedirect(url, response.headers.location, redirectsRemaining, {
+							name: "Toolchain index",
+							trustedDomains: TRUSTED_TOOLCHAIN_DOMAINS,
+						})
+						resolve(httpsGetJson<T>(nextUrl, timeoutMs, redirectsRemaining - 1, deadline))
+					} catch (error) {
+						reject(error)
+					}
+					return
 				}
 				if (response.statusCode !== 200) {
-					response.resume()
+					response.destroy()
 					return reject(new Error(`${url} returned HTTP ${response.statusCode}`))
 				}
 				let body = ""
+				let receivedBytes = 0
 				response.setEncoding("utf8")
-				response.on("data", (chunk) => (body += chunk))
+				response.on("error", reject)
+				response.on("aborted", () => reject(new Error("Toolchain index response was aborted")))
+				response.on("data", (chunk: string) => {
+					receivedBytes += Buffer.byteLength(chunk)
+					if (receivedBytes > 8 * 1024 * 1024) {
+						reject(new Error("Toolchain index exceeds the response size limit"))
+						response.destroy()
+						request.destroy()
+						return
+					}
+					body += chunk
+				})
 				response.on("end", () => {
 					try {
 						resolve(JSON.parse(body))
@@ -77,6 +109,14 @@ function httpsGetJson<T>(url: string, timeoutMs = 15_000): Promise<T> {
 				})
 			},
 		)
+		// Socket inactivity alone does not bound a slow body or a redirect chain.
+		const timer = setTimeout(() => {
+			const error = new Error("Toolchain index request timed out")
+			reject(error)
+			request.destroy(error)
+		}, remainingMs)
+		timer.unref()
+		request.once("close", () => clearTimeout(timer))
 		request.on("timeout", () => {
 			request.destroy(new Error(`${url} timed out`))
 		})
@@ -219,11 +259,90 @@ export const resolvers: Record<string, Resolver> = {
 	},
 
 	async dotnet() {
-		return {
-			url: "https://dot.net/v1/dotnet-install.ps1",
-			archive: "exe",
-			version: "LTS",
+		// The script-only EXE result never produced the manifest's dotnet.exe.
+		// Microsoft's Windows SDK ZIP has that host at its root, so it uses the
+		// existing archive lifecycle without running an installer or changing PATH.
+		const isRecord = (value: unknown): value is Record<string, unknown> =>
+			value !== null && typeof value === "object" && !Array.isArray(value)
+		const invalidMetadata = (detail: string) => new Error(`Invalid .NET release metadata: ${detail}`)
+		const index = await httpsGetJson<unknown>(
+			"https://builds.dotnet.microsoft.com/dotnet/release-metadata/releases-index.json",
+		)
+		if (!isRecord(index) || !Array.isArray(index["releases-index"]))
+			throw invalidMetadata("releases-index must be an array")
+
+		const channels: Array<{ version: string; releaseUrl: string; major: number; minor: number }> = []
+		const today = new Date().toISOString().slice(0, 10)
+		for (const entry of index["releases-index"]) {
+			if (!isRecord(entry)) throw invalidMetadata("channel entry must be an object")
+			if (
+				entry["release-type"] !== "lts" ||
+				(entry["support-phase"] !== "active" && entry["support-phase"] !== "maintenance")
+			)
+				continue
+			const version = entry["channel-version"]
+			const eol = entry["eol-date"]
+			const releaseUrl = entry["releases.json"]
+			if (
+				typeof version !== "string" ||
+				!/^\d+\.\d+$/.test(version) ||
+				typeof releaseUrl !== "string" ||
+				typeof eol !== "string" ||
+				!/^\d{4}-\d{2}-\d{2}$/.test(eol) ||
+				!Number.isFinite(Date.parse(eol)) ||
+				new Date(eol).toISOString().slice(0, 10) !== eol
+			)
+				throw invalidMetadata(
+					"supported LTS channel needs a numeric channel-version, releases.json and eol-date",
+				)
+			if (eol < today) continue
+			const [major, minor] = version.split(".").map(Number)
+			channels.push({ version, releaseUrl, major, minor })
 		}
+		channels.sort((a, b) => b.major - a.major || b.minor - a.minor)
+		const channel = channels[0]
+		if (!channel) throw new Error("No supported .NET LTS channel in release metadata")
+
+		const metadata = await httpsGetJson<unknown>(channel.releaseUrl)
+		if (
+			!isRecord(metadata) ||
+			metadata["channel-version"] !== channel.version ||
+			typeof metadata["latest-sdk"] !== "string" ||
+			!/^\d+\.\d+\.\d+$/.test(metadata["latest-sdk"]) ||
+			!metadata["latest-sdk"].startsWith(`${channel.version}.`) ||
+			!Array.isArray(metadata.releases)
+		)
+			throw invalidMetadata(
+				`channel ${channel.version} needs matching channel-version, stable latest-sdk and releases`,
+			)
+		const version = metadata["latest-sdk"]
+		const sdks: Record<string, unknown>[] = []
+		for (const release of metadata.releases) {
+			if (!isRecord(release)) throw invalidMetadata("release entry must be an object")
+			if (release.sdk !== undefined) {
+				if (!isRecord(release.sdk)) throw invalidMetadata("sdk must be an object")
+				sdks.push(release.sdk)
+			}
+			if (release.sdks !== undefined) {
+				if (!Array.isArray(release.sdks) || !release.sdks.every(isRecord))
+					throw invalidMetadata("sdks must be an array of objects")
+				sdks.push(...release.sdks)
+			}
+		}
+		const sdk = sdks.find((entry) => entry.version === version)
+		if (!sdk) throw new Error(`No .NET SDK ${version} in ${channel.version} release metadata`)
+		if (!Array.isArray(sdk.files) || !sdk.files.every(isRecord))
+			throw invalidMetadata(`SDK ${version} files must be an array of objects`)
+		const rid = `win-${winArch()}`
+		const file = sdk.files.find((entry) => entry.rid === rid && entry.name === `dotnet-sdk-${rid}.zip`)
+		if (!file) throw new Error(`No .NET SDK ZIP for ${rid} in SDK ${version}`)
+		if (typeof file.url !== "string") throw invalidMetadata(`SDK ${version} ${rid} ZIP needs a URL`)
+		if (!isTrustedHttpsUrl(file.url, TRUSTED_TOOLCHAIN_DOMAINS)) {
+			throw new Error(".NET SDK ZIP resolved to an untrusted HTTPS download host")
+		}
+		if (!new URL(file.url).pathname.endsWith(`/dotnet-sdk-${version}-${rid}.zip`))
+			throw invalidMetadata(`SDK ZIP URL must match version ${version} and RID ${rid}`)
+		return { url: file.url, archive: "zip", version }
 	},
 
 	async python() {

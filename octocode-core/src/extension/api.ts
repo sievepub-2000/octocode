@@ -259,7 +259,7 @@ export class API extends EventEmitter<RooCodeEvents> implements RooCodeAPI {
 			return
 		}
 		const task = await runtime.prepareContinuation(sessionId, text, state.apiConfiguration, images)
-		ClineProvider.setActiveRuntimeSession(task.sessionId, task.taskId)
+		ClineProvider.setActiveRuntimeSession(task.sessionId, task.taskId, task.workingDirectory)
 		await this.sidebarProvider.postMessageToWebview({
 			type: "runtimeTaskStarted",
 			payload: { sessionId: task.sessionId, taskId: task.taskId, prompt: text, images },

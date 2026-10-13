@@ -6,9 +6,12 @@ $CertCollection = New-Object System.Security.Cryptography.X509Certificates.X509C
 $CertCollection.Import($CertBytes, $null, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable -bxor [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet)
 
 $CertStore = New-Object System.Security.Cryptography.X509Certificates.X509Store("My","LocalMachine")
-$CertStore.Open("ReadWrite")
-$CertStore.AddRange($CertCollection)
-$CertStore.Close()
+try {
+	$CertStore.Open("ReadWrite")
+	$CertStore.AddRange($CertCollection)
+} finally {
+	$CertStore.Close()
+}
 
 $ESRPAuthCertificateSubjectName = $CertCollection[0].Subject
 Write-Output ("##vso[task.setvariable variable=ESRPAuthCertificateSubjectName;]$ESRPAuthCertificateSubjectName")

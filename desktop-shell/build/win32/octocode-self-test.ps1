@@ -1,5 +1,33 @@
 param([string]$AppRoot = (Split-Path $PSScriptRoot -Parent))
 $ErrorActionPreference = "Stop"
+function Invoke-SelfTestCommand([string]$FilePath,[string]$Arguments,[ValidateRange(1,60000)][int]$TimeoutMilliseconds=30000) {
+	$process=[Diagnostics.Process]::new()
+	$process.StartInfo=[Diagnostics.ProcessStartInfo]::new()
+	$process.StartInfo.FileName=$FilePath
+	$process.StartInfo.Arguments=$Arguments
+	$process.StartInfo.UseShellExecute=$false
+	$process.StartInfo.CreateNoWindow=$true
+	$process.StartInfo.RedirectStandardOutput=$true
+	$process.StartInfo.RedirectStandardError=$true
+	$started=$false
+	$clock=[Diagnostics.Stopwatch]::StartNew()
+	try {
+		$started=$process.Start()
+		$stdout=$process.StandardOutput.ReadToEndAsync()
+		$stderr=$process.StandardError.ReadToEndAsync()
+		if (!$process.WaitForExit($TimeoutMilliseconds)) { throw "$FilePath self-test timed out" }
+		foreach($read in @($stdout,$stderr)) {
+			$remaining=[Math]::Max(0,$TimeoutMilliseconds-[int]$clock.ElapsedMilliseconds)
+			if (!$read.Wait($remaining)) { throw "$FilePath self-test output timed out" }
+		}
+		if ($process.ExitCode -ne 0) { throw "$FilePath self-test failed with exit code $($process.ExitCode): $($stderr.Result.Trim())" }
+		return $stdout.Result.Trim()
+	} finally {
+		# Stop only the command process started here; never unregister/terminate a distro.
+		if ($started -and !$process.HasExited) { $process.Kill(); $null=$process.WaitForExit(5000) }
+		$process.Dispose()
+	}
+}
 $AppRoot = [System.IO.Path]::GetFullPath($AppRoot)
 $environmentRoot = Join-Path $AppRoot "environments"
 $testRoot = Join-Path $AppRoot "test"
@@ -148,7 +176,7 @@ $results.localSkills = $requiredSkills
 # WSL is optional and provisioned on demand; report it only when present.
 $distro = Get-ChildItem Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Lxss -ErrorAction SilentlyContinue |
 	Get-ItemProperty | Where-Object { $_.DistributionName -eq 'OctoCode' } | Select-Object -First 1
-$results.wsl = if ($distro) { [string](wsl.exe -d OctoCode -- sh -lc "uname -sr") } else { 'not provisioned (on demand)' }
+$results.wsl = if ($distro) { Invoke-SelfTestCommand -FilePath 'wsl.exe' -Arguments '-d OctoCode -- sh -lc "uname -sr"' } else { 'not provisioned (on demand)' }
 $results.timestamp = [DateTimeOffset]::Now.ToString("o")
 $results | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $testRoot "last-self-test.json") -Encoding utf8
 $results

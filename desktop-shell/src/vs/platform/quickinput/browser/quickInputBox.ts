@@ -94,6 +94,10 @@ export class QuickInputBox extends Disposable {
 		this.findInput.inputBox.inputElement.type = password ? 'password' : 'text';
 	}
 
+	get enabled() {
+		return !this.findInput.inputBox.inputElement.hasAttribute('readonly');
+	}
+
 	set enabled(enabled: boolean) {
 		// We can't disable the input box because it is still used for
 		// navigating the list. Instead, we disable the list and the OK

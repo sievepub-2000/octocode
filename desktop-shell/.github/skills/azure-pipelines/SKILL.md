@@ -74,8 +74,8 @@ node .github/skills/azure-pipelines/azure-pipeline.ts queue --branch my-feature-
 # Queue with custom parameters
 node .github/skills/azure-pipelines/azure-pipeline.ts queue --parameter "VSCODE_BUILD_WEB=false" --parameter "VSCODE_PUBLISH=false"
 
-# Parameter value with spaces
-node .github/skills/azure-pipelines/azure-pipeline.ts queue --parameter "VSCODE_BUILD_TYPE=Product Build"
+# Select a valid product build type
+node .github/skills/azure-pipelines/azure-pipeline.ts queue --parameter "VSCODE_BUILD_TYPE=Product"
 ```
 
 > **Important**: Before queueing a new build, cancel any previous builds on the same branch that you no longer need. This frees up build agents and reduces resource waste:
@@ -101,7 +101,7 @@ node .github/skills/azure-pipelines/azure-pipeline.ts queue --parameter "VSCODE_
 | Name | Type | Default | Allowed Values | Description |
 |------|------|---------|----------------|-------------|
 | `VSCODE_QUALITY` | string | `insider` | `exploration`, `insider`, `stable` | Build quality channel |
-| `VSCODE_BUILD_TYPE` | string | `Product Build` | `Product`, `CI` | Build mode for Product vs CI |
+| `VSCODE_BUILD_TYPE` | string | `Product` | `Product`, `CI` | Build mode for Product vs CI |
 | `NPM_REGISTRY` | string | `https://pkgs.dev.azure.com/monacotools/Monaco/_packaging/vscode/npm/registry/` | any URL | Custom npm registry |
 | `CARGO_REGISTRY` | string | `sparse+https://pkgs.dev.azure.com/monacotools/Monaco/_packaging/vscode/Cargo/index/` | any URL | Custom Cargo registry |
 | `VSCODE_BUILD_WIN32` | boolean | `true` | `true`, `false` | Build Windows x64 |
@@ -125,7 +125,7 @@ Example: run a quick CI-oriented validation with minimal publish/release side ef
 
 ```bash
 node .github/skills/azure-pipelines/azure-pipeline.ts queue \
-   --parameter "VSCODE_BUILD_TYPE=CI Build" \
+   --parameter "VSCODE_BUILD_TYPE=CI" \
    --parameter "VSCODE_PUBLISH=false" \
    --parameter "VSCODE_RELEASE=false"
 ```
@@ -196,18 +196,15 @@ When the user asks to **test changes in an Azure Pipelines build**, follow this 
 
 ### Polling for Build Completion
 
-Use a shell loop with `sleep` to poll the build status. The `sleep` command works on all major operating systems:
+Use the built-in watcher to poll the specific queued build. Status-query errors propagate instead of being discarded by a shell pipeline:
 
 ```bash
 # Queue the build and note the build ID from output (e.g., 123456)
 node .github/skills/azure-pipelines/azure-pipeline.ts queue
 
-# Poll every 60 seconds until complete (works on macOS, Linux, and Windows with Git Bash/WSL)
+# Poll every 60 seconds until complete
 # Replace <BUILD_ID> with the actual build ID from the queue command
-while true; do
-  node .github/skills/azure-pipelines/azure-pipeline.ts status --build-id <BUILD_ID> --json 2>/dev/null | grep -q '"status": "completed"' && break
-  sleep 60
-done
+node .github/skills/azure-pipelines/azure-pipeline.ts status --build-id <BUILD_ID> --watch 60
 
 # Check final result
 node .github/skills/azure-pipelines/azure-pipeline.ts status --build-id <BUILD_ID>
@@ -261,7 +258,7 @@ node .github/skills/azure-pipelines/azure-pipeline.ts status --build-id 123456 -
 ```bash
 # Customize build matrix for quicker validation
 node .github/skills/azure-pipelines/azure-pipeline.ts queue \
-   --parameter "VSCODE_BUILD_TYPE=CI Build" \
+   --parameter "VSCODE_BUILD_TYPE=CI" \
    --parameter "VSCODE_BUILD_WEB=false" \
    --parameter "VSCODE_BUILD_ALPINE=false" \
    --parameter "VSCODE_BUILD_ALPINE_ARM64=false" \

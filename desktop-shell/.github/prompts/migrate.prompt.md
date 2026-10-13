@@ -181,4 +181,4 @@ Note: The `microsoft/vscode#12345` reference was already a cross-repo link, so i
 - [ ] If using query: verify the query returns the expected issues
 - [ ] Verify all `@mentions` are wrapped in backticks
 - [ ] Verify all `#NUMBER` references are converted to full URLs
-- [ ] Decide whether to close original issues after migration
+- [ ] Confirm originals will be closed as `not_planned` only after the new issues and all comments have been created

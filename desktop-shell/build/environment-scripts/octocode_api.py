@@ -37,6 +37,7 @@ import threading
 import time
 import tomllib
 import uuid
+import unicodedata
 from contextlib import closing
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -203,21 +204,38 @@ class HostClient:
         STATE.mkdir(parents=True, exist_ok=True)
         flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
         self.stderr = open(STATE / "host.stderr.log", "ab")
-        self.process = subprocess.Popen(
-            [str(extension_binary("OCTOCODE_HOST", "octocode-host")), "--db", str(STATE / "daemon.db")],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.stderr, creationflags=flags,
-        )
-        self.lock = threading.Lock()
-        self.pending: dict[int, tuple[threading.Event, list]] = {}
-        self.listeners: dict[str, "Run"] = {}
-        self.next_id = 0
-        threading.Thread(target=self._read, daemon=True).start()
-        time.sleep(0.5)
-        if self.process.poll() is not None:
-            raise RuntimeError(
-                f"octocode-host exited at start (code {self.process.returncode}); another daemon may be using "
-                f"{STATE} - give each instance its own OCTOCODE_DAEMON_STATE. See {STATE / 'host.stderr.log'}."
+        process = None
+        try:
+            self.process = process = subprocess.Popen(
+                [str(extension_binary("OCTOCODE_HOST", "octocode-host")), "--db", str(STATE / "daemon.db")],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.stderr, creationflags=flags,
             )
+            self.lock = threading.Lock()
+            self.pending: dict[int, tuple[threading.Event, list]] = {}
+            self.listeners: dict[str, "Run"] = {}
+            self.next_id = 0
+            threading.Thread(target=self._read, daemon=True).start()
+            time.sleep(0.5)
+            if self.process.poll() is not None:
+                raise RuntimeError(
+                    f"octocode-host exited at start (code {self.process.returncode}); another daemon may be using "
+                    f"{STATE} - give each instance its own OCTOCODE_DAEMON_STATE. See {STATE / 'host.stderr.log'}."
+                )
+        except BaseException:
+            try:
+                if process is not None:
+                    if process.poll() is None:
+                        process.kill()
+                    process.wait(timeout=5)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                print(f"[daemon] failed host startup cleanup: {error}", file=sys.stderr, flush=True)
+            finally:
+                if process is not None:
+                    for stream in (process.stdin, process.stdout):
+                        if stream is not None:
+                            stream.close()
+                self.stderr.close()
+            raise
 
     def _read(self) -> None:
         assert self.process.stdout
@@ -364,11 +382,34 @@ def persist_run(run: Run) -> None:
     (folder / f"{run.id}.json").write_text(json.dumps({**run.summary(), "prompt": run.request.prompt}, ensure_ascii=False), encoding="utf-8")
 
 
+def daemon_session_home(session_id: str) -> Path:
+    """Keep compatible d-ID homes, accepting only portable single-directory IDs.
+
+    Resolve existing links beneath the sessions parent; this does not protect
+    against a malicious filesystem replacement between validation and use.
+    """
+    if (not isinstance(session_id, str) or not session_id or session_id in (".", "..")
+            or session_id.endswith((".", " "))
+            or any(c in '/\\<>:"|?*' or unicodedata.category(c) == "Cc" for c in session_id)):
+        raise HTTPException(400, "Invalid daemon session directory ID")
+    parent = STORE / "sessions"
+    home = parent / f"d-{session_id}"
+    try:
+        resolved_home, resolved_parent = home.resolve(), parent.resolve()
+        if resolved_home == resolved_parent or not resolved_home.is_relative_to(resolved_parent):
+            raise HTTPException(400, "Daemon session directory escapes sessions storage")
+    except (OSError, RuntimeError, ValueError) as error:
+        raise HTTPException(400, "Invalid daemon session directory") from error
+    return home
+
+
 def start_run(request: RunRequest, origin: str = "api") -> Run:
     if not Path(request.cwd).is_dir():
         raise HTTPException(400, f"cwd does not exist: {request.cwd}")
     if request.resume and not request.session_id:
         raise HTTPException(400, "resume needs the session_id of an earlier run")
+    if request.session_id is not None:
+        daemon_session_home(request.session_id)
     busy = [r for r in RUNS.values() if r.session_id and r.session_id == request.session_id and r.status == "running"]
     if busy:
         raise HTTPException(409, f"Session {request.session_id} already has a running run {busy[0].id}")
@@ -383,6 +424,7 @@ def start_run(request: RunRequest, origin: str = "api") -> Run:
                 "prompt": request.prompt, "provider": provider,
             })
         run.session_id, run.task_id = prepared["session_id"], prepared["task_id"]
+        session_home = daemon_session_home(run.session_id)
         model = {**prepared["route"]["model"]}
         model["api_key"] = model.get("api_key") or provider["openAiApiKey"]
         supervision = {"fallbacks": [materialize(spec) for spec in request.fallbacks]}
@@ -396,7 +438,7 @@ def start_run(request: RunRequest, origin: str = "api") -> Run:
         host().call("agent.run", {
             "task_id": run.task_id, "session_id": run.session_id,
             "executable": str(extension_binary("OCTOCODE_HARNESS", "octocode-harness")),
-            "harness_home": str(STORE / "sessions" / f"d-{run.session_id}"),
+            "harness_home": str(session_home),
             "cwd": request.cwd, "model": model, "prompt": request.prompt, "resume": request.resume,
             "max_turns": request.max_turns, "permission_profile": request.permission_mode,
             "supervision": supervision, "mcp_servers": mcp_servers,
@@ -408,7 +450,7 @@ def start_run(request: RunRequest, origin: str = "api") -> Run:
         if run.tool_copy_dir:
             shutil.rmtree(run.tool_copy_dir)
         raise HTTPException(502, f"Could not start the run: {error}") from error
-    (STORE / "sessions" / f"d-{run.session_id}").mkdir(parents=True, exist_ok=True)
+    session_home.mkdir(parents=True, exist_ok=True)
     persist_run(run)
     return run
 

@@ -172,7 +172,7 @@ Each entry in `extensionConfigurationPolicy` must include:
     "publisher.extension.settingName": {
         "name": "PolicyName",
         "category": "InteractiveSession",
-        "minimumVersion": "1.99",
+        "minimumVersion": "1.112",
         "description": "Human-readable description."
     }
 }
@@ -181,6 +181,7 @@ Each entry in `extensionConfigurationPolicy` must include:
 - `name`: PascalCase policy name, unique across all policies
 - `category`: Must be a valid `PolicyCategory` enum value (e.g., `InteractiveSession`, `Extensions`)
 - `minimumVersion`: The VS Code version that first shipped this policy
+  For a new extension policy, replace the example `1.112` with the current `package.json` major.minor, as in Step 1.
 - `description`: Human-readable description string used to generate localization key/value pairs for ADMX/ADML/macOS/Linux policy artifacts
 
 ### Adding a new extension policy
@@ -226,7 +227,7 @@ Add a `value` function to the policy that returns a disabling value when `chat_p
 policy: {
     name: 'MyPreviewFeaturePolicy',
     category: PolicyCategory.InteractiveSession,
-    minimumVersion: '1.xx', // Must match the first VS Code release that ships this policy.
+    minimumVersion: '1.112', // Example only: replace with package.json major.minor, as in Step 1.
     value: (policyData) => policyData.chat_preview_features_enabled === false ? false : undefined,
     localization: {
         description: {
@@ -246,13 +247,13 @@ Key details:
 
 See `chat.tools.global.autoApprove` and `chat.useHooks` in `src/vs/workbench/contrib/chat/browser/chat.shared.contribution.ts` for existing settings that use this pattern.
 
-## Enterprise Managed Settings (native MDM / GitHub server)
+## Enterprise Managed Settings (native MDM / GitHub server / file)
 
 GitHub Copilot enterprise admins can lock settings through a **managed-settings** bag.
-VS Code feeds the bag from **two** channels: native MDM (Windows registry / macOS plist)
-and the GitHub `/copilot_internal/managed_settings` endpoint. (The external
-`managed-settings-schema.json` also describes a `managed-settings.json` file channel, but
-VS Code does **not** read such a file.) Both VS Code channels converge on
+VS Code feeds the bag from **three** channels: native MDM (Windows registry / macOS plist),
+the GitHub `/copilot_internal/managed_settings` endpoint, and the well-known per-OS
+`managed-settings.json` file. `AccountPolicyService` resolves these channels per key
+with precedence native MDM > server > file. All three channels converge on
 `IPolicyData.managedSettings` (a flat dot-path bag) and are consumed by the **existing**
 `policy.value(policyData)` callback — there is no new `IPolicyService`.
 
@@ -338,4 +339,4 @@ Search the codebase for `policy:` to find all the examples of different policy c
 
 * Never hand-edit or LLM-generate `build/lib/policies/policyData.jsonc` (its header explicitly forbids it). If `npm run export-policy-data` fails, fix the command or its source policies instead of patching the JSON. Always run it from the worktree containing the policy source change.
 * A direct `scripts/code.{sh,bat} --export-policy-data` invocation exports only the selected product entrypoint and is necessarily incomplete. Always use `npm run export-policy-data`, which isolates profiles, exports both the Workbench and Agents window, and merges their catalogs. The blocking `PolicyExport` integration test runs this same canonical path in check mode.
-* Document **behavior and business-logic expectations**, not copy-pasted implementation. Reproducing internal code (e.g. the `getPolicyData()` merge body) in the skill rots the moment the source changes and adds no information beyond the source itself. State the contract in prose (e.g. "native MDM managed settings win over the server-delivered channel; the two layers are never merged") and point to the source for the implementation. Reserve code blocks for the **author-facing API contract** a contributor must follow — how to *declare* a `policy` / `managedSettings` / `value` callback — not for restating runtime plumbing.
+* Document **behavior and business-logic expectations**, not copy-pasted implementation. Reproducing internal code (e.g. the `getPolicyData()` merge body) in the skill rots the moment the source changes and adds no information beyond the source itself. State the contract in prose (e.g. "native MDM > server > file per key; lower channels supply only keys higher channels leave unset") and point to the source for the implementation. Reserve code blocks for the **author-facing API contract** a contributor must follow — how to *declare* a `policy` / `managedSettings` / `value` callback — not for restating runtime plumbing.

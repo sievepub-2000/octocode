@@ -27,9 +27,9 @@ assert "users-modify" not in sections["Dirs"]
 assert '"*S-1-5-32-545:(OI)(CI)M"' not in source
 for folder in ("data", "workspace"):
     assert "AfterInstall: ProtectPrivateDirectory('" + folder + "')" in sections["Dirs"]
-wsl = next(line for line in files if line.startswith('Source: "environments\\wsl\\*";'))
-assert 'onlyifdoesntexist' in wsl and 'uninsneveruninstall' in wsl
-assert r'\environments\wsl\*' in general
+# WSL is provisioned on demand, outside the installer payload. User-data and
+# workspace preservation above still apply; a WSL seed rule is no longer valid.
+assert not any(line.startswith('Source: "environments\\wsl\\') for line in files)
 workspace = next(line for line in files if line.startswith('Source: "workspace\\*";'))
 assert 'onlyifdoesntexist' in workspace and 'uninsneveruninstall' in workspace
 registry = next(line for line in files if line.startswith('Source: "data\\extensions\\extensions.json";'))

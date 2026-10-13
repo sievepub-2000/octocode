@@ -27,7 +27,7 @@ Determine whether you are renaming a **tool** or a **tool set**, and where it is
 | Tool (`IToolData`) | TypeScript | `toolReferenceName` | `legacyToolReferenceFullNames` | `id` |
 | Tool (extension) | `package.json` `languageModelTools` | `toolReferenceName` | `legacyToolReferenceFullNames` | `name` (becomes `id`) |
 | Tool set (`IToolSet`) | TypeScript | `referenceName` | `legacyFullNames` | `id` |
-| Tool set (extension) | `package.json` `languageModelToolSets` | `name` or `referenceName` | `legacyFullNames` | — |
+| Tool set (extension) | `package.json` `languageModelToolSets` | `referenceName` (falls back to `name` when omitted) | `legacyFullNames` | `name` (used in the tool-set key) |
 
 **Critical:** For extension-contributed tools, the `name` field in `package.json` is mapped to `id` on `IToolData` (see `languageModelToolsContribution.ts` line `id: rawTool.name`). It is also used for activation events (`onLanguageModelTool:<name>`). **Never rename the `name` field** — only rename `toolReferenceName`.
 
@@ -137,7 +137,7 @@ Run this check on any PR that touches tool registration (TypeScript `IToolData`,
 2. **Search the diff for changed `name` fields** on extension-contributed tools. The `name` field is the tool's stable `id` — it must **never** change. If it changed, flag it as a bug. (This breaks activation events, tool invocations by id, and any code referencing the tool by its `name`.)
 3. **Verify no entries were removed** from existing legacy arrays.
 4. **If a tool moved between tool sets**, confirm the old `toolSet/toolName` full path is in the legacy array.
-5. **Check tool set membership lists** (the `tools` array in `languageModelToolSets` contributions). If a tool's `toolReferenceName` changed, any tool set `tools` array referencing the old name should be updated — but the legacy resolution system handles this, so the old name still works.
+5. **Check tool set membership lists** (the `tools` array in `languageModelToolSets` contributions). Update entries when a tool's `toolReferenceName` changes: membership lookup uses the current reference name, not the tool's legacy aliases. Verify that the renamed tool remains in the contributed set.
 
 ## Anti-patterns
 

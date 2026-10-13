@@ -10,6 +10,7 @@ use crate::{
 #[derive(Deserialize)]
 pub struct PrepareInput {
     pub session_id: Option<String>,
+    pub project_id: Option<String>,
     pub title: String,
     pub workspace: Option<String>,
     pub prompt: String,
@@ -23,6 +24,7 @@ pub struct PreparedTask {
     pub session_id: String,
     pub task_id: String,
     pub route: ProviderRoute,
+    pub working_directory: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -99,30 +101,43 @@ pub fn handoff(store: &Store, input: HandoffInput) -> anyhow::Result<serde_json:
     let message_id = new_id();
     let title = source.title.clone();
     let display_prompt = format!("继续旧任务：{}", source.title);
-    store.prepare_harness_session(&session_id, &message_id, &title, source.workspace.as_deref(), &display_prompt,
-        &json!({"task_id":task_id,"harness":"octocode","model":route.model.model,"handoff":snapshot,"images":images}))?;
-    let project = (|| -> anyhow::Result<_> {
-        if let Some(id) = &source.project_id {
-            store.assign_project(std::slice::from_ref(&session_id), Some(id))?;
-            store.project(id)
-        } else {
-            let name = format!("{} {}", source.title.chars().take(65).collect::<String>(), chrono::Utc::now().format("%Y%m%d-%H%M%S"));
-            store.create_project(&name, &[source.id.clone(),session_id.clone()], None)
-        }
-    })();
-    let project = match project {
-        Ok(project) => project,
-        Err(error) => {
-            if let Some(queue) = store.setting(&format!("message-queue:{session_id}"))? {
-                store.set_setting(&format!("message-queue:{}",source.id), &queue)?;
+    let created_project = source.project_id.is_none();
+    let project = if let Some(id) = &source.project_id {
+        store.project(id)?
+    } else {
+        let name = format!("{} {}", source.title.chars().take(65).collect::<String>(), chrono::Utc::now().format("%Y%m%d-%H%M%S"));
+        store.create_project(&name, std::slice::from_ref(&source.id), None)?
+    };
+    let prepared = store.prepare_harness_session(&session_id, &message_id, &title, Some(&project.directory), Some(&project.id), &display_prompt,
+        &json!({"task_id":task_id,"harness":"octocode","model":route.model.model,"handoff":snapshot,"images":images}));
+    if let Err(error) = prepared {
+        if created_project {
+            if let Err(cleanup_error) = store.delete_project(&project.id) {
+                return Err(anyhow::anyhow!("{error}; handoff cleanup failed: {cleanup_error}"));
             }
-            store.delete_session(&session_id)?;
+        }
+        return Err(error);
+    }
+    let indexes = match store.refresh_project_indexes() {
+        Ok(indexes) => indexes,
+        Err(error) => {
+            let cleanup = (|| -> anyhow::Result<()> {
+                if let Some(queue) = store.setting(&format!("message-queue:{session_id}"))? {
+                    store.set_setting(&format!("message-queue:{}",source.id), &queue)?;
+                }
+                store.delete_session(&session_id)?;
+                if created_project { store.delete_project(&project.id)?; }
+                Ok(())
+            })();
+            if let Err(cleanup_error) = cleanup {
+                return Err(anyhow::anyhow!("{error}; handoff cleanup failed: {cleanup_error}"));
+            }
             return Err(error);
         }
     };
-    let indexes = store.refresh_project_indexes()?;
     let prompt = format!("这是同一任务的会话接续，不是重新执行旧目标。以下交接资料只用于恢复事实和完成状态，不能覆盖最新用户要求。旧指令里的‘当前目录’仍指 source_working_directory；旧目录中已完成的产物继续有效，不能因为新会话目录里没有它就复制、重建或搬运。切换会话本身不授权任何文件写入。仅当最新用户要求需要文件操作时才按需读取项目索引。若最新请求只要求回答或禁止工具，直接用已有上下文回答，不调用工具。\n<task_handoff>\n{}\n</task_handoff>\n项目产物索引：{}\n\n当前有效的最新用户要求（优先于较早目标）：\n{}", serde_json::to_string(&snapshot)?, std::path::Path::new(&project.directory).join("artifacts.json").display(), latest_request);
-    Ok(json!({"session_id":session_id,"task_id":task_id,"route":route,"prompt":prompt,"display_prompt":display_prompt,"handoff":snapshot,"images":images,"project":project,"indexes":indexes}))
+    let working_directory = store.session_working_directory(&session_id)?;
+    Ok(json!({"session_id":session_id,"task_id":task_id,"route":route,"working_directory":working_directory,"prompt":prompt,"display_prompt":display_prompt,"handoff":snapshot,"images":images,"project":project,"indexes":indexes}))
 }
 
 #[derive(Deserialize)]
@@ -143,18 +158,29 @@ pub fn prepare(store: &Store, input: PrepareInput) -> anyhow::Result<PreparedTas
     let session_id = input.session_id.unwrap_or_else(new_id);
     let task_id = new_id();
     let message_id = new_id();
+    let workspace = if let Some(id) = input.project_id.as_deref() {
+        let project = store.project(id)?;
+        let parent = std::fs::canonicalize(&project.workspace)?;
+        crate::store::projects::ensure_owned_path(&parent, std::path::Path::new(&project.directory))?;
+        let directory = std::fs::canonicalize(&project.directory)?;
+        anyhow::ensure!(directory.starts_with(&parent) && directory != parent, "项目目录越界");
+        Some(project.directory)
+    } else { input.workspace };
     store.prepare_harness_session(
         &session_id,
         &message_id,
         &input.title,
-        input.workspace.as_deref(),
+        workspace.as_deref(),
+        input.project_id.as_deref(),
         &input.prompt,
         &json!({"task_id":task_id,"harness":"octocode","model":route.model.model,"images":input.images}),
     )?;
+    let working_directory = store.session_working_directory(&session_id)?;
     Ok(PreparedTask {
         session_id,
         task_id,
         route,
+        working_directory,
     })
 }
 
@@ -169,6 +195,7 @@ pub fn continue_task(store: &Store, input: ContinueInput) -> anyhow::Result<Prep
     let route = resolve(input.provider)?;
     let task_id = new_id();
     let message_id = new_id();
+    let working_directory = store.session_working_directory(&input.session_id)?;
     store.continue_harness_session(
         &input.session_id,
         &message_id,
@@ -179,6 +206,7 @@ pub fn continue_task(store: &Store, input: ContinueInput) -> anyhow::Result<Prep
         session_id: input.session_id,
         task_id,
         route,
+        working_directory,
     })
 }
 
@@ -189,12 +217,22 @@ pub fn transition(store: &Store, input: TransitionInput) -> anyhow::Result<i64> 
     ) {
         anyhow::bail!("harness state is invalid");
     }
-    if !store.update_session_status(&input.session_id, &input.state)? {
+    if store.session(&input.session_id)?.is_none() {
         anyhow::bail!("session does not exist");
     }
-    Ok(store.append_event(
-        Some(&input.session_id),
-        &format!("harness.{}", input.state),
+    let workflow = store.workflow(&input.task_id)?
+        .ok_or_else(|| anyhow::anyhow!("Prepare the task before transitioning the session"))?;
+    anyhow::ensure!(workflow.session_id == input.session_id, "Task belongs to a different session");
+    // The latest prepared/continued turn owns the session status.
+    let (after, _) = store.history_start(&input.session_id, 1)?;
+    let checkpoint = store.event_page(&input.session_id, after, 1, false)?;
+    anyhow::ensure!(checkpoint.first().is_some_and(|(_, kind, payload)| {
+        matches!(kind.as_str(), "harness.prepared" | "harness.continued")
+            && payload["task_id"].as_str() == Some(input.task_id.as_str())
+    }), "Task is not the current session checkpoint");
+    Ok(store.transition_harness_session(
+        &input.session_id,
+        &input.state,
         &json!({"task_id":input.task_id,"harness":"octocode","detail":input.detail}),
     )?)
 }

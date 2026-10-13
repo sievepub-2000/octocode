@@ -44,6 +44,7 @@ import { WorkbenchMcpServer } from "./services/workbench-mcp/WorkbenchMcpServer"
 import { createToolHub, isTrustedLocalMcpServer } from "./services/workbench-mcp/toolHub"
 import { environmentManifest, getSharedEnvironmentProvisioner } from "./services/environments"
 import { runtimeEventArtifactPath, runtimeEventTerminal } from "./activate/runtimeEventTerminal"
+import { previewRuntimeArtifact } from "./activate/runtimeArtifactPreview"
 
 /**
  * Built using https://github.com/microsoft/vscode-webview-ui-toolkit
@@ -309,13 +310,11 @@ export async function activate(context: vscode.ExtensionContext) {
 			const artifactPath = runtimeEventArtifactPath(event)
 			const artifact = artifactPath ? ClineProvider.getArtifactInstance() : undefined
 			if (artifactPath && artifact) {
-				void artifact
-					.showArtifact(artifactPath)
-					.catch((error) =>
-						outputChannel.appendLine(
-							`[Artifact] ${error instanceof Error ? error.message : String(error)}`,
-						),
-					)
+				void previewRuntimeArtifact(
+					artifactPath,
+					(filePath) => artifact.showArtifact(filePath),
+					(name) => runtimeEventTerminal.reportArtifactFailure(name, event.session_id),
+				).catch(() => outputChannel.appendLine("[Artifact] Execution terminal unavailable"))
 			}
 			for (const instance of ClineProvider.getAllInstances()) {
 				void instance.postMessageToWebview({ type: "agentEvent", payload: event })

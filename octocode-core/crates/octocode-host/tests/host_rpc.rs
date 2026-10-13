@@ -24,6 +24,48 @@ fn error(host: &Host, method: &str, params: serde_json::Value) -> String {
 }
 
 #[test]
+fn project_conversations_get_distinct_owned_directories() {
+    let root = tempfile::tempdir().unwrap();
+    let unrelated = tempfile::tempdir().unwrap();
+    let host = Host::open(":memory:").unwrap();
+    let project = call(&host, "project.create", json!({"name":"owned","session_ids":[],"workspace":root.path()}))["project"].clone();
+    let provider = json!({"apiProvider":"openai-native","apiModelId":"qwen3.8-27b","openAiNativeBaseUrl":"http://127.0.0.1:8000/v1"});
+    let mut paths = Vec::new();
+    let mut first_task = String::new();
+    for id in ["chat-a", "chat-b"] {
+        let task = call(&host, "harness.prepare", json!({
+            "session_id":id,"project_id":project["id"],"workspace":unrelated.path(),
+            "title":id,"prompt":"inspect","provider":provider,
+        }));
+        let directory = std::path::PathBuf::from(task["working_directory"].as_str().unwrap());
+        if id == "chat-a" { first_task = task["task_id"].as_str().unwrap().to_owned(); }
+        assert!(directory.is_dir());
+        assert!(host.validate_agent_working_directory(id, &directory).is_ok());
+        assert!(host.validate_agent_working_directory(id, unrelated.path()).is_err());
+        assert!(directory.starts_with(project["directory"].as_str().unwrap()));
+        let session = call(&host, "session.get", json!({"id":id}));
+        assert_eq!(session["project_id"], project["id"]);
+        assert_eq!(session["workspace"], project["directory"]);
+        assert_eq!(call(&host, "session.working_directory", json!({"id":id}))["working_directory"], json!(directory.to_string_lossy()));
+        paths.push(directory);
+    }
+    assert_ne!(paths[0], paths[1]);
+    std::fs::write(paths[0].join("private.txt"), "chat-a").unwrap();
+    assert!(!paths[1].join("private.txt").exists());
+    call(&host, "harness.transition", json!({"session_id":"chat-a","task_id":first_task,"state":"completed"}));
+    let continued = call(&host, "harness.continue", json!({"session_id":"chat-a","prompt":"next","provider":provider}));
+    assert_eq!(std::path::Path::new(continued["working_directory"].as_str().unwrap()), paths[0]);
+    call(&host, "harness.transition", json!({"session_id":"chat-a","task_id":continued["task_id"],"state":"completed"}));
+    let handoff = call(&host, "harness.handoff", json!({"source_session_id":"chat-a","provider":provider}));
+    assert_eq!(handoff["project"]["id"], project["id"]);
+    assert!(std::path::Path::new(handoff["working_directory"].as_str().unwrap()).starts_with(project["directory"].as_str().unwrap()));
+    assert!(!error(&host, "harness.prepare", json!({
+        "session_id":"invalid-project","project_id":"missing","title":"bad","prompt":"bad","provider":provider,
+    })).is_empty());
+    assert_eq!(call(&host, "session.get", json!({"id":"invalid-project"})), serde_json::Value::Null);
+}
+
+#[test]
 fn legacy_import_is_atomic_idempotent_and_cannot_restart_the_old_engine() {
     let host = Host::open(":memory:").unwrap();
     let input = json!({"id":"imported","title":"old task","workspace":".","created_at":1,"updated_at":2,"source_key":"old/task","source_hash":"a".repeat(64),"messages":[{"role":"user","content":"preserve objective","created_at":1},{"role":"assistant","content":"answer","created_at":2}],"events":[{"kind":"legacy.turn","payload":{"task_id":"imported-turn-0","user_index":0}},{"kind":"text","payload":{"text":"answer"}},{"kind":"legacy.record","payload":{"type":"say","say":"text","text":"answer"}}]});
@@ -591,12 +633,13 @@ fn startup_is_system_and_rpc_traces_are_developer_logs() {
 #[test]
 fn octocode_harness_owns_routing_identity_and_lifecycle() {
     let host = Host::open(":memory:").unwrap();
+    let workspace = tempfile::tempdir().unwrap();
     let prepared = call(
         &host,
         "harness.prepare",
         json!({
             "title":"Unified task",
-            "workspace":"C:\\workspace",
+            "workspace":workspace.path(),
             "prompt":"inspect the project",
             "provider":{
                 "apiProvider":"openai-native",
@@ -652,12 +695,12 @@ fn octocode_harness_owns_routing_identity_and_lifecycle() {
     call(
         &host,
         "harness.transition",
-        json!({"session_id":session_id,"task_id":prepared["task_id"],"state":"running"}),
+        json!({"session_id":session_id,"task_id":continued["task_id"],"state":"running"}),
     );
     call(
         &host,
         "harness.transition",
-        json!({"session_id":session_id,"task_id":prepared["task_id"],"state":"completed"}),
+        json!({"session_id":session_id,"task_id":continued["task_id"],"state":"completed"}),
     );
     assert_eq!(
         call(&host, "session.get", json!({"id":session_id}))["status"],
@@ -687,14 +730,19 @@ fn handoff_creates_a_new_session_with_the_last_three_turns() {
     let first = call(&host, "harness.prepare", json!({"session_id":"source","title":"Original goal","workspace":workspace.path(),"prompt":"goal-0","provider":provider}));
     assert!(error(&host,"harness.handoff",json!({"source_session_id":"source","provider":provider})).contains("Stop"));
     call(&host,"setting.set",json!({"key":"message-queue:source","value":[{"id":"queue-1","text":"pending instruction"}]}));
+    let mut current_task = first["task_id"].clone();
     for turn in 0..5 {
-        if turn > 0 { call(&host,"harness.continue",json!({"session_id":"source","prompt":format!("user-{turn}"),"provider":provider,"images":["data:image/png;base64,YWJj"]})); }
+        if turn > 0 {
+            let continued = call(&host,"harness.continue",json!({"session_id":"source","prompt":format!("user-{turn}"),"provider":provider,"images":["data:image/png;base64,YWJj"]}));
+            current_task = continued["task_id"].clone();
+        }
         call(&host,"event.append",json!({"session_id":"source","kind":"text","payload":{"data":format!("answer-{turn}")}}));
         call(&host,"event.append",json!({"session_id":"source","kind":"curator.text","payload":{"data":"must-not-transfer"}}));
     }
-    call(&host,"harness.transition",json!({"session_id":"source","task_id":first["task_id"],"state":"completed"}));
+    call(&host,"harness.transition",json!({"session_id":"source","task_id":current_task,"state":"completed"}));
     let before=call(&host,"message.list",json!({"session_id":"source"}));
     let moved=call(&host,"harness.handoff",json!({"source_session_id":"source","provider":provider}));
+    assert!(std::path::Path::new(moved["working_directory"].as_str().unwrap()).starts_with(moved["project"]["directory"].as_str().unwrap()));
     assert!(error(&host,"harness.handoff",json!({"source_session_id":"source","provider":provider})).contains("already has a new session"));
     assert_ne!(moved["session_id"],"source");
     assert_ne!(moved["task_id"],first["task_id"]);

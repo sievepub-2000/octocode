@@ -224,7 +224,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		const cfg = ctrl.createRunProfile(
 			`Run in ${name}`,
 			vscode.TestRunProfileKind.Run,
-			createRunHandler(BrowserTestRunner, vscode.TestRunProfileKind.Run, [' --browser', arg]),
+			createRunHandler(BrowserTestRunner, vscode.TestRunProfileKind.Run, ['--browser', arg]),
 			undefined,
 			undefined,
 			true
@@ -328,7 +328,7 @@ async function startWatchingWorkspace(
 	watcher.onDidDelete(uri => {
 		fileChangedEmitter.fire({ removed: true, uri });
 		clearFileDiagnostics(uri);
-		controller.items.delete(uri.toString());
+		controller.items.delete(uri.toString().toLowerCase());
 	});
 
 	for (const file of await vscode.workspace.findFiles(pattern)) {

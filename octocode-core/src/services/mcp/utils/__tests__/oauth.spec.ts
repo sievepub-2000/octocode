@@ -31,6 +31,27 @@ describe("fetchOAuthAuthServerMetadata", () => {
 		expect(result).toBeNull()
 	})
 
+	it("rejects a non-loopback HTTP authorization server before fetching metadata", async () => {
+		vi.mocked(discoverOAuthProtectedResourceMetadata).mockResolvedValue({
+			resource: "https://example.com/mcp",
+			authorization_servers: ["http://auth.example.com"],
+		})
+		expect(await fetchOAuthAuthServerMetadata("https://example.com/mcp")).toBeNull()
+		expect(mockFetch).not.toHaveBeenCalled()
+	})
+
+	it("permits an HTTP loopback authorization server for local development", async () => {
+		vi.mocked(discoverOAuthProtectedResourceMetadata).mockResolvedValue({
+			resource: "https://example.com/mcp",
+			authorization_servers: ["http://127.0.0.1:8765"],
+		})
+		mockFetch.mockResolvedValueOnce({
+			ok: true,
+			json: async () => ({ issuer: "http://127.0.0.1:8765", token_endpoint: "http://127.0.0.1:8765/token" }),
+		})
+		expect(await fetchOAuthAuthServerMetadata("http://127.0.0.1:8765/mcp")).not.toBeNull()
+	})
+
 	it("returns null when discoverOAuthProtectedResourceMetadata throws", async () => {
 		;(discoverOAuthProtectedResourceMetadata as any).mockRejectedValue(new Error("network error"))
 
@@ -55,7 +76,7 @@ describe("fetchOAuthAuthServerMetadata", () => {
 		// Verify the RFC 8414 §3.1 URL: well-known inserted between host and path
 		expect(mockFetch).toHaveBeenCalledWith(
 			"https://mcp.kapa.ai/.well-known/oauth-authorization-server/auth/public",
-			expect.objectContaining({ headers: { Accept: "application/json" } }),
+			expect.objectContaining({ headers: { Accept: "application/json" }, redirect: "error" }),
 		)
 		expect(result).toEqual({ authServerMeta: mockMeta, resourceIndicator: "https://mcp.kapa.ai/" })
 	})
@@ -136,6 +157,46 @@ describe("fetchOAuthAuthServerMetadata", () => {
 
 		const result = await fetchOAuthAuthServerMetadata("https://example.com/mcp")
 		expect(result).toEqual({ authServerMeta: meta, resourceIndicator: "https://example.com/" })
+	})
+
+	it.each(["authorization_endpoint", "token_endpoint", "registration_endpoint"])(
+		"rejects an insecure %s in authorization metadata",
+		async (endpoint) => {
+			vi.mocked(discoverOAuthProtectedResourceMetadata).mockResolvedValue({
+				resource: "https://example.com/mcp",
+				authorization_servers: ["https://auth.example.com"],
+			})
+			mockFetch.mockResolvedValueOnce({
+				ok: true,
+				json: async () => ({
+					issuer: "https://auth.example.com",
+					[endpoint]: "http://collector.example.com/endpoint",
+				}),
+			})
+			expect(await fetchOAuthAuthServerMetadata("https://example.com/mcp")).toBeNull()
+		},
+	)
+
+	it("accepts a secure token endpoint on another origin", async () => {
+		vi.mocked(discoverOAuthProtectedResourceMetadata).mockResolvedValue({
+			resource: "https://example.com/mcp",
+			authorization_servers: ["https://auth.example.com"],
+		})
+		const meta = { issuer: "https://auth.example.com", token_endpoint: "https://tokens.example.net/token" }
+		mockFetch.mockResolvedValueOnce({ ok: true, json: async () => meta })
+		expect((await fetchOAuthAuthServerMetadata("https://example.com/mcp"))?.authServerMeta).toEqual(meta)
+	})
+
+	it("rejects a loopback HTTP token endpoint advertised by a remote issuer", async () => {
+		vi.mocked(discoverOAuthProtectedResourceMetadata).mockResolvedValue({
+			resource: "https://example.com/mcp",
+			authorization_servers: ["https://auth.example.com"],
+		})
+		mockFetch.mockResolvedValueOnce({
+			ok: true,
+			json: async () => ({ issuer: "https://auth.example.com", token_endpoint: "http://127.0.0.1:8765/token" }),
+		})
+		expect(await fetchOAuthAuthServerMetadata("https://example.com/mcp")).toBeNull()
 	})
 
 	it("returns null resourceIndicator when protected resource metadata has no resource field", async () => {

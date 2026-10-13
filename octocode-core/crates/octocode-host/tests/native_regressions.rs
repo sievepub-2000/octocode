@@ -2,6 +2,99 @@ use octocode_host::{agent::AgentRun, store::Store, supervisor::{self, Advisor}, 
 use serde_json::json;
 use std::{fs, path::Path, process::Command};
 
+#[test]
+fn retention_consumer_batches_drain_owned_backlogs_and_survive_reopen() {
+    use octocode_host::{host::Host, protocol::Request};
+    for (count, expected_batches) in [(10001, vec![10000, 1]), (25005, vec![10000, 10000, 5005])] {
+        let temp = tempfile::tempdir().unwrap();
+        let db = temp.path().join("owned-backlog.db");
+        let host = Host::open(&db).unwrap();
+        let connection = rusqlite::Connection::open(&db).unwrap();
+        connection.execute("WITH RECURSIVE fixture(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM fixture WHERE n<?1) INSERT INTO logs(category,level,subsystem,message,fields,created_at) SELECT 'system','info','owned-expired','owned fixture','{}',0 FROM fixture", [count]).unwrap();
+        let saved = host.dispatch(Request { id: json!(1), method: "setting.set".into(), params: json!({"key":"log.retention_days","value":30}) });
+        assert!(saved.error.is_none());
+        let mut batches = Vec::new();
+        for _ in 0..10 {
+            let response = host.dispatch(Request { id: json!(1), method: "log.purge".into(), params: json!({"retention_days":30}) });
+            assert!(response.error.is_none());
+            let deleted = response.result.unwrap()["deleted_logs"].as_u64().unwrap();
+            batches.push(deleted);
+            if deleted < 10000 { break; }
+        }
+        assert_eq!(batches, expected_batches);
+        assert_eq!(connection.query_row("SELECT COUNT(*) FROM logs WHERE subsystem='owned-expired'", [], |r| r.get::<_,i64>(0)).unwrap(), 0);
+        drop(connection);
+        drop(host);
+        let reopened = Host::open(&db).unwrap();
+        let setting = reopened.dispatch(Request { id: json!(1), method: "setting.get".into(), params: json!({"key":"log.retention_days"}) });
+        assert_eq!(setting.result.unwrap(), 30);
+        let rows = reopened.dispatch(Request { id: json!(1), method: "log.list".into(), params: json!({"category":"system","keyword":"owned-expired"}) });
+        assert!(rows.result.unwrap().as_array().unwrap().is_empty());
+        drop(reopened);
+        temp.close().unwrap();
+    }
+}
+
+#[test]
+fn worktree_query_and_create_ignore_foreign_repository_environment() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let temp = tempfile::tempdir().unwrap();
+    let a = temp.path().join("a");
+    let b = temp.path().join("b");
+    let hooks = temp.path().join("hooks");
+    fs::create_dir(&hooks).unwrap();
+    let global_config = temp.path().join("global.gitconfig");
+    fs::write(&global_config, "[user]\n\tname = Owned Global User\n").unwrap();
+    for (repo, marker) in [(&a,"owned A"),(&b,"owned B")] {
+        fs::create_dir(repo).unwrap();
+        git(repo, &["init", "-q", "--initial-branch=owned"]);
+        fs::write(repo.join("marker.txt"), marker).unwrap();
+        git(repo, &["add", "marker.txt"]);
+        git(repo, &["-c","commit.gpgsign=false","-c",&format!("core.hooksPath={}",hooks.display()),"-c","user.name=Owned","-c","user.email=owned@example.invalid","commit","-qm","owned fixture"]);
+    }
+    let b_head = git(&b, &["rev-parse", "HEAD"]);
+    let b_index = fs::read(b.join(".git/index")).unwrap();
+    let receipt = temp.path().join("preserved-env.txt");
+    fs::write(hooks.join("post-checkout"), "#!/bin/sh\nprintf '%s\\n' \"$GIT_SSH_COMMAND\" \"$SSH_AUTH_SOCK\" \"$HTTPS_PROXY\" \"$GIT_CONFIG_GLOBAL\" > \"$OWNED_ENV_RECEIPT\"\ngit config --global --get user.name >> \"$OWNED_ENV_RECEIPT\"\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(hooks.join("post-checkout"), fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    git(&a, &["config", "core.hooksPath", hooks.to_str().unwrap()]);
+    let target = temp.path().join("created-from-a");
+    let input = [
+        json!({"id":1,"method":"worktree.list","params":{"cwd":a}}),
+        json!({"id":2,"method":"worktree.create","params":{"cwd":a,"path":target,"branch":"owned-created","createNewBranch":true}}),
+    ].iter().map(|v|v.to_string()+"\n").collect::<String>();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_octocode-host"))
+        .arg("--db").arg(temp.path().join("fixture.db"))
+        .env("GIT_DIR", b.join(".git")).env("GIT_WORK_TREE", &b)
+        .env("GIT_COMMON_DIR", b.join(".git")).env("GIT_INDEX_FILE", b.join(".git/index"))
+        .env("GIT_OBJECT_DIRECTORY", b.join(".git/objects")).env("GIT_ALTERNATE_OBJECT_DIRECTORIES", b.join(".git/objects"))
+        .env("GIT_SSH_COMMAND", "owned ssh sentinel").env("SSH_AUTH_SOCK", "owned socket sentinel")
+        .env("HTTPS_PROXY", "http://127.0.0.1:9").env("GIT_CONFIG_GLOBAL", &global_config).env("OWNED_ENV_RECEIPT", &receipt)
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "{}",String::from_utf8_lossy(&output.stderr));
+    let responses: Vec<serde_json::Value> = String::from_utf8(output.stdout).unwrap().lines().map(|line|serde_json::from_str(line).unwrap()).collect();
+    assert_eq!(responses.len(),2);
+    assert_eq!(fs::canonicalize(responses[0]["result"][0]["path"].as_str().unwrap()).unwrap(),fs::canonicalize(&a).unwrap(),"query must use supplied A, never foreign B");
+    assert_eq!(responses[1]["result"]["success"],true,"{}",responses[1]);
+    assert_eq!(git(&a,&["rev-parse","refs/heads/owned-created"]),git(&a,&["rev-parse","HEAD"]));
+    assert!(!Command::new("git").args(["rev-parse","--verify","refs/heads/owned-created"]).current_dir(&b).output().unwrap().status.success());
+    assert_eq!(git(&b,&["rev-parse","HEAD"]),b_head);
+    assert_eq!(fs::read(b.join(".git/index")).unwrap(),b_index);
+    assert_eq!(fs::read_to_string(b.join("marker.txt")).unwrap(),"owned B");
+    assert_eq!(worktree::list(&b).unwrap().len(),1);
+    let preserved = fs::read_to_string(&receipt).unwrap();
+    assert_eq!(preserved.lines().collect::<Vec<_>>(),["owned ssh sentinel","owned socket sentinel","http://127.0.0.1:9",global_config.to_str().unwrap(),"Owned Global User"]);
+    worktree::remove(&a,&target,true).unwrap();
+    temp.close().unwrap();
+}
+
 fn git(repo: &Path, args: &[&str]) -> String {
     let output = Command::new("git").args(args).current_dir(repo).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));

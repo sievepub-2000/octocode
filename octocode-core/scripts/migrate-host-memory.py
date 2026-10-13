@@ -11,6 +11,7 @@ usage: python migrate-host-memory.py <globalStorage dir> [--apply]
 from __future__ import annotations
 
 import sqlite3
+import re
 import sys
 import time
 from pathlib import Path
@@ -47,7 +48,26 @@ def main() -> int:
         print("nothing to migrate")
         return 0
     existing = memory.read_text(encoding="utf-8") if memory.exists() else ""
-    new = [i for i in items if i[0][:120] not in existing]
+    # Match each complete source body rather than splitting on dated bullets:
+    # those bullets can also occur verbatim inside a multiline body. Prefer the
+    # longest bodies so their internal bullets are not counted as separate rows.
+    dated = r"- \[\d{4}-\d{2}-\d{2}\] "
+    matches = []
+    for text in {item[0].replace("\r\n", "\n").replace("\r", "\n") for item in items}:
+        pattern = rf"(?m)^{dated}{re.escape(text)}(?=\n+(?:{dated}|\Z)|\Z)"
+        matches.extend((match.start(), match.end(), text) for match in re.finditer(pattern, existing))
+    seen = set()
+    spans = []
+    for start, end, text in sorted(matches, key=lambda match: match[1] - match[0], reverse=True):
+        if not any(start < prior_end and end > prior_start for prior_start, prior_end in spans):
+            seen.add(text)
+            spans.append((start, end))
+    new = []
+    for item in items:
+        identity = item[0].replace("\r\n", "\n").replace("\r", "\n")
+        if identity not in seen:
+            new.append(item)
+            seen.add(identity)
     print(f"{len(items)} memory rows, {len(new)} not yet in {memory}")
     for text, scope, day in new:
         print(f"  [{day}] ({scope}) {text[:90]}")
@@ -59,7 +79,7 @@ def main() -> int:
     if HEADER not in body:
         body += f"\n\n{HEADER}\n"
     body += "".join(f"\n- [{day}] {text}\n" for text, _scope, day in new)
-    memory.write_text(body + "\n", encoding="utf-8")
+    memory.write_text(body + "\n", encoding="utf-8", newline="")
     print(f"appended {len(new)} entries to {memory}")
     return 0
 

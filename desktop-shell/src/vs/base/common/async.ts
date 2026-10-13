@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { CancellationToken, CancellationTokenSource } from './cancellation.js';
-import { BugIndicatingError, CancellationError, isCancellationError } from './errors.js';
+import { BugIndicatingError, CancellationError, isCancellationError, onUnexpectedError } from './errors.js';
 import { Emitter, Event } from './event.js';
 import { Disposable, DisposableMap, DisposableStore, IDisposable, isDisposable, MutableDisposable, toDisposable } from './lifecycle.js';
 import { extUri as defaultExtUri, IExtUri } from './resources.js';
@@ -148,9 +148,9 @@ export function raceCancellablePromises<T>(cancellablePromises: (CancelablePromi
 			}
 		});
 	};
-	promise.finally(() => {
-		promise.cancel();
-	});
+	// Observe both outcomes without creating an unhandled copy of the race's rejection.
+	// Report cleanup failures separately so callers still receive the original outcome.
+	promise.then(() => promise.cancel(), () => promise.cancel()).catch(onUnexpectedError);
 	return promise;
 }
 

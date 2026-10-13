@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Emitter, Event } from '../../../base/common/event.js';
+import { SequencerByKey } from '../../../base/common/async.js';
 import { CancellationTokenSource } from '../../../base/common/cancellation.js';
 import { Disposable, IDisposable, toDisposable } from '../../../base/common/lifecycle.js';
 import { URI } from '../../../base/common/uri.js';
@@ -77,6 +78,7 @@ export class SSHRemoteAgentHostService extends Disposable implements ISSHRemoteA
 	readonly onDidReportConnectProgress: Event<ISSHConnectProgress>;
 
 	private readonly _connections = new Map<string, SSHAgentHostConnectionHandle>();
+	private readonly _connectionOperations = new SequencerByKey<string>();
 
 	constructor(
 		@ISharedProcessService sharedProcessService: ISharedProcessService,
@@ -140,11 +142,16 @@ export class SSHRemoteAgentHostService extends Disposable implements ISSHRemoteA
 			throw new Error('Remote agent host connections are not enabled.');
 		}
 
-		const augmentedConfig = this._augmentConfig(config);
-		this._logService.info(`[SSHRemoteAgentHost] Connecting to ${config.host}`);
-		const result = await this._mainService.connect(augmentedConfig);
-		this._logService.trace(`[SSHRemoteAgentHost] SSH tunnel established, connectionId=${result.connectionId}`);
-		return this._setupConnection(result);
+		// Match the main service's key and serialize the producer as well as setup:
+		// reconnect replaces the relay without changing its connectionId.
+		const connectionKey = config.sshConfigHost ? `ssh:${config.sshConfigHost}` : `${config.username}@${config.host}:${config.port ?? 22}`;
+		return this._connectionOperations.queue(connectionKey, async () => {
+			const augmentedConfig = this._augmentConfig(config);
+			this._logService.info(`[SSHRemoteAgentHost] Connecting to ${config.host}`);
+			const result = await this._mainService.connect(augmentedConfig);
+			this._logService.trace(`[SSHRemoteAgentHost] SSH tunnel established, connectionId=${result.connectionId}`);
+			return this._setupConnection(result);
+		});
 	}
 
 	async disconnect(host: string): Promise<void> {
@@ -172,11 +179,13 @@ export class SSHRemoteAgentHostService extends Disposable implements ISSHRemoteA
 			throw new Error('Remote agent host connections are not enabled.');
 		}
 
-		const commandOverride = this._getRemoteAgentHostCommand();
-		const agentForward = this._isSSHAgentForwardingEnabled();
-		this._logService.info(`[SSHRemoteAgentHost] Reconnecting to ${sshConfigHost}`);
-		const result = await this._mainService.reconnect(sshConfigHost, name, commandOverride, agentForward);
-		return this._setupConnection(result);
+		return this._connectionOperations.queue(`ssh:${sshConfigHost}`, async () => {
+			const commandOverride = this._getRemoteAgentHostCommand();
+			const agentForward = this._isSSHAgentForwardingEnabled();
+			this._logService.info(`[SSHRemoteAgentHost] Reconnecting to ${sshConfigHost}`);
+			const result = await this._mainService.reconnect(sshConfigHost, name, commandOverride, agentForward);
+			return this._setupConnection(result, true);
+		});
 	}
 
 	/**
@@ -184,7 +193,7 @@ export class SSHRemoteAgentHostService extends Disposable implements ISSHRemoteA
 	 * with IRemoteAgentHostService. Any failure after the shared-process tunnel
 	 * was established tears it back down so we don't leak it.
 	 */
-	private async _setupConnection(result: ISSHConnectResult): Promise<ISSHAgentHostConnection> {
+	private async _setupConnection(result: ISSHConnectResult, replaceRelay = false): Promise<ISSHAgentHostConnection> {
 		const existing = this._connections.get(result.connectionId);
 		if (existing) {
 			// Reuse the existing handle only if the managed entry is still
@@ -196,7 +205,7 @@ export class SSHRemoteAgentHostService extends Disposable implements ISSHRemoteA
 			// the stale local state and fall through to a fresh
 			// handshake; the subsequent `addManagedConnection` call
 			// disposes the stale protocol client by replacing the entry.
-			if (this._remoteAgentHostService.getConnection(result.address)) {
+			if (!replaceRelay && this._remoteAgentHostService.getConnection(result.address)) {
 				this._logService.trace('[SSHRemoteAgentHost] Returning existing connection handle');
 				return existing;
 			}
@@ -230,11 +239,11 @@ export class SSHRemoteAgentHostService extends Disposable implements ISSHRemoteA
 			connectError = err;
 		}
 
-		const handle = new SSHAgentHostConnectionHandle(
+		const handle: SSHAgentHostConnectionHandle = new SSHAgentHostConnectionHandle(
 			result.config,
 			result.address,
 			result.name,
-			() => this._mainService.disconnect(result.connectionId),
+			() => this._connections.get(result.connectionId) === handle ? this._mainService.disconnect(result.connectionId) : Promise.resolve(),
 		);
 
 		try {
@@ -283,10 +292,11 @@ export class SSHRemoteAgentHostService extends Disposable implements ISSHRemoteA
 	 */
 	private _createTransportDisposable(connectionId: string, handle: SSHAgentHostConnectionHandle): IDisposable {
 		return toDisposable(() => {
+			const isCurrent = this._connections.get(connectionId) === handle;
 			// Drop the renderer-side handle map entry first so a concurrent
 			// `connect()` for the same key doesn't latch onto a being-torn-down
 			// connection.
-			if (this._connections.get(connectionId) === handle) {
+			if (isCurrent) {
 				this._connections.delete(connectionId);
 				this._onDidChangeConnections.fire();
 			}
@@ -295,7 +305,9 @@ export class SSHRemoteAgentHostService extends Disposable implements ISSHRemoteA
 			// disconnect is initiated below.
 			handle.fireClose();
 			handle.dispose();
-			this._mainService.disconnect(connectionId).catch(() => { /* best effort */ });
+			if (isCurrent) {
+				this._mainService.disconnect(connectionId).catch(() => { /* best effort */ });
+			}
 		});
 	}
 
@@ -311,9 +323,7 @@ export class SSHRemoteAgentHostService extends Disposable implements ISSHRemoteA
 		}
 		// Agent forwarding requires both the global setting (security opt-in)
 		// and the per-host SSH config `ForwardAgent yes` to be enabled.
-		if (this._isSSHAgentForwardingEnabled() && config.agentForward) {
-			result.agentForward = true;
-		}
+		result.agentForward = this._isSSHAgentForwardingEnabled() && config.agentForward ? true : undefined;
 		return result;
 	}
 
@@ -368,6 +378,7 @@ export class SSHRemoteAgentHostService extends Disposable implements ISSHRemoteA
 				const value = await this._quickInputService.input({
 					title,
 					prompt: cleanedPrompt || localize('sshKbiDefaultPrompt', "Authentication required for {0}@{1}", request.username, request.displayHost),
+					promptIsPlainText: true,
 					password: !prompt.echo,
 					ignoreFocusLost: true,
 				}, cts.token);

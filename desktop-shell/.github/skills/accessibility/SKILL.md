@@ -60,10 +60,14 @@ An accessibility help dialog tells the user what the feature does, which keyboar
 
 The simplest approach is to return an `AccessibleContentProvider` directly from `getProvider()`. This is the most common pattern in the codebase (used by chat, inline chat, quick chat, etc.):
 
+The imports below assume `src/vs/workbench/contrib/<feature>/browser/`. Replace the feature-specific context keys and enum members when implementing the skeleton.
+
 ```ts
+import { localize } from '../../../../nls.js';
+import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { AccessibleViewType, AccessibleContentProvider, AccessibleViewProviderId } from '../../../../platform/accessibility/browser/accessibleView.js';
 import { IAccessibleViewImplementation } from '../../../../platform/accessibility/browser/accessibleViewRegistry.js';
-import { AccessibilityVerbositySettingId } from '../../../../platform/accessibility/common/accessibilityConfiguration.js';
+import { AccessibilityVerbositySettingId } from '../../accessibility/browser/accessibilityConfiguration.js';
 
 export class MyFeatureAccessibilityHelp implements IAccessibleViewImplementation {
 	readonly priority = 100;
@@ -90,12 +94,17 @@ export class MyFeatureAccessibilityHelp implements IAccessibleViewImplementation
 Alternatively, if the provider needs injected services or must track state (e.g., storing a reference to the previously focused element), create a custom class that extends `Disposable` and implements `IAccessibleViewContentProvider`, then instantiate it via `IInstantiationService` (see `CommentsAccessibilityHelpProvider` for an example):
 
 ```ts
+// In addition to the imports above:
+import { Disposable } from '../../../../base/common/lifecycle.js';
+import { IAccessibleViewContentProvider, IAccessibleViewOptions } from '../../../../platform/accessibility/browser/accessibleView.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+
 class MyFeatureAccessibilityHelpProvider extends Disposable implements IAccessibleViewContentProvider {
 	readonly id = AccessibleViewProviderId.MyFeature;
 	readonly verbositySettingKey = AccessibilityVerbositySettingId.MyFeature;
 	readonly options: IAccessibleViewOptions = { type: AccessibleViewType.Help };
 
-	provideContent(): string { /* … */ }
+	provideContent(): string { throw new Error('TODO: return localized feature help text'); }
 	onClose(): void { /* … */ }
 }
 
@@ -286,8 +295,8 @@ All interactive UI elements must have appropriate ARIA attributes so screen read
 - [ ] `when` context key is set so the dialog only appears when the feature is focused
 - [ ] If the feature has rich/visual content: `IAccessibleViewImplementation` with `type = View` created and registered
 - [ ] Registration calls in the feature's `*.contribution.ts` file
-- [ ] Accessibility signal played for important events (use existing `AccessibilitySignal.*` or register a new one)
-- [ ] `aria.alert()` or `aria.status()` used appropriately for dynamic changes (prefer `status()` unless urgent)
+- [ ] Accessibility signal played for important events (use existing `AccessibilitySignal.*`; coordinate with @meganrogge before registering a new one)
+- [ ] `aria.alert()` or `aria.status()` used appropriately for dynamic changes unless already announced by a signal (prefer `status()` unless urgent)
 - [ ] All interactive elements reachable and operable via keyboard
 - [ ] All interactive elements without visible text have a localized `aria-label`
 - [ ] Custom widgets declare the correct ARIA `role` and state attributes

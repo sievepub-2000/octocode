@@ -7,17 +7,123 @@ import assert from 'assert';
 import * as async from '../../common/async.js';
 import * as MicrotaskDelay from '../../common/symbols.js';
 import { CancellationToken, CancellationTokenSource } from '../../common/cancellation.js';
-import { isCancellationError } from '../../common/errors.js';
+import { errorHandler, isCancellationError, setUnexpectedErrorHandler } from '../../common/errors.js';
 import { Event } from '../../common/event.js';
 import { URI } from '../../common/uri.js';
 import { runWithFakedTimers } from './timeTravelScheduler.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from './utils.js';
-import { DisposableStore } from '../../common/lifecycle.js';
+import { DisposableStore, IDisposable, toDisposable } from '../../common/lifecycle.js';
 import { Iterable } from '../../common/iterator.js';
 
 suite('Async', () => {
 
 	const store = ensureNoDisposablesAreLeakedInTestSuite();
+
+	suite('raceCancellablePromises', () => {
+		test('fulfillment cancels only the loser before delivering the original value', async () => {
+			const order: string[] = [];
+			const winner = new async.DeferredPromise<string>();
+			const loser = new async.DeferredPromise<string>();
+			const result = async.raceCancellablePromises([
+				Object.assign(winner.p, { cancel: () => order.push('cancel winner') }),
+				Object.assign(loser.p, { cancel: () => order.push('cancel loser') }),
+			]).then(value => { order.push('caller'); return value; });
+			await winner.complete('original value');
+			assert.strictEqual(await result, 'original value');
+			assert.deepStrictEqual(order, ['cancel loser', 'caller']);
+			await loser.complete('late loser');
+		});
+
+		test('rejection cancels both inputs before delivering the exact original error', async () => {
+			const order: string[] = [];
+			const failure = new Error('owned race failure');
+			const winner = new async.DeferredPromise<string>();
+			const loser = new async.DeferredPromise<string>();
+			const result = async.raceCancellablePromises([
+				Object.assign(winner.p, { cancel: () => order.push('cancel rejecting input') }),
+				Object.assign(loser.p, { cancel: () => order.push('cancel loser') }),
+			]);
+			const handled = result.catch(error => { order.push('caller'); assert.strictEqual(error, failure); });
+			await winner.error(failure);
+			await handled;
+			assert.deepStrictEqual(order, ['cancel rejecting input', 'cancel loser', 'caller']);
+			await loser.complete('late loser');
+		});
+
+		test('manual cancellation clears real timeout inputs and preserves CancellationError', async () => {
+			const result = async.raceCancellablePromises([async.timeout(30_000), async.timeout(60_000)]);
+			const handled = assert.rejects(result, isCancellationError);
+			result.cancel();
+			result.cancel();
+			await handled;
+		});
+
+		test('a canceled input disposes its late result once', async () => {
+			let disposed = 0;
+			const value = store.add(toDisposable(() => disposed++));
+			const late = new async.DeferredPromise<IDisposable>();
+			const loser = async.createCancelablePromise(() => late.p);
+			assert.strictEqual(await async.raceCancellablePromises<IDisposable | undefined>([Promise.resolve(undefined), loser]), undefined);
+			await late.complete(value);
+			await async.timeout(0);
+			assert.strictEqual(disposed, 1);
+		});
+
+		test('a plain losing promise may reject after the winner is delivered', async () => {
+			const loser = new async.DeferredPromise<string>();
+			assert.strictEqual(await async.raceCancellablePromises([Promise.resolve('winner'), loser.p]), 'winner');
+			await loser.error(new Error('owned late loser failure'));
+			await async.timeout(0);
+		});
+
+		test('automatic cancel failure is reported without replacing the original rejection', async () => {
+			const original = new Error('owned original failure');
+			const cleanup = new Error('owned automatic cleanup failure');
+			const reported: unknown[] = [];
+			const previous = errorHandler.getUnexpectedErrorHandler();
+			setUnexpectedErrorHandler(error => { if (error === cleanup) { reported.push(error); } else { previous(error); } });
+			try {
+				const throwing = new async.DeferredPromise<string>();
+				const remaining = new async.DeferredPromise<string>();
+				let remainingCanceled = false;
+				const result = async.raceCancellablePromises([
+					Promise.reject(original),
+					Object.assign(throwing.p, { cancel: () => { throw cleanup; } }),
+					Object.assign(remaining.p, { cancel: () => { remainingCanceled = true; } }),
+				]);
+				await assert.rejects(result, error => error === original);
+				await async.timeout(0);
+				assert.deepStrictEqual(reported, [cleanup]);
+				assert.strictEqual(remainingCanceled, false); // Preserve cancellation's existing stop-on-throw order.
+				await throwing.complete('late throwing input');
+				await remaining.complete('late remaining input');
+			} finally {
+				setUnexpectedErrorHandler(previous);
+			}
+		});
+
+		test('explicit cancel still throws and automatic cleanup preserves a later fulfillment', async () => {
+			const cleanup = new Error('owned explicit cleanup failure');
+			const reported: unknown[] = [];
+			const previous = errorHandler.getUnexpectedErrorHandler();
+			setUnexpectedErrorHandler(error => { if (error === cleanup) { reported.push(error); } else { previous(error); } });
+			try {
+				const throwing = new async.DeferredPromise<string>();
+				const winner = new async.DeferredPromise<string>();
+				const result = async.raceCancellablePromises([
+					Object.assign(throwing.p, { cancel: () => { throw cleanup; } }), winner.p,
+				]);
+				assert.throws(() => result.cancel(), error => error === cleanup);
+				await winner.complete('later fulfillment');
+				assert.strictEqual(await result, 'later fulfillment');
+				await async.timeout(0);
+				assert.deepStrictEqual(reported, [cleanup]);
+				await throwing.complete('late throwing input');
+			} finally {
+				setUnexpectedErrorHandler(previous);
+			}
+		});
+	});
 
 	suite('cancelablePromise', function () {
 		test('set token, don\'t wait for inner promise', function () {

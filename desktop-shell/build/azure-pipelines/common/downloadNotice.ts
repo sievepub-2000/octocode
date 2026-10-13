@@ -184,36 +184,44 @@ async function unzip(zipPath: string, outputPath: string): Promise<string[]> {
 			}
 
 			const result: string[] = [];
+			const fail = (error: unknown) => {
+				reject(error);
+				zipfile!.close();
+			};
+			zipfile!.on('error', fail);
 			zipfile!.on('entry', entry => {
 				if (/\/$/.test(entry.fileName)) {
 					zipfile!.readEntry();
 				} else {
 					zipfile!.openReadStream(entry, (err, istream) => {
 						if (err) {
-							return reject(err);
+							return fail(err);
 						}
 
-						const filePath = path.join(outputPath, entry.fileName);
+						try {
+							const filePath = path.join(outputPath, entry.fileName);
 
-						// Zip-slip guard: ensure the resolved entry path stays within
-						// outputPath. A crafted zip could use ../ segments to escape and
-						// overwrite repo files used later in the build.
-						const resolvedOutput = path.resolve(outputPath);
-						const resolvedTarget = path.resolve(filePath);
-						if (resolvedTarget !== resolvedOutput && !resolvedTarget.startsWith(resolvedOutput + path.sep)) {
-							return reject(new Error(`Zip entry escapes output directory (zip-slip): ${entry.fileName}`));
+							// Zip-slip guard: ensure the resolved entry path stays within
+							// outputPath. A crafted zip could use ../ segments to escape and
+							// overwrite repo files used later in the build.
+							const resolvedOutput = path.resolve(outputPath);
+							const resolvedTarget = path.resolve(filePath);
+							if (resolvedTarget !== resolvedOutput && !resolvedTarget.startsWith(resolvedOutput + path.sep)) {
+								istream?.destroy();
+								return fail(new Error(`Zip entry escapes output directory (zip-slip): ${entry.fileName}`));
+							}
+
+							fs.mkdirSync(path.dirname(filePath), { recursive: true });
+
+							const ostream = fs.createWriteStream(filePath);
+							pipeline(istream!, ostream).then(() => {
+								result.push(filePath);
+								zipfile!.readEntry();
+							}).catch(fail);
+						} catch (error) {
+							istream?.destroy();
+							fail(error);
 						}
-
-						fs.mkdirSync(path.dirname(filePath), { recursive: true });
-
-						const ostream = fs.createWriteStream(filePath);
-						ostream.on('finish', () => {
-							result.push(filePath);
-							zipfile!.readEntry();
-						});
-						ostream.on('error', err => reject(err));
-						istream?.on('error', err => reject(err));
-						istream!.pipe(ostream);
 					});
 				}
 			});
@@ -379,7 +387,13 @@ async function main(): Promise<void> {
 	}
 
 	const legacySize = fs.existsSync(TARGET_NOTICE) ? fs.statSync(TARGET_NOTICE).size : 0;
-	fs.copyFileSync(notice.shippingPath, TARGET_NOTICE);
+	const pendingNotice = `${TARGET_NOTICE}.${process.pid}.tmp`;
+	try {
+		fs.copyFileSync(notice.shippingPath, pendingNotice);
+		fs.renameSync(pendingNotice, TARGET_NOTICE);
+	} finally {
+		fs.rmSync(pendingNotice, { force: true });
+	}
 	log(`RESULT=fresh overwrote ${TARGET_NOTICE} with CG NOTICE (${notice.size} bytes; legacy was ${legacySize} bytes).`);
 
 	fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -387,6 +401,6 @@ async function main(): Promise<void> {
 
 main().catch(err => {
 	// Non-fatal: log and exit 0 so packaging proceeds with the legacy notice.
-	console.error('[notice-cutover] Non-fatal error; keeping legacy notice:', err);
+	console.error('[notice-cutover] RESULT=fallback Non-fatal error; keeping legacy notice:', err);
 	process.exitCode = 0;
 });

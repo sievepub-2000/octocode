@@ -7,9 +7,9 @@ $basePath = if ($distro) { [string]$distro.BasePath } else { '' }
 if ($basePath.StartsWith('\\?\')) { $basePath = $basePath.Substring(4) }
 $environments = Join-Path $AppRoot 'environments'
 $environmentDirectory = Get-Item -LiteralPath $environments -Force -ErrorAction SilentlyContinue
-if ($environmentDirectory -and $environmentDirectory.LinkType -eq 'Junction') { $environments = [string]$environmentDirectory.Target[0] }
+if ($environmentDirectory -and $environmentDirectory.LinkType -eq 'Junction') { $environments = [string]@($environmentDirectory.Target)[0] }
 $expectedBasePath = [System.IO.Path]::GetFullPath((Join-Path $environments 'wsl\OctoCode')).TrimEnd('\')
-if ($distro -and ([System.IO.Path]::GetFullPath($basePath)).TrimEnd('\').Equals($expectedBasePath, [StringComparison]::OrdinalIgnoreCase)) {
+if ($distro -and ![string]::IsNullOrWhiteSpace($basePath) -and ([System.IO.Path]::GetFullPath($basePath)).TrimEnd('\').Equals($expectedBasePath, [StringComparison]::OrdinalIgnoreCase)) {
 	# The registered VHD contains user files; unregistering would destroy them.
 	wsl.exe --terminate OctoCode
 	if ($LASTEXITCODE -ne 0) { throw "Unable to stop the OctoCode WSL environment" }

@@ -45,6 +45,7 @@ export interface OAuthDiscoveryResult {
  * Returns an {@link OAuthDiscoveryResult} on success, or `null` if any step fails.
  */
 const DISCOVERY_TIMEOUT_MS = 5_000
+const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"]
 
 export async function fetchOAuthAuthServerMetadata(serverUrl: string): Promise<OAuthDiscoveryResult | null> {
 	let timeout: ReturnType<typeof setTimeout> | undefined
@@ -71,12 +72,17 @@ export async function fetchOAuthAuthServerMetadata(serverUrl: string): Promise<O
 		// For issuer "https://example.com/auth/public"
 		//   → "https://example.com/.well-known/oauth-authorization-server/auth/public"
 		const parsed = new URL(authServers[0])
+		const localIssuer = parsed.protocol === "http:" && LOOPBACK_HOSTS.includes(parsed.hostname)
+		if (parsed.protocol !== "https:" && !localIssuer) {
+			return null
+		}
 		const base = `${parsed.protocol}//${parsed.host}`
 		const issuePath = parsed.pathname.replace(/\/$/, "") || ""
 		const discoveryUrl = `${base}/.well-known/oauth-authorization-server${issuePath}`
 
 		const response = await fetch(discoveryUrl, {
 			headers: { Accept: "application/json" },
+			redirect: "error",
 			signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
 		})
 		if (!response.ok) return null
@@ -85,6 +91,18 @@ export async function fetchOAuthAuthServerMetadata(serverUrl: string): Promise<O
 		// the authorization server from which this document was discovered.
 		if (typeof authServerMeta.issuer !== "string" || new URL(authServerMeta.issuer).href !== parsed.href) {
 			return null
+		}
+		for (const key of ["authorization_endpoint", "token_endpoint", "registration_endpoint"]) {
+			const value = authServerMeta[key]
+			if (value === undefined) continue
+			if (typeof value !== "string") return null
+			const endpoint = new URL(value)
+			if (
+				endpoint.protocol !== "https:" &&
+				!(localIssuer && endpoint.protocol === "http:" && LOOPBACK_HOSTS.includes(endpoint.hostname))
+			) {
+				return null
+			}
 		}
 		return { authServerMeta, resourceIndicator }
 	} catch {

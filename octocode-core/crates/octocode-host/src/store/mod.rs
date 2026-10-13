@@ -1,9 +1,10 @@
-mod projects;
+pub(crate) mod projects;
 mod retention;
 mod schema;
 
-use std::path::Path;
+use std::{fs, path::Path};
 
+use anyhow::Context;
 use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -211,17 +212,28 @@ impl Store {
         message_id: &str,
         title: &str,
         workspace: Option<&str>,
+        project_id: Option<&str>,
         prompt: &str,
         event: &Value,
-    ) -> rusqlite::Result<Session> {
+    ) -> anyhow::Result<Session> {
         let task_id = event["task_id"]
             .as_str()
-            .ok_or_else(|| rusqlite::Error::InvalidParameterName("event.task_id".into()))?;
+            .context("event.task_id is required")?;
+        let directory = if let Some(workspace) = workspace {
+            let root = fs::canonicalize(workspace).context("工作区不可访问")?;
+            anyhow::ensure!(root.is_dir(), "工作区不是目录");
+            let directory = session_directory(root.to_str().context("工作区路径无效")?, session_id);
+            projects::ensure_owned_path(&root, &directory)?;
+            fs::create_dir_all(directory.parent().context("会话目录无效")?)?;
+            fs::create_dir(&directory).context("会话目录已存在或不可写")?;
+            Some(directory)
+        } else { None };
         let now = Utc::now().timestamp_millis();
+        let result = (|| -> anyhow::Result<Session> {
         let transaction = self.conn.unchecked_transaction()?;
         transaction.execute(
-            "INSERT INTO sessions(id,title,workspace,status,created_at,updated_at,model) VALUES (?1,?2,?3,'prepared',?4,?4,?5)",
-            params![session_id, title, workspace, now, event["model"].as_str()],
+            "INSERT INTO sessions(id,title,workspace,project_id,status,created_at,updated_at,model) VALUES (?1,?2,?3,?4,'prepared',?5,?5,?6)",
+            params![session_id, title, workspace, project_id, now, event["model"].as_str()],
         )?;
         transaction.execute(
             "INSERT INTO messages(id,session_id,ordinal,role,content,created_at) VALUES (?1,?2,0,'user',?3,?4)",
@@ -241,8 +253,24 @@ impl Store {
             transaction.execute("INSERT INTO events(session_id,kind,payload,created_at) VALUES(?1,'harness.handed_off',?2,?3)", params![source,json!({"target_session_id":session_id,"task_id":task_id}).to_string(),now])?;
         }
         transaction.commit()?;
-        self.session(session_id)?
-            .ok_or(rusqlite::Error::QueryReturnedNoRows)
+        self.session(session_id)?.context("会话创建后未找到")
+        })();
+        if result.is_err() {
+            if let Some(directory) = directory { let _ = fs::remove_dir(directory); }
+        }
+        result
+    }
+
+    pub fn session_working_directory(&self, id: &str) -> anyhow::Result<Option<String>> {
+        let session = self.session(id)?.context("会话不存在")?;
+        let Some(workspace) = session.workspace else { return Ok(None) };
+        let root = fs::canonicalize(&workspace).context("会话工作区不可访问")?;
+        let directory = session_directory(root.to_str().context("工作区路径无效")?, id);
+        projects::ensure_owned_path(&root, &directory)?;
+        fs::create_dir_all(directory.parent().context("会话目录无效")?)?;
+        if !directory.exists() { fs::create_dir(&directory)?; }
+        projects::ensure_owned_path(&root, &directory)?;
+        Ok(Some(directory.to_string_lossy().into_owned()))
     }
 
     pub fn continue_harness_session(
@@ -329,6 +357,44 @@ impl Store {
         let transaction = self.conn.unchecked_transaction()?;
         let deleted = transaction.execute("DELETE FROM sessions WHERE id=?1", [id])? == 1;
         transaction.execute("DELETE FROM settings WHERE key=?1", [format!("message-queue:{id}")])?;
+        transaction.execute("DELETE FROM settings WHERE key=?1", [format!("runtime-session:{id}")])?;
+        transaction.commit()?;
+        Ok(deleted)
+    }
+
+    pub fn delete_unstarted_session(&self, id: &str, task_id: &str) -> rusqlite::Result<bool> {
+        let transaction = self.conn.unchecked_transaction()?;
+        // Handoff can move unsent user messages here. Automatic cleanup must
+        // retain them; only an absent queue or a valid empty array is disposable.
+        let queue: Option<String> = transaction.query_row(
+            "SELECT value FROM settings WHERE key=?1", [format!("message-queue:{id}")],
+            |row| row.get(0),
+        ).optional()?;
+        if queue.as_deref().is_some_and(|raw| {
+            !matches!(serde_json::from_str::<Value>(raw), Ok(Value::Array(items)) if items.is_empty())
+        }) {
+            return Ok(false);
+        }
+        // A single transaction binds identity, latest checkpoint, status and
+        // absence of starts to deletion. Invalid JSON fails closed as a DB error.
+        let eligible: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sessions s WHERE s.id=?1
+             AND s.status IN ('prepared','failed')
+             AND EXISTS(SELECT 1 FROM workflow_runs w WHERE w.id=?2 AND w.session_id=s.id)
+             AND (SELECT CASE WHEN e.kind IN ('harness.prepared','harness.continued')
+                  THEN json_extract(e.payload,'$.task_id') ELSE NULL END
+                  FROM events e WHERE e.session_id=s.id
+                  AND e.kind IN ('harness.prepared','harness.continued','legacy.turn')
+                  ORDER BY e.sequence DESC LIMIT 1)=?2
+             AND NOT EXISTS(SELECT 1 FROM events e WHERE e.session_id=s.id AND e.kind='agent.started'))",
+            params![id, task_id], |row| row.get(0),
+        )?;
+        if !eligible { return Ok(false); }
+        let deleted = transaction.execute("DELETE FROM sessions WHERE id=?1", [id])? == 1;
+        if !deleted { return Ok(false); }
+        for prefix in ["message-queue", "runtime-session"] {
+            transaction.execute("DELETE FROM settings WHERE key=?1", [format!("{prefix}:{id}")])?;
+        }
         transaction.commit()?;
         Ok(deleted)
     }
@@ -423,6 +489,52 @@ impl Store {
             ))
         })?
         .collect()
+    }
+
+    /// None means the selected raw list exceeds its resource budget; no partial rows escape.
+    pub fn bounded_event_list(
+        &self,
+        session_id: &str,
+        after: i64,
+        limit: i64,
+        presentation: bool,
+    ) -> rusqlite::Result<Option<Vec<(i64, String, Value)>>> {
+        let probe_limit = limit.min(2001);
+        let transaction = self.conn.unchecked_transaction()?;
+        {
+            let mut stmt = transaction.prepare(
+                "SELECT length(CAST(kind AS BLOB)),
+                        length(CAST(CASE WHEN ?4 AND kind IN ('tool_call_update','available_commands') THEN 'null' ELSE payload END AS BLOB))
+                 FROM events WHERE session_id=?1 AND sequence>?2 ORDER BY sequence LIMIT ?3",
+            )?;
+            let sizes = stmt.query_map(params![session_id, after, probe_limit, presentation], |row| {
+                Ok((row.get::<_, u64>(0)?, row.get::<_, u64>(1)?))
+            })?;
+            let mut remaining_bytes = 8 * 1024 * 1024_u64;
+            for (index, size) in sizes.enumerate() {
+                let (kind_bytes, payload_bytes) = size?;
+                if index >= 2000 || kind_bytes > remaining_bytes {
+                    return Ok(None);
+                }
+                remaining_bytes -= kind_bytes;
+                if payload_bytes > remaining_bytes {
+                    return Ok(None);
+                }
+                remaining_bytes -= payload_bytes;
+            }
+        }
+        let rows = {
+            let mut stmt = transaction.prepare(
+                "SELECT sequence,kind,CASE WHEN ?4 AND kind IN ('tool_call_update','available_commands') THEN 'null' ELSE payload END
+                 FROM events WHERE session_id=?1 AND sequence>?2 ORDER BY sequence LIMIT ?3",
+            )?;
+            stmt.query_map(params![session_id, after, probe_limit, presentation], |row| {
+                let raw: String = row.get(2)?;
+                Ok((row.get(0)?, row.get(1)?, serde_json::from_str(&raw).unwrap_or(Value::Null)))
+            })?.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        transaction.commit()?;
+        Ok(Some(rows))
     }
 
     /// Page at user-turn boundaries so history never starts halfway through a tool call.
@@ -614,6 +726,30 @@ impl Store {
             "UPDATE workflow_runs SET phase=?2,status=?3,state=?4,heartbeat_at=?5,updated_at=?5 WHERE id=?1",
             params![id, phase, status, state.to_string(), now],
         )? == 1)
+    }
+
+    pub(crate) fn update_workflow_session(
+        &self, task_id: &str, session_id: &str, phase: &str, status: &str, state: &Value,
+    ) -> rusqlite::Result<()> {
+        let transaction = self.conn.unchecked_transaction()?;
+        if !self.update_workflow(task_id, phase, status, state)?
+            || !self.update_session_status(session_id, status)?
+        {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        transaction.commit()
+    }
+
+    pub(crate) fn transition_harness_session(
+        &self, session_id: &str, status: &str, payload: &Value,
+    ) -> rusqlite::Result<i64> {
+        let transaction = self.conn.unchecked_transaction()?;
+        if !self.update_session_status(session_id, status)? {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        let sequence = self.append_event(Some(session_id), &format!("harness.{status}"), payload)?;
+        transaction.commit()?;
+        Ok(sequence)
     }
 
     pub fn delete_workflow(&self, id: &str) -> rusqlite::Result<bool> {

@@ -42,22 +42,24 @@ The `scripts/` folder contains stable, generic runners. Use them directly or as 
 
 Use the bundled [Chat memory smoke runner](./scripts/chat-memory-smoke.mts) when the scenario is Chat-specific or can be expressed as repeated Chat prompts. It launches Code OSS, opens Chat, sends prompts, waits for responses, writes screenshots and `summary.json`, samples renderer heap, and can take selected heap snapshots.
 
+Create an ignored throwaway workspace first and replace `<scratch-folder>` in the examples below with its path.
+
 Fast health check:
 
 ```bash
-node .github/skills/auto-perf-optimize/scripts/chat-memory-smoke.mts --iterations 3 --no-heap-snapshots
+node .github/skills/auto-perf-optimize/scripts/chat-memory-smoke.mts --iterations 3 --no-heap-snapshots --workspace "<scratch-folder>"
 ```
 
 Targeted post-warmup snapshots:
 
 ```bash
-node .github/skills/auto-perf-optimize/scripts/chat-memory-smoke.mts --iterations 8 --heap-snapshot-label 03-iteration-01 --heap-snapshot-label 03-iteration-08
+node .github/skills/auto-perf-optimize/scripts/chat-memory-smoke.mts --iterations 8 --heap-snapshot-label 03-iteration-01 --heap-snapshot-label 03-iteration-08 --workspace "<scratch-folder>"
 ```
 
 User-described Chat scenario:
 
 ```bash
-node .github/skills/auto-perf-optimize/scripts/chat-memory-smoke.mts --iterations 8 --message 'For memory investigation iteration {iteration}, summarize the active workspace in one paragraph.' --heap-snapshot-label 03-iteration-01 --heap-snapshot-label 03-iteration-08
+node .github/skills/auto-perf-optimize/scripts/chat-memory-smoke.mts --iterations 8 --message 'For memory investigation iteration {iteration}, summarize the active workspace in one paragraph.' --heap-snapshot-label 03-iteration-01 --heap-snapshot-label 03-iteration-08 --workspace "<scratch-folder>"
 ```
 
 Important runner behavior:
@@ -69,7 +71,7 @@ Important runner behavior:
 **Safety: chat runs execute on the real machine.** The Code OSS instance launched by these runners is a full VS Code with Copilot auth on the user's actual computer — not a sandbox. Chat prompts you craft will be sent to a real LLM, and any tool calls the agent makes (terminal commands, file edits, etc.) will execute for real. Be responsible:
 
 - **Use a throwaway workspace**, not the real repo. Pass `--workspace <scratch-folder>` pointing to a temporary or gitignored directory (e.g., the runner's scratchpad subfolder, or a folder under `.build/`). The default workspace in checked-in runners is the repo root for convenience, but scratchpad runners for Chat scenarios should always override it to avoid accidental file modifications in the source tree.
-- Use **safe, read-only commands** for prompts that trigger terminal tools (e.g., `touch /tmp/foo`, `git log --oneline`, `ls`). Never instruct the agent to delete files, run destructive commands, or modify the user's workspace.
+- Use **safe, read-only commands** for prompts that trigger terminal tools (e.g., `git log --oneline`, `ls`). Never instruct the agent to delete files, run destructive commands, or modify the user's workspace.
 - If you need tool calls for testing, use harmless operations and clean up any temp files afterward.
 - Don't be afraid to run terminal commands — just be thoughtful about what you ask.
 - Pass `--keep-open` when the user needs to log in or watch the window, then close the window before the next automated run unless intentionally reusing it.
@@ -80,7 +82,7 @@ Important runner behavior:
 Prefer the shared persistent performance profile for routine runs:
 
 ```bash
-node .github/skills/auto-perf-optimize/scripts/chat-memory-smoke.mts --keep-open --iterations 1 --no-heap-snapshots
+node .github/skills/auto-perf-optimize/scripts/chat-memory-smoke.mts --keep-open --iterations 1 --no-heap-snapshots --workspace "<scratch-folder>"
 ```
 
 If Chat asks for auth, let the user sign in once, close the Code window, then rerun the fast smoke without `--keep-open`. The same profile is reused by the bundled Chat runner and by other runners that follow this skill's profile convention.
@@ -88,13 +90,13 @@ If Chat asks for auth, let the user sign in once, close the Code window, then re
 To bootstrap the shared performance profile from an older logged-in automation profile, copy it once into the default target:
 
 ```bash
-node .github/skills/auto-perf-optimize/scripts/chat-memory-smoke.mts --seed-user-data-dir .build/chat-memory-smoke/user-data --keep-open --iterations 1 --no-heap-snapshots
+node .github/skills/auto-perf-optimize/scripts/chat-memory-smoke.mts --seed-user-data-dir .build/chat-memory-smoke/user-data --keep-open --iterations 1 --no-heap-snapshots --workspace "<scratch-folder>"
 ```
 
 To run a fresh disposable copy of a logged-in seed:
 
 ```bash
-node .github/skills/auto-perf-optimize/scripts/chat-memory-smoke.mts --temporary-user-data --seed-user-data-dir .build/auto-perf-optimize/user-data --iterations 3 --no-heap-snapshots
+node .github/skills/auto-perf-optimize/scripts/chat-memory-smoke.mts --temporary-user-data --seed-user-data-dir .build/auto-perf-optimize/user-data --iterations 3 --no-heap-snapshots --workspace "<scratch-folder>"
 ```
 
 Seed-copy rules:
@@ -122,7 +124,7 @@ Organize scratchpad work into **dated subfolders** named `YYYY-MM-DD-short-descr
 Suggested watch loop for the bundled Chat runner:
 
 ```bash
-node .github/skills/auto-perf-optimize/scripts/chat-memory-smoke.mts --keep-open --iterations 1 --no-heap-snapshots --port 9224 --output .build/chat-memory-smoke/watch-chat
+node .github/skills/auto-perf-optimize/scripts/chat-memory-smoke.mts --keep-open --iterations 1 --no-heap-snapshots --port 9224 --output .build/chat-memory-smoke/watch-chat --workspace "<scratch-folder>"
 ```
 
 While that Code window is open, inspect it with `@playwright/cli` from the repo root:
@@ -169,7 +171,7 @@ After capture, use heap-snapshot-analysis. A minimal scratchpad comparison scrip
 
 ```javascript
 import path from 'node:path';
-import { compareSnapshots, printComparison } from '../helpers/compareSnapshots.ts';
+import { compareSnapshots, printComparison } from '../../helpers/compareSnapshots.ts';
 
 const runDir = process.env.RUN;
 if (!runDir) {
@@ -185,7 +187,7 @@ Run it from the heap-snapshot-analysis skill folder:
 
 ```bash
 cd .github/skills/heap-snapshot-analysis
-RUN=../../../.build/chat-memory-smoke/<run-folder> node --max-old-space-size=16384 scratchpad/compare-chat-run.mjs
+RUN=../../../.build/chat-memory-smoke/<run-folder> node --max-old-space-size=16384 scratchpad/YYYY-MM-DD-topic/compare-chat-run.mjs
 ```
 
 ## Non-Chat VS Code Scenarios

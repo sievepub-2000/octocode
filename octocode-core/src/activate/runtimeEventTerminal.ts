@@ -1,6 +1,7 @@
 import * as vscode from "vscode"
 import * as path from "node:path"
 import { StringDecoder } from "node:string_decoder"
+import { stripVTControlCharacters } from "node:util"
 
 import { getShell } from "../utils/shell"
 import { t } from "../i18n"
@@ -24,9 +25,9 @@ type InteractiveShell = {
 	resize(columns: number, rows: number): void
 	write(data: string): void
 }
-type SpawnInteractiveShell = (dimensions?: vscode.TerminalDimensions) => InteractiveShell
+type SpawnInteractiveShell = (dimensions?: vscode.TerminalDimensions, cwd?: string) => InteractiveShell
 
-const spawnInteractiveShell: SpawnInteractiveShell = (dimensions) => {
+const spawnInteractiveShell: SpawnInteractiveShell = (dimensions, cwd) => {
 	const nodePty = require(path.join(vscode.env.appRoot, "node_modules.asar", "node-pty")) as {
 		spawn: (file: string, args: string[], options: Record<string, unknown>) => InteractiveShell
 	}
@@ -34,7 +35,7 @@ const spawnInteractiveShell: SpawnInteractiveShell = (dimensions) => {
 	const args = /(?:powershell|pwsh)(?:\.exe)?$/i.test(shell) ? ["-NoLogo"] : []
 	return nodePty.spawn(shell, args, {
 		cols: dimensions?.columns ?? 120,
-		cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd(),
+		cwd: cwd ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd(),
 		env: process.env,
 		name: "xterm-256color",
 		rows: dimensions?.rows ?? 30,
@@ -91,7 +92,12 @@ export function terminalEventText(
 	const payload = record(event.payload)
 	if (!payload) return undefined
 	if (event.kind === "agent.error") {
-		const message = typeof payload.message === "string" ? payload.message : typeof payload.error === "string" ? payload.error : "Runtime execution failed"
+		const message =
+			typeof payload.message === "string"
+				? payload.message
+				: typeof payload.error === "string"
+					? payload.error
+					: "Runtime execution failed"
 		return `\x1b[31m[OctoCode error] ${message.replace(/\r?\n/g, "\r\n")}\x1b[0m\r\n`
 	}
 	if (event.kind === "agent.supervisor") return supervisorText(payload)
@@ -151,13 +157,29 @@ export class RuntimeEventTerminal {
 	private suppressCloseNotification = false
 	private writeEmitter?: vscode.EventEmitter<string>
 	private terminal?: vscode.Terminal
+	private terminalReady = false
+	private pendingOutput: string[] = []
+	private workingDirectory?: string
 	constructor(
 		private readonly createEmitter = () => new vscode.EventEmitter<string>(),
 		private readonly spawnShell = spawnInteractiveShell,
+		private readonly terminalName = t("common:ui.runtimeTerminal"),
+		private readonly sessionScoped = false,
 	) {}
 
 	setOnDidClose(callback?: () => void): void {
 		this.onDidClose = callback
+	}
+
+	currentTerminal(): vscode.Terminal | undefined {
+		return this.terminal
+	}
+
+	setWorkingDirectory(directory: string): void {
+		if (!path.isAbsolute(directory)) throw new Error("Session working directory must be absolute")
+		if (this.workingDirectory === directory) return
+		if (this.terminal) this.forget()
+		this.workingDirectory = directory
 	}
 
 	/**
@@ -168,16 +190,32 @@ export class RuntimeEventTerminal {
 	open(location: vscode.ViewColumn | vscode.TerminalLocation): vscode.Terminal {
 		if (this.terminal && this.terminal.exitStatus === undefined) return this.terminal
 		this.terminal = undefined
+		this.terminalReady = false
 		const writeEmitter = this.createEmitter()
 		this.writeEmitter = writeEmitter
 		let shell: InteractiveShell | undefined
+		let readyTimer: ReturnType<typeof setTimeout> | undefined
+		const flushPending = () => {
+			this.terminalReady = true
+			for (const message of this.pendingOutput.splice(0)) writeEmitter.fire(message)
+		}
 		const pty: vscode.Pseudoterminal = {
 			onDidWrite: writeEmitter.event,
 			open: (dimensions) => {
 				try {
-					const openedShell = this.spawnShell(dimensions)
+					if (this.sessionScoped && !this.workingDirectory)
+						throw new Error("Session working directory unavailable")
+					const openedShell = this.spawnShell(dimensions, this.workingDirectory)
 					shell = openedShell
-					shell.onData((data) => writeEmitter.fire(data))
+					shell.onData((data) => {
+						writeEmitter.fire(data)
+						// PowerShell redraws its first prompt after resizing the new PTY.
+						// Wait for startup output to settle so that redraw cannot erase queued errors.
+						if (!this.terminalReady && (readyTimer || stripVTControlCharacters(data).trim())) {
+							clearTimeout(readyTimer)
+							readyTimer = setTimeout(flushPending, 50)
+						}
+					})
 					shell.onExit(({ exitCode }) => {
 						if (shell !== openedShell) return
 						shell = undefined
@@ -187,22 +225,25 @@ export class RuntimeEventTerminal {
 					writeEmitter.fire(
 						`\r\n[PowerShell unavailable: ${error instanceof Error ? error.message : String(error)}]\r\n`,
 					)
+					flushPending()
 				}
 			},
 			handleInput: (data) => shell?.write(data),
 			setDimensions: ({ columns, rows }) => shell?.resize(columns, rows),
 			close: () => {
+				clearTimeout(readyTimer)
 				shell?.kill()
 				shell = undefined
 				if (this.terminal === terminal) {
 					this.terminal = undefined
+					this.terminalReady = false
 					this.executions.clear()
 					if (!this.suppressCloseNotification) this.onDidClose?.()
 				}
 			},
 		}
 		const terminal = vscode.window.createTerminal({
-			name: t("common:ui.runtimeTerminal"),
+			name: this.terminalName,
 			pty,
 			location:
 				location === vscode.TerminalLocation.Panel
@@ -216,6 +257,17 @@ export class RuntimeEventTerminal {
 		const terminal = this.open(vscode.ViewColumn.Three)
 		await this.restorePosition()
 		terminal.show(true)
+	}
+
+	async reportArtifactFailure(name: string, showTerminal = true): Promise<void> {
+		if (showTerminal) await this.show()
+		const message = `\r\n[Artifact] 无法预览文件：${name}。请检查工具返回的实际文件路径。\r\n`
+		this.write(message)
+	}
+
+	private write(message: string): void {
+		if (this.terminalReady) this.writeEmitter?.fire(message)
+		else this.pendingOutput.push(message)
 	}
 
 	async restorePosition(): Promise<void> {
@@ -235,6 +287,8 @@ export class RuntimeEventTerminal {
 	forget(): void {
 		const terminal = this.terminal
 		this.terminal = undefined
+		this.terminalReady = false
+		this.pendingOutput = []
 		this.suppressCloseNotification = true
 		try {
 			terminal?.dispose()
@@ -257,8 +311,109 @@ export class RuntimeEventTerminal {
 
 	accept(event: RuntimeAgentEvent): void {
 		const text = terminalEventText(event, this.executions)
-		if (text) this.writeEmitter?.fire(text)
+		if (text) this.write(text)
 	}
 }
 
-export const runtimeEventTerminal = new RuntimeEventTerminal()
+export class SessionRuntimeEventTerminals {
+	private readonly terminals = new Map<string, RuntimeEventTerminal>()
+	private readonly releasedSessions = new Set<string>()
+	private activeSessionId?: string
+	private readonly unassigned: RuntimeEventTerminal
+	private onDidClose?: () => void
+	constructor(
+		private readonly createTerminal = (sessionId?: string) =>
+			new RuntimeEventTerminal(
+				undefined,
+				undefined,
+				sessionId ? `${t("common:ui.runtimeTerminal")} (${sessionId})` : t("common:ui.runtimeTerminal"),
+				true,
+			),
+	) {
+		this.unassigned = createTerminal()
+	}
+
+	private get active(): RuntimeEventTerminal {
+		if (!this.activeSessionId) return this.unassigned
+		return this.forSession(this.activeSessionId)
+	}
+
+	private forSession(sessionId: string): RuntimeEventTerminal {
+		let terminal = this.terminals.get(sessionId)
+		if (!terminal) {
+			terminal = this.createTerminal(sessionId)
+			terminal.setOnDidClose(this.onDidClose)
+			this.terminals.set(sessionId, terminal)
+		}
+		return terminal
+	}
+
+	setOnDidClose(callback?: () => void): void {
+		this.onDidClose = callback
+		this.unassigned.setOnDidClose(callback)
+		for (const terminal of this.terminals.values()) terminal.setOnDidClose(callback)
+	}
+
+	setSessionWorkingDirectory(sessionId: string, directory: string): void {
+		if (this.releasedSessions.has(sessionId)) return
+		this.forSession(sessionId).setWorkingDirectory(directory)
+	}
+
+	setActiveSession(sessionId?: string): void {
+		if (sessionId && this.releasedSessions.has(sessionId)) return
+		if (sessionId === this.activeSessionId) return
+		this.active.currentTerminal()?.hide?.()
+		this.activeSessionId = sessionId
+		void this.show().catch(() => undefined)
+	}
+
+	releaseSession(sessionId: string): void {
+		if (this.activeSessionId === sessionId) this.setActiveSession(undefined)
+		const terminal = this.terminals.get(sessionId)
+		this.terminals.delete(sessionId)
+		terminal?.forget()
+		this.releasedSessions.add(sessionId)
+	}
+
+	open(location: vscode.ViewColumn | vscode.TerminalLocation): vscode.Terminal {
+		return this.active.open(location)
+	}
+
+	async show(): Promise<void> {
+		const sessionId = this.activeSessionId
+		const owner = this.active
+		const terminal = owner.open(vscode.ViewColumn.Three)
+		await owner.restorePosition()
+		if (this.activeSessionId === sessionId) terminal.show(true)
+	}
+
+	restorePosition(): Promise<void> {
+		return this.active.restorePosition()
+	}
+
+	reopen(location: vscode.ViewColumn | vscode.TerminalLocation): vscode.Terminal {
+		return this.active.reopen(location)
+	}
+
+	forget(): void {
+		this.unassigned.forget()
+		for (const terminal of this.terminals.values()) terminal.forget()
+		this.terminals.clear()
+		this.releasedSessions.clear()
+		this.activeSessionId = undefined
+	}
+
+	accept(event: RuntimeAgentEvent): void {
+		if (this.releasedSessions.has(event.session_id)) return
+		this.forSession(event.session_id).accept(event)
+	}
+
+	async reportArtifactFailure(name: string, sessionId = this.activeSessionId): Promise<void> {
+		if (sessionId && this.releasedSessions.has(sessionId)) return
+		const owner = sessionId ? this.forSession(sessionId) : this.active
+		if (sessionId === this.activeSessionId) await this.show()
+		await owner.reportArtifactFailure(name, false)
+	}
+}
+
+export const runtimeEventTerminal = new SessionRuntimeEventTerminals()

@@ -138,6 +138,18 @@ describe("TerminalRegistry", () => {
 	})
 
 	describe("getOrCreateTerminal", () => {
+		it("never reuses another task's terminal, even after release", async () => {
+			const first = await TerminalRegistry.getOrCreateTerminal("/test/path", "first", "vscode")
+			const second = await TerminalRegistry.getOrCreateTerminal("/test/path", "second", "vscode")
+			TerminalRegistry.releaseTerminalsForTask("first")
+			const third = await TerminalRegistry.getOrCreateTerminal("/test/path", "third", "vscode")
+
+			expect(second).not.toBe(first)
+			expect(third).not.toBe(first)
+			expect(third).not.toBe(second)
+			expect(mockCreateTerminal).toHaveBeenCalledTimes(3)
+		})
+
 		it("reuses an idle VS Code terminal when the selected profile is unchanged", async () => {
 			const first = await TerminalRegistry.getOrCreateTerminal("/test/path", "task", "vscode")
 			const second = await TerminalRegistry.getOrCreateTerminal("/test/path", "task", "vscode")

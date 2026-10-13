@@ -76,8 +76,10 @@ impl Store {
         if let Some(id) = project_id {
             let p = self.project(id)?;
             let root = fs::canonicalize(&p.workspace)?;
+            let project_directory = fs::canonicalize(&p.directory)?;
             for s in &sessions {
-                ensure!(fs::canonicalize(s.workspace.as_deref().context("会话没有工作区")?)? == root, "只能归集同一工作区的会话");
+                let workspace = fs::canonicalize(s.workspace.as_deref().context("会话没有工作区")?)?;
+                ensure!(workspace == root || workspace == project_directory, "只能归集同一工作区的会话");
             }
         }
         let tx = self.conn.unchecked_transaction()?;
@@ -97,8 +99,23 @@ impl Store {
         // Preserve the last index for locating outputs after the grouping is removed.
         let mut index = self.project_index(id)?;
         index["archived"] = json!(true);
+        let index_path = Path::new(&p.directory).join("artifacts.json");
+        let original = match fs::read(&index_path) {
+            Ok(bytes) => Some(bytes),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(e.into()),
+        };
+        let tx = self.conn.unchecked_transaction()?;
+        ensure!(tx.execute("DELETE FROM projects WHERE id=?1", [id])? == 1, "项目不存在");
         write_index(&p, &index)?;
-        ensure!(self.conn.execute("DELETE FROM projects WHERE id=?1", [id])? == 1, "项目不存在");
+        if let Err(error) = tx.commit() {
+            let restore = match original {
+                Some(bytes) => write_index_bytes(&p, &bytes),
+                None => fs::remove_file(&index_path).map_err(anyhow::Error::from),
+            };
+            restore.with_context(|| format!("项目删除提交失败 ({error}); 恢复索引失败"))?;
+            return Err(error.into());
+        }
         Ok(())
     }
 
@@ -167,25 +184,33 @@ fn collect_files(directory: &Path, paths: &mut BTreeSet<PathBuf>) -> anyhow::Res
     Ok(())
 }
 
-fn ensure_owned_path(root: &Path, target: &Path) -> anyhow::Result<()> {
+pub(crate) fn ensure_owned_path(root: &Path, target: &Path) -> anyhow::Result<()> {
     ensure!(target.starts_with(root) && target != root, "项目索引目录越界");
     let mut cursor = root.to_path_buf();
     for component in target.strip_prefix(root)?.components() {
         ensure!(matches!(component, std::path::Component::Normal(_)), "项目索引目录无效");
         cursor.push(component);
-        if cursor.exists() { ensure!(fs::canonicalize(&cursor)?.starts_with(root), "项目索引目录链接越界"); }
+        if cursor.exists() {
+            ensure!(!fs::symlink_metadata(&cursor)?.file_type().is_symlink(), "项目或会话目录不能使用符号链接");
+            ensure!(fs::canonicalize(&cursor)?.starts_with(root), "项目索引目录链接越界");
+        }
     }
     Ok(())
 }
 
 fn write_index(p: &Project, index: &Value) -> anyhow::Result<()> {
+    let mut bytes = serde_json::to_vec_pretty(index)?;
+    bytes.push(b'\n');
+    write_index_bytes(p, &bytes)
+}
+
+fn write_index_bytes(p: &Project, bytes: &[u8]) -> anyhow::Result<()> {
     let root = fs::canonicalize(&p.workspace)?;
     let directory = Path::new(&p.directory);
     ensure_owned_path(&root, directory)?;
     fs::create_dir_all(directory)?;
     let mut file = tempfile::NamedTempFile::new_in(directory)?;
-    serde_json::to_writer_pretty(&mut file, index)?;
-    file.write_all(b"\n")?;
+    file.write_all(bytes)?;
     file.as_file().sync_all()?;
     file.persist(directory.join("artifacts.json")).map_err(|e| e.error)?;
     Ok(())

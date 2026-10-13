@@ -6,7 +6,10 @@ import path from 'path';
 import fs from 'fs';
 
 /**
- * Returns the sha1 commit version of a repository or undefined in case of failure.
+ * Reads a repository's commit version from a .git directory.
+ * Detached HEAD and packed refs accept 40-character SHA-1 IDs; loose ref files
+ * return their trimmed contents without validation. Returns undefined when no
+ * matching version is found.
  */
 export function getVersion(repo: string): string | undefined {
 	const git = path.join(repo, '.git');

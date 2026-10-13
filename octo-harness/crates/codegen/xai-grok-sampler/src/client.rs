@@ -10,8 +10,9 @@
 //! All trace-upload and URL-based header injection is intentionally *not* here.
 //! The session puts per-request headers (proxy auth, OTel context, etc.) into [`SamplerConfig::extra_headers`] before constructing the client.
 
-use std::sync::Arc;
+use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use eventsource_stream::Eventsource;
 use futures_util::StreamExt;
@@ -348,9 +349,8 @@ struct ClientDefaults {
     extra_response_includes: Vec<String>,
     doom_loop_recovery: Option<xai_grok_sampling_types::DoomLoopRecoveryPolicy>,
     extra_body: Option<serde_json::Map<String, serde_json::Value>>,
-    /// Set once the server rejected the thinking controls; from then on this
-    /// client sends plain requests (no extra body, no reasoning effort).
-    thinking_fallback: Arc<AtomicBool>,
+    /// Only explicitly unsupported controls are omitted from subsequent requests.
+    thinking_fallback: Arc<Mutex<BTreeSet<&'static str>>>,
 }
 
 /// Endpoint URL builder, resolved once at client construction so each request only appends its path.
@@ -649,7 +649,7 @@ impl SamplingClient {
                 serde_json::Value::Object(map) if !map.is_empty() => Some(map),
                 _ => None,
             }),
-            thinking_fallback: Arc::new(AtomicBool::new(false)),
+            thinking_fallback: Arc::new(Mutex::new(BTreeSet::new())),
         };
 
         let endpoint = EndpointTemplate::new(&config.base_url, &config.query_params);
@@ -826,30 +826,147 @@ impl SamplingClient {
     }
 
     /// Chat body with the configured extras merged in (fields the typed request
-    /// already sets win), or the plain body once the server has rejected the
-    /// thinking controls.
+    /// already sets win). Preserve unrelated extras after a parameter rejection.
     fn chat_body(&self, typed: &impl Serialize) -> Result<serde_json::Value> {
         let mut body = serde_json::to_value(typed).map_err(SamplingError::Serialization)?;
         if let serde_json::Value::Object(map) = &mut body {
-            if self.defaults.thinking_fallback.load(Ordering::Relaxed) {
-                map.remove("reasoning_effort");
-            } else if let Some(extra) = &self.defaults.extra_body {
+            if let Some(extra) = &self.defaults.extra_body {
                 for (key, value) in extra {
                     map.entry(key.clone()).or_insert_with(|| value.clone());
+                }
+            }
+            let rejected = self
+                .defaults
+                .thinking_fallback
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            for parameter in rejected.iter() {
+                if let Some((parent, child)) = parameter.split_once('.') {
+                    if let Some(serde_json::Value::Object(nested)) = map.get_mut(parent) {
+                        nested.remove(child);
+                        if nested.is_empty() {
+                            map.remove(parent);
+                        }
+                    }
+                } else {
+                    map.remove(*parameter);
                 }
             }
         }
         Ok(body)
     }
 
-    /// A 400/422 on a request that carried thinking controls is retried once
-    /// without them. Servers disagree on these knobs (vLLM, oMLX, LM Studio, hosted
-    /// APIs), and a wrong tier must degrade to "no thinking", not fail the task.
-    fn should_drop_thinking(&self, status: reqwest::StatusCode, body: &serde_json::Value) -> bool {
-        matches!(status.as_u16(), 400 | 422)
-            && !self.defaults.thinking_fallback.load(Ordering::Relaxed)
-            && (self.defaults.extra_body.is_some()
-                || body.get("reasoning_effort").is_some_and(|v| !v.is_null()))
+    fn unsupported_thinking_parameter(
+        body: &serde_json::Value,
+        bytes: &[u8],
+    ) -> Option<&'static str> {
+        const PARAMETERS: [&str; 6] = [
+            "chat_template_kwargs.enable_thinking",
+            "chat_template_kwargs.thinking_budget",
+            "reasoning_effort",
+            "thinking_budget",
+            "thinking",
+            "chat_template_kwargs",
+        ];
+        let error: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+        let present = |parameter: &str| {
+            let pointer = format!("/{}", parameter.replace('.', "/"));
+            body.pointer(&pointer).is_some_and(|v| !v.is_null())
+                && (parameter != "chat_template_kwargs"
+                    || body[parameter].get("enable_thinking").is_some()
+                    || body[parameter].get("thinking_budget").is_some())
+        };
+        let find = |name: &str| PARAMETERS.into_iter().find(|p| *p == name && present(p));
+        let detail = &error["error"];
+        if matches!(
+            detail["code"].as_str(),
+            Some("unsupported_parameter" | "unknown_parameter" | "unrecognized_parameter")
+        ) {
+            if let Some(parameter) = detail["param"].as_str().and_then(find) {
+                return Some(parameter);
+            }
+        }
+        for item in error["detail"].as_array().into_iter().flatten() {
+            if item["type"] != "extra_forbidden" {
+                continue;
+            }
+            let Some(parts) = item["loc"]
+                .as_array()
+                .and_then(|parts| parts.iter().map(|p| p.as_str()).collect::<Option<Vec<_>>>())
+            else {
+                continue;
+            };
+            let parts = if parts.first() == Some(&"body") {
+                &parts[1..]
+            } else {
+                &parts[..]
+            };
+            if let Some(parameter) = find(&parts.join(".")) {
+                return Some(parameter);
+            }
+        }
+        let message = detail["message"].as_str().or_else(|| detail.as_str())?;
+        let normalized = message
+            .to_ascii_lowercase()
+            .replace(['\'', '"', '`', ':'], " ");
+        let normalized = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
+        for parameter in PARAMETERS {
+            if !present(parameter) {
+                continue;
+            }
+            for prefix in [
+                "unknown field ",
+                "unknown parameter ",
+                "unrecognized field ",
+                "unrecognized parameter ",
+                "unsupported parameter ",
+                "unsupported field ",
+            ] {
+                if let Some(rest) = normalized.strip_prefix(&format!("{prefix}{parameter}")) {
+                    if rest.is_empty() || rest.starts_with([' ', ',', ';']) {
+                        return Some(parameter);
+                    }
+                }
+            }
+            if normalized == format!("{parameter} is not supported") {
+                return Some(parameter);
+            }
+        }
+        None
+    }
+
+    /// Consume 400/422 only after recording structured error metadata. Returning
+    /// None retries a request with one explicitly rejected, present control removed.
+    async fn thinking_retry(
+        &self,
+        response: reqwest::Response,
+        body: &serde_json::Value,
+    ) -> Result<Option<reqwest::Response>> {
+        let status = response.status();
+        if !matches!(status.as_u16(), 400 | 422) {
+            return Ok(Some(response));
+        }
+        let model_metadata = extract_model_metadata(response.headers());
+        let retry_after_secs = extract_retry_after(response.headers());
+        let should_retry = extract_should_retry(response.headers());
+        let bytes = response.bytes().await?;
+        if let Some(parameter) = Self::unsupported_thinking_parameter(body, &bytes) {
+            self.defaults
+                .thinking_fallback
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(parameter);
+            tracing::warn!(%status, parameter, "chat/completions rejected an unsupported thinking parameter; retrying without that parameter");
+            return Ok(None);
+        }
+        Err(SamplingError::Api {
+            status,
+            message: user_facing_api_error_message(status, &bytes),
+            model_metadata,
+            retry_after_secs,
+            should_retry,
+            error_code: parse_error_code(&bytes),
+        })
     }
 
     fn apply_defaults(&self, mut request: ChatCompletionRequest) -> Result<ChatCompletionRequest> {
@@ -962,14 +1079,9 @@ impl SamplingClient {
                 tracing::debug!("HTTP request failed: {}", e);
                 e
             })?;
-            if self.should_drop_thinking(response.status(), &body) {
-                tracing::warn!(status = %response.status(), model_id = %model_id,
-                    "chat/completions rejected the thinking controls; continuing without thinking");
-                self.defaults
-                    .thinking_fallback
-                    .store(true, Ordering::Relaxed);
+            let Some(response) = self.thinking_retry(response, &body).await? else {
                 continue;
-            }
+            };
             return self.handle_response(response, sent_bearer.as_deref()).await;
         }
     }
@@ -1071,14 +1183,20 @@ impl SamplingClient {
             let response = self
                 .execute_stream_request(built_request, &mut span_timing)
                 .await?;
-            if self.should_drop_thinking(response.status(), &body) {
-                tracing::warn!(status = %response.status(), model_id = %model_id,
-                    "chat/completions rejected the thinking controls; continuing without thinking");
-                self.defaults
-                    .thinking_fallback
-                    .store(true, Ordering::Relaxed);
-                continue;
-            }
+            span_timing
+                .span()
+                .record(STATUS_CODE, response.status().as_u16() as i64);
+            span_timing
+                .span()
+                .record(SUCCESS, response.status().is_success());
+            let response = match self.thinking_retry(response, &body).await {
+                Ok(Some(response)) => response,
+                Ok(None) => continue,
+                Err(error) => {
+                    span_timing.span().record(ERROR, error.to_string().as_str());
+                    return Err(error);
+                }
+            };
             break (response, sent_bearer);
         };
 

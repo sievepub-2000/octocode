@@ -75,7 +75,11 @@ async function typeCheckAll(projects: readonly string[], concurrency: number): P
 	async function runNext(): Promise<void> {
 		while (next < projects.length) {
 			const index = next++;
-			results[index] = await typeCheck(projects[index]);
+			try {
+				results[index] = await typeCheck(projects[index]);
+			} catch (error) {
+				results[index] = `${projects[index]}: ${error instanceof Error ? error.message : String(error)}`;
+			}
 		}
 	}
 

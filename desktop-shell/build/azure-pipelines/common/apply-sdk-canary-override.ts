@@ -62,6 +62,13 @@ function assertSafeSpec(label: string, value: string): void {
 	}
 }
 
+function npmPackageSpec(name: string, spec: string): string {
+	assertSafeSpec(`${name} spec`, spec);
+	const value = `${name}@${spec}`;
+	// cmd.exe otherwise interprets valid range operators and splits spaces.
+	return IS_WINDOWS ? `"${value}"` : value;
+}
+
 /** Manifests that declare the Copilot dependencies. */
 const TARGET_DIRS = ['', 'remote'];
 
@@ -78,7 +85,7 @@ interface Override {
  */
 function inferCliVersion(sdkVersion: string): string | undefined {
 	try {
-		const depsRaw = execFileSync(NPM, ['view', `@github/copilot-sdk@${sdkVersion}`, 'dependencies', '--json'], { encoding: 'utf8', shell: IS_WINDOWS });
+		const depsRaw = execFileSync(NPM, ['view', npmPackageSpec('@github/copilot-sdk', sdkVersion), 'dependencies', '--json'], { encoding: 'utf8', shell: IS_WINDOWS });
 		const deps = JSON.parse(depsRaw || '{}');
 		const range = deps['@github/copilot'];
 		if (!range) {
@@ -86,7 +93,7 @@ function inferCliVersion(sdkVersion: string): string | undefined {
 			return undefined;
 		}
 		assertSafeSpec('inferred @github/copilot range', range);
-		const versionRaw = execFileSync(NPM, ['view', `@github/copilot@${range}`, 'version', '--json'], { encoding: 'utf8', shell: IS_WINDOWS });
+		const versionRaw = execFileSync(NPM, ['view', npmPackageSpec('@github/copilot', range), 'version', '--json'], { encoding: 'utf8', shell: IS_WINDOWS });
 		const parsed = JSON.parse(versionRaw);
 		const resolved = Array.isArray(parsed) ? parsed[parsed.length - 1] : parsed;
 		if (typeof resolved !== 'string') {
@@ -113,7 +120,7 @@ function inferCliVersion(sdkVersion: string): string | undefined {
 function assertCliSatisfiesSdk(sdkVersion: string, cliVersion: string): void {
 	let range: string | undefined;
 	try {
-		const depsRaw = execFileSync(NPM, ['view', `@github/copilot-sdk@${sdkVersion}`, 'dependencies', '--json'], { encoding: 'utf8', shell: IS_WINDOWS });
+		const depsRaw = execFileSync(NPM, ['view', npmPackageSpec('@github/copilot-sdk', sdkVersion), 'dependencies', '--json'], { encoding: 'utf8', shell: IS_WINDOWS });
 		range = JSON.parse(depsRaw || '{}')['@github/copilot'];
 	} catch (err) {
 		console.warn(`[canary-override] Could not read @github/copilot-sdk@${sdkVersion} dependencies to check CLI compatibility: ${err instanceof Error ? err.message : err}. Skipping check.`);
@@ -126,7 +133,7 @@ function assertCliSatisfiesSdk(sdkVersion: string, cliVersion: string): void {
 	assertSafeSpec('@github/copilot range', range);
 	let satisfying: string[];
 	try {
-		const versionsRaw = execFileSync(NPM, ['view', `@github/copilot@${range}`, 'version', '--json'], { encoding: 'utf8', shell: IS_WINDOWS });
+		const versionsRaw = execFileSync(NPM, ['view', npmPackageSpec('@github/copilot', range), 'version', '--json'], { encoding: 'utf8', shell: IS_WINDOWS });
 		const parsed = JSON.parse(versionsRaw || 'null');
 		satisfying = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
 	} catch (err) {
@@ -137,7 +144,7 @@ function assertCliSatisfiesSdk(sdkVersion: string, cliVersion: string): void {
 		throw new Error(
 			`[canary-override] Incompatible pinned versions: @github/copilot@${cliVersion} does not satisfy the range "${range}" required by @github/copilot-sdk@${sdkVersion} ` +
 			`(versions satisfying the range: ${satisfying.length ? satisfying.join(', ') : '<none published>'}). ` +
-			`Set VSCODE_CLI_CANARY_VERSION to a compatible version, or leave it as 'auto' to infer a compatible CLI from the SDK.`
+			`Set VSCODE_CLI_CANARY_VERSION to a compatible version, or leave VSCODE_CLI_CANARY_VERSION empty to infer a compatible CLI from the SDK.`
 		);
 	}
 	console.log(`[canary-override] Verified @github/copilot@${cliVersion} satisfies "${range}" required by @github/copilot-sdk@${sdkVersion}.`);
@@ -162,13 +169,13 @@ function resolveLatestCanary(): string {
 	const canaries = versions
 		.map(v => {
 			const m = canaryRe.exec(v);
-			return m ? { v, key: [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])] } : undefined;
+			return m ? { v, key: [BigInt(m[1]), BigInt(m[2]), BigInt(m[3]), BigInt(m[4])] } : undefined;
 		})
-		.filter((x): x is { v: string; key: number[] } => x !== undefined)
+		.filter((x): x is { v: string; key: bigint[] } => x !== undefined)
 		.sort((a, b) => {
 			for (let i = 0; i < a.key.length; i++) {
 				if (a.key[i] !== b.key[i]) {
-					return a.key[i] - b.key[i];
+					return a.key[i] < b.key[i] ? -1 : 1;
 				}
 			}
 			return 0;

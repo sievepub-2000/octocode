@@ -48,17 +48,19 @@ pub fn probe_target(base_url: &str) -> Option<(String, u16)> {
     if let Some(rest) = authority.strip_prefix('[') {
         // IPv6 literal: `[fd00:10:10::2]:8000`
         let (host, tail) = rest.split_once(']')?;
-        let port = tail
-            .strip_prefix(':')
-            .and_then(|port| port.parse().ok())
-            .unwrap_or(default_port);
+        if host.is_empty() { return None; }
+        let port = if tail.is_empty() { default_port } else {
+            tail.strip_prefix(':')?.parse().ok()?
+        };
         return Some((host.to_owned(), port));
     }
     match authority.rsplit_once(':') {
-        Some((host, port)) if !host.is_empty() => {
-            Some((host.to_owned(), port.parse().unwrap_or(default_port)))
+        Some((host, port)) => {
+            if host.is_empty() { return None; }
+            Some((host.to_owned(), port.parse().ok()?))
         }
-        _ => Some((authority.to_owned(), default_port)),
+        _ if !authority.is_empty() => Some((authority.to_owned(), default_port)),
+        _ => None,
     }
 }
 

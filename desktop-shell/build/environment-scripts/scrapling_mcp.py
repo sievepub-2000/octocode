@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import shutil
+from time import monotonic
 from pathlib import Path
 from urllib.parse import parse_qs, quote_plus, urlparse
 
@@ -75,7 +76,7 @@ def _real_url(href: str) -> str:
     return href
 
 
-def _search_engine(engine: tuple, query: str, limit: int, timeout: int) -> tuple:
+def _search_engine(engine: tuple, query: str, limit: int, timeout: float) -> tuple:
     _, template, row_css, link_css, title_css, snippet_css = engine
     page = Fetcher.get(template.format(q=quote_plus(query)), impersonate="chrome", stealthy_headers=True, timeout=timeout)
     results = []
@@ -98,14 +99,24 @@ def _search_engine(engine: tuple, query: str, limit: int, timeout: int) -> tuple
 def search(query: str, limit: int = 8, engine: str = "auto", timeout: int = 20) -> dict:
     """Search the web without an API key and return structured results (title, url, snippet).
     `engine` is "auto" (Bing, Brave, DuckDuckGo, Mojeek, until one answers) or one of those
-    names. Follow up with `get` on the most relevant URLs."""
+    names. `timeout` is the total network budget across all engines, in seconds.
+    Follow up with `get` on the most relevant URLs."""
     engines = [e for e in _ENGINES if engine in ("auto", e[0])]
     if not engines:
         raise ValueError(f"Unknown engine {engine!r}; use auto, bing, brave, duckduckgo or mojeek.")
+    if timeout <= 0:
+        raise ValueError("timeout must be positive")
+    deadline = monotonic() + timeout
     failures = []
-    for candidate in engines:
+    for index, candidate in enumerate(engines):
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            failures.append("Search timeout budget exhausted")
+            break
+        # Give later engines a chance without multiplying the total budget.
+        attempt_timeout = remaining / (len(engines) - index)
         try:
-            status, results = _search_engine(candidate, query, max(1, min(limit, 20)), timeout)
+            status, results = _search_engine(candidate, query, max(1, min(limit, 20)), attempt_timeout)
         except Exception as error:  # noqa: BLE001 - fall through to the next engine
             failures.append(f"{candidate[0]}: {error}")
             continue

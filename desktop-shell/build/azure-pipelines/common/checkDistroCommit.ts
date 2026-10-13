@@ -5,7 +5,7 @@
 
 import path from 'path';
 import fs from 'fs';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 
 const root = path.dirname(path.dirname(path.dirname(import.meta.dirname)));
 
@@ -32,7 +32,7 @@ function assertDistroCheckout(): void {
 }
 
 function getDistroBranchHead(branch: string): string {
-	return execSync(`git -C "${distroPath}" rev-parse "refs/remotes/origin/${branch}"`, { encoding: 'utf8' }).trim();
+	return execFileSync('git', ['-C', distroPath, 'rev-parse', `refs/remotes/origin/${branch}`], { encoding: 'utf8' }).trim();
 }
 
 async function checkDistroCommit(): Promise<void> {

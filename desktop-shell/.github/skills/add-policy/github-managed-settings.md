@@ -57,9 +57,9 @@ turn wins over the file-based channel** (`pickManagedSettings` in `copilotManage
 Precedence is resolved **per key**: for each key the highest-precedence channel that supplies
 it wins, but a key that the higher channels leave unset is still filled in by a lower channel.
 A value an admin locks via native MDM therefore cannot be overwritten by the server or a file,
-while keys the higher channels never set remain available to lower ones. Rationale for the
-order: the server is harder to bypass than local MDM, and a local file is the most easily
-tampered with. The merged bag is then projected onto the declared schema (see below).
+while keys the higher channels never set remain available to lower ones. This is the fixed
+channel order in `MANAGED_SETTINGS_CHANNELS`; it is not a ranking of deployment security.
+The merged bag is then projected onto the declared schema (see below).
 Client-side merging still happens *within* a channel's value (e.g. `enabledPlugins`,
 `extraKnownMarketplaces`).
 

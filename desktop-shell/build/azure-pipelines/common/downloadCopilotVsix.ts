@@ -105,28 +105,36 @@ async function unzip(zipPath: string, outputPath: string): Promise<string[]> {
 			}
 
 			const result: string[] = [];
+			const fail = (error: unknown) => {
+				reject(error);
+				zipfile!.close();
+			};
+			zipfile!.on('error', fail);
 			zipfile!.on('entry', entry => {
 				if (/\/$/.test(entry.fileName)) {
 					zipfile!.readEntry();
 				} else {
 					zipfile!.openReadStream(entry, (err, istream) => {
 						if (err) {
-							return reject(err);
+							return fail(err);
 						}
 
-						const filePath = path.join(outputPath, entry.fileName);
-						fs.mkdirSync(path.dirname(filePath), { recursive: true });
+						try {
+							const filePath = path.join(outputPath, entry.fileName);
+							fs.mkdirSync(path.dirname(filePath), { recursive: true });
 
-						// Unix file mode is stored in the upper 16 bits of externalFileAttributes.
-						// Preserve it so executables like node-pty's spawn-helper stay executable.
-						const mode = (entry.externalFileAttributes >>> 16) & 0o777;
-						const ostream = fs.createWriteStream(filePath, mode ? { mode } : undefined);
-						ostream.on('finish', () => {
-							result.push(filePath);
-							zipfile!.readEntry();
-						});
-						istream?.on('error', err => reject(err));
-						istream!.pipe(ostream);
+							// Unix file mode is stored in the upper 16 bits of externalFileAttributes.
+							// Preserve it so executables like node-pty's spawn-helper stay executable.
+							const mode = (entry.externalFileAttributes >>> 16) & 0o777;
+							const ostream = fs.createWriteStream(filePath, mode ? { mode } : undefined);
+							pipeline(istream!, ostream).then(() => {
+								result.push(filePath);
+								zipfile!.readEntry();
+							}).catch(fail);
+						} catch (error) {
+							istream?.destroy();
+							fail(error);
+						}
 					});
 				}
 			});

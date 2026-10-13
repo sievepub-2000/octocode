@@ -9,10 +9,16 @@ function request(options: https.RequestOptions, body?: object): Promise<Record<s
 	return new Promise((resolve, reject) => {
 		const req = https.request(options, res => {
 			let data = '';
+			res.on('error', reject);
+			res.on('aborted', () => reject(new Error('HTTP response aborted')));
 			res.on('data', chunk => data += chunk);
 			res.on('end', () => {
 				if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-					resolve(JSON.parse(data));
+					try {
+						resolve(JSON.parse(data));
+					} catch {
+						reject(new Error('Invalid JSON in HTTP response'));
+					}
 				} else {
 					reject(new Error(`HTTP ${res.statusCode}: ${data}`));
 				}
@@ -49,11 +55,14 @@ async function main() {
 	const token = process.env.GITHUB_INSTALLATION_TOKEN;
 	const checkRunId = process.env.CHECK_RUN_ID;
 	const jobStatus = process.env.AGENT_JOBSTATUS;
-	const detailsUrl = `${process.env.SYSTEM_COLLECTIONURI}${process.env.SYSTEM_TEAMPROJECT}/_build/results?buildId=${process.env.BUILD_BUILDID}`;
+	const collectionUri = process.env.SYSTEM_COLLECTIONURI;
+	const teamProject = process.env.SYSTEM_TEAMPROJECT;
+	const buildId = process.env.BUILD_BUILDID;
 
-	if (!token || !checkRunId) {
+	if (!token || !checkRunId || !collectionUri || !teamProject || !buildId) {
 		throw new Error('Missing required environment variables');
 	}
+	const detailsUrl = `${collectionUri}${teamProject}/_build/results?buildId=${buildId}`;
 
 	let conclusion: string;
 	switch (jobStatus) {

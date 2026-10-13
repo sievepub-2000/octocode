@@ -539,7 +539,7 @@ export class QuickInputController extends Disposable {
 				})),
 				input.onDidTriggerSeparatorButton(event => options.onDidTriggerSeparatorButton?.(event)),
 				input.onDidChangeValue(value => {
-					if (activeItem && !value && (input.activeItems.length !== 1 || input.activeItems[0] !== activeItem)) {
+					if (activeItem && input.items.includes(activeItem) && !value && (input.activeItems.length !== 1 || input.activeItems[0] !== activeItem)) {
 						input.activeItems = [activeItem];
 					}
 				}),
@@ -582,12 +582,11 @@ export class QuickInputController extends Disposable {
 					if (activeItem) {
 						input.activeItems = [activeItem];
 					}
+				}).catch(err => {
+					reject(err);
+					input.hide();
 				});
 			input.show();
-			Promise.resolve(picks).then(undefined, err => {
-				reject(err);
-				input.hide();
-			});
 		});
 	}
 
@@ -661,6 +660,7 @@ export class QuickInputController extends Disposable {
 			input.prompt = options.prompt;
 			input.placeholder = options.placeHolder;
 			input.password = !!options.password;
+			input.promptIsPlainText = !!options.promptIsPlainText;
 			input.ignoreFocusOut = !!options.ignoreFocusLost;
 			input.show();
 		});
@@ -700,9 +700,13 @@ export class QuickInputController extends Disposable {
 	private show(controller: IQuickInput) {
 		this.completeCloseAnimation();
 		const ui = this.getUI(true);
+		this.dndController?.setEnabled(false);
 		const oldController = this.controller;
 		this.controller = controller;
 		oldController?.didHide();
+		if (this.controller !== controller) {
+			return;
+		}
 
 		// Anchored controllers always render in the window that owns their anchor element.
 		if (dom.isHTMLElement(controller.anchor)) {
@@ -764,6 +768,9 @@ export class QuickInputController extends Disposable {
 			this._alignment.set(this.dndController?.alignment.get() ?? 'top', undefined);
 		}
 		this.onShowEmitter.fire();
+		if (this.controller !== controller) {
+			return;
+		}
 		ui.inputBox.setFocus();
 		this.quickInputTypeContext.set(controller.type);
 	}
@@ -818,6 +825,7 @@ export class QuickInputController extends Disposable {
 			ui.inputBox.enabled = enabled;
 			ui.ok.enabled = enabled;
 			ui.list.enabled = enabled;
+			ui.tree.enabled = enabled;
 		}
 	}
 
@@ -826,6 +834,7 @@ export class QuickInputController extends Disposable {
 		if (!controller) {
 			return;
 		}
+		this.dndController?.setEnabled(false);
 		controller.willHide(reason);
 
 		const container = this.ui?.container;
@@ -1135,6 +1144,7 @@ class QuickInputDragAndDropController extends Disposable {
 	readonly dndViewState = observableValue<{ top?: number; left?: number; done: boolean } | undefined>(this, undefined);
 
 	private _enabled = true;
+	private readonly _activeDrag = this._register(new MutableDisposable<DisposableStore>());
 
 	private readonly _snapThreshold = 20;
 	private readonly _snapLineHorizontalRatio = 0.25;
@@ -1195,6 +1205,9 @@ class QuickInputDragAndDropController extends Disposable {
 
 	setEnabled(enabled: boolean): void {
 		this._enabled = enabled;
+		if (!enabled) {
+			this._activeDrag.clear();
+		}
 		this._quickInputContainer.classList.toggle('no-drag', !enabled);
 	}
 
@@ -1273,7 +1286,9 @@ class QuickInputDragAndDropController extends Disposable {
 			const dragOffsetY = originEvent.browserEvent.clientY - dragAreaRect.top;
 
 			let isMovingQuickInput = false;
-			const mouseMoveListener = dom.addDisposableGenericMouseMoveListener(activeWindow, (e: MouseEvent) => {
+			const dragListeners = new DisposableStore();
+			this._activeDrag.value = dragListeners;
+			dragListeners.add(dom.addDisposableGenericMouseMoveListener(activeWindow, (e: MouseEvent) => {
 				const mouseMoveEvent = new StandardMouseEvent(activeWindow, e);
 				mouseMoveEvent.preventDefault();
 
@@ -1282,8 +1297,8 @@ class QuickInputDragAndDropController extends Disposable {
 				}
 
 				this._layout(e.clientY - dragOffsetY, e.clientX - dragOffsetX);
-			});
-			const mouseUpListener = dom.addDisposableGenericMouseUpListener(activeWindow, (e: MouseEvent) => {
+			}));
+			dragListeners.add(dom.addDisposableGenericMouseUpListener(activeWindow, (e: MouseEvent) => {
 				if (isMovingQuickInput) {
 					// Save position
 					const state = this.dndViewState.get();
@@ -1291,9 +1306,11 @@ class QuickInputDragAndDropController extends Disposable {
 				}
 
 				// Dispose listeners
-				mouseMoveListener.dispose();
-				mouseUpListener.dispose();
-			});
+				dragListeners.dispose();
+				if (this._activeDrag.value === dragListeners) {
+					this._activeDrag.clear();
+				}
+			}));
 		}));
 	}
 

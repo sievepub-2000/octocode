@@ -182,7 +182,7 @@ export async function activate(context: vscode.ExtensionContext) {
 				result.diagnostics.push(diag);
 
 				for (const [uri, edits] of first.edit!.entries()) {
-					result.edit.set(uri, edits);
+					result.edit.set(uri, [...(result.edit.get(uri) ?? []), ...edits]);
 				}
 			}
 			// console.log(result.edit.get(document.uri));

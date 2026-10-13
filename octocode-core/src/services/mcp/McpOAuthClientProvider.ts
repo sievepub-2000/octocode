@@ -67,7 +67,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
 	private _clientInfo?: OAuthClientInformationFull
 	private _closed = false
 	private _refreshPromise: Promise<OAuthTokens> | null = null
-	private _refreshFailed = false
+	private _failedRefreshToken?: string
 	/** Stored by redirectToAuthorization(); opened on-demand via openBrowser(). */
 	private _pendingAuthorizationUrl: URL | null = null
 	/** Deduplicates concurrent _ensureCallbackServer() calls. */
@@ -307,10 +307,9 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
 		if (Date.now() < data.expires_at - TOKEN_EXPIRY_BUFFER_MS) {
 			return data.tokens
 		}
-		if (this._refreshFailed) return undefined
-
 		// Access token is expired or near expiry. Try to refresh if we have a refresh token.
 		if (data.tokens.refresh_token) {
+			if (this._failedRefreshToken === data.tokens.refresh_token) return undefined
 			if (this._refreshPromise) {
 				return this._refreshPromise
 			}
@@ -332,7 +331,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
 			} catch (error) {
 				console.error(`Failed to refresh MCP OAuth token for ${new URL(this._serverUrl).origin}:`, error)
 				// Stop this provider's retries without deleting the stored credentials.
-				this._refreshFailed = true
+				this._failedRefreshToken = data.tokens.refresh_token
 			}
 		}
 
@@ -355,7 +354,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
 			expires_at,
 			...(clientInfo ? { client_info: clientInfo } : {}),
 		})
-		this._refreshFailed = false
+		this._failedRefreshToken = undefined
 	}
 
 	async redirectToAuthorization(authorizationUrl: URL): Promise<void> {

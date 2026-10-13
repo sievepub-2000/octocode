@@ -224,6 +224,12 @@ export interface IPickOptions<T extends IQuickPickItem> {
 export interface IInputOptions {
 
 	/**
+	 * Render the prompt as plain text instead of linked text. Defaults to false.
+	 * Nonempty validation messages retain linked text rendering.
+	 */
+	promptIsPlainText?: boolean;
+
+	/**
 	 * an optional string to show as the title of the quick input
 	 */
 	title?: string;
@@ -739,6 +745,12 @@ export interface IQuickPick<T extends IQuickPickItem, O extends { useSeparators:
  * Represents an input box in a quick input dialog.
  */
 export interface IInputBox extends IQuickInput {
+
+	/**
+	 * Render the prompt as plain text instead of linked text. Defaults to false.
+	 * Nonempty validation messages retain linked text rendering.
+	 */
+	promptIsPlainText: boolean;
 
 	/**
 	 * The type of the quick input.

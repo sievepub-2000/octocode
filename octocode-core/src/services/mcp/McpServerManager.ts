@@ -57,7 +57,9 @@ export class McpServerManager {
 			return hub
 		} catch (error) {
 			if (this.providers.get(provider) === registration) {
-				await this.releaseProvider(provider).catch((cleanupError) => console.error("MCP provider release failed:", cleanupError))
+				await this.releaseProvider(provider).catch((cleanupError) =>
+					console.error("MCP provider release failed:", cleanupError),
+				)
 			}
 			throw error
 		}

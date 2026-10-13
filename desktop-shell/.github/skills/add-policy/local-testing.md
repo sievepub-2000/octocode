@@ -13,8 +13,12 @@ Open the GUI, edit the JSON response for any endpoint, **Save**, then click
 **Wire all endpoints** (writes `product.overrides.json`). Reload Code OSS,
 sign in, and run **Developer: Sync Account Policy** to pull the mocked data.
 
-Click **Unwire** when done — it restores the original `product.overrides.json`
-from a backup. Use **Copy overrides JSON** if you prefer to paste manually.
+Click **Unwire** when done — when a backup exists, it restores `product.overrides.json`
+from immediately before the most recent **Wire**. Each **Wire** overwrites that backup,
+so wire only once before unwiring: wiring twice backs up the already-wired state.
+Without a backup, **Unwire** reverts the endpoint fields to `product.json`, preserving
+unrelated overrides; it removes the file only if no overrides remain.
+Use **Copy overrides JSON** if you prefer to paste manually.
 
 ## Schema validation (Managed Settings tab)
 

@@ -38,12 +38,14 @@ this._register(addDisposableListener(this.iconElement, 'load', () => { ... }));
 **Rule**: Use `Event.once()` for events that should only fire once (lifecycle events, close events, first-change events).
 
 ```typescript
-// BAD — listener stays registered forever after first fire
-model.onDidDispose(() => store.dispose());
+// BAD — a first-result handler stays registered on a repeating event
+model.onResults(() => handleFirstResult());
 
 // GOOD — auto-removes after first invocation
-Event.once(model.onDidDispose)(() => store.dispose());
+Event.once(model.onResults)(() => handleFirstResult());
 ```
+
+An event emitter disposed with its model does not retain listeners forever after model disposal. Do not report a plain lifecycle subscription as a leak without checking its emitter's lifetime.
 
 **Validated by**: PRs #285657, #285661 — Terminal lifecycle hacks replaced with `Event.once()`.
 
@@ -102,11 +104,12 @@ createItem() {
 }
 
 // GOOD — wrap with item-scoped disposal
-createItem(): IDisposable & Item {
+createItem(): IDisposable & { item: Item } {
     const store = new DisposableStore();
     const item = new Item();
+    store.add(item);
     store.add(item.onEvent(() => { ... }));
-    return { ...item, dispose: () => store.dispose() };
+    return { item, dispose: () => store.dispose() };
 }
 ```
 

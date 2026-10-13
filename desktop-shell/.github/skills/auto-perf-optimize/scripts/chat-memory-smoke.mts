@@ -104,7 +104,20 @@ interface HeapUsage {
 	totalSize: number;
 }
 
+interface MemoryTrendSegment {
+	metricSource: 'Runtime.getHeapUsage' | 'Performance.getMetrics';
+	startLabel: string;
+	endLabel: string;
+	sampleCount: number;
+	startUsedBytes: number;
+	endUsedBytes: number;
+	usedBytes: number | undefined;
+	usedBytesPerSample: number | undefined;
+}
+
 interface MemoryTrend {
+	segments: MemoryTrendSegment[];
+	postFirstTurnSegments: MemoryTrendSegment[];
 	firstToLastUsedBytes: number | undefined;
 	postFirstTurnUsedBytes: number | undefined;
 	postFirstTurnUsedBytesPerTurn: number | undefined;
@@ -416,6 +429,10 @@ async function markChatInputEditor(page: Page): Promise<Locator> {
 	return page.locator(activeChatInputEditorSelector);
 }
 
+function normalizeChatPrompt(message: string): string {
+	return message.replace(/\r?\n/g, ' ');
+}
+
 async function typeInChat(page: Page, message: string): Promise<void> {
 	const inputSelector = await openChat(page);
 	await page.evaluate(({ selector, text }) => {
@@ -426,7 +443,7 @@ async function typeInChat(page: Page, message: string): Promise<void> {
 		return globalThis.driver.typeInEditor(selector, text);
 	}, {
 		selector: inputSelector,
-		text: message.replace(/\r?\n/g, ' '),
+		text: normalizeChatPrompt(message),
 	});
 }
 
@@ -463,7 +480,7 @@ async function clearChatInput(page: Page): Promise<void> {
 function createChatTurn(iteration: number, prompt: string): ChatTurn {
 	return {
 		iteration,
-		prompt,
+		prompt: normalizeChatPrompt(prompt),
 		skippedSend: false,
 		responseCountBefore: 0,
 		responseCountAfterSend: 0,
@@ -638,6 +655,9 @@ function printSummary(samples: HeapSample[], outputDir: string): void {
 	}
 
 	const trend = analyzeMemoryTrend(samples);
+	if (trend.firstToLastUsedBytes === undefined && samples.length > 1) {
+		console.log('Heap trend contains metric changes or missing samples; see analysis.segments in summary.json.');
+	}
 	if (trend.postFirstTurnUsedBytes !== undefined) {
 		console.log(`Post-first-turn growth: ${formatSignedBytes(trend.postFirstTurnUsedBytes)} (${formatSignedBytes(trend.postFirstTurnUsedBytesPerTurn)}/turn)`);
 	}
@@ -656,18 +676,43 @@ async function writeSummary(outputDir: string, samples: HeapSample[], chatTurns:
 	}, undefined, '\t'));
 }
 
+function memoryTrendSegments(samples: HeapSample[]): MemoryTrendSegment[] {
+	const segments: MemoryTrendSegment[] = [];
+	let segment: MemoryTrendSegment | undefined;
+	for (const sample of samples) {
+		const metricSource = sample.runtimeUsedSize !== undefined ? 'Runtime.getHeapUsage' : 'Performance.getMetrics';
+		const size = sample.runtimeUsedSize ?? sample.jsHeapUsedSize;
+		if (size === undefined || !Number.isFinite(size)) {
+			segment = undefined;
+			continue;
+		}
+		if (!segment || segment.metricSource !== metricSource) {
+			segment = { metricSource, startLabel: sample.label, endLabel: sample.label, sampleCount: 1,
+				startUsedBytes: size, endUsedBytes: size, usedBytes: undefined, usedBytesPerSample: undefined };
+			segments.push(segment);
+		} else {
+			segment.endLabel = sample.label;
+			segment.endUsedBytes = size;
+			segment.sampleCount++;
+			segment.usedBytes = size - segment.startUsedBytes;
+			segment.usedBytesPerSample = segment.usedBytes / (segment.sampleCount - 1);
+		}
+	}
+	return segments;
+}
+
 function analyzeMemoryTrend(samples: HeapSample[]): MemoryTrend {
-	const sizedSamples = samples.map(sample => sample.runtimeUsedSize ?? sample.jsHeapUsedSize);
-	const firstSize = sizedSamples.at(0);
-	const lastSize = sizedSamples.at(-1);
+	const segments = memoryTrendSegments(samples);
 	const turnSamples = samples.filter(sample => sample.label.startsWith('03-iteration-'));
-	const firstTurnSize = turnSamples.at(0)?.runtimeUsedSize ?? turnSamples.at(0)?.jsHeapUsedSize;
-	const lastTurnSize = turnSamples.at(-1)?.runtimeUsedSize ?? turnSamples.at(-1)?.jsHeapUsedSize;
-	const postFirstTurnUsedBytes = firstTurnSize !== undefined && lastTurnSize !== undefined && turnSamples.length > 1 ? lastTurnSize - firstTurnSize : undefined;
+	const postFirstTurnSegments = memoryTrendSegments(turnSamples);
+	const postFirstTurnUsedBytes = postFirstTurnSegments.length === 1 && postFirstTurnSegments[0].sampleCount === turnSamples.length
+		? postFirstTurnSegments[0].usedBytes : undefined;
 	return {
-		firstToLastUsedBytes: firstSize !== undefined && lastSize !== undefined && samples.length > 1 ? lastSize - firstSize : undefined,
+		firstToLastUsedBytes: segments.length === 1 && segments[0].sampleCount === samples.length ? segments[0].usedBytes : undefined,
 		postFirstTurnUsedBytes,
 		postFirstTurnUsedBytesPerTurn: postFirstTurnUsedBytes !== undefined ? postFirstTurnUsedBytes / (turnSamples.length - 1) : undefined,
+		segments,
+		postFirstTurnSegments,
 	};
 }
 
@@ -770,7 +815,7 @@ function parseArgs(args: string[]): Options {
 			const [key, inlineValue] = splitArg(arg);
 			const value = inlineValue ?? readArgValue(args, ++i, key);
 			switch (key) {
-				case '--port': parsed.port = parseIntegerArg(key, value, 1); break;
+				case '--port': parsed.port = parseIntegerArg(key, value, 1, 65535); break;
 				case '--iterations': parsed.iterations = parseIntegerArg(key, value, 0); break;
 				case '--response-timeout': parsed.responseTimeout = parseIntegerArg(key, value, 1); break;
 				case '--first-response-timeout': parsed.firstResponseTimeout = parseIntegerArg(key, value, 1); break;
@@ -815,10 +860,10 @@ function readArgValue(args: string[], index: number, flag: string): string {
 	return value;
 }
 
-function parseIntegerArg(flag: string, value: string, min: number): number {
+function parseIntegerArg(flag: string, value: string, min: number, max = Number.POSITIVE_INFINITY): number {
 	const parsed = Number(value);
-	if (!Number.isInteger(parsed) || parsed < min) {
-		throw new Error(`${flag} must be an integer greater than or equal to ${min}. Got: ${value}`);
+	if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+		throw new Error(`${flag} must be an integer greater than or equal to ${min}${Number.isFinite(max) ? ` and less than or equal to ${max}` : ''}. Got: ${value}`);
 	}
 
 	return parsed;

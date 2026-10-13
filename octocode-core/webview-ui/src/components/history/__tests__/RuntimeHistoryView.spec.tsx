@@ -41,7 +41,10 @@ describe("RuntimeHistoryView", () => {
 		const replyList = (status: string) =>
 			send({
 				type: "runtimeResponse",
-				payload: { requestId: lastList()?.requestId, result: [{ id: "s", title: "Task", status, updated_at: 1 }] },
+				payload: {
+					requestId: lastList()?.requestId,
+					result: [{ id: "s", title: "Task", status, updated_at: 1 }],
+				},
 			})
 		replyList("completed")
 		expect(screen.getByTestId("runtime-session-status-s").className).not.toContain("octo-hourglass-flip")
@@ -82,9 +85,7 @@ describe("RuntimeHistoryView", () => {
 		reply("project.list", [])
 		// Rows carry no selection checkbox; a conversation is filed through its own button.
 		expect(screen.queryByRole("checkbox")).not.toBeInTheDocument()
-		fireEvent.click(
-			within(screen.getByTestId("runtime-session-row-a")).getByRole("button", { name: "加入项目" }),
-		)
+		fireEvent.click(within(screen.getByTestId("runtime-session-row-a")).getByRole("button", { name: "加入项目" }))
 		fireEvent.change(screen.getByRole("textbox", { name: "项目名称" }), { target: { value: "Reports" } })
 		fireEvent.click(screen.getByRole("button", { name: "确认" }))
 		expect(last("project.create")?.params).toEqual({ name: "Reports", session_ids: ["a"] })
@@ -169,6 +170,10 @@ describe("RuntimeHistoryView", () => {
 		])
 
 		const row = screen.getByTestId("runtime-project-p")
+		expect(screen.queryByRole("button", { name: "刷新产物索引" })).not.toBeInTheDocument()
+		expect(within(row).queryByRole("button", { name: "查看产物索引" })).not.toBeInTheDocument()
+		fireEvent.click(within(row).getByRole("button", { name: "Reports：新建任务" }))
+		expect(vscode.postMessage).toHaveBeenCalledWith({ type: "clearTask", projectId: "p" })
 		const rename = within(row).getByRole("button", { name: "项目改名" })
 		const remove = within(row).getByRole("button", { name: "删除项目" })
 		expect(rename).toHaveTextContent("E")
@@ -268,6 +273,9 @@ describe("RuntimeHistoryView", () => {
 		expect(await screen.findByTestId("runtime-session-status-running")).toHaveClass("octo-hourglass-flip")
 		expect(screen.getByTestId("runtime-session-status-done")).not.toHaveClass("octo-hourglass-flip")
 		// A finished run shows a bold ring instead of the hourglass.
-		expect(screen.getByTestId("runtime-session-status-done").querySelector("svg")).toHaveAttribute("stroke-width", "3")
+		expect(screen.getByTestId("runtime-session-status-done").querySelector("svg")).toHaveAttribute(
+			"stroke-width",
+			"3",
+		)
 	})
 })

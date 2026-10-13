@@ -71,6 +71,7 @@ import { resolveDefaultSaveUri, saveLastExportPath } from "../../utils/export"
 import { fileExistsAtPath } from "../../utils/fs"
 import { searchCommits } from "../../utils/git"
 import { getWorkspacePath } from "../../utils/path"
+import { getTaskDirectoryPath } from "../../utils/storage"
 import { isPathOutsideWorkspace } from "../../utils/pathUtils"
 import { playTts, setTtsEnabled, setTtsSpeed, stopTts } from "../../utils/tts"
 import { exportSettings, importSettingsWithFeedback } from "../config/importExport"
@@ -121,6 +122,13 @@ import {
 } from "./worktree"
 
 let runtimeViewRequest = 0
+
+async function createPreviewDirectory(provider: ClineProvider, sessionId?: string): Promise<string> {
+	if (!sessionId) return fs.mkdtemp(path.join(os.tmpdir(), "octocode-preview-"))
+	if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) throw new Error("Invalid runtime session ID")
+	const taskDir = await getTaskDirectoryPath(provider.context.globalStorageUri.fsPath, sessionId)
+	return fs.mkdtemp(path.join(taskDir, "preview-"))
+}
 
 /**
  * Search the product's extension gallery (Open VSX) from the extension host, so
@@ -249,14 +257,22 @@ export const webviewMessageHandler = async (
 	 * Resolves image file mentions in incoming messages.
 	 * Matches read_file behavior: respects size limits and model capabilities.
 	 */
-	const resolveIncomingImages = async (payload: { text?: string; images?: string[] }) => {
+	const resolveIncomingImages = async (payload: { text?: string; images?: string[] }, sessionId?: string) => {
 		const text = payload.text ?? ""
-		const images = payload.images
+		const images = payload.images ?? []
+		// shortcut: a new task has no private directory until preparation; attach its initial images with the picker.
+		if (!sessionId) return { text, images }
+		const { getOctoCodeRuntime } = await import("../../services/octocode-runtime/OctoCodeRuntime")
+		const { working_directory } = await getOctoCodeRuntime().call<{ working_directory: string | null }>(
+			"session.working_directory",
+			{ id: sessionId },
+		)
+		if (!working_directory) return { text, images }
 		const state = await provider.getState()
 		const resolved = await resolveImageMentions({
 			text,
 			images,
-			cwd: getCurrentCwd(),
+			cwd: working_directory,
 			maxImageFileSize: state.maxImageFileSize,
 			maxTotalImageSize: state.maxTotalImageSize,
 		})
@@ -346,10 +362,17 @@ export const webviewMessageHandler = async (
 			await provider.replayCurrentArtifact()
 			break
 		case "newTask":
-			runtimeViewRequest++
+			const newTaskRequest = ++runtimeViewRequest
 			try {
 				const resolved = await resolveIncomingImages({ text: message.text, images: message.images })
-				await provider.startRuntimeTask(resolved.text, resolved.images, message.taskId)
+				await provider.startRuntimeTask(
+					resolved.text,
+					resolved.images,
+					message.taskId,
+					{},
+					message.projectId,
+					() => newTaskRequest === runtimeViewRequest,
+				)
 			} catch (error) {
 				vscode.window.showErrorMessage(
 					`Failed to create task: ${error instanceof Error ? error.message : String(error)}`,
@@ -371,7 +394,10 @@ export const webviewMessageHandler = async (
 			runtimeViewRequest++
 			let runtimeTask: { sessionId: string; taskId: string } | undefined
 			try {
-				const resolved = await resolveIncomingImages({ text: message.text, images: message.images })
+				const resolved = await resolveIncomingImages(
+					{ text: message.text, images: message.images },
+					message.taskId,
+				)
 				const { getOctoCodeRuntime } = await import("../../services/octocode-runtime/OctoCodeRuntime")
 				const runtime = getOctoCodeRuntime()
 				if (runtime.replyUserInput(message.taskId ?? "", resolved.text)) break
@@ -384,7 +410,7 @@ export const webviewMessageHandler = async (
 				)
 				runtimeTask = task
 				const { ClineProvider } = await import("./ClineProvider")
-				ClineProvider.setActiveRuntimeSession(task.sessionId, task.taskId)
+				ClineProvider.setActiveRuntimeSession(task.sessionId, task.taskId, task.workingDirectory)
 				await provider.postMessageToWebview({
 					type: "runtimeTaskStarted",
 					payload: {
@@ -552,7 +578,11 @@ export const webviewMessageHandler = async (
 				const { ClineProvider } = await import("./ClineProvider")
 				await Promise.all(
 					ClineProvider.getAllInstances().map((instance) =>
-						instance.postMessageToWebview({ type: "invoke", invoke: "newChat" }),
+						instance.postMessageToWebview({
+							type: "invoke",
+							invoke: "newChat",
+							...(message.projectId ? { projectId: message.projectId } : {}),
+						}),
 					),
 				)
 			}
@@ -568,7 +598,14 @@ export const webviewMessageHandler = async (
 					canSelectFolders: false,
 					openLabel: t("common:ui.addFiles"),
 				})
-				if (!files?.length) break
+				if (!files?.length) {
+					await provider.postMessageToWebview({
+						type: "selectedFiles",
+						attachments: [],
+						requestId: message.requestId,
+					})
+					break
+				}
 				/*
 				 * One picker for everything the composer can carry.
 				 *
@@ -597,15 +634,23 @@ export const webviewMessageHandler = async (
 				} else if (images.length) {
 					await provider.postMessageToWebview({
 						type: "selectedImages",
+						requestId: message.requestId,
 						images: await readImagesAsDataUrls(images),
 						context: message.context,
 						messageTs: message.messageTs,
 					})
 				}
-				if (attachments.length) {
-					await provider.postMessageToWebview({ type: "selectedFiles", attachments })
-				}
+				await provider.postMessageToWebview({
+					type: "selectedFiles",
+					attachments,
+					requestId: message.requestId,
+				})
 			} catch (error) {
+				await provider.postMessageToWebview({
+					type: "selectedFiles",
+					attachments: [],
+					requestId: message.requestId,
+				})
 				void vscode.window.showErrorMessage(
 					t("common:ui.attachmentFailed", { error: error instanceof Error ? error.message : String(error) }),
 				)
@@ -616,17 +661,20 @@ export const webviewMessageHandler = async (
 			const images = await selectImages()
 			await provider.postMessageToWebview({
 				type: "selectedImages",
+				requestId: message.requestId,
 				images,
 				context: message.context,
 				messageTs: message.messageTs,
 			})
 			break
 		case "selectArtifact": {
+			const { ClineProvider } = await import("./ClineProvider")
+			const sessionId = ClineProvider.getActiveRuntimeTask()?.sessionId ?? ""
 			const [file] =
 				(await vscode.window.showOpenDialog({ canSelectMany: false, openLabel: "Open in Artifacts" })) ?? []
 			if (!file) break
 			const filePath = file.fsPath
-			await provider.showArtifact(filePath)
+			await provider.showArtifact(filePath, 1, 1, sessionId)
 			break
 		}
 		case "cancelRuntimeTask": {
@@ -798,7 +846,12 @@ export const webviewMessageHandler = async (
 				}
 				const { ClineProvider } = await import("./ClineProvider")
 				if (request !== runtimeViewRequest) break
-				ClineProvider.setActiveRuntimeSession(sessionId, taskId)
+				const directory = await runtime.call<{ working_directory: string | null }>(
+					"session.working_directory",
+					{ id: sessionId },
+				)
+				if (request !== runtimeViewRequest) break
+				ClineProvider.setActiveRuntimeSession(sessionId, taskId, directory.working_directory ?? undefined)
 				await Promise.all(
 					ClineProvider.getAllInstances().map((instance) => instance.postMessageToWebview(response)),
 				)
@@ -867,7 +920,13 @@ export const webviewMessageHandler = async (
 					typeof (request.params as { id?: unknown })?.id === "string"
 				) {
 					const { ClineProvider } = await import("./ClineProvider")
-					if (ClineProvider.clearActiveRuntimeSession((request.params as { id: string }).id)) {
+					const sessionId = (request.params as { id: string }).id
+					const wasActive = ClineProvider.clearActiveRuntimeSession(sessionId)
+					if (!wasActive) {
+						const { runtimeEventTerminal } = await import("../../activate/runtimeEventTerminal")
+						runtimeEventTerminal.releaseSession(sessionId)
+					}
+					if (wasActive) {
 						await Promise.all(
 							ClineProvider.getAllInstances().map((instance) =>
 								instance.postMessageToWebview({ type: "invoke", invoke: "newChat" }),
@@ -3813,7 +3872,7 @@ export const webviewMessageHandler = async (
 			break
 		}
 		case "queueMessage": {
-			const resolved = await resolveIncomingImages({ text: message.text, images: message.images })
+			const resolved = await resolveIncomingImages({ text: message.text, images: message.images }, message.taskId)
 			if (message.taskId) {
 				const { getOctoCodeRuntime } = await import("../../services/octocode-runtime/OctoCodeRuntime")
 				const state = await provider.getStateToPostToWebview()
@@ -3908,14 +3967,14 @@ export const webviewMessageHandler = async (
 		case "openMarkdownPreview": {
 			if (message.text) {
 				try {
-					const tmpDir = os.tmpdir()
-					const timestamp = Date.now()
-					const tempFileName = `roo-preview-${timestamp}.md`
-					const tempFilePath = path.join(tmpDir, tempFileName)
+					const { ClineProvider } = await import("./ClineProvider")
+					const sessionId = ClineProvider.getActiveRuntimeTask()?.sessionId
+					const tempFilePath = path.join(await createPreviewDirectory(provider, sessionId), "preview.md")
 
 					await fs.writeFile(tempFilePath, message.text, "utf8")
 
 					const doc = await vscode.workspace.openTextDocument(tempFilePath)
+					if (sessionId !== ClineProvider.getActiveRuntimeTask()?.sessionId) break
 					// Rendered markdown is visual content, so the preview opens in
 					// the multimodal slot. `markdown.showPreview` targets whichever
 					// group is active, so focus that slot first.
@@ -3973,11 +4032,10 @@ export const webviewMessageHandler = async (
 
 			try {
 				const { getOctoCodeRuntime } = await import("../../services/octocode-runtime/OctoCodeRuntime")
-				// Create a temporary file
-				const tmpDir = os.tmpdir()
-				const timestamp = Date.now()
-				const tempFileName = `octocode-events-${currentTask.sessionId.slice(0, 8)}-${timestamp}.json`
-				const tempFilePath = path.join(tmpDir, tempFileName)
+				const tempFilePath = path.join(
+					await createPreviewDirectory(provider, currentTask.sessionId),
+					"events.json",
+				)
 
 				const file = await fs.open(tempFilePath, "w")
 				try {
@@ -3995,6 +4053,7 @@ export const webviewMessageHandler = async (
 
 				// Open the temp file in the multimodal slot, never over the chat.
 				const doc = await vscode.workspace.openTextDocument(tempFilePath)
+				if (currentTask.sessionId !== ClineProvider.getActiveRuntimeTask()?.sessionId) break
 				await showTextDocumentInArtifactSlot(doc, { preview: true })
 			} catch (error) {
 				const errorMessage = error instanceof Error ? error.message : String(error)

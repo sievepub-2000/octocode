@@ -49,6 +49,19 @@ Copy-Item -LiteralPath (Join-Path $root 'build\win32\octocode-mcp-self-test.ps1'
 foreach ($script in @('octocode_api.py', 'scrapling_mcp.py', 'system_tools.py')) {
 	Copy-Item -LiteralPath (Join-Path $root "build\environment-scripts\$script") -Destination (Join-Path $environmentSource "scripts\$script") -Force
 }
+$scraplingSource = Join-Path $environmentSource 'scripts\scrapling_mcp.py'
+$scraplingStage = Join-Path $environmentSource 'tools\mcp\scrapling\server.py'
+if (Test-Path -LiteralPath $scraplingStage) {
+	if ((Get-Item -LiteralPath $scraplingStage -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Scrapling staging file cannot be a link' }
+	$oldHash = (Get-FileHash -LiteralPath $scraplingStage -Algorithm SHA256).Hash
+	if ($oldHash -ne (Get-FileHash -LiteralPath $scraplingSource -Algorithm SHA256).Hash) {
+		$backup = Join-Path $logs "scrapling-generated-$oldHash.py"
+		if (Test-Path -LiteralPath $backup) {
+			if ((Get-FileHash -LiteralPath $backup -Algorithm SHA256).Hash -ne $oldHash) { throw 'Scrapling staging backup changed' }
+		} else { Copy-Item -LiteralPath $scraplingStage -Destination $backup }
+		Copy-Item -LiteralPath $scraplingSource -Destination $scraplingStage -Force
+	}
+}
 Copy-Item -LiteralPath (Join-Path $root 'build\environment-scripts\TOOLS.md') -Destination (Join-Path $environmentSource 'TOOLS.md') -Force
 foreach ($kind in @('skills', 'mcp', 'hooks')) {
 	New-Item -ItemType Directory -Force -Path (Join-Path $environmentSource "tools\$kind") | Out-Null

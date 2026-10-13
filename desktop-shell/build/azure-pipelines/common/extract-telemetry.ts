@@ -89,7 +89,8 @@ try {
 
 const telemetryDir = path.join(BUILD_SOURCESDIRECTORY, '.build', 'telemetry');
 fs.mkdirSync(telemetryDir, { recursive: true });
-fs.renameSync(path.join(extractionDir, 'declarations-resolved.json'), path.join(telemetryDir, 'telemetry-core.json'));
-fs.renameSync(path.join(extractionDir, 'config-resolved.json'), path.join(telemetryDir, 'telemetry-extensions.json'));
+// Staging and sources may be on different volumes; cleanup removes the originals.
+fs.copyFileSync(path.join(extractionDir, 'declarations-resolved.json'), path.join(telemetryDir, 'telemetry-core.json'));
+fs.copyFileSync(path.join(extractionDir, 'config-resolved.json'), path.join(telemetryDir, 'telemetry-extensions.json'));
 
 fs.rmSync(extractionDir, { recursive: true, force: true });

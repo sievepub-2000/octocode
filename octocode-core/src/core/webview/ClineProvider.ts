@@ -62,6 +62,7 @@ import { WebviewMessage } from "../../shared/WebviewMessage"
 
 import { extractTextFromFile, getSupportedBinaryFormats } from "../../integrations/misc/extract-text"
 import { Terminal } from "../../integrations/terminal/Terminal"
+import { runtimeEventTerminal } from "../../activate/runtimeEventTerminal"
 import { getTheme } from "../../integrations/theme/getTheme"
 import WorkspaceTracker from "../../integrations/workspace/WorkspaceTracker"
 
@@ -84,6 +85,7 @@ import { setPanel } from "../../activate/registerCommands"
 import { t } from "../../i18n"
 
 import { ContextProxy } from "../config/ContextProxy"
+import { hasRuntimeEvent } from "./runtimeEventExists"
 import { CustomModesManager } from "../config/CustomModesManager"
 import { ProviderSettingsManager } from "../config/ProviderSettingsManager"
 
@@ -140,7 +142,7 @@ export class ClineProvider
 	private currentWorkspacePath: string | undefined
 	private static activeRuntimeTaskId?: string
 	private static activeRuntimeSessionId?: string
-	private currentArtifact?: ExtensionMessage
+	private readonly artifactsBySession = new Map<string, ExtensionMessage>()
 	private _disposed = false // 5 seconds
 	public static readonly PENDING_OPERATION_TIMEOUT_MS = 30000 // 30 seconds
 	private providerProfileMutationQueue = Promise.resolve()
@@ -308,6 +310,7 @@ export class ClineProvider
 	public async evictCurrentTask(): Promise<void> {
 		ClineProvider.activeRuntimeSessionId = undefined
 		ClineProvider.activeRuntimeTaskId = undefined
+		runtimeEventTerminal.setActiveSession(undefined)
 	}
 
 	/*
@@ -381,9 +384,12 @@ export class ClineProvider
 		return Array.from(this.activeInstances)
 	}
 
-	public static setActiveRuntimeSession(sessionId: string, taskId: string): void {
+	public static setActiveRuntimeSession(sessionId: string, taskId: string, workingDirectory?: string): void {
+		if (workingDirectory) runtimeEventTerminal.setSessionWorkingDirectory(sessionId, workingDirectory)
 		this.activeRuntimeSessionId = sessionId
 		this.activeRuntimeTaskId = taskId
+		void this.getArtifactInstance()?.replayCurrentArtifact()
+		runtimeEventTerminal.setActiveSession(sessionId)
 	}
 
 	public static getActiveRuntimeTask(): { sessionId: string; taskId: string } | undefined {
@@ -396,6 +402,9 @@ export class ClineProvider
 		if (this.activeRuntimeSessionId !== sessionId) return false
 		this.activeRuntimeSessionId = undefined
 		this.activeRuntimeTaskId = undefined
+		this.getArtifactInstance()?.artifactsBySession.delete(sessionId)
+		void this.getArtifactInstance()?.replayCurrentArtifact()
+		runtimeEventTerminal.releaseSession(sessionId)
 		return true
 	}
 
@@ -2098,6 +2107,8 @@ export class ClineProvider
 		images: string[] = [],
 		requestedSessionId?: string,
 		configuration: RooCodeSettings = {},
+		projectId?: string,
+		isCurrent?: () => boolean,
 	) {
 		assertOctoCodeAuthenticationAllowed()
 		await ClineProvider.applyTaskConfiguration(this, configuration)
@@ -2106,12 +2117,20 @@ export class ClineProvider
 		const runtime = getOctoCodeRuntime()
 		let task: Awaited<ReturnType<typeof runtime.prepareTask>> | undefined
 		try {
-			task = await runtime.prepareTask(text, apiConfiguration, requestedSessionId, undefined, images)
-			ClineProvider.setActiveRuntimeSession(task.sessionId, task.taskId)
+			task = await runtime.prepareTask(text, apiConfiguration, requestedSessionId, undefined, images, projectId)
+			if (isCurrent && !isCurrent()) {
+				await runtime.transitionTask(task, "cancelled")
+				return { sessionId: task.sessionId, taskId: task.taskId }
+			}
+			ClineProvider.setActiveRuntimeSession(task.sessionId, task.taskId, task.workingDirectory)
 			await this.postMessageToWebview({
 				type: "runtimeTaskStarted",
 				payload: { sessionId: task.sessionId, taskId: task.taskId, prompt: text, images },
 			})
+			if (isCurrent && !isCurrent()) {
+				await runtime.transitionTask(task, "cancelled")
+				return { sessionId: task.sessionId, taskId: task.taskId }
+			}
 			await runtime.runPreparedAgentTask(task, text, images, false, permissionProfile ?? "full")
 			return { sessionId: task.sessionId, taskId: task.taskId }
 		} catch (error) {
@@ -2166,7 +2185,7 @@ export class ClineProvider
 				currentActiveTask?.sessionId === sourceTask.sessionId &&
 				currentActiveTask.taskId === sourceTask.taskId
 			) {
-				ClineProvider.setActiveRuntimeSession(task.sessionId, task.taskId)
+				ClineProvider.setActiveRuntimeSession(task.sessionId, task.taskId, task.workingDirectory)
 			}
 			const targetTask = { sessionId: task.sessionId, taskId: task.taskId }
 			await notify("runtime.rollover_ready", { newSessionId: task.sessionId }, targetTask)
@@ -2190,18 +2209,12 @@ export class ClineProvider
 						id: handoff.sessionId,
 					})
 					if (target && ["prepared", "failed"].includes(target.status)) {
-						const events = await runtime.call<Array<[number, string, unknown]>>("event.list", {
-							session_id: handoff.sessionId,
-						})
-						if (!events.some(([, kind]) => kind === "agent.started")) {
-							if (target.status === "prepared")
-								await runtime.call("harness.transition", {
-									session_id: handoff.sessionId,
-									task_id: handoff.taskId,
-									state: "failed",
-								})
-							await runtime.call("session.delete", { id: handoff.sessionId })
-							await runtime.call("setting.delete", { key: `runtime-session:${handoff.sessionId}` })
+						if (!(await hasRuntimeEvent(runtime, handoff.sessionId, "agent.started"))) {
+							const result = await runtime.call<{ deleted: boolean }>("session.delete", {
+								id: handoff.sessionId,
+								expected_unstarted_task: handoff.taskId,
+							})
+							if (result?.deleted !== true) throw new Error("Guarded handoff cleanup refused")
 						}
 					}
 				} catch (cleanupError) {
@@ -2231,6 +2244,7 @@ export class ClineProvider
 		const cancelled = await getOctoCodeRuntime().cancelTask(ClineProvider.activeRuntimeTaskId)
 		ClineProvider.activeRuntimeTaskId = undefined
 		ClineProvider.activeRuntimeSessionId = undefined
+		runtimeEventTerminal.setActiveSession(undefined)
 		return cancelled
 	}
 
@@ -2419,7 +2433,13 @@ export class ClineProvider
 		}
 	}
 
-	public async showArtifact(filePath: string, line = 1, column = 1): Promise<void> {
+	public async showArtifact(
+		filePath: string,
+		line = 1,
+		column = 1,
+		sessionId = ClineProvider.activeRuntimeSessionId ?? "",
+	): Promise<void> {
+		if (sessionId !== (ClineProvider.activeRuntimeSessionId ?? "")) return
 		const extension = path.extname(filePath).slice(1).toLowerCase()
 		const mediaKinds: Record<string, "audio" | "image" | "model" | "pdf" | "video"> = {
 			flac: "audio",
@@ -2443,22 +2463,27 @@ export class ClineProvider
 		if (kind) {
 			this.allowWebviewResource(filePath)
 			if (this.view && "reveal" in this.view) this.view.reveal(vscode.ViewColumn.Two, true)
-			this.currentArtifact = {
+			const artifact: ExtensionMessage = {
 				type: "artifactSelected",
+				text: sessionId,
 				payload: { kind, path: filePath, uri: this.convertToWebviewUri(filePath) },
 			}
-			await this.postMessageToWebview(this.currentArtifact)
+			this.artifactsBySession.set(sessionId, artifact)
+			if (sessionId === (ClineProvider.activeRuntimeSessionId ?? "")) await this.postMessageToWebview(artifact)
 			return
 		}
 		if (getSupportedBinaryFormats().includes(`.${extension}`)) {
-			this.currentArtifact = {
+			const artifact: ExtensionMessage = {
 				type: "artifactSelected",
+				text: sessionId,
 				payload: { kind: "code", path: filePath, content: await extractTextFromFile(filePath) },
 			}
-			await this.postMessageToWebview(this.currentArtifact)
+			this.artifactsBySession.set(sessionId, artifact)
+			if (sessionId === (ClineProvider.activeRuntimeSessionId ?? "")) await this.postMessageToWebview(artifact)
 			return
 		}
 		const document = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath))
+		if (sessionId !== (ClineProvider.activeRuntimeSessionId ?? "")) return
 		await vscode.window.showTextDocument(document, {
 			preview: false,
 			selection: new vscode.Range(line - 1, column - 1, line - 1, column - 1),
@@ -2467,13 +2492,20 @@ export class ClineProvider
 	}
 
 	public async replayCurrentArtifact(): Promise<void> {
-		if (this.currentArtifact) await this.postMessageToWebview(this.currentArtifact)
+		await this.postMessageToWebview(
+			this.artifactsBySession.get(ClineProvider.activeRuntimeSessionId ?? "") ?? {
+				type: "artifactSelected",
+				text: ClineProvider.activeRuntimeSessionId ?? "",
+			},
+		)
 	}
 
 	public async showLogsInTerminal(records: unknown[], category: "system" | "developer"): Promise<boolean> {
 		let channel = this.logChannels.get(category)
 		if (!channel) {
-			channel = vscode.window.createOutputChannel(category === "system" ? "OctoCode 系统日志" : "OctoCode 开发日志")
+			channel = vscode.window.createOutputChannel(
+				category === "system" ? "OctoCode 系统日志" : "OctoCode 开发日志",
+			)
 			this.logChannels.set(category, channel)
 			this.disposables.push(channel)
 		}

@@ -103,7 +103,7 @@ if (!$effectiveConfig) { $failures.Add("missing materialized model config under:
 # Presence is checked here; freshness and cold-start health need a separate live test.
 $rust = Join-Path $install 'environments\rust\cargo\bin\rustc.exe'
 
-[pscustomobject]@{
+$result = [pscustomobject]@{
     Pass = $failures.Count -eq 0
     Failures = @($failures)
     HarnessVersion = $harnessVersion
@@ -130,4 +130,6 @@ $rust = Join-Path $install 'environments\rust\cargo\bin\rustc.exe'
     SettingsDatabase = Join-Path $userData 'User\globalStorage\state.vscdb'
     LatestLog = $latestLog.FullName
     ErrorsOrWarnings = $severe
-} | ConvertTo-Json -Depth 6
+}
+$result | ConvertTo-Json -Depth 6
+if (-not $result.Pass) { exit 1 }

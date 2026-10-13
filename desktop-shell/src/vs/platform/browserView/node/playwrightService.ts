@@ -477,11 +477,18 @@ class PlaywrightSession extends Disposable {
 		}
 
 		const { pageId, promise, logCtx } = entry;
-		if (logCtx) {
-			logCtx.resumeCount++;
-		}
-		this._deferredResults.deleteAndDispose(deferredResultId);
-		return this._runWithDeferral(pageId, () => promise, timeoutMs, deferredResultId, logCtx);
+		return this._runWithDeferral(pageId, () => {
+			// The page guard must admit the wait before it consumes the saved result.
+			// Another waiter or the cleanup timer may have invalidated it in the meantime.
+			if (this._deferredResults.get(deferredResultId) !== entry) {
+				throw new Error(`No deferred result found with ID "${deferredResultId}". It may have been cleaned up or already consumed.`);
+			}
+			if (logCtx) {
+				logCtx.resumeCount++;
+			}
+			this._deferredResults.deleteAndDispose(deferredResultId);
+			return promise;
+		}, timeoutMs, deferredResultId, logCtx);
 	}
 
 	async replyToFileChooser(pageId: string, files: string[]): Promise<{ summary: string }> {
@@ -528,6 +535,8 @@ class PlaywrightSession extends Disposable {
 
 	private async _runWithDeferral(pageId: string, callback: (page: Page) => Promise<unknown>, timeoutMs: number, existingDeferredId?: string, logCtx?: IExecutionLogContext): Promise<IInvokeFunctionResult> {
 		const deferred = new DeferredPromise();
+		// A completed resume does not store this promise, but its rejection still needs an owner.
+		deferred.p.catch(() => { /* preserve the original promise for any deferred reader */ });
 
 		// Attach settlement logging once, on the initiating call: `deferred.p` settles
 		// when the page work finishes no matter how many times the result is deferred,

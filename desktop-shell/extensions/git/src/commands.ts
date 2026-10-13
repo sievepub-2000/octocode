@@ -9,7 +9,7 @@ import { Command, commands, Disposable, MessageOptions, Position, QuickPickItem,
 import TelemetryReporter from '@vscode/extension-telemetry';
 import type { CommitOptions, RemoteSourcePublisher, Remote, Branch, Ref } from './api/git';
 import { ForcePushMode, GitErrorCodes, RefType, Status } from './api/git.constants';
-import { Git, GitError, Repository as GitRepository, Stash, Worktree } from './git';
+import { Git, GitError, Repository as GitRepository, Stash, Worktree, redactHttpUrlUserInfo } from './git';
 import { Model } from './model';
 import { GitResourceGroup, Repository, Resource, ResourceGroupType } from './repository';
 import { DiffEditorSelectionHunkToolbarContext, LineChange, applyLineChanges, getIndexDiffInformation, getModifiedRange, getWorkingTreeDiffInformation, intersectDiffWithRange, invertLineChange, toLineChanges, toLineRanges, compareLineChanges } from './staging';
@@ -5575,7 +5575,7 @@ export class CommandCenter {
 							command = `${command} ${err.gitCommand}`;
 						}
 
-						this.commandErrors.set(uri, `> ${command}\n${err.stderr}`);
+						this.commandErrors.set(uri, redactHttpUrlUserInfo(`> ${command}\n${err.stderr}`));
 
 						try {
 							const doc = await workspace.openTextDocument(uri);
@@ -5666,7 +5666,7 @@ export class CommandCenter {
 				// We explicitly do not await this promise, because we do not
 				// want the command execution to be stuck waiting for the user
 				// to take action on the notification.
-				this.showErrorNotification(type, message, options, choices);
+				this.showErrorNotification(type, redactHttpUrlUserInfo(message), options, choices);
 			});
 		};
 

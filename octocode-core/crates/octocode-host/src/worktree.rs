@@ -178,7 +178,29 @@ fn run_git_owned(cwd: &Path, args: &[String]) -> anyhow::Result<String> {
     if !cwd.is_dir() {
         anyhow::bail!("working directory does not exist: {}", cwd.display());
     }
-    let output = Command::new("git").args(args).current_dir(cwd).output()?;
+    let mut command = Command::new("git");
+    command.args(args).current_dir(cwd);
+    // The caller's Git process may export repository-local paths. Resolve this
+    // repository from cwd, while retaining authentication and user configuration.
+    for variable in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_COMMON_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_NAMESPACE",
+        "GIT_CEILING_DIRECTORIES",
+        "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+        "GIT_IMPLICIT_WORK_TREE",
+        "GIT_GRAFT_FILE",
+        "GIT_REPLACE_REF_BASE",
+        "GIT_PREFIX",
+        "GIT_SHALLOW_FILE",
+    ] {
+        command.env_remove(variable);
+    }
+    let output = command.output()?;
     if !output.status.success() {
         anyhow::bail!(
             "git {} failed: {}",

@@ -95,7 +95,8 @@ export class FailureTracker {
 	private async append(log: ITrackedRemediation) {
 		if (!this.logs) {
 			try {
-				this.logs = JSON.parse(await readFile(this.logFile, 'utf-8'));
+				const saved = JSON.parse(await readFile(this.logFile, 'utf-8'));
+				this.logs = Array.isArray(saved) ? saved : [];
 			} catch {
 				this.logs = [];
 			}
@@ -119,7 +120,8 @@ export class FailureTracker {
 				await Promise.all(
 					output
 						.trim()
-						.split('\n')
+						.split(/\r?\n/)
+						.filter(f => f.length > 0)
 						.map(async f => {
 							mapping[f] = await readFile(join(this.rootDir, f), 'utf-8');
 						})
@@ -138,13 +140,14 @@ export class FailureTracker {
 		return new Promise((resolve, reject) => {
 			const child = spawn(command, args, { stdio: 'pipe', cwd: this.rootDir });
 			let output = '';
+			let errors = '';
 			child.stdout.setEncoding('utf-8').on('data', b => (output += b));
-			child.stderr.setEncoding('utf-8').on('data', b => (output += b));
+			child.stderr.setEncoding('utf-8').on('data', b => (errors += b));
 			child.on('error', reject);
-			child.on('exit', code =>
+			child.on('close', code =>
 				code === 0
 					? resolve(output)
-					: reject(new Error(`Failed with error code ${code}\n${output}`))
+					: reject(new Error(`Failed with error code ${code}\n${output}${errors}`))
 			);
 		});
 	}

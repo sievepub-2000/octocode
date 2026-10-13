@@ -982,23 +982,68 @@ describe("McpOAuthClientProvider", () => {
 
 		it("keeps the stored refresh client's secret when an in-memory registration differs", async () => {
 			const storage = createMockSecretStorage()
-			const clientInfo = { client_id: "owned-old-client", client_secret: "owned-old-secret", issuer, redirect_uris: [] }
+			const clientInfo = {
+				client_id: "owned-old-client",
+				client_secret: "owned-old-secret",
+				issuer,
+				redirect_uris: [],
+			}
 			await storage.saveOAuthData(serverUrl, {
-				tokens: { access_token: "owned-old-access", refresh_token: "owned-refresh", token_type: "Bearer", issuer },
+				tokens: {
+					access_token: "owned-old-access",
+					refresh_token: "owned-refresh",
+					token_type: "Bearer",
+					issuer,
+				},
 				server_url: serverUrl,
 				expires_at: 0,
 				client_info: clientInfo,
 			})
 			const provider = await makeProvider(storage)
-			await provider.saveClientInformation({ client_id: "owned-new-client", client_secret: "owned-new-secret", issuer, redirect_uris: [] })
+			await provider.saveClientInformation({
+				client_id: "owned-new-client",
+				client_secret: "owned-new-secret",
+				issuer,
+				redirect_uris: [],
+			})
 			mockFetch.mockClear()
-			mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ access_token: "owned-refreshed", token_type: "Bearer" }) })
+			mockFetch.mockResolvedValueOnce({
+				ok: true,
+				json: async () => ({ access_token: "owned-refreshed", token_type: "Bearer" }),
+			})
 			try {
 				await provider.tokens()
 				const request = new URLSearchParams(mockFetch.mock.calls[0][1].body)
 				expect(request.get("client_id")).toBe(clientInfo.client_id)
 				expect(request.get("client_secret")).toBe(clientInfo.client_secret)
 				expect((await storage.getOAuthData(serverUrl))?.client_info).toEqual(clientInfo)
+			} finally {
+				await provider.close()
+			}
+		})
+
+		it("retries after another provider replaces a failed rotating refresh token", async () => {
+			const storage = createMockSecretStorage()
+			const clientInfo = { client_id: "owned-client", client_secret: "owned-secret", issuer, redirect_uris: [] }
+			const record = (refreshToken: string) => ({
+				tokens: { access_token: "expired", refresh_token: refreshToken, token_type: "Bearer", issuer },
+				server_url: serverUrl,
+				expires_at: 0,
+				client_info: clientInfo,
+			})
+			await storage.saveOAuthData(serverUrl, record("old-refresh"))
+			const provider = await makeProvider(storage)
+			mockFetch.mockClear()
+			mockFetch.mockResolvedValueOnce({ ok: false, status: 400 })
+			try {
+				expect(await provider.tokens()).toBeUndefined()
+				await storage.saveOAuthData(serverUrl, record("new-refresh"))
+				mockFetch.mockResolvedValueOnce({
+					ok: true,
+					json: async () => ({ access_token: "recovered", token_type: "Bearer" }),
+				})
+				expect(await provider.tokens()).toMatchObject({ access_token: "recovered" })
+				expect(mockFetch).toHaveBeenCalledTimes(2)
 			} finally {
 				await provider.close()
 			}

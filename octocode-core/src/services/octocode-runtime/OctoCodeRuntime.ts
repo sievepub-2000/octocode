@@ -364,12 +364,14 @@ export class OctoCodeRuntime implements vscode.Disposable {
 			session_id: string
 			task_id: string
 			route: ProviderRoute
+			working_directory?: string
 		}>("harness.continue", { session_id: sessionId, prompt, provider: thinkingSettings(settings), images })
 		return {
 			profileId,
 			sessionId: prepared.session_id,
 			taskId: prepared.task_id,
 			route: prepared.route,
+			workingDirectory: prepared.working_directory,
 			autoCompactThresholdPercent: this.readAutoCompactThreshold(settings),
 			providerSettings: settings,
 		}
@@ -429,6 +431,7 @@ export class OctoCodeRuntime implements vscode.Disposable {
 			session_id: string
 			task_id: string
 			route: ProviderRoute
+			working_directory?: string
 			prompt: string
 			display_prompt: string
 			images: string[]
@@ -443,7 +446,7 @@ export class OctoCodeRuntime implements vscode.Disposable {
 			providerSettings: settings,
 			permissionProfile: previous?.permission ?? saved?.permission,
 			profileId: previous?.profileId ?? saved?.profileId,
-			workingDirectory: source.workspace,
+			workingDirectory: handoff.working_directory,
 			autoCompactThresholdPercent: this.readAutoCompactThreshold(settings),
 		}
 	}
@@ -454,6 +457,7 @@ export class OctoCodeRuntime implements vscode.Disposable {
 		requestedSessionId?: string,
 		route?: ProviderRoute,
 		images: string[] = [],
+		projectId?: string,
 	): Promise<PreparedTask> {
 		const profileId = this.selectedProfileId()
 		const workspace = await this.defaultWorkspace()
@@ -461,8 +465,10 @@ export class OctoCodeRuntime implements vscode.Disposable {
 			session_id: string
 			task_id: string
 			route: ProviderRoute
+			working_directory?: string
 		}>("harness.prepare", {
 			session_id: requestedSessionId,
+			...(projectId ? { project_id: projectId } : {}),
 			title: prompt.slice(0, 120) || "New task",
 			workspace,
 			prompt,
@@ -478,6 +484,7 @@ export class OctoCodeRuntime implements vscode.Disposable {
 			sessionId: prepared.session_id,
 			taskId: prepared.task_id,
 			route: prepared.route,
+			workingDirectory: prepared.working_directory,
 			autoCompactThresholdPercent: this.readAutoCompactThreshold(settings),
 		}
 	}

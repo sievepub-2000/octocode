@@ -52,8 +52,8 @@ env:
   # Only set when explicitly provided; otherwise scripts read config.jsonc
   BASELINE_BUILD_INPUT: ${{ inputs.baseline_build || '' }}
   TEST_BUILD_INPUT: ${{ inputs.test_build || '' }}
-  PERF_RUNS: ${{ inputs.runs || '' }}
-  PERF_THRESHOLD: ${{ inputs.threshold || '' }}
+  PERF_RUNS: ${{ inputs.runs }}
+  PERF_THRESHOLD: ${{ inputs.threshold }}
   SCENARIOS_INPUT: ${{ inputs.scenarios || '' }}
   TEST_SETTINGS_INPUT: ${{ inputs.test_settings || '' }}
   BASELINE_SETTINGS_INPUT: ${{ inputs.baseline_settings || '' }}
@@ -82,7 +82,7 @@ jobs:
           if [[ -z "$INPUT" ]]; then
             echo "is_version=false" >> "$GITHUB_OUTPUT"
             echo "build_arg=" >> "$GITHUB_OUTPUT"
-          elif [[ "$INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]] || [[ "$INPUT" == "insiders" ]] || [[ "$INPUT" == "stable" ]]; then
+          elif [[ "$INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ "$INPUT" == "insiders" ]] || [[ "$INPUT" == "stable" ]]; then
             echo "test_build is a version string: $INPUT (will download)"
             echo "is_version=true" >> "$GITHUB_OUTPUT"
             echo "build_arg=$INPUT" >> "$GITHUB_OUTPUT"
@@ -305,12 +305,12 @@ jobs:
         if: steps.scenarios.outputs.skip != 'true'
         env:
           SCENARIO_ARGS: ${{ steps.scenarios.outputs.args }}
+          TEST_BUILD_ARG: ${{ needs.setup.outputs.test_build_arg }}
         run: |
           PERF_ARGS=("--ci")
           if [[ -n "$BASELINE_BUILD_INPUT" ]]; then
             PERF_ARGS+=("--baseline-build" "$BASELINE_BUILD_INPUT")
           fi
-          TEST_BUILD_ARG="${{ needs.setup.outputs.test_build_arg }}"
           if [[ -n "$TEST_BUILD_ARG" ]]; then
             PERF_ARGS+=("--build" "$TEST_BUILD_ARG")
           fi
@@ -323,15 +323,33 @@ jobs:
           PERF_ARGS+=("--production-build")
 
           # Convert JSON settings objects to --test-setting / --baseline-setting flags
+          # The CLI accepts scalar values; validate before process substitution,
+          # whose producer exit status would otherwise be discarded by Bash.
+          node -e '
+            for (const name of ["TEST_SETTINGS_INPUT", "BASELINE_SETTINGS_INPUT"]) {
+              const input = process.env[name];
+              if (!input) continue;
+              const settings = JSON.parse(input);
+              if (!settings || Array.isArray(settings) || typeof settings !== "object") {
+                throw new Error(name + " must be a JSON object");
+              }
+              for (const [key, value] of Object.entries(settings)) {
+                if (!["string", "number", "boolean"].includes(typeof value) ||
+                    key.includes("=") || key.includes("\u0000") || String(value).includes("\u0000")) {
+                  throw new Error(name + " contains a setting the scalar CLI cannot represent");
+                }
+              }
+            }
+          ' || exit 1
           if [[ -n "$TEST_SETTINGS_INPUT" ]]; then
-            while IFS='=' read -r key value; do
-              PERF_ARGS+=("--test-setting" "$key=$value")
-            done < <(node -e "const s=JSON.parse(process.env.TEST_SETTINGS_INPUT); for (const [k,v] of Object.entries(s)) console.log(k+'='+v)")
+            while IFS= read -r -d '' setting; do
+              PERF_ARGS+=("--test-setting" "$setting")
+            done < <(node -e "const s=JSON.parse(process.env.TEST_SETTINGS_INPUT); for (const [k,v] of Object.entries(s)) process.stdout.write(k+'='+v+'\u0000')")
           fi
           if [[ -n "$BASELINE_SETTINGS_INPUT" ]]; then
-            while IFS='=' read -r key value; do
-              PERF_ARGS+=("--baseline-setting" "$key=$value")
-            done < <(node -e "const s=JSON.parse(process.env.BASELINE_SETTINGS_INPUT); for (const [k,v] of Object.entries(s)) console.log(k+'='+v)")
+            while IFS= read -r -d '' setting; do
+              PERF_ARGS+=("--baseline-setting" "$setting")
+            done < <(node -e "const s=JSON.parse(process.env.BASELINE_SETTINGS_INPUT); for (const [k,v] of Object.entries(s)) process.stdout.write(k+'='+v+'\u0000')")
           fi
 
           # Split SCENARIO_ARGS on whitespace into array elements
@@ -456,16 +474,17 @@ jobs:
 
       - name: Run memory leak check
         id: leak
+        env:
+          TEST_BUILD_ARG: ${{ needs.setup.outputs.test_build_arg }}
         run: |
-          LEAK_ARGS="--verbose --ci"
-          TEST_BUILD_ARG="${{ needs.setup.outputs.test_build_arg }}"
+          LEAK_ARGS=("--verbose" "--ci")
           if [[ -n "$TEST_BUILD_ARG" ]]; then
-            LEAK_ARGS="$LEAK_ARGS --build $TEST_BUILD_ARG"
+            LEAK_ARGS+=("--build" "$TEST_BUILD_ARG")
           fi
 
           set +eo pipefail
           xvfb-run node scripts/chat-simulation/test-chat-mem-leaks.js \
-            $LEAK_ARGS \
+            "${LEAK_ARGS[@]}" \
             2>&1 | tee leak-output.log
           echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
 

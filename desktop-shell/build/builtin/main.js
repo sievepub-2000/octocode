@@ -5,7 +5,6 @@
 // @ts-check
 
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
-const url = require('url');
 const path = require('path');
 
 let window = null;
@@ -34,7 +33,7 @@ app.once('ready', () => {
 		}
 	});
 	window.setMenuBarVisibility(false);
-	window.loadURL(url.format({ pathname: path.join(__dirname, 'index.html'), protocol: 'file:', slashes: true }));
+	window.loadFile(path.join(__dirname, 'index.html'));
 	// window.webContents.openDevTools();
 	window.once('closed', () => window = null);
 });

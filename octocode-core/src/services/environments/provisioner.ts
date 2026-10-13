@@ -72,10 +72,13 @@ export const OCTOCODE_WSL_DISTRO = "OctoCode"
 
 export class EnvironmentProvisioner {
 	/**
-	 * In-flight installs, keyed by environment id. Two tools racing to run
-	 * `cargo build` must produce one download, not two writing the same directory.
+	 * Per-environment mutations. Installs coalesce; an ensure after removal waits
+	 * before probing the directory again. Uninstall still refuses an active install.
 	 */
-	private readonly inFlight = new Map<string, Promise<ProvisionResult>>()
+	private readonly inFlight = new Map<
+		string,
+		{ kind: "install"; run: Promise<ProvisionResult> } | { kind: "remove"; run: Promise<void> }
+	>()
 
 	constructor(private readonly host: ProvisionerHost) {}
 
@@ -129,8 +132,16 @@ export class EnvironmentProvisioner {
 		if (!env) throw new Error(`Unknown environment "${id}"`)
 		if (env.tier === "core" || env.shipped)
 			throw new Error(`${env.label} is part of the base installation and cannot be removed.`)
-		if (this.inFlight.has(id)) throw new Error(`${env.label} is being installed; try again when it finishes.`)
-		await this.host.removeEnvironment(env, this.envDir(env))
+		const existing = this.inFlight.get(id)
+		if (existing?.kind === "install")
+			throw new Error(`${env.label} is being installed; try again when it finishes.`)
+		if (existing) return existing.run
+		// Register before invoking the host, including synchronous host failures.
+		const run = Promise.resolve()
+			.then(() => this.host.removeEnvironment(env, this.envDir(env)))
+			.finally(() => this.inFlight.delete(id))
+		this.inFlight.set(id, { kind: "remove", run })
+		await run
 	}
 
 	/**
@@ -146,13 +157,17 @@ export class EnvironmentProvisioner {
 		}
 
 		const existing = this.inFlight.get(id)
-		if (existing) return existing
+		if (existing?.kind === "install") return existing.run
+		if (existing) {
+			await existing.run
+			return this.ensure(id, onProgress)
+		}
 
 		const run = this.install(env, onProgress).finally(() => {
 			this.inFlight.delete(id)
 		})
 
-		this.inFlight.set(id, run)
+		this.inFlight.set(id, { kind: "install", run })
 		return run
 	}
 

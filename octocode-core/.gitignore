@@ -34,6 +34,7 @@ docs/_site/
 
 # Logging
 /target/
+/work/
 logs
 !webview-ui/src/components/logs/
 !webview-ui/src/components/logs/*.tsx

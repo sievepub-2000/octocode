@@ -101,7 +101,20 @@ interface HeapUsage {
 	totalSize: number;
 }
 
+interface MemoryTrendSegment {
+	metricSource: 'Runtime.getHeapUsage' | 'Performance.getMetrics';
+	startLabel: string;
+	endLabel: string;
+	sampleCount: number;
+	startUsedBytes: number;
+	endUsedBytes: number;
+	usedBytes: number | undefined;
+	usedBytesPerSample: number | undefined;
+}
+
 interface MemoryTrend {
+	segments: MemoryTrendSegment[];
+	postFirstSwitchSegments: MemoryTrendSegment[];
 	firstToLastUsedBytes: number | undefined;
 	postFirstSwitchUsedBytes: number | undefined;
 	postFirstSwitchUsedBytesPerIteration: number | undefined;
@@ -187,7 +200,8 @@ async function main(): Promise<void> {
 		console.log('\n=== Phase 1: Creating sessions with different content types ===');
 
 		for (let i = 0; i < SESSION_PROMPTS.length; i++) {
-			const { contentType, prompt } = SESSION_PROMPTS[i];
+			const { contentType } = SESSION_PROMPTS[i];
+			const prompt = normalizeChatPrompt(SESSION_PROMPTS[i].prompt);
 			console.log(`\n--- Creating session ${i + 1} (${contentType}) ---`);
 
 			if (i === 0) {
@@ -477,6 +491,10 @@ async function markActiveChatInput(inputEditor: import('playwright-core').Locato
 	}, { inputSelector: chatInputElementSelector, marker: activeChatInputMarker });
 }
 
+function normalizeChatPrompt(message: string): string {
+	return message.replace(/\r?\n/g, ' ');
+}
+
 async function typeInChat(page: Page, message: string): Promise<void> {
 	const inputSelector = await openChat(page);
 	await page.evaluate(({ selector, text }) => {
@@ -486,7 +504,7 @@ async function typeInChat(page: Page, message: string): Promise<void> {
 		return globalThis.driver.typeInEditor(selector, text);
 	}, {
 		selector: inputSelector,
-		text: message.replace(/\r?\n/g, ' '),
+		text: normalizeChatPrompt(message),
 	});
 }
 
@@ -740,6 +758,9 @@ function printSummary(samples: HeapSample[], outputDir: string): void {
 	}
 
 	const trend = analyzeMemoryTrend(samples);
+	if (trend.firstToLastUsedBytes === undefined && samples.length > 1) {
+		console.log('Heap trend contains metric changes or missing samples; see analysis.segments in summary.json.');
+	}
 	if (trend.postFirstSwitchUsedBytes !== undefined) {
 		console.log(`Post-first-switch growth: ${formatSignedBytes(trend.postFirstSwitchUsedBytes)} (${formatSignedBytes(trend.postFirstSwitchUsedBytesPerIteration)}/iteration)`);
 	}
@@ -758,18 +779,43 @@ async function writeSummary(outputDir: string, samples: HeapSample[], sessions: 
 	}, undefined, '\t'));
 }
 
+function memoryTrendSegments(samples: HeapSample[]): MemoryTrendSegment[] {
+	const segments: MemoryTrendSegment[] = [];
+	let segment: MemoryTrendSegment | undefined;
+	for (const sample of samples) {
+		const metricSource = sample.runtimeUsedSize !== undefined ? 'Runtime.getHeapUsage' : 'Performance.getMetrics';
+		const size = sample.runtimeUsedSize ?? sample.jsHeapUsedSize;
+		if (size === undefined || !Number.isFinite(size)) {
+			segment = undefined;
+			continue;
+		}
+		if (!segment || segment.metricSource !== metricSource) {
+			segment = { metricSource, startLabel: sample.label, endLabel: sample.label, sampleCount: 1,
+				startUsedBytes: size, endUsedBytes: size, usedBytes: undefined, usedBytesPerSample: undefined };
+			segments.push(segment);
+		} else {
+			segment.endLabel = sample.label;
+			segment.endUsedBytes = size;
+			segment.sampleCount++;
+			segment.usedBytes = size - segment.startUsedBytes;
+			segment.usedBytesPerSample = segment.usedBytes / (segment.sampleCount - 1);
+		}
+	}
+	return segments;
+}
+
 function analyzeMemoryTrend(samples: HeapSample[]): MemoryTrend {
-	const sizedSamples = samples.map(sample => sample.runtimeUsedSize ?? sample.jsHeapUsedSize);
-	const firstSize = sizedSamples.at(0);
-	const lastSize = sizedSamples.at(-1);
+	const segments = memoryTrendSegments(samples);
 	const switchSamples = samples.filter(sample => sample.label.startsWith('04-switch-'));
-	const firstSwitchSize = switchSamples.at(0)?.runtimeUsedSize ?? switchSamples.at(0)?.jsHeapUsedSize;
-	const lastSwitchSize = switchSamples.at(-1)?.runtimeUsedSize ?? switchSamples.at(-1)?.jsHeapUsedSize;
-	const postFirstSwitchUsedBytes = firstSwitchSize !== undefined && lastSwitchSize !== undefined && switchSamples.length > 1 ? lastSwitchSize - firstSwitchSize : undefined;
+	const postFirstSwitchSegments = memoryTrendSegments(switchSamples);
+	const postFirstSwitchUsedBytes = postFirstSwitchSegments.length === 1 && postFirstSwitchSegments[0].sampleCount === switchSamples.length
+		? postFirstSwitchSegments[0].usedBytes : undefined;
 	return {
-		firstToLastUsedBytes: firstSize !== undefined && lastSize !== undefined && samples.length > 1 ? lastSize - firstSize : undefined,
+		firstToLastUsedBytes: segments.length === 1 && segments[0].sampleCount === samples.length ? segments[0].usedBytes : undefined,
 		postFirstSwitchUsedBytes,
 		postFirstSwitchUsedBytesPerIteration: postFirstSwitchUsedBytes !== undefined ? postFirstSwitchUsedBytes / (switchSamples.length - 1) : undefined,
+		segments,
+		postFirstSwitchSegments,
 	};
 }
 
@@ -858,7 +904,7 @@ function parseArgs(args: string[]): Options {
 			const [key, inlineValue] = splitArg(arg);
 			const value = inlineValue ?? readArgValue(args, ++i, key);
 			switch (key) {
-				case '--port': parsed.port = parseIntegerArg(key, value, 1); break;
+				case '--port': parsed.port = parseIntegerArg(key, value, 1, 65535); break;
 				case '--switch-iterations': parsed.switchIterations = parseIntegerArg(key, value, 1); break;
 				case '--response-timeout': parsed.responseTimeout = parseIntegerArg(key, value, 1); break;
 				case '--first-response-timeout': parsed.firstResponseTimeout = parseIntegerArg(key, value, 1); break;
@@ -901,10 +947,10 @@ function readArgValue(args: string[], index: number, flag: string): string {
 	return value;
 }
 
-function parseIntegerArg(flag: string, value: string, min: number): number {
+function parseIntegerArg(flag: string, value: string, min: number, max = Number.POSITIVE_INFINITY): number {
 	const parsed = Number(value);
-	if (!Number.isInteger(parsed) || parsed < min) {
-		throw new Error(`${flag} must be an integer greater than or equal to ${min}. Got: ${value}`);
+	if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+		throw new Error(`${flag} must be an integer greater than or equal to ${min}${Number.isFinite(max) ? ` and less than or equal to ${max}` : ''}. Got: ${value}`);
 	}
 	return parsed;
 }

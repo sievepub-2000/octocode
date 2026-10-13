@@ -23,14 +23,17 @@ async fn server(reject_thinking: bool) -> (String, Arc<Mutex<Vec<serde_json::Val
                 let json: serde_json::Value = serde_json::from_str(&body).unwrap();
                 let thinking = json.get("chat_template_kwargs").is_some()
                     || json.get("reasoning_effort").is_some();
+                let rejected = if json.get("chat_template_kwargs").is_some() {
+                    "chat_template_kwargs"
+                } else { "reasoning_effort" };
                 sink.lock().unwrap().push(json);
                 if reject_thinking && thinking {
                     (
                         StatusCode::BAD_REQUEST,
-                        r#"{"error":{"message":"unknown field"}}"#,
+                        serde_json::json!({"error":{"message":format!("unknown field `{rejected}`")}}).to_string(),
                     )
                 } else {
-                    (StatusCode::OK, "{}")
+                    (StatusCode::OK, "{}".to_string())
                 }
             }
         }),
@@ -74,8 +77,8 @@ async fn rejected_thinking_controls_fall_back_to_plain_requests_and_stay_off() {
     support::send_one(&client).await;
 
     let bodies = bodies.lock().unwrap();
-    // First attempt carried the controls and was rejected; its retry and every
-    // later request are plain.
+    // This conversation fixture sends the template control; only that named
+    // rejection is retried. The direct-request wire suite covers effort too.
     assert_eq!(bodies.len(), 3, "{bodies:#?}");
     assert!(bodies[0].get("chat_template_kwargs").is_some());
     for plain in &bodies[1..] {

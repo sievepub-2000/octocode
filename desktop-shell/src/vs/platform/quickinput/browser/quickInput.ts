@@ -154,6 +154,7 @@ export abstract class QuickInput extends Disposable implements IQuickInput {
 	protected static readonly noPromptMessage = localize('inputModeEntry', "Press 'Enter' to confirm your input or 'Escape' to cancel");
 
 	protected _visible = observableValue('visible', false);
+	private showing = false;
 	private _title: string | undefined;
 	private _description: string | undefined;
 	private _steps: number | undefined;
@@ -168,8 +169,10 @@ export abstract class QuickInput extends Disposable implements IQuickInput {
 	private _inputButtons: IQuickInputButton[] = [];
 	private buttonsUpdated = false;
 	protected noValidationMessage: string | undefined = QuickInput.noPromptMessage;
+	protected noValidationMessageIsPlainText = false;
 	private _validationMessage: string | undefined;
 	private _lastValidationMessage: string | undefined;
+	private _lastValidationMessageIsPlainText: boolean | undefined;
 	private _severity: Severity = Severity.Ignore;
 	private _lastSeverity: Severity | undefined;
 	private readonly onDidTriggerButtonEmitter = this._register(new Emitter<IQuickInputButton>());
@@ -178,6 +181,7 @@ export abstract class QuickInput extends Disposable implements IQuickInput {
 	private readonly onDisposeEmitter = this._register(new Emitter<void>());
 
 	protected readonly visibleDisposables = this._register(new DisposableStore());
+	private readonly messageDisposables = this._register(new DisposableStore());
 
 	private busyDelay: TimeoutTimer | undefined;
 
@@ -234,6 +238,9 @@ export abstract class QuickInput extends Disposable implements IQuickInput {
 	}
 
 	set enabled(enabled: boolean) {
+		if (this._enabled !== enabled) {
+			this.buttonsUpdated = true;
+		}
 		this._enabled = enabled;
 		this.update();
 	}
@@ -336,7 +343,7 @@ export abstract class QuickInput extends Disposable implements IQuickInput {
 	readonly onDidTriggerButton = this.onDidTriggerButtonEmitter.event;
 
 	show(): void {
-		if (this.visible) {
+		if (this.visible || this.showing) {
 			return;
 		}
 		this.visibleDisposables.add(
@@ -346,12 +353,21 @@ export abstract class QuickInput extends Disposable implements IQuickInput {
 				}
 			}),
 		);
-		this.ui.show(this);
+		this.showing = true;
+		try {
+			this.ui.show(this);
+			if (!this.showing) {
+				return; // Hidden or replaced by a synchronous show listener.
+			}
+		} finally {
+			this.showing = false;
+		}
 
 		// update properties in the controller that get reset in the ui.show() call
 		this._visible.set(true, undefined);
 		// This ensures the message/prompt gets rendered
 		this._lastValidationMessage = undefined;
+		this._lastValidationMessageIsPlainText = undefined;
 		// This ensures the input box has the right severity applied
 		this._lastSeverity = undefined;
 		if (this.buttons.length) {
@@ -364,14 +380,18 @@ export abstract class QuickInput extends Disposable implements IQuickInput {
 	}
 
 	hide(): void {
-		if (!this.visible) {
+		if (!this.visible && !this.showing) {
 			return;
 		}
 		this.ui.hide();
 	}
 
 	didHide(reason = QuickInputHideReason.Other): void {
+		this.showing = false;
 		this._visible.set(false, undefined);
+		this.busyDelay?.dispose();
+		this.busyDelay = undefined;
+		this.messageDisposables.clear();
 		this.visibleDisposables.clear();
 		this.onDidHideEmitter.fire({ reason });
 	}
@@ -422,44 +442,60 @@ export abstract class QuickInput extends Disposable implements IQuickInput {
 				'left-button',
 				(button) => this.onDidTriggerButtonEmitter.fire(button)
 			);
-			this.ui.leftActionBar.setActions(leftActions.primary, leftActions.secondary);
 			const rightActions = quickInputButtonsToActionArrays(
 				this._rightButtons,
 				'right-button',
 				(button) => this.onDidTriggerButtonEmitter.fire(button)
 			);
-			this.ui.rightActionBar.setActions(rightActions.primary, rightActions.secondary);
 			const inlineActions = quickInputButtonsToActionArrays(
 				this._inlineButtons,
 				'inline-button',
 				(button) => this.onDidTriggerButtonEmitter.fire(button)
 			);
-			this.ui.inlineActionBar.setActions(inlineActions.primary, inlineActions.secondary);
 			// Adjust count badge position based on input buttons (each button/toggle is ~22px wide)
 			const inputButtonOffset = this._inputButtons.length * 22;
 			this.ui.countContainer.style.right = inputButtonOffset > 0 ? `${4 + inputButtonOffset}px` : '4px';
-			this.ui.inputBox.actions = this._inputButtons
+			const inputActions = this._inputButtons
 				.map((button, index) => quickInputButtonToAction(
 					button,
 					`id-${index}`,
 					async () => this.onDidTriggerButtonEmitter.fire(button)
 				));
+			for (const action of [
+				...leftActions.primary, ...leftActions.secondary,
+				...rightActions.primary, ...rightActions.secondary,
+				...inlineActions.primary, ...inlineActions.secondary,
+				...inputActions
+			]) {
+				action.enabled = this.enabled;
+			}
+			this.ui.leftActionBar.setActions(leftActions.primary, leftActions.secondary);
+			this.ui.rightActionBar.setActions(rightActions.primary, rightActions.secondary);
+			this.ui.inlineActionBar.setActions(inlineActions.primary, inlineActions.secondary);
+			this.ui.inputBox.actions = inputActions;
 		}
 		this.ui.ignoreFocusOut = this.ignoreFocusOut;
 		this.ui.setEnabled(this.enabled);
 		this.ui.setContextKey(this.contextKey);
 
 		const validationMessage = this.validationMessage || this.noValidationMessage;
-		if (this._lastValidationMessage !== validationMessage) {
+		const isPlainText = !this.validationMessage && this.noValidationMessageIsPlainText;
+		if (this._lastValidationMessage !== validationMessage || this._lastValidationMessageIsPlainText !== isPlainText) {
 			this._lastValidationMessage = validationMessage;
+			this._lastValidationMessageIsPlainText = isPlainText;
+			this.messageDisposables.clear();
 			dom.reset(this.ui.message);
 			if (validationMessage) {
-				renderQuickInputDescription(validationMessage, this.ui.message, {
-					callback: (content) => {
-						this.ui.linkOpenerDelegate(content);
-					},
-					disposables: this.visibleDisposables,
-				});
+				if (isPlainText) {
+					this.ui.message.textContent = validationMessage;
+				} else {
+					renderQuickInputDescription(validationMessage, this.ui.message, {
+						callback: (content) => {
+							this.ui.linkOpenerDelegate(content);
+						},
+						disposables: this.messageDisposables,
+					});
+				}
 			}
 		}
 		if (this._lastSeverity !== this.severity) {
@@ -900,12 +936,12 @@ export class QuickPick<T extends IQuickPickItem, O extends { useSeparators: bool
 					// `.selectedItems` is up to date.
 					if (!this.ui.list.getCheckedElements().length) {
 						this._selectedItems = [];
-						this.onDidChangeSelectionEmitter.fire(this.selectedItems);
+						this.onDidChangeSelectionEmitter.fire(this.selectedItems.slice());
 					}
 				} else if (this.activeItems[0]) {
 					// For single-select, we set `selectedItems` to the item that was accepted.
 					this._selectedItems = [this.activeItems[0]];
-					this.onDidChangeSelectionEmitter.fire(this.selectedItems);
+					this.onDidChangeSelectionEmitter.fire(this.selectedItems.slice());
 				}
 				this.handleAccept(false);
 			}));
@@ -924,7 +960,7 @@ export class QuickPick<T extends IQuickPickItem, O extends { useSeparators: bool
 					return;
 				}
 				this._activeItems = focusedItems as T[];
-				this.onDidChangeActiveEmitter.fire(focusedItems as T[]);
+				this.onDidChangeActiveEmitter.fire(focusedItems.slice() as T[]);
 			}));
 			this.visibleDisposables.add(this.ui.list.onDidChangeSelection(({ items: selectedItems, event }) => {
 				if (this.canSelectMany && !selectedItems.some(i => i.pickable === false)) {
@@ -937,7 +973,7 @@ export class QuickPick<T extends IQuickPickItem, O extends { useSeparators: bool
 					return;
 				}
 				this._selectedItems = selectedItems as T[];
-				this.onDidChangeSelectionEmitter.fire(selectedItems as T[]);
+				this.onDidChangeSelectionEmitter.fire(selectedItems.slice() as T[]);
 				if (selectedItems.length) {
 					this.handleAccept(dom.isMouseEvent(event) && event.button === 1 /* mouse middle click */);
 				}
@@ -950,7 +986,7 @@ export class QuickPick<T extends IQuickPickItem, O extends { useSeparators: bool
 					return;
 				}
 				this._selectedItems = checkedItems as T[];
-				this.onDidChangeSelectionEmitter.fire(checkedItems as T[]);
+				this.onDidChangeSelectionEmitter.fire(checkedItems.slice() as T[]);
 			}));
 			this.visibleDisposables.add(this.ui.list.onButtonTriggered(event => this.onDidTriggerItemButtonEmitter.fire(event as IQuickPickItemButtonEvent<T>)));
 			this.visibleDisposables.add(this.ui.list.onSeparatorButtonTriggered(event => this.onDidTriggerSeparatorButtonEmitter.fire(event)));
@@ -1015,7 +1051,7 @@ export class QuickPick<T extends IQuickPickItem, O extends { useSeparators: bool
 			if (wasTriggerKeyPressed) {
 				if (this.activeItems[0]) {
 					this._selectedItems = [this.activeItems[0]];
-					this.onDidChangeSelectionEmitter.fire(this.selectedItems);
+					this.onDidChangeSelectionEmitter.fire(this.selectedItems.slice());
 					this.handleAccept(false);
 				}
 				// Unset quick navigate after press. It is only valid once
@@ -1173,7 +1209,7 @@ export class QuickPick<T extends IQuickPickItem, O extends { useSeparators: bool
 
 		if (this.activeItems[0] && !this._canSelectMany) {
 			this._selectedItems = [this.activeItems[0]];
-			this.onDidChangeSelectionEmitter.fire(this.selectedItems);
+			this.onDidChangeSelectionEmitter.fire(this.selectedItems.slice());
 		}
 		this.handleAccept(inBackground ?? false);
 	}
@@ -1251,6 +1287,15 @@ export class InputBox extends QuickInput implements IInputBox {
 		this.noValidationMessage = prompt
 			? localize('inputModeEntryDescription', "{0} (Press 'Enter' to confirm or 'Escape' to cancel)", prompt)
 			: QuickInput.noPromptMessage;
+		this.update();
+	}
+
+	get promptIsPlainText() {
+		return this.noValidationMessageIsPlainText;
+	}
+
+	set promptIsPlainText(plainText: boolean) {
+		this.noValidationMessageIsPlainText = plainText;
 		this.update();
 	}
 

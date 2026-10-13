@@ -19,28 +19,28 @@ This skill involves many sequential git commands. Delegate it to a subagent with
 git log --format="%an <%ae>" <upstream>..<branch> | sort -u
 ```
 
-Match the requested person to their exact `--author=` string. Do not guess — short usernames won't match full display names (resolve via `git log` or the GitHub MCP `get_me` tool).
+Match the requested person to their exact `Name <email>` identity. Do not guess; resolve it via `git log` or the GitHub MCP `get_me` tool. Filter the formatted identity by equality, since `--author` alone is a regex/substring filter.
 
 ### 2. Collect all files the author directly committed to
 
 ```bash
-git log --author="<Exact Name>" --format="%H" <upstream>..<branch>
+git log --format="%H%x09%an <%ae>" <upstream>..<branch>
 ```
 
-For each commit hash, extract touched files:
+Keep only rows whose identity after the tab exactly equals the identity from step 1 (see the Python example below). For each retained commit hash, extract touched files:
 
 ```bash
-git diff-tree --no-commit-id --name-only -r <hash>
+git diff-tree --no-commit-id --name-only -r -m --root <hash>
 ```
 
-Union all results into a set (`author_files`).
+Include root commits and merge commits (`--root` and `-m`), then union all results into a set (`author_files`); parent comparisons can repeat paths.
 
 ### 3. Build rename map across the entire branch
 
 For **every** commit on the branch (not just the author's), extract renames:
 
 ```bash
-git diff-tree --no-commit-id -r -M <hash>
+git diff-tree --no-commit-id -r -m --root -M <hash>
 ```
 
 Parse lines with `R` status to build a map: `new_path → {old_paths}`.
@@ -48,10 +48,10 @@ Parse lines with `R` status to build a map: `new_path → {old_paths}`.
 ### 4. Get the merge diff file list
 
 ```bash
-git diff --name-only <upstream>..<branch>
+git diff --name-only <upstream>...<branch>
 ```
 
-These are the files that will actually land when the branch merges.
+These are the branch changes relative to the merge base; upstream-only changes are excluded.
 
 ### 5. Classify each file in the merge diff
 
@@ -63,7 +63,7 @@ For each file in step 4:
 ### 6. Get diff stats
 
 ```bash
-git diff --stat <upstream>..<branch> -- <file1> <file2> ...
+git diff --numstat --no-renames <upstream>...<branch> -- <file1> <file2> ...
 ```
 
 ### 7. Return the table
@@ -95,16 +95,18 @@ import subprocess, os
 
 os.chdir('<repo_root>')
 UPSTREAM = 'main'
-AUTHOR = '<Author Name>'  # Resolve via `git log` or GitHub MCP `get_me`
+AUTHOR = '<Exact Name> <email>'  # Resolve the full identity in step 1
 
 # Step 2: author's files
-commits = subprocess.check_output(
-    ['git', 'log', f'--author={AUTHOR}', '--format=%H', f'{UPSTREAM}..HEAD'],
-    text=True).strip().split('\n')
+identity_rows = subprocess.check_output(
+    ['git', 'log', '--format=%H%x09%an <%ae>', f'{UPSTREAM}..HEAD'],
+    text=True).splitlines()
+commits = [row.split('\t', 1)[0] for row in identity_rows
+           if '\t' in row and row.split('\t', 1)[1] == AUTHOR]
 author_files = set()
 for h in (c for c in commits if c):
     files = subprocess.check_output(
-        ['git', 'diff-tree', '--no-commit-id', '--name-only', '-r', h],
+        ['git', 'diff-tree', '--no-commit-id', '--name-only', '-r', '-m', '--root', h],
         text=True).strip().split('\n')
     author_files.update(f for f in files if f)
 
@@ -115,7 +117,7 @@ all_commits = subprocess.check_output(
 rename_map = {}  # new_name -> set(old_names)
 for h in (c for c in all_commits if c):
     out = subprocess.check_output(
-        ['git', 'diff-tree', '--no-commit-id', '-r', '-M', h],
+        ['git', 'diff-tree', '--no-commit-id', '-r', '-m', '--root', '-M', h],
         text=True, timeout=5).strip()
     for line in out.split('\n'):
         if not line:
@@ -126,7 +128,7 @@ for h in (c for c in all_commits if c):
 
 # Step 4: merge diff
 diff_files = subprocess.check_output(
-    ['git', 'diff', '--name-only', f'{UPSTREAM}..HEAD'],
+    ['git', 'diff', '--name-only', f'{UPSTREAM}...HEAD'],
     text=True).strip().split('\n')
 
 # Step 5: classify
@@ -147,17 +149,25 @@ for f in (x for x in diff_files if x):
         if chain & author_files:
             results.append(('VIA_RENAME', f))
 
-# Step 6: stats
+# Step 6: per-file stats (binary files have '-' counts; renames are counted per path)
+line_counts = {}
+total_added = total_deleted = 0
 if results:
     stat = subprocess.check_output(
-        ['git', 'diff', '--stat', f'{UPSTREAM}..HEAD', '--'] +
+        ['git', 'diff', '--numstat', '--no-renames', f'{UPSTREAM}...HEAD', '--'] +
         [f for _, f in results], text=True)
-    print(stat)
+    for row in stat.splitlines():
+        added, deleted, filename = row.split('\t', 2)
+        line_counts[filename] = f'+{added}/-{deleted}' if added != '-' else 'binary'
+        if added != '-':
+            total_added += int(added)
+            total_deleted += int(deleted)
 
 # Step 7: table
+print('| Status | File | +/- |\n|--------|------|-----|')
 for kind, f in sorted(results, key=lambda x: x[1]):
-    print(f'| {kind:12s} | {f} |')
-print(f'\nTotal: {len(results)} files')
+    print(f'| {kind:12s} | {f} | {line_counts.get(f, "see numstat")} |')
+print(f'\nTotal: {len(results)} files, +{total_added}/-{total_deleted} lines (binary files excluded from line totals)')
 ```
 
 ### Alternative Script
@@ -165,20 +175,23 @@ print(f'\nTotal: {len(results)} files')
 After following the process above, run this script to cross-check files touched by an author against the branch diff.   You can do this both with an without src/vs/sessions.
 
 ```
-AUTHOR=""
+AUTHOR="<Exact Name> <email>"
 
 # 1. Find commits by author on this branch (not on main)
-git log main...HEAD --author="$AUTHOR" --format="%H"
+git log main..HEAD --format="%H%x09%an <%ae>" \
+  | awk -F '\t' -v author="$AUTHOR" '$2 == author { print $1 }'
 
 # 2. Get unique files touched across all those commits, excluding src/vs/sessions/
-git log main...HEAD --author="$AUTHOR" --format="%H" \
-  | xargs -I{} git diff-tree --no-commit-id -r --name-only {} \
+git log main..HEAD --format="%H%x09%an <%ae>" \
+  | awk -F '\t' -v author="$AUTHOR" '$2 == author { print $1 }' \
+  | xargs -I{} git diff-tree --no-commit-id -r -m --root --name-only {} \
   | sort -u \
   | grep -v '^src/vs/sessions/'
 
 # 3. Cross-reference with branch diff to keep only files still changed vs main
-git log main...HEAD --author="$AUTHOR" --format="%H" \
-  | xargs -I{} git diff-tree --no-commit-id -r --name-only {} \
+git log main..HEAD --format="%H%x09%an <%ae>" \
+  | awk -F '\t' -v author="$AUTHOR" '$2 == author { print $1 }' \
+  | xargs -I{} git diff-tree --no-commit-id -r -m --root --name-only {} \
   | sort -u \
   | grep -v '^src/vs/sessions/' \
   | while read f; do git diff main...HEAD --name-only -- "$f" 2>/dev/null; done \

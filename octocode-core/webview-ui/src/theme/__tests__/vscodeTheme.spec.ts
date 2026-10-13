@@ -39,7 +39,7 @@ describe("generated VS Code themes", () => {
 	it("has committed theme files that match the palette", () => {
 		const stale: string[] = []
 		for (const [filename, theme] of Object.entries(buildAllVsCodeThemes())) {
-			const committed = fs.readFileSync(path.join(THEMES_DIR, filename), "utf8")
+			const committed = fs.readFileSync(path.join(THEMES_DIR, filename), "utf8").replace(/\r\n/g, "\n")
 			if (committed !== `${JSON.stringify(theme, null, "\t")}\n`) stale.push(filename)
 		}
 		// Re-run: pnpm --filter webview-ui generate:themes
@@ -47,13 +47,14 @@ describe("generated VS Code themes", () => {
 	})
 
 	it("has a committed initial-colours module that matches the palette", () => {
-		expect(fs.readFileSync(INITIAL_COLORS, "utf8")).toBe(buildInitialColorsModule())
+		expect(fs.readFileSync(INITIAL_COLORS, "utf8").replace(/\r\n/g, "\n")).toBe(buildInitialColorsModule())
 	})
 
 	it("has committed welcome-page previews that match the palette", () => {
 		const stale: string[] = []
 		for (const [filename, svg] of Object.entries(buildAllThemePreviews())) {
-			if (fs.readFileSync(path.join(PREVIEWS, filename), "utf8") !== svg) stale.push(filename)
+			if (fs.readFileSync(path.join(PREVIEWS, filename), "utf8").replace(/\r\n/g, "\n") !== svg)
+				stale.push(filename)
 		}
 		expect(stale).toEqual([])
 	})
@@ -129,9 +130,11 @@ describe("generated VS Code themes", () => {
 			// The shell builds these with a template literal around a shared prefix
 			// constant, so assert on the tail that actually varies per theme.
 			const tail = selector!.replace(/^octocode-octocode-themes/, "")
-			expect(shellSource).toContain(`case ThemeTypeSelector.${
-				{ "vs": "VS", "vs-dark": "VS_DARK", "hc-black": "HC_BLACK", "hc-light": "HC_LIGHT" }[uiTheme]
-			}: return \`${uiTheme} \${defaultThemeExtensionId}${tail}\`;`)
+			expect(shellSource).toContain(
+				`case ThemeTypeSelector.${
+					{ vs: "VS", "vs-dark": "VS_DARK", "hc-black": "HC_BLACK", "hc-light": "HC_LIGHT" }[uiTheme]
+				}: return \`${uiTheme} \${defaultThemeExtensionId}${tail}\`;`,
+			)
 		}
 	})
 

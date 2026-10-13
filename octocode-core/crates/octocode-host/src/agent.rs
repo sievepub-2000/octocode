@@ -113,11 +113,21 @@ pub struct AgentEvent {
 
 #[derive(Default)]
 pub struct AgentManager {
-    cancels: Arc<Mutex<HashMap<String, Option<oneshot::Sender<()>>>>>,
+    cancels: Arc<Mutex<HashMap<String, ActiveSlot>>>,
     inputs: Arc<Mutex<HashMap<String, mpsc::UnboundedSender<Value>>>>,
 }
 
+struct ActiveSlot {
+    session_id: String,
+    cancel: Option<oneshot::Sender<()>>,
+}
+
 impl AgentManager {
+    pub fn active_session(&self, session_id: &str) -> anyhow::Result<bool> {
+        let active = self.cancels.lock().map_err(|_| anyhow::anyhow!("agent ownership lock poisoned"))?;
+        Ok(active.values().any(|slot| slot.session_id == session_id))
+    }
+
     pub fn start(
         &self,
         run: AgentRun,
@@ -153,7 +163,7 @@ impl AgentManager {
             if active.contains_key(&task_id) {
                 anyhow::bail!("agent task is already running: {task_id}");
             }
-            active.insert(task_id.clone(), Some(cancel_tx));
+            active.insert(task_id.clone(), ActiveSlot { session_id: run.session_id.clone(), cancel: Some(cancel_tx) });
         }
         let cancels = Arc::clone(&self.cancels);
         let (input_tx, input_rx) = mpsc::unbounded_channel();
@@ -191,7 +201,7 @@ impl AgentManager {
             .lock()
             .expect("agent cancel lock poisoned")
             .get_mut(task_id)
-            .and_then(Option::take)
+            .and_then(|slot| slot.cancel.take())
             .is_some_and(|sender| sender.send(()).is_ok())
     }
 }
@@ -486,9 +496,8 @@ async fn run_attempt(
                 child.kill().await?;
             }
             Some((kind, payload)) = observed.recv() => {
-                if let Some(hit) = observer.observe(&kind, &payload)
-                    && may_intervene && intervention.is_none() && !cancelled
-                {
+                let allowed = may_intervene && intervention.is_none() && !cancelled;
+                if let Some(hit) = observer.observe_with_interventions(&kind, &payload, allowed) {
                     intervention = Some(hit);
                     // The session is persisted as it streams; the next attempt resumes it.
                     child.kill().await?;
@@ -498,9 +507,9 @@ async fn run_attempt(
     };
     let _ = tokio::join!(stdout_task, stderr_task);
     while let Ok((kind, payload)) = observed.try_recv() {
-        let hit = observer.observe(&kind, &payload);
-        if may_intervene && intervention.is_none() && !cancelled && status.success() {
-            intervention = hit;
+        let allowed = may_intervene && intervention.is_none() && !cancelled && status.success();
+        if let Some(hit) = observer.observe_with_interventions(&kind, &payload, allowed) {
+            intervention = Some(hit);
         }
     }
     drop(prompt_file);
@@ -778,7 +787,9 @@ mod tests {
     fn duplicate_start_and_cancelling_task_keep_the_original_reservation() {
         let manager = AgentManager::default();
         let (sender, mut receiver) = oneshot::channel();
-        manager.cancels.lock().unwrap().insert("active".into(), Some(sender));
+        manager.cancels.lock().unwrap().insert("active".into(), ActiveSlot { session_id: "session".into(), cancel: Some(sender) });
+        assert!(manager.active_session("session").unwrap());
+        assert!(!manager.active_session("other").unwrap());
         let run: AgentRun = serde_json::from_value(json!({
             "task_id":"active", "session_id":"session", "executable":std::env::current_exe().unwrap(),
             "cwd":std::env::current_dir().unwrap(), "harness_home":std::env::temp_dir(), "prompt":"test",
@@ -795,6 +806,7 @@ mod tests {
         assert!(manager.cancel("active"));
         assert!(receiver.try_recv().is_ok());
         assert!(!manager.cancel("active"));
+        assert!(manager.active_session("session").unwrap());
         assert!(manager.start(run, events).is_err());
     }
 
@@ -1015,3 +1027,13 @@ mod tests {
         );
     }
 }
+    #[test]
+    fn poisoned_ownership_lock_refuses_session_check() {
+        let manager = AgentManager::default();
+        let slots = Arc::clone(&manager.cancels);
+        assert!(std::thread::spawn(move || {
+            let _locked = slots.lock().unwrap();
+            panic!("owned poison fixture");
+        }).join().is_err());
+        assert!(manager.active_session("owned").is_err());
+    }

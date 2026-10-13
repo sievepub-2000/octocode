@@ -31,12 +31,12 @@ If the user needs the agent to launch VS Code, drive a scenario, and capture sna
 
 ### 1. Parse Snapshots
 
-Use the helpers in [parseSnapshot.ts](./helpers/parseSnapshot.ts) to load snapshots. The files are often >500MB and too large for `JSON.parse` as a string — the helpers use Buffer-based extraction. In scratchpad scripts, import helpers from `../helpers/*.ts`.
+Use the helpers in [parseSnapshot.ts](./helpers/parseSnapshot.ts) to load snapshots. The files are often >500MB and too large for `JSON.parse` as a string — the helpers use Buffer-based extraction. In scripts inside a dated `scratchpad/YYYY-MM-DD-topic/` subfolder, import helpers from `../../helpers/*.ts`.
 
 For very large snapshots, the helper may still be too eager. Node cannot create a Buffer larger than roughly 2 GiB, so snapshots above that size can fail with `ERR_FS_FILE_TOO_LARGE` even before parsing. In that case, do not try to raise `--max-old-space-size` and retry the same full-file read. Switch to a streaming script.
 
 ```typescript
-import { parseSnapshot, buildGraph } from '../helpers/parseSnapshot.ts';
+import { parseSnapshot, buildGraph } from '../../helpers/parseSnapshot.ts';
 
 const data = parseSnapshot('/path/to/snapshot.heapsnapshot');
 const graph = buildGraph(data);
@@ -85,7 +85,7 @@ node --max-old-space-size=24576 scratchpad/YYYY-MM-DD-topic/traceNodes.mjs /path
 Use [compareSnapshots.ts](./helpers/compareSnapshots.ts) to diff two snapshots:
 
 ```typescript
-import { compareSnapshots } from '../helpers/compareSnapshots.ts';
+import { compareSnapshots } from '../../helpers/compareSnapshots.ts';
 
 const result = compareSnapshots('/path/to/before.heapsnapshot', '/path/to/after.heapsnapshot');
 // result.topBySize, result.topByCount, result.newObjectGroups, result.summary
@@ -96,7 +96,7 @@ const result = compareSnapshots('/path/to/before.heapsnapshot', '/path/to/after.
 Use [findRetainers.ts](./helpers/findRetainers.ts) to trace why an object is alive:
 
 ```typescript
-import { findRetainerPaths } from '../helpers/findRetainers.ts';
+import { findRetainerPaths } from '../../helpers/findRetainers.ts';
 
 // Find what keeps ChatModel instances alive (skipping weak edges)
 findRetainerPaths(graph, 'ChatModel', { maxPaths: 5, maxDepth: 25, maxAttempts: 200 });
@@ -184,7 +184,8 @@ override dispose() {
 All helper scripts use ESM and need Node with extra memory:
 
 ```bash
-node --max-old-space-size=16384 scratchpad/analyze.mjs
+cd .github/skills/heap-snapshot-analysis
+node --max-old-space-size=16384 scratchpad/YYYY-MM-DD-topic/analyze.mjs
 ```
 
 Typical analysis takes 30-120 seconds per snapshot depending on size.

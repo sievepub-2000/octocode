@@ -74,6 +74,7 @@ export function toMultiFileDiffEditorUris(change: Change, originalRef: string, m
 				originalUri: toGitUri(change.uri, originalRef),
 				modifiedUri: undefined
 			};
+		case Status.INDEX_COPIED:
 		case Status.INDEX_RENAMED:
 			return {
 				originalUri: toGitUri(change.originalUri, originalRef),

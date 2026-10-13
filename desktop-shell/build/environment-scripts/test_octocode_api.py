@@ -7,7 +7,7 @@ import sqlite3
 import subprocess
 import sys
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
@@ -21,20 +21,82 @@ class DaemonTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.temp = TemporaryDirectory()
-        os.environ["OCTOCODE_ROOT"] = cls.temp.name
-        os.environ["OCTOCODE_DAEMON_STATE"] = str(Path(cls.temp.name) / "state")
+        cls.addClassCleanup(cls.temp.cleanup)
+        environment = patch.dict(os.environ, {"OCTOCODE_ROOT": cls.temp.name,
+                                             "OCTOCODE_DAEMON_STATE": str(Path(cls.temp.name) / "state")})
+        environment.start()
+        cls.addClassCleanup(environment.stop)
         spec = importlib.util.spec_from_file_location("octocode_api", Path(__file__).with_name("octocode_api.py"))
         cls.api = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = cls.api
         spec.loader.exec_module(cls.api)
 
-    @classmethod
-    def tearDownClass(cls):
-        cls.temp.cleanup()
+    def setUp(self):
+        state = patch.multiple(self.api, DESKTOP_PID=0, RESOURCE_STREAK=0,
+                               RESTART_REQUESTED=False, LAST_RESOURCE_RESTART=0,
+                               ACTIVE_SESSIONS={}, RECOVERY_PENDING=set())
+        state.start()
+        self.addCleanup(state.stop)
 
     def test_rejects_invalid_daily_time(self):
         with self.assertRaises(ValueError):
             self.api.RoutineRequest(name="bad", prompt="x", cwd=self.temp.name, daily_at="99:99")
+
+    def test_failed_host_reader_start_releases_owned_process_and_log(self):
+        processes, logs = [], []
+        popen, open_file = subprocess.Popen, open
+
+        def launch_fixture(*args, **kwargs):
+            process = popen([sys.executable, "-c", "import time; time.sleep(30)"], **kwargs)
+            processes.append(process)
+            return process
+
+        def record_log(*args, **kwargs):
+            log = open_file(*args, **kwargs)
+            logs.append(log)
+            return log
+
+        try:
+            with patch.object(self.api, "extension_binary", return_value=Path(sys.executable)), \
+                 patch.object(self.api, "open", side_effect=record_log, create=True), \
+                 patch.object(self.api.subprocess, "Popen", side_effect=launch_fixture), \
+                 patch.object(self.api.threading, "Thread") as reader:
+                reader.return_value.start.side_effect = RuntimeError("fixture reader start failed")
+                with self.assertRaisesRegex(RuntimeError, "fixture reader start failed"):
+                    self.api.HostClient()
+            self.assertIsNotNone(processes[0].poll(), "failed constructor left its child running")
+            self.assertTrue(logs[0].closed, "failed constructor left its log open")
+            self.assertTrue(processes[0].stdin.closed)
+            self.assertTrue(processes[0].stdout.closed)
+        finally:
+            for process in processes:
+                if process.poll() is None:
+                    process.kill()
+                process.wait(timeout=5)
+                for stream in (process.stdin, process.stdout):
+                    if stream:
+                        stream.close()
+            for log in logs:
+                log.close()
+
+    def test_missing_host_binary_closes_startup_log(self):
+        logs = []
+        open_file = open
+
+        def record_log(*args, **kwargs):
+            log = open_file(*args, **kwargs)
+            logs.append(log)
+            return log
+
+        try:
+            with patch.object(self.api, "open", side_effect=record_log, create=True), \
+                 patch.object(self.api, "extension_binary", side_effect=RuntimeError("fixture binary missing")):
+                with self.assertRaisesRegex(RuntimeError, "fixture binary missing"):
+                    self.api.HostClient()
+            self.assertTrue(logs[0].closed)
+        finally:
+            for log in logs:
+                log.close()
 
     def test_non_ascii_invalid_bearer_is_unauthorized(self):
         request = SimpleNamespace(headers={"authorization": "Bearer \u00e9"})
@@ -82,6 +144,165 @@ class DaemonTests(unittest.TestCase):
                     (self.api.STATE / "runs" / f"{run.id}.json").unlink()
         with self.assertRaises(ValueError):
             self.api.RunRequest(prompt="isolated", cwd=self.temp.name, permission_mode="invalid")
+
+    def test_invalid_session_home_is_rejected_before_native_prepare_or_continue(self):
+        client = SimpleNamespace(listeners={}, call=Mock(return_value={
+            "session_id": "x/../../../owned-escape", "task_id": "owned", "route": {"model": {}}}))
+        with TemporaryDirectory() as root, patch.object(self.api, "STORE", Path(root) / "store"), \
+             patch.object(self.api, "STATE", Path(root) / "state"), patch.object(self.api, "RUNS", {}), \
+             patch.object(self.api, "host", return_value=client), \
+             patch.object(self.api, "provider_input", return_value=({"openAiApiKey": ""}, "")), \
+             patch.object(self.api, "extension_binary", return_value=Path(__file__)), \
+             patch.object(self.api, "isolated_mcp_servers", return_value=({}, None)):
+            for resume in (False, True):
+                self.api.RUNS.clear()
+                client.call.reset_mock()
+                with self.subTest(resume=resume):
+                    with self.assertRaises(self.api.HTTPException) as denied:
+                        self.api.start_run(self.api.RunRequest(prompt="owned", cwd=self.temp.name,
+                                                               session_id="x/../../../owned-escape", resume=resume))
+                    self.assertEqual(denied.exception.status_code, 400)
+                    client.call.assert_not_called()
+
+    def test_portable_ids_preserve_old_home_and_invalid_ids_are_rejected(self):
+        invalid = ["", ".", "..", "a/b", "a\\b", "/absolute", "C:\\absolute", "C:relative",
+                   "\\\\server\\share", "a\x00b", "a\nb", "a\x7fb", "a\x85b", "a.", "a ",
+                   "a<b", "a>b", "a:b", 'a"b', "a|b", "a?b", "a*b"]
+        with TemporaryDirectory() as root, patch.object(self.api, "STORE", Path(root)):
+            for sid in invalid:
+                with self.subTest(sid=repr(sid)):
+                    with self.assertRaises(self.api.HTTPException) as denied:
+                        self.api.daemon_session_home(sid)
+                    self.assertEqual(denied.exception.status_code, 400)
+            for sid in ["351e155a-d175-4275-9b0e-459536e316bc", "安全会话-é", "custom_safe-42",
+                        "CON", "PRN", "AUX", "NUL", "COM1.txt", "LPT9", "CONIN$", "CONOUT$"]:
+                with self.subTest(sid=sid):
+                    expected = Path(root) / "sessions" / f"d-{sid}"
+                    self.assertEqual(self.api.daemon_session_home(sid), expected)
+                    for pure in (PureWindowsPath, PurePosixPath):
+                        self.assertEqual(pure(f"d-{sid}").parts, (f"d-{sid}",))
+
+    def test_resume_preserves_uuid_home_sentinel_and_prepared_id_is_rechecked(self):
+        client = SimpleNamespace(listeners={}, call=Mock())
+        with TemporaryDirectory() as root, patch.object(self.api, "STORE", Path(root) / "store"), \
+             patch.object(self.api, "STATE", Path(root) / "state"), patch.object(self.api, "RUNS", {}), \
+             patch.object(self.api, "host", return_value=client), \
+             patch.object(self.api, "provider_input", return_value=({"openAiApiKey": ""}, "")), \
+             patch.object(self.api, "extension_binary", return_value=Path(__file__)), \
+             patch.object(self.api, "isolated_mcp_servers", return_value=({}, None)):
+            for sid, mode in [("351e155a-d175-4275-9b0e-459536e316bc", "review"),
+                              ("CON", "directory"), ("COM1.txt", "full")]:
+                home = self.api.STORE / "sessions" / f"d-{sid}"
+                home.mkdir(parents=True)
+                sentinel = home / "owned-old-history"
+                sentinel.write_bytes(b"owned original history")
+                client.call.reset_mock()
+                client.call.return_value = {"session_id": sid, "task_id": "owned", "route": {"model": {}}}
+                self.api.RUNS.clear()
+                run = self.api.start_run(self.api.RunRequest(prompt="owned", cwd=root, session_id=sid,
+                                                            resume=True, review=False, permission_mode=mode))
+                self.assertEqual(client.call.call_args_list[0].args[0], "harness.continue")
+                forwarded = client.call.call_args_list[1].args[1]
+                self.assertEqual(forwarded["harness_home"], str(home))
+                self.assertTrue(forwarded["resume"])
+                self.assertEqual(forwarded["session_id"], sid)
+                self.assertEqual(forwarded["permission_profile"], mode)
+                self.assertEqual(sentinel.read_bytes(), b"owned original history")
+            client.call.reset_mock()
+            client.call.return_value = {"session_id": "x/../../escape", "task_id": "owned"}
+            with self.assertRaises(self.api.HTTPException) as denied:
+                self.api.start_run(self.api.RunRequest(prompt="owned", cwd=root, review=False))
+            self.assertEqual(denied.exception.status_code, 400)
+            self.assertEqual([c.args[0] for c in client.call.call_args_list], ["harness.prepare"])
+
+    @unittest.skipUnless(sys.platform == "win32", "real Windows junction semantics")
+    def test_existing_child_junction_escape_rejected_but_runtime_junction_allowed(self):
+        with TemporaryDirectory() as root:
+            root = Path(root)
+            runtime_target = root / "owned-runtime-target"
+            runtime_target.mkdir()
+            runtime = root / "runtime"
+            outside = root / "owned-outside"
+            outside.mkdir()
+            child = runtime_target / "sessions" / "d-owned"
+            child.parent.mkdir()
+            def junction(link, target):
+                result = subprocess.run(["cmd.exe", "/d", "/c", "mklink", "/J", str(link), str(target)],
+                                        capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            try:
+                junction(runtime, runtime_target)
+                with patch.object(self.api, "STORE", runtime):
+                    self.assertEqual(self.api.daemon_session_home("owned"), runtime / "sessions" / "d-owned")
+                    junction(child, outside)
+                    with self.assertRaises(self.api.HTTPException) as denied:
+                        self.api.daemon_session_home("owned")
+                    self.assertEqual(denied.exception.status_code, 400)
+                    os.rmdir(child)
+                    junction(child, child.parent)
+                    with self.assertRaises(self.api.HTTPException) as parent_denied:
+                        self.api.daemon_session_home("owned")
+                    self.assertEqual(parent_denied.exception.status_code, 400)
+            finally:
+                if child.exists():
+                    os.rmdir(child)
+                if runtime.exists():
+                    os.rmdir(runtime)
+
+    def test_real_isolated_http_rejects_bad_ids_and_preserves_auth(self):
+        import threading
+        import uvicorn
+        client = SimpleNamespace(listeners={}, call=Mock())
+        with TemporaryDirectory() as root, patch.object(self.api, "STORE", Path(root) / "store"), \
+             patch.object(self.api, "host", return_value=client), \
+             patch.dict(os.environ, {"OCTOCODE_API_TOKEN": "owned-http-token"}):
+            sock = socket.socket()
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+            server = uvicorn.Server(uvicorn.Config(self.api.app, log_level="error", lifespan="off"))
+            thread = threading.Thread(target=lambda: server.run(sockets=[sock]), daemon=True)
+            thread.start()
+            try:
+                for _ in range(100):
+                    if server.started:
+                        break
+                    time.sleep(0.02)
+                self.assertTrue(server.started)
+                for header, code in [(None, 401), ("Bearer owned-wrong", 401), ("Bearer owned-http-token", 400)]:
+                    request = Request(f"http://127.0.0.1:{port}/v1/runs", method="POST",
+                                      data=json.dumps({"prompt": "owned", "cwd": root,
+                                                       "session_id": "x/../../../escape"}).encode(),
+                                      headers={"Content-Type": "application/json", **({"Authorization": header} if header else {})})
+                    with self.assertRaises(HTTPError) as denied:
+                        urlopen(request, timeout=3)
+                    with closing(denied.exception):
+                        self.assertEqual(denied.exception.code, code)
+                client.call.assert_not_called()
+            finally:
+                server.should_exit = True
+                thread.join(timeout=5)
+                sock.close()
+                self.assertFalse(thread.is_alive())
+
+    def test_existing_child_symlink_escape_is_rejected(self):
+        with TemporaryDirectory() as root:
+            root = Path(root)
+            store = root / "store"
+            outside = root / "owned-outside"
+            outside.mkdir()
+            link = store / "sessions" / "d-owned"
+            link.parent.mkdir(parents=True)
+            try:
+                link.symlink_to(outside, target_is_directory=True)
+            except OSError as error:
+                self.skipTest(f"owned directory symlink creation unavailable: errno={error.errno}, winerror={getattr(error, 'winerror', None)}")
+            try:
+                with patch.object(self.api, "STORE", store):
+                    with self.assertRaises(self.api.HTTPException) as denied:
+                        self.api.daemon_session_home("owned")
+                    self.assertEqual(denied.exception.status_code, 400)
+            finally:
+                link.unlink()
 
     def test_goal_resume_clears_previous_terminal_metadata(self):
         goal = {"id": "g", "status": "failed", "iterations": [{"run_id": "previous", "check_exit": 1}], "max_iterations": 6,
@@ -133,14 +354,15 @@ class DaemonTests(unittest.TestCase):
                 endpoint = f"http://127.0.0.1:{port}/v1/daemon/shutdown"
                 with self.assertRaises(HTTPError) as denied:
                     urlopen(Request(endpoint, method="POST"), timeout=2)
-                self.assertEqual(denied.exception.code, 401)
-                denied.exception.close()
+                with closing(denied.exception):
+                    self.assertEqual(denied.exception.code, 401)
                 with urlopen(Request(endpoint, method="POST", headers={"Authorization": "Bearer test-secret"}), timeout=2) as response:
                     self.assertTrue(json.load(response)["stopping"])
                 self.assertEqual(process.wait(timeout=15), 0)
                 with self.assertRaises(OSError):
                     urlopen(f"http://127.0.0.1:{port}/health", timeout=1)
             finally:
+                process.stdin.close()
                 if process.poll() is None:
                     process.kill()
                     process.wait(timeout=5)
@@ -398,8 +620,8 @@ class HttpPersistenceTests(unittest.TestCase):
                         with self.subTest(path=path, method=method):
                             with self.assertRaises(HTTPError) as denied:
                                 request(concrete, method.upper(), authorized=False)
-                            self.assertEqual(denied.exception.code, 401)
-                            denied.exception.close()
+                            with closing(denied.exception):
+                                self.assertEqual(denied.exception.code, 401)
                 routine = request("/v1/routines", "POST", {
                     "name": "isolated", "prompt": "x", "cwd": root,
                     "every_minutes": 60, "enabled": False,
@@ -448,8 +670,8 @@ class HttpPersistenceTests(unittest.TestCase):
                 self.assertNotIn(rid, request("/v1/routines"))
                 with self.assertRaises(HTTPError) as missing:
                     request(f"/v1/routines/{rid}", "DELETE")
-                self.assertEqual(missing.exception.code, 404)
-                missing.exception.close()
+                with closing(missing.exception):
+                    self.assertEqual(missing.exception.code, 404)
                 request("/v1/daemon/shutdown", "POST")
                 self.assertEqual(process.wait(timeout=15), 0)
                 process = launch()

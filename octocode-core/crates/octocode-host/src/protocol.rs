@@ -39,6 +39,7 @@ pub const RUNTIME_CAPABILITIES: &[RuntimeCapability] = &[
     capability("project.rename", "write", "runtime"),
     capability("project.delete", "write", "runtime"),
     capability("session.get", "read", "runtime"),
+    capability("session.working_directory", "write", "internal"),
     capability("session.create", "write", "runtime"),
     capability("session.import_legacy", "write", "internal"),
     capability("session.update", "write", "runtime"),

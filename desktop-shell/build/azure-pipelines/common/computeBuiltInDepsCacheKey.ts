@@ -16,15 +16,17 @@ const shasum = crypto.createHash('sha256');
 // and the rest reuse it instead of each re-downloading.
 const hasPlatformSpecific = (productjson.builtInExtensions as { platformSpecific?: unknown }[]).some(ext => ext.platformSpecific);
 const target = hasPlatformSpecific ? getCurrentExtensionTarget() : undefined;
-if (target) {
-	shasum.update(`target:${target}`);
-}
+const extensions = (productjson.builtInExtensions as {
+	name: string;
+	version: string;
+	platformSpecific?: Record<string, string>;
+}[]).map(ext => [
+	ext.name,
+	ext.version,
+	ext.platformSpecific && target && ext.platformSpecific[target] ? ext.platformSpecific[target] : null
+]);
 
-for (const ext of productjson.builtInExtensions) {
-	shasum.update(`${ext.name}@${ext.version}`);
-	if (ext.platformSpecific && target && ext.platformSpecific[target]) {
-		shasum.update(`:${ext.platformSpecific[target]}`);
-	}
-}
+// Encode field and extension boundaries so distinct lists cannot share the same hash input.
+shasum.update(JSON.stringify([target, extensions]));
 
 process.stdout.write(shasum.digest('hex'));

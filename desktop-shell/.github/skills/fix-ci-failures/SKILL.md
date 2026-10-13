@@ -25,6 +25,9 @@ git branch --show-current
 
 # Find the PR for this branch
 gh pr view --json number,title,url,statusCheckRollup
+
+# Resolve the repository for the API examples below (reuse this shell)
+CI_REPO="$(gh repo view --json nameWithOwner --jq '.nameWithOwner')"
 ```
 
 If no PR is found, the user may need to specify the PR number.
@@ -92,7 +95,7 @@ Best for integration test failures where detailed logs (terminal logs, ext host 
 
 ```bash
 # List available artifacts for a run
-gh run download <RUN_ID> --pattern '*' --dir /dev/null 2>&1 || gh run view <RUN_ID> --json jobs --jq '.jobs[].name'
+gh api "repos/$CI_REPO/actions/runs/<RUN_ID>/artifacts" --paginate --jq '.artifacts[].name'
 
 # Download log artifacts for a specific failed job
 # Artifact naming convention: logs-<platform>-<arch>-<test-type>-<attempt>
@@ -113,23 +116,24 @@ When the run is still in progress but the failed job has completed, use the GitH
 
 ```bash
 # Save the full job log to a temp file (can be very large — 30k+ lines)
-gh api repos/microsoft/vscode/actions/jobs/<JOB_ID>/logs > "$TMPDIR/ci-job-log.txt"
+CI_LOG_DIR="$(mktemp -d)"
+gh api "repos/$CI_REPO/actions/jobs/<JOB_ID>/logs" > "$CI_LOG_DIR/ci-job-log.txt"
 ```
 
 Then search the saved file. **Start with `##[error]`** — this is the GitHub Actions error annotation that marks the exact line where the step failed:
 
 ```bash
 # Step 1: Find the error annotation (fastest path to the failure)
-grep -n '##\[error\]' "$TMPDIR/ci-job-log.txt"
+grep -n '##\[error\]' "$CI_LOG_DIR/ci-job-log.txt"
 
 # Step 2: Read context around the error (e.g., if error is on line 34371, read 200 lines before it)
-sed -n '34171,34371p' "$TMPDIR/ci-job-log.txt"
+sed -n '34171,34371p' "$CI_LOG_DIR/ci-job-log.txt"
 ```
 
 If `##[error]` doesn't reveal enough, use broader patterns:
 ```bash
 # Find test failures, exceptions, and crash indicators
-grep -n -E 'HTTPError|ECONNRESET|ETIMEDOUT|502|exit code|Process completed|node:internal|triggerUncaughtException' "$TMPDIR/ci-job-log.txt" | head -20
+grep -n -E 'HTTPError|ECONNRESET|ETIMEDOUT|502|exit code|Process completed|node:internal|triggerUncaughtException' "$CI_LOG_DIR/ci-job-log.txt" | head -20
 ```
 
 > **Why save to a file?** The API response for a full job log can be 30k+ lines. Tool output gets truncated, so always redirect to a file first, then search.
@@ -262,8 +266,8 @@ Not all CI failures are caused by code changes. Common infrastructure failures:
 | Watch checks until done | `gh pr checks --watch --fail-fast` |
 | Failed jobs in a run | `gh run view <RUN_ID> --json jobs --jq '.jobs[] \| select(.conclusion == "failure") \| {name, id: .databaseId}'` |
 | View failed step logs | `gh run view <RUN_ID> --job <JOB_ID> --log-failed` (requires full run to complete) |
-| Download job log via API | `gh api repos/microsoft/vscode/actions/jobs/<JOB_ID>/logs > "$TMPDIR/ci-job-log.txt"` (works while run is in progress) |
-| Find error line in log | `grep -n '##\[error\]' "$TMPDIR/ci-job-log.txt"` |
+| Download job log via API | Resolve `CI_REPO` as in Step 1, create `CI_LOG_DIR` as in Option C, then `gh api "repos/$CI_REPO/actions/jobs/<JOB_ID>/logs" > "$CI_LOG_DIR/ci-job-log.txt"` (works while run is in progress) |
+| Find error line in log | `grep -n '##\[error\]' "$CI_LOG_DIR/ci-job-log.txt"` |
 | Download log artifacts | `gh run download <RUN_ID> -n "<artifact-name>" -D /tmp/ci-logs` |
 | Re-run failed jobs | `gh run rerun <RUN_ID> --failed` |
 | Recent main runs | `gh run list --branch main --workflow <workflow>.yml --limit 5` |

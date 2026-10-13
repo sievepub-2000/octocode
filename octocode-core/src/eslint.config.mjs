@@ -46,6 +46,6 @@ export default [
 		},
 	},
 	{
-		ignores: ["webview-ui", "out", "assets/default-skills"],
+		ignores: ["webview-ui", "out", "assets/default-skills", "services/mcp/__tests__/**/*.cjs"],
 	},
 ]

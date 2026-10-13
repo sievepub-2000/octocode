@@ -169,6 +169,7 @@ const mockClineProvider = {
 	getTaskWithId: vi.fn(),
 	createTaskWithHistoryItem: vi.fn(),
 	startRuntimeTask: vi.fn().mockResolvedValue({ sessionId: "session-1", taskId: "task-1" }),
+	showArtifact: vi.fn(),
 	showLogsInTerminal: vi.fn(),
 	getSkillsManager: vi.fn(),
 	cwd: "/mock/workspace",
@@ -257,15 +258,21 @@ describe("webviewMessageHandler - runtime history", () => {
 				next: 4,
 				has_more: false,
 			})
+			.mockResolvedValueOnce({ working_directory: "D:/project-a/.octocode/sessions/session-1" })
 
 		await webviewMessageHandler(mockClineProvider, { type: "openRuntimeSession", text: "session-1" })
-		expect(mockSetActiveRuntimeSession).toHaveBeenCalledWith("session-1", "task-2")
+		expect(mockSetActiveRuntimeSession).toHaveBeenCalledWith(
+			"session-1",
+			"task-2",
+			"D:/project-a/.octocode/sessions/session-1",
+		)
 
 		expect(mockRuntimeCall.mock.calls).toEqual([
 			["session.get", { id: "session-1" }],
 			["event.history_start", { session_id: "session-1", turns: 3 }],
 			["message.list", { session_id: "session-1" }],
 			["event.page", { session_id: "session-1", after: 0, limit: 2000, presentation: true }],
+			["session.working_directory", { id: "session-1" }],
 		])
 		expect(mockClineProvider.postMessageToWebview).toHaveBeenCalledWith({
 			type: "runtimeSessionLoaded",
@@ -359,6 +366,7 @@ vi.mock("vscode", () => {
 		window: {
 			showInformationMessage,
 			showErrorMessage,
+			showOpenDialog: vi.fn(),
 			showTextDocument,
 		},
 		workspace: {
@@ -395,6 +403,8 @@ vi.mock("fs/promises", () => {
 	const mockMkdir = vi.fn().mockResolvedValue(undefined)
 	const mockReadFile = vi.fn().mockResolvedValue("[]")
 	const mockWriteFile = vi.fn().mockResolvedValue(undefined)
+	const mockMkdtemp = vi.fn(async (prefix: string) => `${prefix}unique`)
+	const mockOpen = vi.fn().mockResolvedValue({ write: vi.fn(), close: vi.fn() })
 
 	return {
 		default: {
@@ -402,11 +412,15 @@ vi.mock("fs/promises", () => {
 			mkdir: mockMkdir,
 			readFile: mockReadFile,
 			writeFile: mockWriteFile,
+			mkdtemp: mockMkdtemp,
+			open: mockOpen,
 		},
 		rm: mockRm,
 		mkdir: mockMkdir,
 		readFile: mockReadFile,
 		writeFile: mockWriteFile,
+		mkdtemp: mockMkdtemp,
+		open: mockOpen,
 	}
 })
 
@@ -432,6 +446,60 @@ vi.mock("../../mentions/resolveImageMentions", () => ({
 }))
 
 import { resolveImageMentions } from "../../mentions/resolveImageMentions"
+
+describe("webviewMessageHandler - session-owned previews", () => {
+	beforeEach(() => vi.clearAllMocks())
+
+	it("keeps file selection with the conversation that opened the dialog", async () => {
+		let finishDialog: (files: vscode.Uri[]) => void = () => undefined
+		vi.mocked(vscode.window.showOpenDialog).mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					finishDialog = resolve
+				}),
+		)
+		mockActiveTask.mockReturnValue({ sessionId: "session-A", taskId: "task-A" })
+		const pending = webviewMessageHandler(mockClineProvider, { type: "selectArtifact" })
+		await vi.waitFor(() => expect(vscode.window.showOpenDialog).toHaveBeenCalled())
+		mockActiveTask.mockReturnValue({ sessionId: "session-B", taskId: "task-B" })
+		finishDialog([{ fsPath: "/A.png" } as vscode.Uri])
+		await pending
+		expect(mockClineProvider.showArtifact).toHaveBeenCalledWith("/A.png", 1, 1, "session-A")
+	})
+
+	it("writes markdown previews into separate session directories", async () => {
+		mockActiveTask.mockReturnValue({ sessionId: "session-A", taskId: "task-A" })
+		await webviewMessageHandler(mockClineProvider, { type: "openMarkdownPreview", text: "A" })
+		mockActiveTask.mockReturnValue({ sessionId: "session-B", taskId: "task-B" })
+		await webviewMessageHandler(mockClineProvider, { type: "openMarkdownPreview", text: "B" })
+		const writtenPaths = vi.mocked(fs.writeFile).mock.calls.map(([filePath]) => String(filePath))
+		expect(writtenPaths).toHaveLength(2)
+		expect(writtenPaths[0]).toContain("session-A")
+		expect(writtenPaths[1]).toContain("session-B")
+		expect(writtenPaths[0]).not.toBe(writtenPaths[1])
+	})
+
+	it("writes debug history to the selected conversation directory", async () => {
+		mockActiveTask.mockReturnValue({ sessionId: "session-A", taskId: "task-A" })
+		mockRuntimeCall.mockResolvedValue({ rows: [], next: 0, has_more: false })
+		await webviewMessageHandler(mockClineProvider, { type: "openDebugUiHistory" })
+		expect(fs.open).toHaveBeenCalledWith(expect.stringContaining("session-A"), "w")
+		expect(mockRuntimeCall).toHaveBeenCalledWith("event.page", {
+			session_id: "session-A",
+			after: 0,
+			limit: 2000,
+			presentation: false,
+		})
+	})
+
+	it("rejects a session ID that could escape its preview directory", async () => {
+		mockActiveTask.mockReturnValue({ sessionId: "../outside", taskId: "task-A" })
+		await webviewMessageHandler(mockClineProvider, { type: "openMarkdownPreview", text: "private" })
+		expect(fs.writeFile).not.toHaveBeenCalled()
+		expect(fs.mkdtemp).not.toHaveBeenCalled()
+		expect(vscode.window.showErrorMessage).toHaveBeenCalled()
+	})
+})
 
 describe("webviewMessageHandler - inline color themes", () => {
 	it("reads a fresh configuration after saving and rejects unavailable themes", async () => {
@@ -505,13 +573,21 @@ describe("webviewMessageHandler - unified OctoCode task route", () => {
 			text: "inspect",
 			images: ["data:image/png;base64,direct"],
 			taskId: "requested-session",
+			projectId: "project-1",
 		})
 
 		expect(mockClineProvider.startRuntimeTask).toHaveBeenCalledWith(
 			"inspect",
-			["data:image/png;base64,direct", "data:image/png;base64,from-mention"],
+			["data:image/png;base64,direct"],
 			"requested-session",
+			{},
+			"project-1",
+			expect.any(Function),
 		)
+		const firstRequest = vi.mocked(mockClineProvider.startRuntimeTask).mock.calls.at(-1)![5] as () => boolean
+		expect(firstRequest()).toBe(true)
+		await webviewMessageHandler(mockClineProvider, { type: "newTask", text: "next" })
+		expect(firstRequest()).toBe(false)
 	})
 })
 

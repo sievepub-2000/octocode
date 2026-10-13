@@ -141,6 +141,7 @@ export interface ExtensionMessage {
 		| "switchTab"
 		| "toggleAutoApprove"
 	invoke?: "newChat" | "sendMessage" | "primaryButtonClick" | "secondaryButtonClick" | "setChatBoxMessage"
+	projectId?: string
 	/**
 	 * Partial state updates are allowed to reduce message size (e.g. omit large fields like taskHistory).
 	 * The webview is responsible for merging.
@@ -702,6 +703,7 @@ export interface WebviewMessage {
 		| "openRulesDirectory"
 	text?: string
 	taskId?: string
+	projectId?: string
 	sourceTask?: RuntimeTask
 	editedMessageContent?: string
 	tab?: "settings" | "history" | "mcp" | "modes" | "chat" | "marketplace" | "cloud"

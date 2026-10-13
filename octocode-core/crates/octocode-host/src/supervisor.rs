@@ -239,12 +239,18 @@ impl<'a> Observer<'a> {
     }
 
     pub fn observe(&mut self, kind: &str, payload: &Value) -> Option<Intervention> {
+        self.observe_with_interventions(kind, payload, true)
+    }
+
+    /// Always record the stream, but consume rule/stall keys only when a
+    /// correction can still be delivered for this attempt.
+    pub fn observe_with_interventions(&mut self, kind: &str, payload: &Value, allowed: bool) -> Option<Intervention> {
         match kind {
             "text" => {
                 let delta = payload.get("data").and_then(Value::as_str).unwrap_or_default();
                 self.text_since_tool.push_str(delta);
                 self.final_text.push_str(delta);
-                self.check(RuleScope::Text, &self.text_since_tool.clone())
+                if allowed { self.check(RuleScope::Text, &self.text_since_tool.clone()) } else { None }
             }
             "tool_call" => {
                 self.text_since_tool.clear();
@@ -258,6 +264,7 @@ impl<'a> Observer<'a> {
                 let input = payload.get("rawInput").map(Value::to_string).unwrap_or_default();
                 let call = format!("{name} {input}");
                 self.tool_log.push(truncate(&call, 200));
+                if !allowed { return None; }
                 if let Some(hit) = self.check(RuleScope::ToolInput, &call) {
                     return Some(hit);
                 }
@@ -356,6 +363,14 @@ pub async fn review(advisor: &Advisor, request: &str, tool_log: &[String], final
 }
 
 pub fn validate_advisor(advisor: &Advisor) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !advisor.model.api_key.as_deref().is_some_and(|key| key.contains(['\r', '\n'])),
+        "advisor api_key must not contain CR or LF"
+    );
+    anyhow::ensure!(
+        !advisor.model.base_url.contains(['\r', '\n']),
+        "advisor base_url must not contain CR or LF"
+    );
     if let Some(Value::Object(extra)) = &advisor.model.extra_body {
         if let Some(template) = extra.get("chat_template_kwargs") {
             anyhow::ensure!(
@@ -435,11 +450,12 @@ fn dechunk(mut data: &[u8]) -> anyhow::Result<Vec<u8>> {
         if size == 0 {
             return Ok(out);
         }
-        if data.len() < size + 2 {
+        let end = size.checked_add(2).ok_or_else(|| anyhow::anyhow!("advisor chunk length overflows"))?;
+        if data.len() < end {
             anyhow::bail!("truncated chunked body");
         }
         out.extend_from_slice(&data[..size]);
-        data = &data[size + 2..];
+        data = &data[end..];
     }
 }
 
@@ -564,6 +580,14 @@ mod tests {
     #[test]
     fn chunked_bodies_are_reassembled() {
         assert_eq!(dechunk(b"5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n").unwrap(), b"hello world");
+    }
+
+    #[test]
+    fn overflowing_chunk_lengths_are_errors_without_panicking() {
+        for size in [usize::MAX, usize::MAX - 1] {
+            let malformed = format!("{size:x}\r\nx");
+            assert!(dechunk(malformed.as_bytes()).is_err());
+        }
     }
 
     #[tokio::test]

@@ -8,6 +8,8 @@ $StorageRoot=[IO.Path]::GetFullPath($StorageRoot).TrimEnd('\')
 if($AppRoot -eq [IO.Path]::GetPathRoot($AppRoot).TrimEnd('\') -or $StorageRoot -eq [IO.Path]::GetPathRoot($StorageRoot).TrimEnd('\')){throw 'Drive roots are not application/storage directories'}
 if($AppRoot.Equals($StorageRoot,[StringComparison]::OrdinalIgnoreCase) -or $AppRoot.StartsWith($StorageRoot+'\',[StringComparison]::OrdinalIgnoreCase) -or $StorageRoot.StartsWith($AppRoot+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Application and storage roots must be disjoint'}
 New-Item -ItemType Directory -Path $AppRoot,$StorageRoot -Force | Out-Null
+$createdLinks=[Collections.Generic.List[string]]::new()
+try {
 foreach($name in @('data','workspace','environments')) {
  $link=Join-Path $AppRoot $name
  $target=Join-Path $StorageRoot $name
@@ -19,5 +21,11 @@ foreach($name in @('data','workspace','environments')) {
   if(!$actual.Equals($target,[StringComparison]::OrdinalIgnoreCase)){throw "Unexpected junction target: $link"}
  } else {
   New-Item -ItemType Junction -Path $link -Target $target | Out-Null
+  $createdLinks.Add($link)
  }
+}
+} catch {
+ # Roll back only junctions created by this invocation; never remove stored data.
+ foreach($createdLink in $createdLinks){[IO.Directory]::Delete($createdLink)}
+ throw
 }

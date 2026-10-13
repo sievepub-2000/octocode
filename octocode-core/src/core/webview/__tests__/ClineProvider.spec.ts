@@ -709,6 +709,7 @@ describe("ClineProvider", () => {
 
 		expect(mockPostMessage).toHaveBeenCalledWith({
 			type: "artifactSelected",
+			text: "",
 			payload: {
 				kind: "image",
 				path: "/outside/icon.png",
@@ -717,9 +718,55 @@ describe("ClineProvider", () => {
 		})
 	})
 
+	test("isolates previews by runtime session and clears a new chat", async () => {
+		vi.mocked(vscode.Uri.file).mockImplementation((fsPath) => ({ fsPath }) as vscode.Uri)
+		mockWebviewView.webview.asWebviewUri.mockReturnValue({ toString: () => "vscode-resource://preview" })
+		mockWebviewView.reveal = vi.fn()
+		provider = new ClineProvider(mockContext, mockOutputChannel, "artifact", new ContextProxy(mockContext))
+		await provider.resolveWebviewView(mockWebviewView)
+
+		ClineProvider.setActiveRuntimeSession("session-A", "task-A")
+		await provider.showArtifact("/A.png")
+		mockPostMessage.mockClear()
+		ClineProvider.setActiveRuntimeSession("session-B", "task-B")
+		await provider.replayCurrentArtifact()
+		expect(mockPostMessage).toHaveBeenCalledWith({ type: "artifactSelected", text: "session-B" })
+		mockPostMessage.mockClear()
+		await provider.showArtifact("/late-A.png", 1, 1, "session-A")
+		expect(mockPostMessage).not.toHaveBeenCalledWith(
+			expect.objectContaining({ payload: expect.objectContaining({ path: "/A.png" }) }),
+		)
+		expect(mockPostMessage).not.toHaveBeenCalledWith(
+			expect.objectContaining({ payload: expect.objectContaining({ path: "/late-A.png" }) }),
+		)
+
+		await provider.showArtifact("/B.png")
+		mockPostMessage.mockClear()
+		ClineProvider.setActiveRuntimeSession("session-A", "task-A")
+		await provider.replayCurrentArtifact()
+		expect(mockPostMessage).toHaveBeenCalledWith(
+			expect.objectContaining({ payload: expect.objectContaining({ path: "/A.png" }) }),
+		)
+		expect(mockPostMessage).not.toHaveBeenCalledWith(
+			expect.objectContaining({ payload: expect.objectContaining({ path: "/B.png" }) }),
+		)
+
+		mockPostMessage.mockClear()
+		ClineProvider.clearActiveRuntimeSession("session-A")
+		await provider.replayCurrentArtifact()
+		expect(mockPostMessage).toHaveBeenCalledWith({ type: "artifactSelected", text: "" })
+		mockPostMessage.mockClear()
+		ClineProvider.setActiveRuntimeSession("session-A", "task-A2")
+		await provider.replayCurrentArtifact()
+		expect(mockPostMessage).toHaveBeenCalledWith({ type: "artifactSelected", text: "session-A" })
+		ClineProvider.clearActiveRuntimeSession("session-A")
+	})
+
 	test("publishes queried logs through a reusable output channel", async () => {
 		const channel = { clear: vi.fn(), appendLine: vi.fn(), show: vi.fn(), dispose: vi.fn() }
-		const createChannel = vi.spyOn(vscode.window, "createOutputChannel").mockReturnValue(channel as unknown as vscode.LogOutputChannel)
+		const createChannel = vi
+			.spyOn(vscode.window, "createOutputChannel")
+			.mockReturnValue(channel as unknown as vscode.LogOutputChannel)
 		mockPostMessage.mockClear()
 		const records = [{ id: 7, level: "warn", subsystem: "browser", message: "retried", fields: {}, created_at: 1 }]
 		try {

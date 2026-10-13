@@ -288,6 +288,13 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 		const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false)
 		const [isFocused, setIsFocused] = useState(false)
 		const audio = useAudioInput((text) => setInputValue(inputValue ? `${inputValue}\n${text}` : text))
+		const activeComposer = useRef(true)
+		useEffect(() => {
+			activeComposer.current = true
+			return () => {
+				activeComposer.current = false
+			}
+		}, [])
 		const audioActive =
 			audio.state === "requesting" || audio.state === "recording" || audio.state === "transcribing"
 
@@ -797,6 +804,7 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 					})
 
 					const imageDataArray = await Promise.all(imagePromises)
+					if (!activeComposer.current) return
 					const dataUrls = imageDataArray.filter((dataUrl): dataUrl is string => dataUrl !== null)
 
 					if (dataUrls.length > 0) {
@@ -949,6 +957,7 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 						})
 
 						const imageDataArray = await Promise.all(imagePromises)
+						if (!activeComposer.current) return
 						const dataUrls = imageDataArray.filter((dataUrl): dataUrl is string => dataUrl !== null)
 
 						if (dataUrls.length > 0) {

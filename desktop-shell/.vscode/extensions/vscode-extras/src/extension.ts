@@ -12,7 +12,11 @@ export class Extension extends vscode.Disposable {
 
 	constructor(_context: vscode.ExtensionContext) {
 		const disposables: vscode.Disposable[] = [];
-		super(() => disposables.forEach(d => d.dispose()));
+		super(() => {
+			this._npmFeature?.dispose();
+			this._npmFeature = undefined;
+			disposables.forEach(d => d.dispose());
+		});
 
 		this._output = vscode.window.createOutputChannel('VS Code Extras', { log: true });
 		disposables.push(this._output);

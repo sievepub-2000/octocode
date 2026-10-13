@@ -298,17 +298,6 @@ const RuntimeHistoryView = ({
 					<span className="min-w-0 flex-1 truncate">{t("common:ui.projects")}</span>
 					<GlyphButton glyph="+" label={t("common:ui.newProject")} disabled={busy} onClick={openCreate} />
 				</summary>
-				<div className="flex items-center justify-between p-2">
-					{projects.length > 0 && (
-						<Button
-							size="sm"
-							variant="ghost"
-							disabled={busy}
-							onClick={() => request("project.refresh", {})}>
-							{t("common:ui.refreshArtifactIndex")}
-						</Button>
-					)}
-				</div>
 				{projects.length === 0 && (
 					<p className="px-2 text-xs text-vscode-descriptionForeground">{t("common:ui.noProjects")}</p>
 				)}
@@ -322,6 +311,12 @@ const RuntimeHistoryView = ({
 								<span className="min-w-0 flex-1 truncate">
 									{project.name}（{sessions.filter((s) => s.project_id === project.id).length}）
 								</span>
+								<GlyphButton
+									glyph="+"
+									label={`${project.name}：${t("octocode.newTask")}`}
+									disabled={busy}
+									onClick={() => vscode.postMessage({ type: "clearTask", projectId: project.id })}
+								/>
 								<GlyphButton
 									glyph="E"
 									label={t("common:ui.renameProject")}
@@ -347,18 +342,6 @@ const RuntimeHistoryView = ({
 									(s) => s.project_id === project.id && (matches(project.name) || matches(s.title)),
 								)
 								.map(renderRow)}
-							<Button
-								size="sm"
-								variant="ghost"
-								title={`${project.directory}/artifacts.json`}
-								onClick={() =>
-									vscode.postMessage({
-										type: "openFile",
-										text: `${project.directory}/artifacts.json`,
-									})
-								}>
-								{t("common:ui.viewArtifactIndex")}
-							</Button>
 						</details>
 					))}
 			</details>

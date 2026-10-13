@@ -165,7 +165,7 @@ def extract_archive(archive: Path) -> Path:
 				with source.open(info) as input_stream, target.open('xb') as output_stream:
 					shutil.copyfileobj(input_stream, output_stream)
 	except (Exception, KeyboardInterrupt):
-		shutil.rmtree(root)
+		shutil.rmtree(root, ignore_errors=True)
 		raise
 
 	return root

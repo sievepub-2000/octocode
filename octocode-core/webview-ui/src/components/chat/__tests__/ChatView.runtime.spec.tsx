@@ -20,6 +20,9 @@ vi.mock("../ChatTextArea", () => ({
 		setInputValue,
 		onSend,
 		onStop,
+		onSelectFiles,
+		selectedImages,
+		selectedAttachments,
 		promptHistory,
 	}: {
 		topOverlay?: React.ReactNode
@@ -27,6 +30,9 @@ vi.mock("../ChatTextArea", () => ({
 		setInputValue: (text: string) => void
 		onSend: () => void
 		onStop: () => void
+		onSelectFiles: () => void
+		selectedImages: string[]
+		selectedAttachments: Array<{ file: string }>
 		promptHistory: string[]
 	}) => (
 		<>
@@ -34,6 +40,10 @@ vi.mock("../ChatTextArea", () => ({
 			<input aria-label="draft" value={inputValue} onChange={(e) => setInputValue(e.target.value)} />
 			<button onClick={onSend}>send</button>
 			<button onClick={onStop}>stop</button>
+			<button onClick={onSelectFiles}>attach</button>
+			<div data-testid="attachments">
+				{selectedImages.length}:{selectedAttachments.map((item) => item.file).join(",")}
+			</div>
 			<div data-testid="prompts">{promptHistory.join("|")}</div>
 		</>
 	),
@@ -64,6 +74,42 @@ const load = (id: string) => {
 }
 
 describe("single Runtime conversation model", () => {
+	it("clears drafts and attachments on session changes and rejects stale picker responses", () => {
+		render(<ChatView isHidden={false} showAnnouncement={false} hideAnnouncement={() => undefined} />)
+		load("A")
+		fireEvent.change(screen.getByLabelText("draft"), { target: { value: "private A" } })
+		fireEvent.click(screen.getByText("attach"))
+		const requestId = (vi.mocked(vscode.postMessage).mock.lastCall?.[0] as { requestId: string }).requestId
+		emit("selectedImages", undefined, { requestId, images: ["data:image/png;base64,A"] })
+		emit("selectedFiles", undefined, {
+			requestId,
+			attachments: [{ file: "A.txt", content: "secret", truncated: false, totalLines: 1 }],
+		})
+		expect(screen.getByTestId("attachments")).toHaveTextContent("1:A.txt")
+		emit("selectedImages", undefined, { requestId, images: ["data:image/png;base64,ignored"] })
+		expect(screen.getByTestId("attachments")).toHaveTextContent("1:A.txt")
+		emit("runtimeSessionLoading", { sessionId: "B" })
+		expect(screen.getByLabelText("draft")).toHaveValue("")
+		expect(screen.getByTestId("attachments")).toHaveTextContent("0:")
+		emit("selectedFiles", undefined, {
+			requestId,
+			attachments: [{ file: "late.txt", content: "secret", truncated: false, totalLines: 1 }],
+		})
+		emit("selectedImages", undefined, { requestId, images: ["data:image/png;base64,late"] })
+		expect(screen.getByTestId("attachments")).toHaveTextContent("0:")
+	})
+	it("starts a new conversation in the selected project only", () => {
+		render(<ChatView isHidden={false} showAnnouncement={false} hideAnnouncement={() => undefined} />)
+		emit("invoke", undefined, { invoke: "newChat", projectId: "project-a" })
+		fireEvent.change(screen.getByLabelText("draft"), { target: { value: "project task" } })
+		fireEvent.click(screen.getByText("send"))
+		expect(vscode.postMessage).toHaveBeenLastCalledWith({
+			type: "newTask",
+			text: "project task",
+			images: [],
+			projectId: "project-a",
+		})
+	})
 	it("shows stopping, suppresses duplicate clicks, and permits retry after cancellation failure", () => {
 		render(<ChatView isHidden={false} showAnnouncement={false} hideAnnouncement={() => undefined} />)
 		load("A")
@@ -232,21 +278,47 @@ describe("single Runtime conversation model", () => {
 			payload: { newSessionId: "B2" },
 		})
 		expect(screen.getByTestId("transcript")).toHaveTextContent("A:before:true")
-		emit("agentEvent", { session_id: "A", task_id: "A-task", kind: "runtime.rollover_started", payload: {} }, { runtimeHandoff: { source: { sessionId: "A", taskId: "A-task" } } })
+		emit(
+			"agentEvent",
+			{ session_id: "A", task_id: "A-task", kind: "runtime.rollover_started", payload: {} },
+			{ runtimeHandoff: { source: { sessionId: "A", taskId: "A-task" } } },
+		)
 		emit("agentEvent", { session_id: "A", task_id: "A-task", kind: "agent.finished", payload: { cancelled: true } })
 		expect(screen.getByTestId("transcript")).toHaveTextContent("A:before:true")
-		emit("agentEvent", {
-			session_id: "A",
-			task_id: "A-task",
-			kind: "runtime.rollover_ready",
-			payload: { newSessionId: "A2" },
-		}, { runtimeHandoff: { source: { sessionId: "A", taskId: "A-task" }, target: { sessionId: "A2", taskId: "A2-task" } } })
-		emit("runtimeTaskStarted", { sessionId: "A2", taskId: "A2-task", prompt: "continue A" }, { runtimeHandoff: { source: { sessionId: "A", taskId: "A-task" }, target: { sessionId: "A2", taskId: "A2-task" } } })
+		emit(
+			"agentEvent",
+			{
+				session_id: "A",
+				task_id: "A-task",
+				kind: "runtime.rollover_ready",
+				payload: { newSessionId: "A2" },
+			},
+			{
+				runtimeHandoff: {
+					source: { sessionId: "A", taskId: "A-task" },
+					target: { sessionId: "A2", taskId: "A2-task" },
+				},
+			},
+		)
+		emit(
+			"runtimeTaskStarted",
+			{ sessionId: "A2", taskId: "A2-task", prompt: "continue A" },
+			{
+				runtimeHandoff: {
+					source: { sessionId: "A", taskId: "A-task" },
+					target: { sessionId: "A2", taskId: "A2-task" },
+				},
+			},
+		)
 		emit("agentEvent", { session_id: "A2", task_id: "A2-task", kind: "text", payload: { data: "after" } })
 		act(() => vi.advanceTimersByTime(50))
 		expect(screen.getByTestId("transcript")).toHaveTextContent("A:beforeafter:true")
 		fireEvent.change(screen.getByLabelText("draft"), { target: { value: "/newsession" } })
 		fireEvent.click(screen.getByText("send"))
-		expect(vscode.postMessage).toHaveBeenLastCalledWith({ type: "newRuntimeSession", taskId: "A2", sourceTask: { sessionId: "A2", taskId: "A2-task" } })
+		expect(vscode.postMessage).toHaveBeenLastCalledWith({
+			type: "newRuntimeSession",
+			taskId: "A2",
+			sourceTask: { sessionId: "A2", taskId: "A2-task" },
+		})
 	})
 })

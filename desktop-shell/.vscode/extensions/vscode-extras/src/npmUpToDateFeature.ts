@@ -32,16 +32,25 @@ export class NpmUpToDateFeature extends vscode.Disposable {
 	private _terminal: vscode.Terminal | undefined;
 	private _stateContentsFile: string | undefined;
 	private _root: string | undefined;
+	private _debounceTimer: ReturnType<typeof setTimeout> | undefined;
+	private _disposed = false;
+	private _knownFiles = new Set<string>();
 
 	private static readonly _scheme = 'npm-dep-state';
 
 	constructor(private readonly _output: vscode.LogOutputChannel) {
 		const disposables: vscode.Disposable[] = [];
 		super(() => {
+			this._disposed = true;
+			if (this._debounceTimer !== undefined) {
+				clearTimeout(this._debounceTimer);
+				this._debounceTimer = undefined;
+			}
 			disposables.forEach(d => d.dispose());
 			for (const w of this._watchers) {
 				w.close();
 			}
+			this._watchers = [];
 		});
 		this._disposables = disposables;
 
@@ -89,7 +98,8 @@ export class NpmUpToDateFeature extends vscode.Disposable {
 
 	private _runNpmInstall(): void {
 		if (this._terminal) {
-			this._terminal.dispose();
+			this._terminal.show();
+			return;
 		}
 		const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
 		if (!workspaceRoot) {
@@ -119,6 +129,20 @@ export class NpmUpToDateFeature extends vscode.Disposable {
 				encoding: 'utf8',
 			});
 			const parsed = JSON.parse(output.trim());
+			const isPostinstallState = (value: PostinstallState | undefined): value is PostinstallState =>
+				!!value && typeof value.nodeVersion === 'string' && !!value.fileHashes
+				&& typeof value.fileHashes === 'object' && !Array.isArray(value.fileHashes)
+				&& Object.values(value.fileHashes).every(hash => typeof hash === 'string');
+			if (!parsed || typeof parsed.root !== 'string' || typeof parsed.stateContentsFile !== 'string'
+				|| !Array.isArray(parsed.files) || !parsed.files.every((file: unknown) => typeof file === 'string')
+				|| !isPostinstallState(parsed.current)) {
+				this._output.error('Invalid install state');
+				return undefined;
+			}
+			if (parsed.saved !== undefined && !isPostinstallState(parsed.saved)) {
+				this._output.error('Invalid saved install state; treating dependencies as stale');
+				parsed.saved = undefined;
+			}
 			this._output.trace('raw output:', output.trim());
 			return parsed;
 		} catch (e) {
@@ -128,6 +152,9 @@ export class NpmUpToDateFeature extends vscode.Disposable {
 	}
 
 	private _check(): void {
+		if (this._disposed) {
+			return;
+		}
 		const state = this._queryState();
 		this._output.trace('state:', JSON.stringify(state, null, 2));
 		if (!state) {
@@ -138,6 +165,7 @@ export class NpmUpToDateFeature extends vscode.Disposable {
 
 		this._stateContentsFile = state.stateContentsFile;
 		this._root = state.root;
+		this._knownFiles = new Set([...Object.keys(state.current.fileHashes), ...Object.keys(state.saved?.fileHashes ?? {})]);
 		this._setupWatcher(state);
 
 		const changedFiles = this._getChangedFiles(state);
@@ -166,6 +194,9 @@ export class NpmUpToDateFeature extends vscode.Disposable {
 	}
 
 	private _showDiff(file: string): void {
+		if (!this._isKnownFile(file)) {
+			return;
+		}
 		const cacheBuster = Date.now().toString();
 		const savedUri = vscode.Uri.from({
 			scheme: NpmUpToDateFeature._scheme,
@@ -178,11 +209,21 @@ export class NpmUpToDateFeature extends vscode.Disposable {
 			query: new URLSearchParams({ source: 'current', t: cacheBuster }).toString(),
 		});
 
-		vscode.commands.executeCommand('vscode.diff', savedUri, currentUri, `${file} (last install ↔ current)`);
+		Promise.resolve(vscode.commands.executeCommand('vscode.diff', savedUri, currentUri, `${file} (last install ↔ current)`)).catch(() => {
+			this._output.error('Could not open dependency diff');
+		});
+	}
+
+	private _isKnownFile(file: string): boolean {
+		if (!this._root || typeof file !== 'string' || !this._knownFiles.has(file) || path.isAbsolute(file)) {
+			return false;
+		}
+		const relative = path.relative(this._root, path.resolve(this._root, file));
+		return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 	}
 
 	private _readSavedContent(file: string): string {
-		if (!this._stateContentsFile) {
+		if (!this._stateContentsFile || !this._isKnownFile(file)) {
 			return '';
 		}
 		try {
@@ -194,7 +235,7 @@ export class NpmUpToDateFeature extends vscode.Disposable {
 	}
 
 	private _readCurrentContent(file: string): string {
-		if (!this._root) {
+		if (!this._root || !this._isKnownFile(file)) {
 			return '';
 		}
 		try {
@@ -227,17 +268,26 @@ export class NpmUpToDateFeature extends vscode.Disposable {
 	}
 
 	private _setupWatcher(state: InstallState): void {
+		if (this._debounceTimer !== undefined) {
+			clearTimeout(this._debounceTimer);
+			this._debounceTimer = undefined;
+		}
 		for (const w of this._watchers) {
 			w.close();
 		}
 		this._watchers = [];
 
-		let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 		const scheduleCheck = () => {
-			if (debounceTimer) {
-				clearTimeout(debounceTimer);
+			if (this._disposed) {
+				return;
 			}
-			debounceTimer = setTimeout(() => this._check(), 500);
+			if (this._debounceTimer !== undefined) {
+				clearTimeout(this._debounceTimer);
+			}
+			this._debounceTimer = setTimeout(() => {
+				this._debounceTimer = undefined;
+				this._check();
+			}, 500);
 		};
 
 		for (const file of state.files) {

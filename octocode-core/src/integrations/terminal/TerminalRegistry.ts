@@ -242,24 +242,8 @@ export class TerminalRegistry {
 			})
 		}
 
-		// Second priority: Find any available terminal with matching directory.
-		if (!terminal) {
-			terminal = terminals.find((t) => {
-				if (t.busy || t.provider !== provider || t.reuseKey !== reuseKey) {
-					return false
-				}
-
-				const terminalCwd = t.getCurrentWorkingDirectory()
-
-				if (!terminalCwd) {
-					return false
-				}
-
-				return arePathsEqual(vscode.Uri.file(cwd).fsPath, terminalCwd)
-			})
-		}
-
-		// If no suitable terminal found, create a new one.
+		// A terminal belongs to one task for its lifetime, including after release.
+		// Reusing an idle terminal from another task would expose shell state and output.
 		if (!terminal) {
 			terminal = this.createTerminal(cwd, provider)
 		}

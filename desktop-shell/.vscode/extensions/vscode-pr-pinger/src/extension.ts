@@ -20,6 +20,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(vscode.commands.registerCommand('pr.show', async (pr: PrInfo) => {
 		vscode.env.openExternal(vscode.Uri.parse(pr.url));
+		currentShow?.dispose();
 		item.hide();
 	}));
 
@@ -57,7 +58,13 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 
 		const tooLongAgo = Date.now() - 1000 * 60 * 60 * 24 * 4;
-		const data: Query = await graphql(query, { headers: { authorization: `Bearer ${currentSession.accessToken}` } });
+		let data: Query;
+		try {
+			data = await graphql(query, { headers: { authorization: `Bearer ${currentSession.accessToken}` } });
+		} catch {
+			console.error('PR Pinger could not fetch pull requests');
+			return;
+		}
 
 		const prs = data.repository.pullRequests.edges.map(edge => edge.node)
 			.filter(needsTeamReview) // from team
@@ -72,7 +79,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 		// Unless forced you only need to review with a certain chance
 		if (!afterAway) {
-			const chance = Math.ceil(prs.length / 7);
+			const chance = Math.min(prs.length / 7, 1);
 			if (Math.random() > chance) {
 				return;
 			}
@@ -90,11 +97,16 @@ export function activate(context: vscode.ExtensionContext) {
 
 		// refresh every 20 seconds
 		const checkHandle = setInterval(async function () {
-			const data: Check = await graphql(check, {
-				pr: pr.number,
-				headers: { authorization: `Bearer ${currentSession.accessToken}` },
-			});
-			if (!needsTeamReview(data.repository.pullRequest)) {
+			try {
+				const data: Check = await graphql(check, {
+					pr: pr.number,
+					headers: { authorization: `Bearer ${currentSession.accessToken}` },
+				});
+				if (!needsTeamReview(data.repository.pullRequest)) {
+					currentShow?.dispose();
+				}
+			} catch {
+				console.error('PR Pinger could not refresh the pull request');
 				currentShow?.dispose();
 			}
 		}, 1000 * 20);
@@ -105,10 +117,23 @@ export function activate(context: vscode.ExtensionContext) {
 		});
 	}
 
-	vscode.authentication.getSession('github', ['repo']).then(_session => {
-		session = _session;
-		updateItem();
-	});
+	function refreshSession() {
+		return Promise.resolve(vscode.authentication.getSession('github', ['repo'])).then(async _session => {
+			session = _session;
+			await updateItem();
+		}).catch(() => {
+			console.error('PR Pinger could not initialize authentication');
+		});
+	}
+
+	context.subscriptions.push(vscode.authentication.onDidChangeSessions(e => {
+		if (e.provider.id === 'github') {
+			currentShow?.dispose();
+			session = undefined;
+			refreshSession();
+		}
+	}));
+	refreshSession();
 
 	const handle = setInterval(updateItem, 1000 * 60 * 10); // update every 10 minutes
 	context.subscriptions.push(new vscode.Disposable(() => clearInterval(handle)));
@@ -141,8 +166,8 @@ function makeLabel(pr: PrInfo): string {
 	return `$(git-pull-request) ${newTitle.join('')}`;
 }
 
-function needsTeamReview(pr: PrInfo): boolean {
-	return pr.authorAssociation === 'MEMBER'
+function needsTeamReview(pr: PrInfo | null): pr is PrInfo & { author: { login: string } } {
+	return !!pr?.author && pr.authorAssociation === 'MEMBER'
 		&& !pr.isDraft
 		&& pr.reviewRequests.totalCount === 0
 		&& pr.reviews.totalCount === 0
@@ -151,11 +176,11 @@ function needsTeamReview(pr: PrInfo): boolean {
 
 type PrInfo = {
 	number: number;
-	author: { login: string };
+	author: { login: string } | null;
 	authorAssociation: 'MEMBER' | string;
 	assignees: { nodes: { login: string }[] };
 	createdAt: string;
-	isDraft: string;
+	isDraft: boolean;
 	reviewRequests: { totalCount: number };
 	reviews: { totalCount: number };
 	title: string;
@@ -212,7 +237,7 @@ const query = `{
 
 type Check = {
 	repository: {
-		pullRequest: PrInfo;
+		pullRequest: PrInfo | null;
 	};
 };
 

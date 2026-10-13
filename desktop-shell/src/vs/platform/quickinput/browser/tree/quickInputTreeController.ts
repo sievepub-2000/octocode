@@ -132,6 +132,25 @@ export class QuickInputTreeController extends Disposable {
 		return this._renderer;
 	}
 
+	get enabled(): boolean {
+		return this._renderer.enabled;
+	}
+
+	set enabled(enabled: boolean) {
+		if (enabled !== this.enabled) {
+			this._renderer.enabled = enabled;
+			this._tree.getHTMLElement().style.pointerEvents = enabled ? '' : 'none';
+			const nodes = [...this._tree.getNode().children];
+			while (nodes.length) {
+				const node = nodes.pop();
+				if (node?.element) {
+					this._tree.rerender(node.element);
+					nodes.push(...node.children);
+				}
+			}
+		}
+	}
+
 	get displayed() {
 		return this._container.style.display !== 'none';
 	}
@@ -385,6 +404,9 @@ export class QuickInputTreeController extends Disposable {
 	}
 
 	toggleCheckbox() {
+		if (!this.enabled) {
+			return;
+		}
 		for (const element of this.getActiveItems()) {
 			if (element.pickable !== false && !element.disabled) {
 				this.updateCheckboxState(element, !(element.checked === true));

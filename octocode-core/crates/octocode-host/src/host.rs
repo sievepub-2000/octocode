@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
+use std::{cell::Cell, io::Write};
 
 use crate::{
     harness::{
@@ -14,6 +15,7 @@ use crate::{
 
 pub struct Host {
     store: Store,
+    log_write_failures: Cell<u64>,
 }
 
 #[derive(Deserialize)]
@@ -47,7 +49,8 @@ impl Host {
             .and_then(|value| u32::try_from(value).ok())
             .unwrap_or(DEFAULT_LOG_RETENTION_DAYS);
         let purged = store.purge_expired_logs(retention_days)?;
-        store.insert_log_detailed(
+        let host = Self { store, log_write_failures: Cell::new(0) };
+        host.observe_log_write(host.store.insert_log_detailed(
             "system",
             "info",
             "host",
@@ -56,8 +59,8 @@ impl Host {
             None,
             None,
             None,
-        )?;
-        Ok(Self { store })
+        ));
+        Ok(host)
     }
 
     pub fn record_log(
@@ -68,9 +71,9 @@ impl Host {
         fields: &Value,
         session_id: Option<&str>,
     ) {
-        let _ = self.store.insert_log_detailed(
+        self.observe_log_write(self.store.insert_log_detailed(
             "system", level, subsystem, message, fields, session_id, None, None,
-        );
+        ));
     }
 
     fn record_developer_log(
@@ -81,7 +84,7 @@ impl Host {
         fields: &Value,
         session_id: Option<&str>,
     ) {
-        let _ = self.store.insert_log_detailed(
+        self.observe_log_write(self.store.insert_log_detailed(
             "developer",
             level,
             subsystem,
@@ -90,7 +93,19 @@ impl Host {
             session_id,
             None,
             None,
-        );
+        ));
+    }
+
+    fn observe_log_write(&self, result: rusqlite::Result<i64>) {
+        if result.is_err() {
+            let previous = self.log_write_failures.get();
+            let count = previous.saturating_add(1);
+            self.log_write_failures.set(count);
+            if count != previous && count.is_power_of_two() {
+                // Never include the error or log inputs, or write back to the failing database.
+                let _ = writeln!(std::io::stderr().lock(), "OctoCode diagnostic log write failed; host failure count={count}");
+            }
+        }
     }
 
     pub fn record_rpc(&self, method: &str, params: &Value, response: &Response, duration_ms: u128) {
@@ -152,6 +167,16 @@ impl Host {
         Ok(())
     }
 
+    pub fn validate_agent_working_directory(&self, session_id: &str, cwd: &std::path::Path) -> anyhow::Result<()> {
+        if let Some(expected) = self.store.session_working_directory(session_id)? {
+            anyhow::ensure!(
+                std::fs::canonicalize(cwd)? == std::fs::canonicalize(expected)?,
+                "Agent working directory belongs to a different conversation",
+            );
+        }
+        Ok(())
+    }
+
     pub fn record_agent_lifecycle(
         &self,
         task_id: &str,
@@ -179,8 +204,7 @@ impl Host {
         if status == "needs_review" {
             state["pending"] = json!(["supervisor review"]);
         }
-        self.store.update_workflow(task_id, phase, status, &state)?;
-        self.store.update_session_status(session_id, status)?;
+        self.store.update_workflow_session(task_id, session_id, phase, status, &state)?;
         Ok(status.to_owned())
     }
 
@@ -191,7 +215,11 @@ impl Host {
                 "methods":RUNTIME_CAPABILITIES
             })),
             "ping" => Ok(json!({"pong": true})),
-            "health" => Ok(self.store.health()?),
+            "health" => {
+                let mut health = self.store.health()?;
+                health["log_write_failures"] = json!(self.log_write_failures.get());
+                Ok(health)
+            }
             "provider.resolve" => {
                 let input: ProviderInput = decode(params)?;
                 Ok(serde_json::to_value(resolve_provider(input)?)?)
@@ -318,7 +346,10 @@ impl Host {
                     "pending": p.pending,
                 });
                 let id = p.id.unwrap_or_else(new_id);
-                if self.store.workflow(&id)?.is_some() {
+                if let Some(existing) = self.store.workflow(&id)? {
+                    if p.session_id.as_ref().is_some_and(|session_id| existing.session_id != *session_id) {
+                        return Err(HostError::new(-32602, "Task belongs to a different session"));
+                    }
                     self.store.update_workflow(&id, &p.phase, status, &state)?;
                 } else {
                     let session_id = p.session_id.ok_or_else(|| {
@@ -379,6 +410,10 @@ impl Host {
                 let p: IdParam = decode(params)?;
                 Ok(serde_json::to_value(self.store.session(&p.id)?)?)
             }
+            "session.working_directory" => {
+                let p: IdParam = decode(params)?;
+                Ok(json!({"working_directory": self.store.session_working_directory(&p.id)?}))
+            }
             "session.create" => {
                 let p: SessionCreate = decode(params)?;
                 let id = p.id.unwrap_or_else(new_id);
@@ -399,6 +434,15 @@ impl Host {
                 Ok(json!({"updated": self.store.update_session_title(&p.id, &p.title)?}))
             }
             "session.delete" => {
+                if params.get("expected_unstarted_task").is_some() {
+                    let id = params.get("id").and_then(Value::as_str).filter(|id| !id.trim().is_empty());
+                    let task = params.get("expected_unstarted_task").and_then(Value::as_str).filter(|task| !task.trim().is_empty());
+                    let (Some(id), Some(task)) = (id, task) else {
+                        return Err(HostError::new(-32602, "guarded deletion requires session id and expected_unstarted_task"));
+                    };
+                    let deleted = self.store.delete_unstarted_session(id, task)?;
+                    return Ok(json!({"deleted":deleted}));
+                }
                 let p: IdParam = decode(params)?;
                 if self.store.session(&p.id)?.is_some_and(|s| matches!(s.status.as_str(), "running" | "prepared")) {
                     return Err(anyhow::anyhow!("请先停止任务再删除会话").into());
@@ -460,7 +504,12 @@ impl Host {
                     return Err(HostError::new(-32602, "invalid event cursor or page size"));
                 }
                 let paged = method == "event.page";
-                let mut rows = self.store.event_page(&p.session_id, p.after, if paged { limit + 1 } else { limit }, p.presentation)?;
+                let mut rows = if paged {
+                    self.store.event_page(&p.session_id, p.after, limit + 1, p.presentation)?
+                } else {
+                    self.store.bounded_event_list(&p.session_id, p.after, limit, p.presentation)?
+                        .ok_or_else(|| HostError::new(-32005, "event.list resource limit exceeded; use event.page with presentation=false"))?
+                };
                 let has_more = paged && rows.len() > limit as usize;
                 if has_more { rows.pop(); }
                 let next = rows.last().map_or(p.after, |row| row.0);
@@ -474,9 +523,8 @@ impl Host {
                                     && row.2.as_object().is_some_and(|value| value.keys().all(|name| name == key || name == "type"))
                                     && previous.2.get("type") == row.2.get("type")
                                 {
-                                    if let (Some(old), Some(new)) = (previous.2[key].as_str(), row.2[key].as_str()) {
-                                        let joined = format!("{old}{new}");
-                                        previous.2[key] = json!(joined);
+                                    if let (Some(Value::String(old)), Some(new)) = (previous.2.get_mut(key), row.2[key].as_str()) {
+                                        old.push_str(new);
                                         previous.0 = row.0;
                                         continue;
                                     }
@@ -614,6 +662,11 @@ impl Host {
                     value: Value,
                 }
                 let p: P = decode(params)?;
+                if p.key == "log.retention_days"
+                    && !p.value.as_u64().is_some_and(|days| (1..=3650).contains(&days))
+                {
+                    return Err(HostError::new(-32602, "log.retention_days must be an integer from 1 to 3650"));
+                }
                 self.store.set_setting(&p.key, &p.value)?;
                 Ok(json!({"updated": true}))
             }

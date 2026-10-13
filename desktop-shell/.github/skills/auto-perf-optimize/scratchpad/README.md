@@ -28,14 +28,15 @@ promote it to the parent `scripts/` folder.
 ## Quick start
 
 ```bash
-# Write a runner
-cat > scratchpad/my-scenario.mts << 'EOF'
+# From the repository root, write a runner in a new dated subfolder
+mkdir -p .github/skills/auto-perf-optimize/scratchpad/YYYY-MM-DD-topic
+cat > .github/skills/auto-perf-optimize/scratchpad/YYYY-MM-DD-topic/my-scenario.mts << 'EOF'
 import { chromium } from 'playwright-core';
 // ... your scenario
 EOF
 
 # Run it
-node .github/skills/auto-perf-optimize/scratchpad/my-scenario.mts
+node .github/skills/auto-perf-optimize/scratchpad/YYYY-MM-DD-topic/my-scenario.mts
 ```
 
 ## Checked-in scripts (in `scripts/`)
@@ -55,8 +56,9 @@ These are reusable, generic runners. Use them directly or as templates:
 
 ## Tips
 
-- Always use `--user-data-dir .build/auto-perf-optimize/user-data` (the
-  persistent profile with Copilot auth). Never create a fresh user-data-dir.
+- Prefer `--user-data-dir .build/auto-perf-optimize/user-data` (the
+  persistent profile with Copilot auth). Use `--temporary-user-data` only
+  when a clean profile is part of the scenario, as described in the parent skill.
 - Use `--skip-prelaunch` to avoid re-downloading Electron on every run.
 - If you need to clean up an orphaned test instance, stop only the specific
   Code - OSS process (e.g. by killing the PID that was logged at launch, or

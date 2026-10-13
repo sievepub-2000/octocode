@@ -89,7 +89,10 @@ describe("SecretStorageService", () => {
 			}
 			await service.saveOAuthData("https://example.com/", data)
 
-			expect(context.secrets.store).toHaveBeenCalledWith(expect.stringMatching(/^mcp\.oauth\.v2\.[0-9a-f]{64}\.data$/), JSON.stringify(data))
+			expect(context.secrets.store).toHaveBeenCalledWith(
+				expect.stringMatching(/^mcp\.oauth\.v2\.[0-9a-f]{64}\.data$/),
+				JSON.stringify(data),
+			)
 		})
 	})
 
@@ -196,7 +199,10 @@ describe("SecretStorageService", () => {
 		it("isolates schemes and query-scoped resources on the same host and path", async () => {
 			const urls = ["http://example.com/mcp", "https://example.com/mcp", "https://example.com/mcp?tenant=a"]
 			for (const [index, url] of urls.entries()) {
-				await service.saveOAuthData(url, { tokens: { access_token: `owned-${index}`, token_type: "Bearer" }, expires_at: index })
+				await service.saveOAuthData(url, {
+					tokens: { access_token: `owned-${index}`, token_type: "Bearer" },
+					expires_at: index,
+				})
 			}
 			for (const [index, url] of urls.entries()) {
 				expect((await service.getOAuthData(url))?.tokens.access_token).toBe(`owned-${index}`)
@@ -205,7 +211,10 @@ describe("SecretStorageService", () => {
 
 		it("preserves an unbound legacy record without returning it as current credentials", async () => {
 			const key = "mcp.oauth.example.com.L21jcA.data"
-			const raw = JSON.stringify({ tokens: { access_token: "owned-legacy", token_type: "Bearer" }, expires_at: 12345 })
+			const raw = JSON.stringify({
+				tokens: { access_token: "owned-legacy", token_type: "Bearer" },
+				expires_at: 12345,
+			})
 			await context.secrets.store(key, raw)
 			expect(await service.getOAuthData("https://example.com/mcp")).toBeUndefined()
 			expect(await context.secrets.get(key)).toBe(raw)

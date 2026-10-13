@@ -821,7 +821,10 @@ export class McpHub {
 					!pendingConnection.server.disabled &&
 					pendingConnection.server.config === pendingConfig &&
 					(source !== "project" ||
-						arePathsEqual(pendingConnection.server.projectPath, vscode.workspace.workspaceFolders?.[0]?.uri.fsPath))
+						arePathsEqual(
+							pendingConnection.server.projectPath,
+							vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+						))
 				if (!isCurrentPending()) {
 					pendingConnection.server.status = "disconnected"
 					return
@@ -1109,7 +1112,10 @@ export class McpHub {
 					this.findConnection(name, source) !== connection ||
 					connection.server.disabled ||
 					(source === "project" &&
-						!arePathsEqual(connection.server.projectPath, vscode.workspace.workspaceFolders?.[0]?.uri.fsPath)) ||
+						!arePathsEqual(
+							connection.server.projectPath,
+							vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+						)) ||
 					connection.server.config !== connectionConfig
 				) {
 					throw new Error(`Server "${name}" is no longer available`)
@@ -1324,7 +1330,11 @@ export class McpHub {
 					// Re-check after the async yield — cancellation or completion may have
 					// fired while getOAuthData was in flight.
 					if (disposed || this.isDisposed) return
-					if (authProvider.isOAuthDataUsable(data) && data && Date.now() < data.expires_at - TOKEN_EXPIRY_BUFFER_MS) {
+					if (
+						authProvider.isOAuthDataUsable(data) &&
+						data &&
+						Date.now() < data.expires_at - TOKEN_EXPIRY_BUFFER_MS
+					) {
 						cleanup(cancellationDisposable)
 						await authProvider.close()
 						await this.deleteConnection(name, source)
@@ -1425,7 +1435,11 @@ export class McpHub {
 				// Guard: another window may have authed while the toast was open
 				const tokens = await this.secretStorage!.getOAuthData(serverUrl)
 				if (disposed) return
-				if (authProvider.isOAuthDataUsable(tokens) && tokens && Date.now() < tokens.expires_at - TOKEN_EXPIRY_BUFFER_MS) {
+				if (
+					authProvider.isOAuthDataUsable(tokens) &&
+					tokens &&
+					Date.now() < tokens.expires_at - TOKEN_EXPIRY_BUFFER_MS
+				) {
 					cleanup(cancellationDisposable)
 					await authProvider.close()
 					await this.deleteConnection(name, source)

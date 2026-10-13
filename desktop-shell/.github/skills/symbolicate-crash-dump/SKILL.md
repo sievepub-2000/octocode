@@ -32,11 +32,19 @@ Inspect `symbolicated-output.log`. Look at the top frames of the backtrace: if a
 
 > **Retry on transient download errors.** electron-minidump downloads symbols from public symbol servers, so a run can fail on a transient network error (e.g. `failed to download ... (code 56)` or `(code 28)`). Successfully downloaded symbols are cached, so simply re-running the same command resumes where it left off. Retrying a few times is expected:
 > ```bash
-> for i in 1 2 3 4 5; do
->     electron-minidump crash-file.dmp > symbolicated-output.log && break
->     sleep 3
-> done
+> (
+>     for i in 1 2 3 4 5; do
+>         electron-minidump crash-file.dmp > symbolicated-output.log && exit 0
+>         if [ "$i" -eq 5 ]; then
+>             echo "Symbolication failed after five attempts; do not treat the output as complete." >&2
+>             exit 1
+>         fi
+>         sleep 3
+>     done
+> )
 > ```
+
+Continue only when the command succeeds; a partial output log is not a completed symbolication.
 
 ### 2. Get the appropriate symbol files
 

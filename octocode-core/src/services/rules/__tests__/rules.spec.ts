@@ -151,7 +151,11 @@ describe("rules service", () => {
 		await fs.mkdir(path.dirname(targetRulePath), { recursive: true })
 		await fs.mkdir(projectRulesDir, { recursive: true })
 		await fs.writeFile(targetRulePath, "# Symlinked")
-		await fs.symlink(targetRulesDir, path.join(projectRulesDir, "linked"), "dir")
+		await fs.symlink(
+			targetRulesDir,
+			path.join(projectRulesDir, "linked"),
+			process.platform === "win32" ? "junction" : "dir",
+		)
 
 		const rules = await getRules(cwd, { modes: [] })
 
@@ -179,7 +183,11 @@ describe("rules service", () => {
 		const targetRulePath = path.join(targetRulesDir, "nested", "symlinked.md")
 		await fs.mkdir(path.dirname(targetRulePath), { recursive: true })
 		await fs.writeFile(targetRulePath, "# Symlinked")
-		await fs.symlink(targetRulesDir, path.join(projectRulesDir, "linked"), "dir")
+		await fs.symlink(
+			targetRulesDir,
+			path.join(projectRulesDir, "linked"),
+			process.platform === "win32" ? "junction" : "dir",
+		)
 
 		const rules = await getRules(cwd, { modes: [] })
 		const symlinkedRule = rules.find((rule) => rule.name === "symlinked.md")
@@ -248,7 +256,12 @@ describe("rules service", () => {
 	it("skips broken symlinks while scanning rules", async () => {
 		const projectRulesDir = path.join(cwd, ".roo", "rules")
 		await fs.mkdir(projectRulesDir, { recursive: true })
-		await fs.symlink(path.join(tempDir, "missing-target"), path.join(projectRulesDir, "broken.md"), "file")
+		// A missing target exercises the same scan error path for a file symlink or a directory junction.
+		await fs.symlink(
+			path.join(tempDir, "missing-target"),
+			path.join(projectRulesDir, "broken.md"),
+			process.platform === "win32" ? "junction" : "file",
+		)
 
 		await expect(getRules(cwd, { modes: [] })).resolves.toEqual([])
 	})

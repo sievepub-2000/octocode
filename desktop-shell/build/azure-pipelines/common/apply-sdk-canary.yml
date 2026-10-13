@@ -14,15 +14,21 @@ parameters:
 steps:
   - ${{ if eq(parameters.windows, true) }}:
       - powershell: |
+          $ErrorActionPreference = 'Stop'
           npm config set registry $env:NPM_REGISTRY
-          Write-Host "##vso[task.setvariable variable=SDK_CANARY_NPMRC_PATH]$(npm config get userconfig)"
+          if ($LASTEXITCODE -ne 0) { throw "npm registry configuration failed: $LASTEXITCODE" }
+          $NpmrcPath = (npm config get userconfig)
+          if ($LASTEXITCODE -ne 0 -or -not $NpmrcPath) { throw "npm userconfig lookup failed: $LASTEXITCODE" }
+          Write-Host "##vso[task.setvariable variable=SDK_CANARY_NPMRC_PATH]$NpmrcPath"
         condition: and(succeeded(), ne(variables['VSCODE_SDK_CANARY_VERSION'], ''))
         displayName: SDK canary — set registry for auth
   - ${{ else }}:
       - script: |
           set -e
           npm config set registry "$NPM_REGISTRY"
-          echo "##vso[task.setvariable variable=SDK_CANARY_NPMRC_PATH]$(npm config get userconfig)"
+          NPMRC_PATH=$(npm config get userconfig)
+          test -n "$NPMRC_PATH"
+          echo "##vso[task.setvariable variable=SDK_CANARY_NPMRC_PATH]$NPMRC_PATH"
         condition: and(succeeded(), ne(variables['VSCODE_SDK_CANARY_VERSION'], ''))
         displayName: SDK canary — set registry for auth
 

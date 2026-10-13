@@ -69,11 +69,14 @@ const ChatView = forwardRef<ChatViewRef, ChatViewProps>(({ isHidden }, ref) => {
 	const [view, setView] = useState<View>()
 	const current = useRef<View | undefined>(undefined)
 	const selectedSession = useRef<string | undefined>(undefined)
+	const newProjectId = useRef<string | undefined>(undefined)
 	const rolloverSource = useRef<RuntimeTask | undefined>(undefined)
 	const rolloverTarget = useRef<RuntimeTask | undefined>(undefined)
 	const [inputValue, setInputValue] = useState("")
 	const [selectedImages, setSelectedImages] = useState<string[]>([])
 	const [selectedAttachments, setSelectedAttachments] = useState<NonNullable<ExtensionMessage["attachments"]>>([])
+	const [composerIdentity, setComposerIdentity] = useState("new")
+	const attachmentRequests = useRef(new Set<string>())
 	const [error, setError] = useState("")
 	const [elapsedSeconds, setElapsedSeconds] = useState(0)
 	const textArea = useRef<HTMLTextAreaElement>(null)
@@ -194,7 +197,12 @@ const ChatView = forwardRef<ChatViewRef, ChatViewProps>(({ isHidden }, ref) => {
 					status: "running",
 					startedAt: Date.now(),
 				})
-				vscode.postMessage({ type: "newTask", text, images })
+				vscode.postMessage({
+					type: "newTask",
+					text,
+					images,
+					...(newProjectId.current ? { projectId: newProjectId.current } : {}),
+				})
 			}
 			setError("")
 			setInputValue("")
@@ -213,15 +221,30 @@ const ChatView = forwardRef<ChatViewRef, ChatViewProps>(({ isHidden }, ref) => {
 	useEffect(() => {
 		const receive = ({ data: message }: MessageEvent<ExtensionMessage>) => {
 			if (message.type === "runtimeSessionLoading") {
+				const sessionId = (message.payload as { sessionId: string }).sessionId
+				if (selectedSession.current !== sessionId) {
+					attachmentRequests.current.clear()
+					setComposerIdentity(sessionId)
+					setInputValue("")
+					setSelectedImages([])
+					setSelectedAttachments([])
+				}
 				rolloverSource.current = undefined
 				rolloverTarget.current = undefined
-				selectedSession.current = (message.payload as { sessionId: string }).sessionId
+				selectedSession.current = sessionId
 				pending.current = []
 				return
 			}
 			if (message.type === "runtimeSessionLoaded") {
 				const next = message.payload as View
 				if (selectedSession.current && selectedSession.current !== next.sessionId) return
+				if (selectedSession.current !== next.sessionId) {
+					attachmentRequests.current.clear()
+					setComposerIdentity(next.sessionId)
+					setInputValue("")
+					setSelectedImages([])
+					setSelectedAttachments([])
+				}
 				selectedSession.current = next.sessionId
 				pending.current = []
 				publish(next)
@@ -396,7 +419,12 @@ const ChatView = forwardRef<ChatViewRef, ChatViewProps>(({ isHidden }, ref) => {
 				}
 				return
 			}
-			if (message.type === "selectedFiles" && message.attachments?.length)
+			if (
+				message.type === "selectedFiles" &&
+				message.requestId &&
+				attachmentRequests.current.delete(message.requestId) &&
+				message.attachments?.length
+			)
 				setSelectedAttachments((current) => {
 					const additions = message.attachments!.filter(
 						(item) => !current.some((saved) => saved.file === item.file),
@@ -407,12 +435,20 @@ const ChatView = forwardRef<ChatViewRef, ChatViewProps>(({ isHidden }, ref) => {
 					}
 					return [...current, ...additions]
 				})
-			if (message.type === "selectedImages" && message.context !== "edit")
+			if (
+				message.type === "selectedImages" &&
+				message.context !== "edit" &&
+				message.requestId &&
+				attachmentRequests.current.has(message.requestId)
+			)
 				setSelectedImages((images) => appendImages(images, message.images, MAX_IMAGES_PER_MESSAGE))
 			if (message.type === "action" && (message.action === "focusInput" || message.action === "didBecomeVisible"))
 				textArea.current?.focus()
 			if (message.type === "invoke") {
 				if (message.invoke === "newChat") {
+					attachmentRequests.current.clear()
+					setComposerIdentity(crypto.randomUUID())
+					newProjectId.current = message.projectId
 					selectedSession.current = undefined
 					pending.current = []
 					publish(undefined)
@@ -482,6 +518,7 @@ const ChatView = forwardRef<ChatViewRef, ChatViewProps>(({ isHidden }, ref) => {
 					</p>
 				)}
 				<ChatTextArea
+					key={composerIdentity}
 					ref={textArea}
 					topOverlay={
 						(plan.length > 0 || (view?.queue?.length ?? 0) > 0) && (
@@ -599,14 +636,17 @@ const ChatView = forwardRef<ChatViewRef, ChatViewProps>(({ isHidden }, ref) => {
 						setSelectedAttachments((items) => items.filter((item) => item.file !== file))
 					}
 					onSend={() => send(inputValue, selectedImages)}
-					onSelectFiles={() =>
+					onSelectFiles={() => {
+						const requestId = crypto.randomUUID()
+						attachmentRequests.current.add(requestId)
 						vscode.postMessage({
 							type: "selectFiles",
+							requestId,
 							// Whether a picture chosen in that one dialog can be attached as
 							// an image rather than read into the prompt as text.
 							bool: !!model?.supportsImages && selectedImages.length < MAX_IMAGES_PER_MESSAGE,
 						})
-					}
+					}}
 					shouldDisableImages={!model?.supportsImages || selectedImages.length >= MAX_IMAGES_PER_MESSAGE}
 					mode={mode}
 					setMode={setMode}

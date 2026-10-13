@@ -5,10 +5,29 @@ import { Search, Trash2 } from "lucide-react"
 import { Button, Input } from "@/components/ui"
 import { vscode } from "@src/utils/vscode"
 
+const PURGE_BATCH_SIZE = 10_000
+const MAX_PURGE_BATCHES = 100
+const RETENTION_REQUEST_TIMEOUT = 310_000
+
+type RetentionOperation = {
+	requestId: string
+	phase: "setting" | "purge"
+	days: number
+	batches: number
+	timer: number
+}
+
 const localDate = (value: string, nextDay = false) => {
 	if (!value) return undefined
+	if (!/^\d{4,}-\d{2}-\d{2}$/.test(value)) return null
 	const [year, month, day] = value.split("-").map(Number)
-	return new Date(year, month - 1, day + Number(nextDay)).getTime()
+	if (year < 1 || month < 1 || month > 12 || day < 1 || day > 31) return null
+	const date = new Date(0)
+	date.setHours(0, 0, 0, 0)
+	date.setFullYear(year, month - 1, day)
+	if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null
+	if (nextDay) date.setDate(day + 1)
+	return Number.isFinite(date.getTime()) ? date.getTime() : null
 }
 
 const LogsView = () => {
@@ -18,6 +37,10 @@ const LogsView = () => {
 	const [startDate, setStartDate] = useState("")
 	const [endDate, setEndDate] = useState("")
 	const [retention, setRetention] = useState(30)
+	const [savingRetention, setSavingRetention] = useState(false)
+	const [retentionError, setRetentionError] = useState<string | null>(null)
+	const [logError, setLogError] = useState<string | null>(null)
+	const retentionOperation = useRef<RetentionOperation | null>(null)
 	const settingRequest = useRef("")
 	const refreshAfter = useRef(new Set<string>())
 
@@ -27,21 +50,59 @@ const LogsView = () => {
 		return requestId
 	}, [])
 
-	const filter = useCallback(
-		() => ({
+	const finishRetention = useCallback((error?: string) => {
+		if (retentionOperation.current) window.clearTimeout(retentionOperation.current.timer)
+		retentionOperation.current = null
+		setSavingRetention(false)
+		setRetentionError(error ?? null)
+	}, [])
+	const sendRetentionRequest = useCallback(
+		(phase: RetentionOperation["phase"], days: number, batches: number) => {
+			try {
+				const requestId =
+					phase === "setting"
+						? request("setting.set", { key: "log.retention_days", value: days })
+						: request("log.purge", { retention_days: days })
+				const timer = window.setTimeout(() => {
+					if (retentionOperation.current?.requestId === requestId) {
+						finishRetention("The request timed out. Save again to retry cleanup.")
+					}
+				}, RETENTION_REQUEST_TIMEOUT)
+				retentionOperation.current = { requestId, phase, days, batches, timer }
+			} catch (error) {
+				finishRetention(error instanceof Error ? error.message : String(error))
+			}
+		},
+		[finishRetention, request],
+	)
+
+	const filter = useCallback(() => {
+		const from = localDate(startDate)
+		const to = localDate(endDate, true)
+		if (from === null || to === null || (from !== undefined && to !== undefined && from >= to)) {
+			setLogError(
+				t("settings:logs.invalidDateFilter", {
+					defaultValue: "Enter a supported date range with the start on or before the end.",
+				}),
+			)
+			return null
+		}
+		setLogError(null)
+		return {
 			keyword: keyword.trim() || undefined,
-			from: localDate(startDate),
-			to: localDate(endDate, true),
-		}),
-		[endDate, keyword, startDate],
-	)
-	const query = useCallback(
-		() => request("log.list", { category, ...filter(), limit: 1000 }),
-		[category, filter, request],
-	)
+			from,
+			to,
+		}
+	}, [endDate, keyword, startDate, t])
+	const query = useCallback(() => {
+		const params = filter()
+		if (params) request("log.list", { category, ...params, limit: 1000 })
+	}, [category, filter, request])
 	const selectCategory = (next: "system" | "developer") => {
+		const params = filter()
+		if (!params) return
 		setCategory(next)
-		request("log.list", { category: next, ...filter(), limit: 1000 })
+		request("log.list", { category: next, ...params, limit: 1000 })
 	}
 	const hasFilter = Boolean(keyword.trim() || startDate || endDate)
 	const queryRef = useRef(query)
@@ -51,23 +112,73 @@ const LogsView = () => {
 		settingRequest.current = request("setting.get", { key: "log.retention_days" })
 		const receive = (event: MessageEvent) => {
 			if (event.data?.type !== "runtimeResponse") return
-			const { requestId, result } = event.data.payload ?? {}
-			if (requestId === settingRequest.current && Number.isInteger(result)) setRetention(result)
-			if (refreshAfter.current.delete(requestId)) queryRef.current()
+			const { requestId, result, error } = event.data.payload ?? {}
+			if (requestId === settingRequest.current) {
+				settingRequest.current = ""
+				if (!retentionOperation.current && Number.isInteger(result)) setRetention(result)
+			}
+			const operation = retentionOperation.current
+			if (operation && requestId === operation.requestId) {
+				window.clearTimeout(operation.timer)
+				if (error) {
+					finishRetention(String(error))
+				} else if (operation.phase === "setting") {
+					sendRetentionRequest("purge", operation.days, 0)
+				} else {
+					const deleted = result?.deleted_logs
+					if (
+						typeof deleted !== "number" ||
+						!Number.isInteger(deleted) ||
+						deleted < 0 ||
+						deleted > PURGE_BATCH_SIZE
+					) {
+						finishRetention("The cleanup response was invalid. Save again to retry cleanup.")
+					} else if (deleted < PURGE_BATCH_SIZE) {
+						finishRetention()
+						queryRef.current()
+					} else if (operation.batches + 1 >= MAX_PURGE_BATCHES) {
+						finishRetention(
+							"Cleanup reached its batch limit. If expired logs remain, save again to continue.",
+						)
+					} else {
+						sendRetentionRequest("purge", operation.days, operation.batches + 1)
+					}
+				}
+			}
+			if (refreshAfter.current.delete(requestId)) {
+				if (error) setLogError(String(error))
+				else queryRef.current()
+			}
 		}
 		window.addEventListener("message", receive)
-		return () => window.removeEventListener("message", receive)
-	}, [request])
+		return () => {
+			window.removeEventListener("message", receive)
+			if (retentionOperation.current) window.clearTimeout(retentionOperation.current.timer)
+			retentionOperation.current = null
+		}
+	}, [finishRetention, request, sendRetentionRequest])
 
 	const saveRetention = () => {
+		if (retentionOperation.current) return
 		const days = Math.max(1, Math.min(3650, retention || 30))
 		setRetention(days)
-		request("setting.set", { key: "log.retention_days", value: days })
-		refreshAfter.current.add(request("log.purge", { retention_days: days }))
+		setRetentionError(null)
+		setSavingRetention(true)
+		sendRetentionRequest("setting", days, 0)
 	}
-	const deleteMatching = () =>
-		refreshAfter.current.add(request("log.delete_matching", { category, ...filter() }))
-	const clearAll = () => refreshAfter.current.add(request("log.clear", { category }))
+	const mutateLogs = (method: string, params: unknown) => {
+		setLogError(null)
+		try {
+			refreshAfter.current.add(request(method, params))
+		} catch (error) {
+			setLogError(error instanceof Error ? error.message : String(error))
+		}
+	}
+	const deleteMatching = () => {
+		const params = filter()
+		if (params) mutateLogs("log.delete_matching", { category, ...params })
+	}
+	const clearAll = () => mutateLogs("log.clear", { category })
 
 	return (
 		<section className="space-y-5 p-5" aria-label={t("octocode.systemLogs")}>
@@ -130,6 +241,11 @@ const LogsView = () => {
 					<Trash2 /> {t("settings:logs.clearAll")}
 				</Button>
 			</div>
+			{logError && (
+				<p role="alert" className="text-vscode-errorForeground">
+					{logError}
+				</p>
+			)}
 			<div className="flex max-w-md items-end gap-2 border-t border-vscode-settings-headerBorder pt-4">
 				<label className="min-w-0 flex-1 space-y-1">
 					<span>{t("octocode.retentionDays")}</span>
@@ -139,11 +255,20 @@ const LogsView = () => {
 						max={3650}
 						type="number"
 						value={retention}
+						disabled={savingRetention}
 						onChange={(event) => setRetention(Number(event.target.value))}
 					/>
 				</label>
-				<Button onClick={saveRetention}>{t("octocode.save")}</Button>
+				<Button disabled={savingRetention} onClick={saveRetention}>
+					{t("octocode.save")}
+				</Button>
 			</div>
+			{retentionError && (
+				<p role="alert" className="text-vscode-errorForeground">
+					{t("settings:logs.retentionCleanupError", { defaultValue: "Retention cleanup did not finish." })}{" "}
+					{retentionError}
+				</p>
+			)}
 		</section>
 	)
 }

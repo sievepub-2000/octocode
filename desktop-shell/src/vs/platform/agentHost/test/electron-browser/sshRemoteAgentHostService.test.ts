@@ -59,14 +59,24 @@ class MockSSHMainService {
 	readonly onDidCancelKeyboardInteractive = this._onDidCancelKeyboardInteractive.event;
 
 	readonly kbiResponses: Array<{ requestId: string; responses: ReadonlyArray<string> | undefined }> = [];
+	kbiResponse = new DeferredPromise<void>();
+
+	requestKeyboardInteractive(request: ISSHKeyboardInteractiveRequest): void {
+		this._onDidRequestKeyboardInteractive.fire(request);
+	}
+
+	cancelKeyboardInteractive(requestId: string): void {
+		this._onDidCancelKeyboardInteractive.fire(requestId);
+	}
 
 	async respondKeyboardInteractive(requestId: string, responses?: ReadonlyArray<string>): Promise<void> {
 		this.kbiResponses.push({ requestId, responses });
+		this.kbiResponse.complete();
 	}
 
 	readonly disconnectCalls: string[] = [];
 	readonly connectCalls: ISSHAgentHostConfig[] = [];
-	readonly reconnectCalls: Array<{ sshConfigHost: string; name: string }> = [];
+	readonly reconnectCalls: Array<{ sshConfigHost: string; name: string; remoteAgentHostCommand?: string; agentForward?: boolean }> = [];
 	private _nextConnectionId = 1;
 
 	connectResult: Partial<ISSHConnectResult> | undefined;
@@ -84,8 +94,8 @@ class MockSSHMainService {
 		};
 	}
 
-	async reconnect(sshConfigHost: string, name: string): Promise<ISSHConnectResult> {
-		this.reconnectCalls.push({ sshConfigHost, name });
+	async reconnect(sshConfigHost: string, name: string, remoteAgentHostCommand?: string, agentForward?: boolean): Promise<ISSHConnectResult> {
+		this.reconnectCalls.push({ sshConfigHost, name, remoteAgentHostCommand, agentForward });
 		return {
 			connectionId: this.connectResult?.connectionId ?? `conn-${this._nextConnectionId++}`,
 			address: this.connectResult?.address ?? `ssh:${sshConfigHost}`,
@@ -218,8 +228,15 @@ class MockProtocolClient extends Disposable {
 
 class TestConfigurationService {
 	readonly onDidChangeConfiguration = Event.None;
+	agentForward: boolean | undefined;
+	commandOverride: string | undefined;
 	constructor(private _remoteAgentHostsEnabled = true) { }
-	getValue(key?: string): unknown { return key === RemoteAgentHostsEnabledSettingId ? this._remoteAgentHostsEnabled : undefined; }
+	getValue(key?: string): unknown {
+		if (key === RemoteAgentHostsEnabledSettingId) {
+			return this._remoteAgentHostsEnabled;
+		}
+		return key === 'chat.agentHost.forwardSSHAgent' ? this.agentForward : key === 'chat.sshRemoteAgentHostCommand' ? this.commandOverride : undefined;
+	}
 	setRemoteAgentHostsEnabled(enabled: boolean): void { this._remoteAgentHostsEnabled = enabled; }
 }
 
@@ -232,6 +249,8 @@ suite('SSHRemoteAgentHostService (renderer)', () => {
 	let createdClients: MockProtocolClient[];
 	let waitForClient: (index: number) => Promise<MockProtocolClient>;
 	let service: SSHRemoteAgentHostService;
+	let input: IQuickInputService['input'];
+	let logService: NullLogService;
 
 	setup(() => {
 		mainService = new MockSSHMainService();
@@ -244,10 +263,12 @@ suite('SSHRemoteAgentHostService (renderer)', () => {
 		};
 
 		const instantiationService = disposables.add(new TestInstantiationService());
-		instantiationService.stub(ILogService, new NullLogService());
+		logService = new NullLogService();
+		instantiationService.stub(ILogService, logService);
 		configurationService = new TestConfigurationService();
 		instantiationService.stub(IConfigurationService, configurationService as Partial<IConfigurationService>);
-		instantiationService.stub(IQuickInputService, {} as Partial<IQuickInputService>);
+		input = async () => undefined;
+		instantiationService.stub(IQuickInputService, { input: (options, token) => input(options, token) });
 		instantiationService.stub(ISharedProcessService, sharedProcessService as ISharedProcessService);
 		instantiationService.stub(IRemoteAgentHostService, remoteAgentHostService as Partial<IRemoteAgentHostService>);
 
@@ -284,11 +305,120 @@ suite('SSHRemoteAgentHostService (renderer)', () => {
 		sshConfigHost: 'remote.example',
 	};
 
+	const keyboardRequest: ISSHKeyboardInteractiveRequest = {
+		requestId: 'owned-prompt-request', connectionKey: 'owned-connection', displayHost: 'owned-host', username: 'owned-user', name: '', instructions: '',
+		prompts: [{ prompt: '[first](command:owned.prompt): ', echo: false }, { prompt: '原文 $(warning)', echo: true }],
+	};
+
+	test('server prompts explicitly use plain text and preserve batched responses, echo and cancellation dispatch', async () => {
+		const calls: Parameters<IQuickInputService['input']>[] = [];
+		const logs: string[] = [];
+		logService.info = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
+		input = async (...args) => { calls.push(args); return `owned-response-${calls.length}`; };
+		mainService.requestKeyboardInteractive(keyboardRequest);
+		await mainService.kbiResponse.p;
+		assert.deepStrictEqual(calls.map(([options]) => options), [
+			{ title: 'owned-host (1/2)', prompt: '[first](command:owned.prompt)', promptIsPlainText: true, password: true, ignoreFocusLost: true },
+			{ title: 'owned-host (2/2)', prompt: '原文 $(warning)', promptIsPlainText: true, password: false, ignoreFocusLost: true },
+		]);
+		assert.strictEqual(calls[0][1], calls[1][1]);
+		assert.deepStrictEqual(mainService.kbiResponses, [{ requestId: keyboardRequest.requestId, responses: ['owned-response-1', 'owned-response-2'] }]);
+		assert.ok(logs.every(log => !log.includes('owned-response')));
+		for (const fail of [false, true]) {
+			mainService.kbiResponse = new DeferredPromise<void>();
+			input = async () => {
+				if (fail) {
+					throw new Error('owned input failure');
+				}
+				return undefined;
+			};
+			mainService.requestKeyboardInteractive(keyboardRequest);
+			await mainService.kbiResponse.p;
+			assert.deepStrictEqual(mainService.kbiResponses.at(-1), { requestId: keyboardRequest.requestId, responses: undefined });
+		}
+		mainService.kbiResponse = new DeferredPromise<void>();
+		input = async () => { assert.fail('No input for an empty challenge'); };
+		mainService.requestKeyboardInteractive({ ...keyboardRequest, prompts: [] });
+		await mainService.kbiResponse.p;
+		assert.deepStrictEqual(mainService.kbiResponses.at(-1), { requestId: keyboardRequest.requestId, responses: [] });
+	});
+
+	test('server prompt cancellation keeps request identity and suppresses late response dispatch', async () => {
+		const called = new DeferredPromise<Parameters<IQuickInputService['input']>>();
+		const reply = new DeferredPromise<string | undefined>();
+		const cancelled = new DeferredPromise<void>();
+		input = (...args) => {
+			called.complete(args);
+			disposables.add(args[1]!.onCancellationRequested(() => { cancelled.complete(); }));
+			return reply.p;
+		};
+		mainService.requestKeyboardInteractive(keyboardRequest);
+		const [options, token] = await called.p;
+		assert.strictEqual(options!.promptIsPlainText, true);
+		mainService.cancelKeyboardInteractive('another-owned-request');
+		assert.strictEqual(token!.isCancellationRequested, false);
+		mainService.cancelKeyboardInteractive(keyboardRequest.requestId);
+		await cancelled.p;
+		assert.strictEqual(token!.isCancellationRequested, true);
+		await reply.complete('owned late response');
+		assert.deepStrictEqual(mainService.kbiResponses, []);
+	});
+
 	/** Wait until the renderer has created its protocol client, then resolve its handshake. */
 	async function awaitClientThenResolve(index: number): Promise<void> {
 		const client = await waitForClient(index);
 		client.connectDeferred.complete();
 	}
+
+	test('global forwarding opt-in clears per-host forwarding without mutating config or losing command override', async () => {
+		configurationService.agentForward = false;
+		configurationService.commandOverride = 'configured-owned-command';
+		const config = Object.freeze({ ...sampleConfig, agentForward: true, remoteAgentHostCommand: 'original-owned-command' });
+		const pending = service.connect(config);
+		await awaitClientThenResolve(0);
+		await pending;
+
+		assert.deepStrictEqual({
+			forwarded: mainService.connectCalls[0].agentForward,
+			command: mainService.connectCalls[0].remoteAgentHostCommand,
+			originalForwarding: config.agentForward,
+			originalCommand: config.remoteAgentHostCommand,
+		}, { forwarded: undefined, command: 'configured-owned-command', originalForwarding: true, originalCommand: 'original-owned-command' });
+	});
+
+	test('forwarding requires both opt-ins and preserves a command without an override', async () => {
+		const cases = [
+			{ global: undefined, perHost: true, expected: undefined },
+			{ global: true, perHost: undefined, expected: undefined },
+			{ global: true, perHost: false, expected: undefined },
+			{ global: true, perHost: true, expected: true },
+		];
+		for (const [index, entry] of cases.entries()) {
+			configurationService.agentForward = entry.global;
+			const config = Object.freeze({ ...sampleConfig, agentForward: entry.perHost, remoteAgentHostCommand: 'original-owned-command' });
+			const pending = service.connect(config);
+			await awaitClientThenResolve(index);
+			await pending;
+			assert.strictEqual(mainService.connectCalls[index].agentForward, entry.expected);
+			assert.strictEqual(mainService.connectCalls[index].remoteAgentHostCommand, config.remoteAgentHostCommand);
+			assert.strictEqual(config.agentForward, entry.perHost);
+			remoteAgentHostService.removeEntry('ssh:remote.example');
+		}
+	});
+
+	test('reconnect passes the global forwarding gate and command override to the resolving producer', async () => {
+		for (const [index, enabled] of [false, true].entries()) {
+			configurationService.agentForward = enabled;
+			configurationService.commandOverride = 'configured-owned-command';
+			const pending = service.reconnect('remote.example', 'My Remote');
+			await awaitClientThenResolve(index);
+			await pending;
+			assert.deepStrictEqual(mainService.reconnectCalls[index], {
+				sshConfigHost: 'remote.example', name: 'My Remote', remoteAgentHostCommand: 'configured-owned-command', agentForward: enabled || undefined,
+			});
+			remoteAgentHostService.removeEntry('ssh:remote.example');
+		}
+	});
 
 	test('connect registers a managed connection with a transport disposable', async () => {
 		const connectPromise = service.connect(sampleConfig);
@@ -301,6 +431,89 @@ suite('SSHRemoteAgentHostService (renderer)', () => {
 		assert.ok(remoteAgentHostService.added[0].transport, 'a transport disposable is passed so removal can tear down the SSH tunnel');
 		assert.strictEqual(service.connections.length, 1);
 		assert.strictEqual(handle.localAddress, 'ssh:remote.example');
+	});
+
+	test('concurrent connects for the same main connection share one handshake and handle', async () => {
+		mainService.connectResult = { connectionId: 'conn-stable', address: 'ssh:remote.example' };
+		const first = service.connect(sampleConfig);
+		const second = service.connect(sampleConfig);
+		await waitForClient(0);
+		await new Promise<void>(resolve => setTimeout(resolve, 0));
+		for (const client of createdClients) {
+			client.connectDeferred.complete();
+		}
+		const [firstHandle, secondHandle] = await Promise.all([first, second]);
+
+		assert.deepStrictEqual({
+			clientCount: createdClients.length,
+			registrations: remoteAgentHostService.added.length,
+			sameHandle: firstHandle === secondHandle,
+			visibleHandles: service.connections.length,
+			producerCalls: mainService.connectCalls.length,
+		}, { clientCount: 1, registrations: 1, sameHandle: true, visibleHandles: 1, producerCalls: 2 });
+	});
+
+	test('a failed handshake releases the same-key queue for retry and preserves the original error', async () => {
+		mainService.connectResult = { connectionId: 'conn-stable', address: 'ssh:remote.example' };
+		const error = new Error('owned handshake failure');
+		const first = service.connect(sampleConfig);
+		const rejected = assert.rejects(first, (actual: unknown) => actual === error);
+		const retry = service.connect(sampleConfig);
+		const failedClient = await waitForClient(0);
+		failedClient.connectDeferred.error(error);
+		await rejected;
+		await awaitClientThenResolve(1);
+		const replacement = await retry;
+		assert.deepStrictEqual(mainService.disconnectCalls, ['conn-stable']);
+		assert.strictEqual(remoteAgentHostService.added.length, 1);
+		assert.strictEqual(service.connections[0], replacement);
+	});
+
+	test('reconnect waits for the same-key setup then performs its own relay handshake', async () => {
+		mainService.connectResult = { connectionId: 'conn-stable', address: 'ssh:remote.example' };
+		const first = service.connect(sampleConfig);
+		await waitForClient(0);
+		const reconnect = service.reconnect('remote.example', 'My Remote');
+		await new Promise<void>(resolve => setTimeout(resolve, 0));
+		assert.strictEqual(mainService.reconnectCalls.length, 0);
+		createdClients[0].connectDeferred.complete();
+		const firstHandle = await first;
+		await awaitClientThenResolve(1);
+		const replacement = await reconnect;
+		assert.notStrictEqual(replacement, firstHandle);
+		assert.strictEqual(mainService.reconnectCalls.length, 1);
+		assert.strictEqual(remoteAgentHostService.added.length, 2);
+		assert.deepStrictEqual(mainService.disconnectCalls, []);
+	});
+
+	test('different main connection keys can handshake concurrently', async () => {
+		const first = service.connect({ ...sampleConfig, sshConfigHost: undefined });
+		const second = service.connect({ ...sampleConfig, host: 'second.example', sshConfigHost: undefined });
+		await Promise.all([waitForClient(0), waitForClient(1)]);
+		assert.strictEqual(mainService.connectCalls.length, 2);
+		createdClients.forEach(client => client.connectDeferred.complete());
+		const handles = await Promise.all([first, second]);
+		assert.notStrictEqual(handles[0], handles[1]);
+		assert.strictEqual(service.connections.length, 2);
+	});
+
+	test('reconnect replaces a healthy handle when the main relay keeps the same id', async () => {
+		mainService.connectResult = { connectionId: 'conn-stable', address: 'ssh:remote.example' };
+		const first = service.connect(sampleConfig);
+		await awaitClientThenResolve(0);
+		const firstHandle = await first;
+		const reconnect = service.reconnect('remote.example', 'My Remote');
+		await new Promise<void>(resolve => setTimeout(resolve, 0));
+		createdClients[1]?.connectDeferred.complete();
+		const replacement = await reconnect;
+
+		assert.deepStrictEqual({
+			clientCount: createdClients.length,
+			registrations: remoteAgentHostService.added.length,
+			replaced: replacement !== firstHandle,
+			current: service.connections[0] === replacement,
+			disconnectCalls: mainService.disconnectCalls,
+		}, { clientCount: 2, registrations: 2, replaced: true, current: true, disconnectCalls: [] });
 	});
 
 	test('incompatible handshake keeps SSH tunnel registered for server upgrade', async () => {
@@ -373,6 +586,25 @@ suite('SSHRemoteAgentHostService (renderer)', () => {
 			disconnectCalls: [],
 			connections: ['ssh:remote.example'],
 		});
+	});
+
+	test('disposing an old managed transport cannot disconnect its same-id replacement', async () => {
+		mainService.connectResult = { connectionId: 'conn-stable', address: 'ssh:remote.example' };
+		const first = service.connect(sampleConfig);
+		await awaitClientThenResolve(0);
+		const firstHandle = await first;
+		const oldTransport = remoteAgentHostService.added[0].transport!;
+		const reconnect = service.reconnect('remote.example', 'My Remote');
+		await awaitClientThenResolve(1);
+		const replacement = await reconnect;
+
+		oldTransport.dispose();
+		firstHandle.dispose();
+		assert.deepStrictEqual(mainService.disconnectCalls, []);
+		assert.strictEqual(service.connections[0], replacement);
+		remoteAgentHostService.removeEntry('ssh:remote.example');
+		assert.deepStrictEqual(mainService.disconnectCalls, ['conn-stable']);
+		assert.strictEqual(service.connections.length, 0);
 	});
 
 	test('disabled setting prevents SSH tunnel connects and reconnects', async () => {

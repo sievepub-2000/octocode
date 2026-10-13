@@ -16,8 +16,4 @@ __pycache__/
 !/docs/releases/
 /docs/releases/*
 !/docs/releases/0.1.8.md
-
-# Aggregate GitHub source trees
-!/desktop-shell/
-!/octocode-core/
-!/octo-harness/
+!/docs/releases/0.1.9.md

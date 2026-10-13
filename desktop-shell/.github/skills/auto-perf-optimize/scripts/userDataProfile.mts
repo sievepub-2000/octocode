@@ -63,26 +63,38 @@ async function copySeedUserDataDir(seedUserDataDir: string, userDataDir: string)
 	if (!await isDirectory(seedUserDataDir)) {
 		throw new Error(`Seed user-data-dir does not exist or is not a directory: ${seedUserDataDir}`);
 	}
-	if (await pathExists(userDataDir)) {
-		const children = await readdir(userDataDir).catch(() => []);
+	const targetExists = await pathExists(userDataDir);
+	if (targetExists) {
+		const children = await readdir(userDataDir);
 		if (children.length > 0) {
 			throw new Error(`Refusing to copy seed profile because the target user-data-dir already exists: ${userDataDir}. Choose a fresh --user-data-dir, pass --temporary-user-data, or delete the target first.`);
 		}
-		await rm(userDataDir, { recursive: true, force: true, maxRetries: 3 });
 	}
 
 	console.log(`[code] copying seed user-data-dir: ${seedUserDataDir}`);
 	console.log(`[code] seed copy target may contain auth secrets: ${userDataDir}`);
 	await mkdir(path.dirname(userDataDir), { recursive: true });
+	let createdTarget = false;
 	try {
-		await cp(seedUserDataDir, userDataDir, {
-			recursive: true,
-			errorOnExist: true,
-			force: false,
-			filter: source => shouldCopyUserDataPath(seedUserDataDir, source),
-		});
+		if (!targetExists) {
+			// Reserve a fresh target without replacing a directory another caller created.
+			await mkdir(userDataDir);
+			createdTarget = true;
+		}
+		// cp(errorOnExist) rejects an existing root directory; keep that root and
+		// apply the no-overwrite guard to each copied entry instead.
+		for (const entry of await readdir(seedUserDataDir)) {
+			await cp(path.join(seedUserDataDir, entry), path.join(userDataDir, entry), {
+				recursive: true,
+				errorOnExist: true,
+				force: false,
+				filter: source => shouldCopyUserDataPath(seedUserDataDir, source),
+			});
+		}
 	} catch (error) {
-		await rm(userDataDir, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
+		if (createdTarget) {
+			await rm(userDataDir, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
+		}
 		throw error;
 	}
 }
@@ -103,5 +115,10 @@ async function isDirectory(file: string): Promise<boolean> {
 }
 
 async function pathExists(file: string): Promise<boolean> {
-	return stat(file).then(() => true, () => false);
+	return stat(file).then(() => true, (error: NodeJS.ErrnoException) => {
+		if (error.code === 'ENOENT' || error.code === 'ENOTDIR') {
+			return false;
+		}
+		throw error;
+	});
 }

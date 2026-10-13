@@ -347,18 +347,18 @@
 	"extensions": {
 		"market": "Pazar",
 		"systemToolsHint": "Sistem araçları · tüm çalışma alanlarında kullanılabilir",
-		"environments": "Runtimes",
-		"install": "Install",
-		"uninstall": "Uninstall",
-		"enable": "Enable",
-		"disable": "Disable",
-		"installed": "Installed",
-		"available": "Available",
-		"builtIn": "Built in",
-		"working": "Working…",
-		"empty": "Nothing to show.",
-		"environmentsHint": "Toolchains the agent can use. They are downloaded when first needed; install one ahead of time or remove it here.",
-		"search": "Search VS Code extensions (Open VSX)…",
-		"vscodeHint": "VS Code extensions add languages, debuggers and editor features. Search the gallery, then install or uninstall here."
+		"environments": "Çalışma ortamları",
+		"install": "Yükle",
+		"uninstall": "Kaldır",
+		"enable": "Etkinleştir",
+		"disable": "Devre dışı bırak",
+		"installed": "Yüklü",
+		"available": "Kullanılabilir",
+		"builtIn": "Yerleşik",
+		"working": "İşleniyor…",
+		"empty": "Gösterilecek bir şey yok.",
+		"environmentsHint": "Aracının kullanabileceği araç zincirleri. İlk ihtiyaç duyulduğunda indirilirler; buradan önceden yükleyebilir veya kaldırabilirsiniz.",
+		"search": "VS Code eklentilerini ara (Open VSX)…",
+		"vscodeHint": "VS Code eklentileri dil desteği, hata ayıklayıcılar ve düzenleyici özellikleri sağlar. Buradan arayabilir, yükleyebilir veya kaldırabilirsiniz."
 	}
 }

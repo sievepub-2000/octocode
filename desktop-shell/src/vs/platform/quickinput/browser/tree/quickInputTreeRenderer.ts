@@ -47,6 +47,7 @@ export class QuickInputCheckboxStateHandler<T> extends Disposable {
 export class QuickInputTreeRenderer<T extends IQuickTreeItem> extends Disposable implements ITreeRenderer<T, IQuickTreeFilterData, IQuickTreeTemplateData> {
 	static readonly ID = 'quickInputTreeElement';
 	templateId = QuickInputTreeRenderer.ID;
+	enabled = true;
 
 	private readonly _onDidDisposeFocusedElement = this._register(new Emitter<void>());
 
@@ -120,8 +121,10 @@ export class QuickInputTreeRenderer<T extends IQuickTreeItem> extends Disposable
 			checkbox.domNode.style.display = '';
 			checkbox.checked = quickTreeItem.checked ?? false;
 			store.add(Event.filter(this.onCheckedEvent, e => e.item === quickTreeItem)(e => checkbox.checked = e.checked));
-			if (quickTreeItem.disabled) {
+			if (!this.enabled || quickTreeItem.disabled) {
 				checkbox.disable();
+			} else {
+				checkbox.enable();
 			}
 			store.add(checkbox.onChange((e) => this._checkboxStateHandler.setCheckboxState(quickTreeItem, checkbox.checked)));
 		}

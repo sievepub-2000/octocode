@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Box, ExternalLink, FileUp, Trash2 } from "lucide-react"
 
@@ -32,6 +32,7 @@ type Artifact = {
 const ArtifactView = () => {
 	const { t } = useTranslation("common")
 	const [artifact, setArtifact] = useState<Artifact>()
+	const activeSessionId = useRef<string | undefined>(undefined)
 	const [url, setUrl] = useState("http://localhost:3000")
 	const removeLog = (id: number) => {
 		vscode.postMessage({
@@ -47,7 +48,23 @@ const ArtifactView = () => {
 
 	useEffect(() => {
 		const receive = (event: MessageEvent) => {
-			if (event.data?.type === "artifactSelected") setArtifact(event.data.payload)
+			if (event.data?.type === "invoke" && event.data.invoke === "newChat") {
+				activeSessionId.current = undefined
+				setArtifact(undefined)
+				setUrl("http://localhost:3000")
+			}
+			if (event.data?.type === "runtimeSessionLoading" || event.data?.type === "runtimeTaskStarted") {
+				if (activeSessionId.current !== event.data.payload?.sessionId) setUrl("http://localhost:3000")
+				activeSessionId.current = event.data.payload?.sessionId
+				setArtifact(undefined)
+			}
+			if (event.data?.type === "artifactSelected") {
+				const sessionId = event.data.text
+				if (sessionId === "" || activeSessionId.current === undefined) activeSessionId.current = sessionId
+				if (activeSessionId.current === undefined || sessionId === activeSessionId.current) {
+					setArtifact(event.data.payload)
+				}
+			}
 		}
 		window.addEventListener("message", receive)
 		return () => window.removeEventListener("message", receive)

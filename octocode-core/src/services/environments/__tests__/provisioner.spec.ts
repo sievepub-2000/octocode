@@ -17,6 +17,14 @@ type TestHost = ProvisionerHost & {
 	readonly wslImports: number
 }
 
+function deferredVoid() {
+	let resolve!: () => void
+	const promise = new Promise<void>((done) => {
+		resolve = done
+	})
+	return { promise, resolve }
+}
+
 function makeHost(overrides: Partial<ProvisionerHost> = {}): TestHost {
 	const installed = new Set<string>()
 	const installCalls: string[] = []
@@ -325,6 +333,32 @@ describe("EnvironmentProvisioner", () => {
 })
 
 describe("removing environments", () => {
+	it("waits for removal before ensuring the same toolchain again", async () => {
+		const entered = deferredVoid()
+		const release = deferredVoid()
+		const host = makeHost()
+		const remove = host.removeEnvironment
+		host.removeEnvironment = async (env, dir) => {
+			entered.resolve()
+			await release.promise
+			await remove(env, dir)
+		}
+		const provisioner = new EnvironmentProvisioner(host)
+		const deleting = provisioner.remove("go")
+		await entered.promise
+		const installing = provisioner.ensure("go")
+		try {
+			await Promise.resolve()
+			await Promise.resolve()
+			expect(host.installCalls).toEqual([])
+		} finally {
+			release.resolve()
+			await Promise.allSettled([deleting, installing])
+		}
+		await expect(installing).resolves.toMatchObject({ installed: true })
+		expect(await provisioner.isInstalled("go")).toBe(true)
+	})
+
 	it("uninstalls on-demand toolchains and refuses the core", async () => {
 		const host = makeHost()
 		const provisioner = new EnvironmentProvisioner(host)
@@ -336,5 +370,106 @@ describe("removing environments", () => {
 		await expect(provisioner.remove("node")).rejects.toThrow("base installation")
 		await expect(provisioner.remove("python")).rejects.toThrow("base installation")
 		await expect(provisioner.remove("nope")).rejects.toThrow("Unknown environment")
+	})
+
+	it("still refuses removal during an install and releases the lock afterwards", async () => {
+		const entered = deferredVoid()
+		const release = deferredVoid()
+		const host = makeHost()
+		const install = host.installArchive
+		host.installArchive = async (env, dir, progress) => {
+			entered.resolve()
+			await release.promise
+			await install(env, dir, progress)
+		}
+		const provisioner = new EnvironmentProvisioner(host)
+		const installing = provisioner.ensure("go")
+		await entered.promise
+		try {
+			await expect(provisioner.remove("go")).rejects.toThrow("being installed")
+			expect(host.removed).toEqual([])
+		} finally {
+			release.resolve()
+			await installing
+		}
+		await provisioner.remove("go")
+		expect(await provisioner.isInstalled("go")).toBe(false)
+	})
+
+	it("coalesces duplicate removals and waiting ensures without blocking other environments", async () => {
+		const entered = deferredVoid()
+		const release = deferredVoid()
+		const host = makeHost()
+		const remove = host.removeEnvironment
+		let removals = 0
+		host.removeEnvironment = async (env, dir) => {
+			removals++
+			entered.resolve()
+			await release.promise
+			await remove(env, dir)
+		}
+		const provisioner = new EnvironmentProvisioner(host)
+		const first = provisioner.remove("go")
+		await entered.promise
+		const second = provisioner.remove("go")
+		const installs = [provisioner.ensure("go"), provisioner.ensure("go")]
+		try {
+			await provisioner.ensure("jdk")
+			expect(host.installCalls).toEqual(["jdk"])
+			expect(removals).toBe(1)
+		} finally {
+			release.resolve()
+			await Promise.allSettled([first, second, ...installs])
+		}
+		await Promise.all([first, second, ...installs])
+		expect(host.installCalls).toEqual(["jdk", "go"])
+		expect(await provisioner.isInstalled("go")).toBe(true)
+	})
+
+	it("propagates removal failure to waiting ensure and permits a later retry", async () => {
+		const entered = deferredVoid()
+		const release = deferredVoid()
+		const host = makeHost()
+		const remove = host.removeEnvironment
+		host.removeEnvironment = async () => {
+			entered.resolve()
+			await release.promise
+			throw new Error("owned removal failure")
+		}
+		const provisioner = new EnvironmentProvisioner(host)
+		const deleting = provisioner.remove("go")
+		await entered.promise
+		const installing = provisioner.ensure("go")
+		const failures = Promise.all([
+			expect(deleting).rejects.toThrow("owned removal failure"),
+			expect(installing).rejects.toThrow("owned removal failure"),
+		])
+		release.resolve()
+		await failures
+		expect(host.installCalls).toEqual([])
+		host.removeEnvironment = remove
+		await provisioner.remove("go")
+		await provisioner.ensure("go")
+		expect(await provisioner.isInstalled("go")).toBe(true)
+	})
+
+	it("releases mutation state even when a host throws synchronously", async () => {
+		const host = makeHost()
+		const remove = host.removeEnvironment
+		const install = host.installArchive
+		host.removeEnvironment = () => {
+			throw new Error("synchronous removal")
+		}
+		host.installArchive = () => {
+			throw new Error("synchronous install")
+		}
+		const provisioner = new EnvironmentProvisioner(host)
+		await expect(provisioner.remove("go")).rejects.toThrow("synchronous removal")
+		await expect(provisioner.ensure("go")).rejects.toThrow("synchronous install")
+		host.removeEnvironment = remove
+		host.installArchive = install
+		await provisioner.ensure("go")
+		await provisioner.remove("go")
+		expect(await provisioner.isInstalled("go")).toBe(false)
 	})
 })

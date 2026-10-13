@@ -22,5 +22,6 @@
 		"../../src/vs/sessions/contrib/providers/copilotChatSessions/**",
 		"../../src/**/test/**",
 		"../../src/**/fixtures/**",
+		"../../src/typings/editContext.d.ts"
 	]
 }

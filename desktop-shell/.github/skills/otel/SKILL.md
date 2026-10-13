@@ -40,7 +40,6 @@ extensions/copilot/src/platform/otel/
 │   ├── otelService.ts          # IOTelService interface + ISpanHandle + injectCompletedSpan
 │   ├── otelConfig.ts           # Config resolution (env → settings → defaults), enabledVia, dbSpanExporter
 │   ├── noopOtelService.ts      # Zero-cost no-op (used by chatLib / tests)
-│   ├── inMemoryOTelService.ts  # ← actually under node/, see below
 │   ├── agentOTelEnv.ts         # deriveCopilotCliOTelEnv / deriveClaudeOTelEnv
 │   ├── genAiAttributes.ts      # ⚠ Single source of truth for attribute keys & enums
 │   ├── genAiEvents.ts          # Event emitter helpers (emit*Event)
@@ -204,7 +203,7 @@ For sub-process env vars, also update:
 
 ### When adding a new span / attribute
 
-1. Add the attribute key as a constant to `genAiAttributes.ts` (under `GenAiAttr`, `CopilotChatAttr`, or a new domain group). Never inline a raw `'copilot_chat.foo'` literal.
+1. Add the attribute key as a constant to `genAiAttributes.ts`. New keys use `gen_ai.*` or `github.copilot.*` (`GenAiAttr` or the corresponding domain group); `CopilotChatAttr` is retained for existing legacy keys and dual-emission compatibility. Never inline a raw attribute-name literal.
 2. Add it to the public barrel in [`index.ts`](../../../extensions/copilot/src/platform/otel/common/index.ts) if it lives in a new group.
 3. Use `IOTelService.startActiveSpan` (preferred) or `startSpan` — never `BasicTracerProvider` / `getTracer` directly.
 4. Pass the value through `truncateForOTel` (mandatory for any free-form content attribute — prevents OTLP batch failures). Decide whether the attribute should be **always-emitted** (debug-panel-essential, e.g. tool args, hook input/output) or **gated on `config.captureContent`** (large prompt/response bodies, system instructions); follow the existing convention for similar data.
