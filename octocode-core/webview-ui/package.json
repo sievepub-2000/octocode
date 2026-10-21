@@ -100,7 +100,7 @@
 		"babel-plugin-react-compiler": "1.0.0",
 		"jsdom": "30.0.1",
 		"monocart-reporter": "^2.9.20",
-		"vite": "8.1.0",
+		"vite": "8.1.6",
 		"vitest": "4.1.9"
 	}
 }
