@@ -9,3 +9,6 @@ target
 
 # Harness prompt template: template directives must keep their exact indentation.
 src/resources/harness/system-prompt.md
+
+# Keep the upstream dependency formatting for review of the security-only patch.
+vendor/deepmerge

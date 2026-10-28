@@ -52,3 +52,7 @@ dist
 .agents/skills/.local/
 .github/skills/.local/
 /work/
+# Vendored security entrypoints are source inputs, not generated build output.
+!vendor/deepmerge/dist/
+!vendor/deepmerge/dist/cjs.js
+!vendor/deepmerge/dist/umd.js

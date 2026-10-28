@@ -1,0 +1,10 @@
+{
+	"name": "@octocode/deepmerge-security",
+	"version": "4.3.1",
+	"description": "deepmerge 4.3.1 with safe own-property writes for CVE-2026-93753",
+	"license": "MIT",
+	"main": "dist/cjs.js",
+	"types": "index.d.ts",
+	"files": ["dist", "index.js", "index.d.ts", "license.txt", "readme.md", "PROVENANCE.md"],
+	"scripts": { "test": "node --test security.test.cjs" }
+}

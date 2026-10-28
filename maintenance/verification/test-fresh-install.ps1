@@ -3,7 +3,7 @@ $ErrorActionPreference='Stop'
 $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
 if(!([Security.Principal.WindowsPrincipal]::new($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'Run this installer acceptance in an elevated PowerShell to preserve machine registration'}
 $source=Join-Path $ProjectRoot 'source'
-$release=Join-Path $ProjectRoot 'releases\v2.0.1-final-welcome'
+$release=Join-Path $ProjectRoot 'releases\v2.0.1-final-security'
 $installer=Join-Path $release 'OctoCodeSetup.exe'
 $formal='E:\Program Files\octocode'
 $fixture=Join-Path 'E:\OctoCode-Acceptance' ('fresh-2.0.1-'+[guid]::NewGuid().ToString('N'))

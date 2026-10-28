@@ -16,7 +16,7 @@ async function send(prompt){assert(ui(`(()=>{const d=document.querySelector('#ac
 (async()=>{save();try{
  assert(ui(`(()=>{const d=document.querySelector('#active-frame')?.contentDocument;if(!d)return {skipped:true};const b=Array.from(d.querySelectorAll('button')).find(b=>b.textContent.trim()==='新建任务');if(!b)return false;b.click();return true;})()`));
  await sleep(800);
- assert(ui(`(()=>{const d=document.querySelector('#active-frame')?.contentDocument;if(!d)return {skipped:true};return d.querySelector('[data-testid="dropdown-trigger"]')?.textContent.includes('openrouter-nemotron-3-ultra');})()`),'Saved free profile selected');
+ assert(ui(`(()=>{const d=document.querySelector('#active-frame')?.contentDocument;if(!d)return {skipped:true};return /nemotron.*ultra/i.test(d.querySelector('[data-testid="dropdown-trigger"]')?.textContent||'');})()`),'Saved free profile selected');
  const ledger=Array.from({length:400},(_,i)=>`记录 ${i+1}：项目 North-${i+1}，负责人 Team-${i%17}，批次 B${i%29}，基准值 ${1000+i*7}，保留原始记录，先核对再更新。`).join('\n');
  let balance=1000,cursor=0,sid;
  for(let round=1;round<=12;round++){

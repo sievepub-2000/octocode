@@ -59,3 +59,7 @@ qdrant_storage/
 plans/
 
 roo-cli-*.tar.gz*
+# Vendored security entrypoints are source inputs, not generated build output.
+!vendor/deepmerge/dist/
+!vendor/deepmerge/dist/cjs.js
+!vendor/deepmerge/dist/umd.js

@@ -7,8 +7,8 @@
   "extensionVersion": "0.1.14",
   "installer": {
     "file": "OctoCodeSetup.exe",
-    "bytes": 778105956,
-    "sha256": "aa2133729104f37a6047628fc73ab44869889f253cca9a6bc08ebfa44e0e5138",
+    "bytes": 778100665,
+    "sha256": "848a6ab97bb468790e1018f913ffc772920173dfcae012ee39ec2dc3b58f8600",
     "url": "https://github.com/sievepub-2000/octocode/releases/download/v2.0.1/OctoCodeSetup.exe"
   },
   "acceptanceReport": "reports/v2.0.1-acceptance.md"
