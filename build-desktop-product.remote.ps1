@@ -209,15 +209,15 @@ foreach ($task in $tasks) {
 		$user = Join-Path $userData "User"
 		New-Item -ItemType Directory -Force -Path $user | Out-Null
 		$settings = @{
-			"window.autoDetectColorScheme" = $true
+			"window.autoDetectColorScheme" = $false
 			# The extension restores the chat / multimodal / execution layout on
 			# activation. Without this, every new window first paints VS Code's
 			# welcome page and then swaps it out, which reads as the product
 			# opening blank.
 			"workbench.startupEditor" = "none"
-			"workbench.colorTheme" = "Solarized Light"
-			"workbench.preferredLightColorTheme" = "Solarized Light"
-			"workbench.preferredDarkColorTheme" = "Dark 2026"
+			"workbench.colorTheme" = "OctoCode Light"
+			"workbench.preferredLightColorTheme" = "OctoCode Light"
+			"workbench.preferredDarkColorTheme" = "OctoCode Dark"
 			"terminal.integrated.gpuAcceleration" = "off"
 			# OctoCode drives the integrated browser through its own `browser`
 			# tool and shows every page in the multimodal slot. Without these two

@@ -16,7 +16,7 @@ key = load_der_public_key(base64.b64decode(anchor['publicKeySpkiBase64']))
 key.verify((release / 'octocode-release.json.sig').read_bytes(), raw)
 manifest = json.loads(raw)
 assert manifest['product'] == 'OctoCode' and manifest['repository'] == 'sievepub-2000/octocode'
-assert manifest['version'] == '2.0.1'
+assert manifest['version'] == json.loads((app / 'resources/app/package.json').read_text(encoding='utf-8'))['version'], 'Installed desktop version differs from signed release'
 asset = manifest['assets']['extension']
 vsix = app / 'environments/installer/octocode.vsix'
 assert vsix.stat().st_size == asset['size'] and hashlib.sha256(vsix.read_bytes()).hexdigest() == asset['sha256'], 'Installed VSIX differs from signed release'

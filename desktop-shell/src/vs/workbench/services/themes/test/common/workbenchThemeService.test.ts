@@ -10,6 +10,8 @@ import { ThemeConfiguration } from '../../common/themeConfiguration.js';
 import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
 import { IHostColorSchemeService } from '../../common/hostColorSchemeService.js';
 import { Event } from '../../../../../base/common/event.js';
+import { Registry } from '../../../../../platform/registry/common/platform.js';
+import { Extensions, IConfigurationRegistry } from '../../../../../platform/configuration/common/configurationRegistry.js';
 
 class TestHostColorSchemeService implements IHostColorSchemeService {
 	declare readonly _serviceBrand: undefined;
@@ -21,6 +23,11 @@ class TestHostColorSchemeService implements IHostColorSchemeService {
 suite('WorkbenchThemeService', () => {
 
 	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('defaults an unset colour theme to OctoCode Light', () => {
+		const schema = Registry.as<IConfigurationRegistry>(Extensions.Configuration).getConfigurationProperties();
+		assert.strictEqual(schema[ThemeSettings.COLOR_THEME].default, ThemeSettingDefaults.COLOR_THEME_LIGHT);
+	});
 
 	suite('migrateThemeSettingsId', () => {
 

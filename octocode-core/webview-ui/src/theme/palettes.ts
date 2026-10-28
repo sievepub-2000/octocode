@@ -248,7 +248,7 @@ export const whiteHighContrastLight: Palette = {
 export type ThemeId = "solarized-light" | "midnight-purple"
 
 export const themes: Record<ThemeId, { id: ThemeId; label: string; kind: "light" | "dark"; palette: Palette }> = {
-	"solarized-light": { id: "solarized-light", label: "Solarized Light", kind: "light", palette: solarizedLight },
+	"solarized-light": { id: "solarized-light", label: "Light", kind: "light", palette: whiteHighContrastLight },
 	"midnight-purple": { id: "midnight-purple", label: "Charcoal Dark", kind: "dark", palette: midnightPurple },
 }
 

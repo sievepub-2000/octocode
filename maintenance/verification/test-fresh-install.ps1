@@ -1,18 +1,19 @@
-param([string]$ProjectRoot='D:\gpt-workspace\octocode',[switch]$ExternalLaunch)
+param([string]$ProjectRoot='D:\gpt-workspace\octocode',[switch]$ExternalLaunch,[string]$Version='2.0.2',[string]$ReleaseDirectory='v2.0.2-final')
 $ErrorActionPreference='Stop'
 $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
 if(!([Security.Principal.WindowsPrincipal]::new($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'Run this installer acceptance in an elevated PowerShell to preserve machine registration'}
 $source=Join-Path $ProjectRoot 'source'
-$release=Join-Path $ProjectRoot 'releases\v2.0.1-final-security'
+$release=Join-Path (Join-Path $ProjectRoot 'releases') $ReleaseDirectory
 $installer=Join-Path $release 'OctoCodeSetup.exe'
 $formal='E:\Program Files\octocode'
-$fixture=Join-Path 'E:\OctoCode-Acceptance' ('fresh-2.0.1-'+[guid]::NewGuid().ToString('N'))
+$fixture=Join-Path 'E:\OctoCode-Acceptance' ('fresh-'+$Version+'-'+[guid]::NewGuid().ToString('N'))
 $audit=Join-Path 'E:\OctoCode-Acceptance' ('audit-'+[guid]::NewGuid().ToString('N'))
 $node=Join-Path $source 'desktop-shell\.build\environments\node\node.exe'
 if((Test-Path 'E:\OctoCode-Acceptance') -and ((Get-Item 'E:\OctoCode-Acceptance' -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Acceptance root must be a physical directory'}
 if(!(Test-Path $installer) -or (Test-Path $fixture)){throw 'Invalid fresh installer fixture'}
 $verify='const fs=require("fs"),crypto=require("crypto"),path=require("path"),assert=require("assert/strict");const raw=fs.readFileSync(path.join(process.argv[1],"octocode-release.json")),sig=fs.readFileSync(path.join(process.argv[1],"octocode-release.json.sig")),anchor=JSON.parse(fs.readFileSync(process.argv[2]));const key=crypto.createPublicKey({key:Buffer.from(anchor.publicKeySpkiBase64,"base64"),format:"der",type:"spki"});assert(crypto.verify(null,raw,key,sig),"Invalid release signature");const m=JSON.parse(raw);assert.equal(m.version,"2.0.1");console.log(JSON.stringify(m.assets["windows-x64-system"]));'
-$asset=(& $node -e $verify $release (Join-Path $source 'maintenance\release-signing\release-public-key.json')) | ConvertFrom-Json
+$verify=$verify.Replace('assert.equal(m.version,"2.0.1")','assert.equal(m.version,process.argv[3])')
+$asset=(& $node -e $verify $release (Join-Path $source 'maintenance\release-signing\release-public-key.json') $Version) | ConvertFrom-Json
 if($LASTEXITCODE -or $asset.name -cne 'OctoCodeSetup.exe' -or (Get-Item $installer).Length -ne $asset.size -or (Get-FileHash $installer).Hash -ine $asset.sha256){throw 'Fresh installer signature/hash/size mismatch'}
 if(@(Get-CimInstance Win32_Process | Where-Object {$_.ExecutablePath -and $_.ExecutablePath.StartsWith($formal+'\',[StringComparison]::OrdinalIgnoreCase)}).Count){throw 'Close formal installation normally before fresh acceptance'}
 New-Item -ItemType Directory -Path $audit | Out-Null
@@ -41,6 +42,12 @@ try{
  if($p.ExitCode){throw "Fresh installer exit $($p.ExitCode)"};$installed=$true
  if(!(Test-Path (Join-Path $fixture 'OctoCode.exe'))){throw 'Fresh executable missing'}
  foreach($boot in 1,2){
+  if($boot -eq 2){
+   $settingsFile=Join-Path $fixture 'data\user-data\User\settings.json'
+   $settings=Get-Content -LiteralPath $settingsFile -Raw -Encoding UTF8 | ConvertFrom-Json
+   $settings.PSObject.Properties.Remove('workbench.colorTheme')
+   [IO.File]::WriteAllText($settingsFile,($settings|ConvertTo-Json -Depth 30),[Text.UTF8Encoding]::new($false))
+  }
   $report=Join-Path $audit ('boot-'+$boot+'.json')
   if($ExternalLaunch){
    @{appRoot=$fixture;report=$report;boot=$boot} | ConvertTo-Json | Set-Content (Join-Path $audit ('launch-request-'+$boot+'.json'))

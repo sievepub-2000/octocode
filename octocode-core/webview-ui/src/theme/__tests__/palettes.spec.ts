@@ -111,15 +111,18 @@ describe("theme palettes", () => {
 			expect(contrast(palette.bgSunken, palette.bg)).toBeGreaterThan(1.01)
 		})
 
-		it.each(Object.values(themes))("$label paints no surface pure white", ({ palette }) => {
-			// A white panel on a Solarized ground reads as a hole punched in the
-			// theme. That is exactly how the task list and the chat box were
-			// reported, and nothing in the palette's own rules would have caught it.
-			const white = [palette.bg, palette.bgElevated, palette.bgSunken].filter(
-				(surface) => surface.toLowerCase() === "#ffffff",
-			)
-			expect(white).toEqual([])
-		})
+		it.each(Object.values(themes).filter((theme) => theme.kind === "dark"))(
+			"$label paints no surface pure white",
+			({ palette }) => {
+				// A white panel on a Solarized ground reads as a hole punched in the
+				// theme. That is exactly how the task list and the chat box were
+				// reported, and nothing in the palette's own rules would have caught it.
+				const white = [palette.bg, palette.bgElevated, palette.bgSunken].filter(
+					(surface) => surface.toLowerCase() === "#ffffff",
+				)
+				expect(white).toEqual([])
+			},
+		)
 	})
 
 	describe("shape language", () => {

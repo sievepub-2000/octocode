@@ -1,4 +1,4 @@
-import { legacyDark, themes, whiteHighContrastLight, type Palette, type ThemeId } from "./palettes"
+import { legacyDark, solarizedLight, themes, whiteHighContrastLight, type Palette, type ThemeId } from "./palettes"
 
 /**
  * Generates VS Code colour themes from the same palette the webview uses.
@@ -289,8 +289,11 @@ function buildTokenColors(p: Palette): VsCodeTheme["tokenColors"] {
  */
 export function buildVsCodeTheme(themeId: ThemeId): VsCodeTheme {
 	const { palette, kind } = themes[themeId]
+	if (kind === "light") {
+		return { ...buildContrastTheme("light"), name: "OctoCode Light", type: "light" }
+	}
 	return {
-		name: `OctoCode ${kind === "light" ? "Light" : "Dark"}`,
+		name: "OctoCode Dark",
 		type: kind,
 		semanticHighlighting: true,
 		colors: buildColors(palette, kind),
@@ -299,7 +302,8 @@ export function buildVsCodeTheme(themeId: ThemeId): VsCodeTheme {
 }
 
 /**
- * High-contrast variants.
+ * High-contrast variants. Light intentionally uses the former regular palette;
+ * the two light colour sets were exchanged while preserving their settings IDs.
  *
  * VS Code switches to these automatically when the OS reports high-contrast mode
  * (`window.autoDetectHighContrast`), so removing the stock high-contrast themes
@@ -308,6 +312,19 @@ export function buildVsCodeTheme(themeId: ThemeId): VsCodeTheme {
  * visible borders high-contrast users rely on.
  */
 export function buildHighContrastTheme(base: "dark" | "light"): VsCodeTheme {
+	if (base === "light") {
+		return {
+			name: "OctoCode High Contrast Light",
+			type: "hc",
+			semanticHighlighting: true,
+			colors: buildColors(solarizedLight, "light"),
+			tokenColors: buildTokenColors(solarizedLight),
+		}
+	}
+	return buildContrastTheme(base)
+}
+
+function buildContrastTheme(base: "dark" | "light"): VsCodeTheme {
 	const p = base === "dark" ? legacyDark : whiteHighContrastLight
 	const ground = base === "dark" ? "#000000" : "#ffffff"
 	const ink = base === "dark" ? "#ffffff" : "#000000"
@@ -394,7 +411,7 @@ export function buildInitialColorsModule(): string {
 		"",
 		emit("COLOR_THEME_DARK_INITIAL_COLORS", buildColors(themes["midnight-purple"].palette, "dark")),
 		"",
-		emit("COLOR_THEME_LIGHT_INITIAL_COLORS", buildColors(themes["solarized-light"].palette, "light")),
+		emit("COLOR_THEME_LIGHT_INITIAL_COLORS", buildVsCodeTheme("solarized-light").colors),
 		"",
 		emit("COLOR_THEME_HC_DARK_INITIAL_COLORS", buildHighContrastTheme("dark").colors),
 		"",

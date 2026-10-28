@@ -1,6 +1,6 @@
 import { useEffect } from "react"
 
-import { DEFAULT_THEME_BY_KIND, legacyDark, whiteHighContrastLight } from "./palettes"
+import { DEFAULT_THEME_BY_KIND, legacyDark, solarizedLight } from "./palettes"
 import { buildThemeVariables } from "./tokens"
 
 /**
@@ -77,7 +77,7 @@ export function useOctoCodeTheme(): void {
 			for (const [name, value] of Object.entries(
 				buildThemeVariables(
 					themeId,
-					highContrastLight ? whiteHighContrastLight : highContrastDark ? legacyDark : undefined,
+					highContrastLight ? solarizedLight : highContrastDark ? legacyDark : undefined,
 				),
 			)) {
 				if (name.startsWith("--octo-")) {

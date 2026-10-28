@@ -11,10 +11,12 @@ with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True) as db:
         "SELECT sequence,kind,payload FROM events WHERE session_id=? AND sequence>? ORDER BY sequence",
         (session_id, after),
     ).fetchall()
-result = {"cursor": after, "text": "", "errors": [], "usage": []}
+result = {"cursor": after, "text": "", "errors": [], "usage": [], "toolEvents": 0}
 for sequence, kind, raw in rows:
     result["cursor"] = sequence
     payload = json.loads(raw)
+    if kind.startswith(("tool", "function_call")):
+        result["toolEvents"] += 1
     if kind == "text":
         result["text"] += payload.get("data", "")
     elif kind in ("error", "agent.error"):

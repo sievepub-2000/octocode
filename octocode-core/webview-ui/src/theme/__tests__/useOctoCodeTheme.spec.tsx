@@ -25,12 +25,12 @@ it("restores the legacy purple palette only for high contrast dark", async () =>
 	await waitFor(() => expect(document.documentElement.style.getPropertyValue("--octo-bg")).toBe("#1c1a2b"))
 })
 
-it("uses white semantic surfaces in high contrast light without replacing host colours", () => {
+it("uses warm semantic surfaces in high contrast light without replacing host colours", () => {
 	document.body.dataset.vscodeThemeKind = "vscode-high-contrast-light"
 	document.documentElement.style.setProperty("--vscode-editor-background", "#ffffff")
 	renderHook(useOctoCodeTheme)
-	expect(document.documentElement.style.getPropertyValue("--octo-bg")).toBe("#ffffff")
-	expect(document.documentElement.style.getPropertyValue("--octo-bg-elevated")).toBe("#ffffff")
+	expect(document.documentElement.style.getPropertyValue("--octo-bg")).toBe("#fdf6e3")
+	expect(document.documentElement.style.getPropertyValue("--octo-bg-elevated")).toBe("#fdf6e3")
 	expect(document.documentElement.style.getPropertyValue("--vscode-editor-background")).toBe("#ffffff")
 })
 
@@ -54,13 +54,13 @@ it("updates semantic surfaces when switching between the two light themes", asyn
 	document.body.dataset.vscodeThemeKind = "vscode-light"
 	document.documentElement.style.setProperty("--vscode-editor-background", "#fdf6e3")
 	renderHook(useOctoCodeTheme)
-	expect(document.documentElement.style.getPropertyValue("--octo-bg")).toBe("#fdf6e3")
+	expect(document.documentElement.style.getPropertyValue("--octo-bg")).toBe("#ffffff")
 	act(() => {
 		document.body.dataset.vscodeThemeKind = "vscode-high-contrast-light"
 	})
-	await waitFor(() => expect(document.documentElement.style.getPropertyValue("--octo-bg")).toBe("#ffffff"))
+	await waitFor(() => expect(document.documentElement.style.getPropertyValue("--octo-bg")).toBe("#fdf6e3"))
 	act(() => {
 		document.body.dataset.vscodeThemeKind = "vscode-light"
 	})
-	await waitFor(() => expect(document.documentElement.style.getPropertyValue("--octo-bg")).toBe("#fdf6e3"))
+	await waitFor(() => expect(document.documentElement.style.getPropertyValue("--octo-bg")).toBe("#ffffff"))
 })

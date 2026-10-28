@@ -37,8 +37,8 @@ describe("generated VS Code themes", () => {
 		const { colors } = buildVsCodeTheme("midnight-purple")
 		expect(contrast(colors["textLink.foreground"], colors["menu.background"])).toBeGreaterThanOrEqual(4.5)
 	})
-	it("keeps high contrast light white and neutral across every main surface", () => {
-		const { colors } = buildHighContrastTheme("light")
+	it("uses the previous high contrast light colours for regular light", () => {
+		const { colors } = buildVsCodeTheme("solarized-light")
 		for (const token of [
 			"editor.background",
 			"terminal.background",
@@ -51,6 +51,12 @@ describe("generated VS Code themes", () => {
 		}
 		expect(colors["activityBar.background"]).toBe("#f7f7f7")
 		expect(contrast(colors.descriptionForeground, colors["editor.background"])).toBeGreaterThanOrEqual(4.5)
+	})
+	it("uses the previous regular light colours for high contrast light", () => {
+		const theme = buildHighContrastTheme("light")
+		expect(theme.colors["editor.background"]).toBe("#fdf6e3")
+		expect(theme.colors["foreground"]).toBe("#586e75")
+		expect(theme.type).toBe("hc")
 	})
 	// The point of generating these is that the committed files cannot disagree
 	// with the palette. If they can, the palette has stopped being the source of
@@ -206,16 +212,12 @@ describe("generated VS Code themes", () => {
 		}
 	})
 
-	it("pushes high contrast themes past the regular ones", () => {
+	it("preserves high contrast dark borders and contrast", () => {
 		// These are what `window.autoDetectHighContrast` selects. If they were just
 		// copies of the regular themes, that accessibility path would be a no-op.
-		for (const base of ["light", "dark"] as const) {
+		for (const base of ["dark"] as const) {
 			const hc = buildHighContrastTheme(base)
-			const regular = buildVsCodeTheme(base === "light" ? "solarized-light" : "midnight-purple")
-
 			const hcRatio = contrast(hc.colors["editor.foreground"], hc.colors["editor.background"])
-			const regularRatio = contrast(regular.colors["editor.foreground"], regular.colors["editor.background"])
-			if (base === "light") expect(hcRatio).toBeGreaterThan(regularRatio)
 			expect(hcRatio).toBeGreaterThanOrEqual(7)
 
 			// High contrast is defined by visible edges, not just by ratios.

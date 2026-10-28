@@ -38,8 +38,10 @@ async function state(){fs.writeFileSync(script,`(()=>{const d=document.querySele
  assert.equal(notifications.length,0,JSON.stringify(notifications));
  for(const frame of page.frames())for(const error of await frame.locator('[data-testid="api-error-message"]').all())assert.equal(await error.isVisible(),false,'Fresh onboarding must not display validation errors before submission');
  const title=await page.title();assert(!title.includes('扩展开发宿主')&&!title.includes('Extension Development Host'));
+ const theme=await page.locator('.monaco-workbench').evaluate(e=>({light:e.classList.contains('vs'),editorBackground:getComputedStyle(e).getPropertyValue('--vscode-editor-background').trim().toLowerCase()}));
+ assert.equal(theme.light,true,'Fresh installation defaults to Light');assert.equal(theme.editorBackground,'#ffffff','Light uses the previous white High Contrast Light palette');
  await page.screenshot({path:report+'.png'});
- fs.writeFileSync(report,JSON.stringify({status:'PASS',appRoot,title,notifications,hmrError:false,normalLaunch:true,elevatedWindow:/\[(管理员|Administrator)\]/.test(title),trustedOwnedFixture,checkedAt:new Date().toISOString()},null,2));
+ fs.writeFileSync(report,JSON.stringify({status:'PASS',appRoot,title,theme,notifications,hmrError:false,normalLaunch:true,elevatedWindow:/\[(管理员|Administrator)\]/.test(title),trustedOwnedFixture,checkedAt:new Date().toISOString()},null,2));
  console.log(JSON.stringify({status:'PASS',normalLaunch:true,errorNotifications:0}));
 }finally{
  if(page){try{fs.mkdirSync(path.dirname(keybindings),{recursive:true});fs.writeFileSync(keybindings,JSON.stringify([{key:'ctrl+alt+shift+q',command:'workbench.action.quit'}]));await sleep(1000);const cdp=await page.context().newCDPSession(page);await cdp.send('Page.bringToFront');await page.keyboard.press('Control+Alt+Shift+Q');}catch{} }
