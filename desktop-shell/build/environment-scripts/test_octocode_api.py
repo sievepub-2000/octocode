@@ -42,6 +42,18 @@ class DaemonTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.api.RoutineRequest(name="bad", prompt="x", cwd=self.temp.name, daily_at="99:99")
 
+    def test_failed_run_retains_provider_error_after_terminal_summary(self):
+        run = self.api.Run(self.api.RunRequest(prompt="owned", cwd=self.temp.name))
+        run.events = [{"type": "error", "message": "oMLX prefill memory guard rejected this prompt",
+                       "error_code": "prefill_memory_exceeded", "recoverable": True}]
+        run.result = {"success": False, "attempts": 1}
+        run.status = "failed"
+        self.assertEqual(run.summary()["error"], "oMLX prefill memory guard rejected this prompt")
+        run.result["message"] = "explicit terminal error"
+        self.assertEqual(run.summary()["error"], "explicit terminal error")
+        run.status = "completed"
+        self.assertIsNone(run.summary()["error"])
+
     def test_failed_host_reader_start_releases_owned_process_and_log(self):
         processes, logs = [], []
         popen, open_file = subprocess.Popen, open
@@ -145,6 +157,68 @@ class DaemonTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.api.RunRequest(prompt="isolated", cwd=self.temp.name, permission_mode="invalid")
 
+    def test_prepared_conversation_cwd_is_used_and_cross_project_resume_is_rejected(self):
+        import base64
+        with TemporaryDirectory() as root:
+            project = Path(root) / "project"
+            project.mkdir()
+            sid = "isolated-session"
+            encoded = base64.urlsafe_b64encode(sid.encode()).decode().rstrip("=")
+            working = project / ".octocode" / "sessions" / encoded
+            working.mkdir(parents=True)
+            prepared = {"session_id": sid, "task_id": "owned", "workspace": str(project), "working_directory": str(working), "route": {"model": {}}}
+            client = SimpleNamespace(listeners={}, call=Mock(return_value=prepared))
+            with patch.object(self.api, "STORE", Path(root) / "store"), \
+                 patch.object(self.api, "STATE", Path(root) / "state"), patch.object(self.api, "RUNS", {}), \
+                 patch.object(self.api, "host", return_value=client), \
+                 patch.object(self.api, "provider_input", return_value=({"openAiApiKey": ""}, "")), \
+                 patch.object(self.api, "extension_binary", return_value=Path(__file__)), \
+                 patch.object(self.api, "isolated_mcp_servers", return_value=({}, None)) as tools:
+                task = "Task-local guidance: prefer relative input paths.\nUser task: read project inputs"
+                run = self.api.start_run(self.api.RunRequest(prompt=task, cwd=str(project), review=False))
+                forwarded = next(c.args[1] for c in client.call.call_args_list if c.args[0] == "agent.run")
+                self.assertEqual(Path(forwarded["cwd"]), working)
+                self.assertIn(project.resolve().as_posix(), forwarded["prompt"])
+                self.assertIn(working.resolve().as_posix(), forwarded["prompt"])
+                self.assertIn("Use absolute source-project paths", forwarded["prompt"])
+                self.assertIn(project.resolve().as_posix() + "/<project-relative-input>", forwarded["prompt"])
+                self.assertIn("Do not guess parent-relative paths", forwarded["prompt"])
+                self.assertGreater(forwarded["prompt"].index("Required file-path contract"), forwarded["prompt"].index(task))
+                self.assertEqual(forwarded["permission_profile"], "directory")
+                tools.assert_called_once_with(str(working))
+                self.assertEqual(run.summary()["source_cwd"], str(project))
+                run.status = "completed"
+                other = Path(root) / "other"
+                other.mkdir()
+                client.call.reset_mock()
+                with self.assertRaises(self.api.HTTPException) as denied:
+                    self.api.start_run(self.api.RunRequest(prompt="read other", cwd=str(other), session_id=sid, resume=True))
+                self.assertEqual(denied.exception.status_code, 400)
+                self.assertEqual([c.args[0] for c in client.call.call_args_list], ["session.get"])
+
+    def test_explicit_model_does_not_read_desktop_credentials(self):
+        with patch.object(self.api, "last_app_model", side_effect=AssertionError("must not read desktop")), \
+             patch.object(self.api, "context_window", return_value=1048576):
+            provider, key = self.api.provider_input(self.api.ModelSpec(model="explicit", base_url="http://localhost:1234/v1", api_key="fixture"))
+        self.assertEqual(provider["openAiModelId"], "explicit")
+        self.assertEqual(key, "fixture")
+        self.assertEqual(provider["modelContextWindow"], 1048576)
+
+    def test_saved_provider_controls_and_discovered_context_are_preserved(self):
+        saved = {"model": "selected", "base_url": "http://localhost:1234/v1", "api_key": "fixture", "context_window": 1048576,
+                 "provider": {"reasoningEffort": "high", "enableReasoningEffort": True, "reasoningStyle": "template", "apiFormat": "responses", "modelMaxTokens": 65536}}
+        with patch.object(self.api, "last_app_model", return_value=saved), patch.object(self.api, "context_window", return_value=1048576):
+            provider, _ = self.api.provider_input(None)
+            overridden, _ = self.api.provider_input(self.api.ModelSpec(thinking="disable"))
+        self.assertEqual(provider["modelContextWindow"], 1048576)
+        self.assertEqual(provider["modelMaxTokens"], 65536)
+        self.assertEqual(provider["apiFormat"], "responses")
+        self.assertEqual(provider["reasoningEffort"], "high")
+        self.assertTrue(provider["enableReasoningEffort"])
+        self.assertEqual(overridden["reasoningEffort"], "disable")
+        self.assertFalse(overridden["enableReasoningEffort"])
+        self.assertNotIn("openAiApiKey", saved["provider"])
+
     def test_invalid_session_home_is_rejected_before_native_prepare_or_continue(self):
         client = SimpleNamespace(listeners={}, call=Mock(return_value={
             "session_id": "x/../../../owned-escape", "task_id": "owned", "route": {"model": {}}}))
@@ -198,17 +272,20 @@ class DaemonTests(unittest.TestCase):
                 sentinel.write_bytes(b"owned original history")
                 client.call.reset_mock()
                 client.call.return_value = {"session_id": sid, "task_id": "owned", "route": {"model": {}}}
+                client.call.side_effect = lambda method, params: {"workspace": root} if method == "session.get" else client.call.return_value
                 self.api.RUNS.clear()
                 run = self.api.start_run(self.api.RunRequest(prompt="owned", cwd=root, session_id=sid,
                                                             resume=True, review=False, permission_mode=mode))
-                self.assertEqual(client.call.call_args_list[0].args[0], "harness.continue")
-                forwarded = client.call.call_args_list[1].args[1]
+                self.assertEqual(client.call.call_args_list[0].args[0], "session.get")
+                self.assertEqual(client.call.call_args_list[1].args[0], "harness.continue")
+                forwarded = client.call.call_args_list[2].args[1]
                 self.assertEqual(forwarded["harness_home"], str(home))
                 self.assertTrue(forwarded["resume"])
                 self.assertEqual(forwarded["session_id"], sid)
                 self.assertEqual(forwarded["permission_profile"], mode)
                 self.assertEqual(sentinel.read_bytes(), b"owned original history")
             client.call.reset_mock()
+            client.call.side_effect = None
             client.call.return_value = {"session_id": "x/../../escape", "task_id": "owned"}
             with self.assertRaises(self.api.HTTPException) as denied:
                 self.api.start_run(self.api.RunRequest(prompt="owned", cwd=root, review=False))
@@ -319,6 +396,24 @@ class DaemonTests(unittest.TestCase):
 
     def test_health_is_not_ready_without_harness(self):
         self.assertFalse(self.api.health()["ok"])
+
+    def test_daemon_accepts_explicit_models_without_a_selected_compatible_profile(self):
+        with patch.object(self.api, "last_app_model", side_effect=RuntimeError("explicit model required")), \
+             patch.object(self.api, "extension_binary", return_value=Path(__file__)), \
+             patch.object(self.api, "load_json", return_value={"at": self.api.datetime.now().isoformat()}):
+            result = self.api.health()
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["default_model_available"])
+        self.assertTrue(result["explicit_model_required"])
+
+    def test_daemon_reports_available_default_model(self):
+        with patch.object(self.api, "last_app_model", return_value={"model": "test-model"}), \
+             patch.object(self.api, "extension_binary", return_value=Path(__file__)), \
+             patch.object(self.api, "load_json", return_value={"at": self.api.datetime.now().isoformat()}):
+            result = self.api.health()
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["default_model_available"])
+        self.assertFalse(result["explicit_model_required"])
 
     def test_health_requires_a_live_scheduler(self):
         with patch.object(self.api, "extension_binary", return_value=Path(__file__)), \

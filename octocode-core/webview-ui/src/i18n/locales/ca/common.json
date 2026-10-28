@@ -345,6 +345,10 @@
 	"dismiss": "Descarta",
 	"dismissAndDontShowAgain": "Descarta i no ho tornis a mostrar",
 	"extensions": {
+		"pagination": "Pàgines de components",
+		"pageNumber": "Pàgina {{number}}",
+		"previousPage": "Anterior",
+		"nextPage": "Següent",
 		"market": "Mercat",
 		"systemToolsHint": "Eines del sistema · disponibles a tots els espais de treball",
 		"environments": "Runtimes",

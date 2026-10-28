@@ -10,15 +10,23 @@ import { useAppTranslation } from "@/i18n/TranslationContext"
 import { useExtensionState } from "@src/context/ExtensionStateContext"
 import { PopoverTrigger, StandardTooltip, Button } from "@src/components/ui"
 
-import { CodeIndexPopover } from "./CodeIndexPopover"
+import { CodeIndexPopover, type CodeIndexSettingsActions } from "./CodeIndexPopover"
 
 interface IndexingStatusBadgeProps {
 	className?: string
+	inline?: boolean
+	onDirtyChange?: (dirty: boolean) => void
+	settingsRef?: React.Ref<CodeIndexSettingsActions>
 }
 
-export const IndexingStatusBadge: React.FC<IndexingStatusBadgeProps> = ({ className }) => {
+export const IndexingStatusBadge: React.FC<IndexingStatusBadgeProps> = ({
+	className,
+	inline,
+	onDirtyChange,
+	settingsRef,
+}) => {
 	const { t } = useAppTranslation()
-	const { cwd } = useExtensionState()
+	const { codeIndexWorkspacePath: cwd } = useExtensionState()
 
 	const [indexingStatus, setIndexingStatus] = useState<IndexingStatus>({
 		systemStatus: "Standby",
@@ -28,6 +36,7 @@ export const IndexingStatusBadge: React.FC<IndexingStatusBadgeProps> = ({ classN
 	})
 
 	useEffect(() => {
+		setIndexingStatus({ systemStatus: "Standby", processedItems: 0, totalItems: 0, currentItemUnit: "items" })
 		// Request initial indexing status.
 		vscode.postMessage({ type: "requestIndexingStatus" })
 
@@ -35,7 +44,7 @@ export const IndexingStatusBadge: React.FC<IndexingStatusBadgeProps> = ({ classN
 		const handleMessage = (event: MessageEvent<IndexingStatusUpdateMessage>) => {
 			if (event.data.type === "indexingStatusUpdate") {
 				const status = event.data.values
-				if (!status.workspacePath || status.workspacePath === cwd) {
+				if (status.workspacePath === cwd) {
 					setIndexingStatus(status)
 				}
 			}
@@ -86,6 +95,15 @@ export const IndexingStatusBadge: React.FC<IndexingStatusBadgeProps> = ({ classN
 		return statusColors[indexingStatus.systemStatus as keyof typeof statusColors] || statusColors.Standby
 	}, [indexingStatus.systemStatus])
 
+	if (inline)
+		return (
+			<CodeIndexPopover
+				inline
+				indexingStatus={indexingStatus}
+				onDirtyChange={onDirtyChange}
+				settingsRef={settingsRef}
+			/>
+		)
 	return (
 		<CodeIndexPopover indexingStatus={indexingStatus}>
 			<StandardTooltip content={tooltipText}>

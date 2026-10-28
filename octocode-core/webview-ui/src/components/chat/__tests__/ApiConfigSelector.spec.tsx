@@ -34,9 +34,11 @@ vi.mock("@/context/ExtensionStateContext", () => ({
 	}),
 }))
 
-// Mock the getModelId function from @roo-code/types
+// Mock the getModelId and getProviderLabel functions from @roo-code/types
 vi.mock("@roo-code/types", () => ({
 	getModelId: (config: any) => config?.apiModelId || undefined,
+	getProviderLabel: (provider: string | undefined) =>
+		provider === "anthropic" ? "Anthropic" : provider === "openrouter" ? "OpenRouter" : provider,
 }))
 
 // Mock Popover components to be testable
@@ -70,9 +72,9 @@ describe("ApiConfigSelector", () => {
 		title: "API Config",
 		onChange: mockOnChange,
 		listApiConfigMeta: [
-			{ id: "config1", name: "Config 1", modelId: "claude-3-opus-20240229" },
-			{ id: "config2", name: "Config 2", modelId: "gpt-4" },
-			{ id: "config3", name: "Config 3", modelId: "claude-3-sonnet-20240229" },
+			{ id: "config1", name: "Config 1", apiProvider: "anthropic", modelId: "claude-3-opus-20240229" },
+			{ id: "config2", name: "Config 2", apiProvider: "openrouter", modelId: "gpt-4" },
+			{ id: "config3", name: "Config 3", apiProvider: "anthropic", modelId: "claude-3-sonnet-20240229" },
 		],
 		pinnedApiConfigs: { config1: true },
 		togglePinnedApiConfig: mockTogglePinnedApiConfig,
@@ -125,6 +127,21 @@ describe("ApiConfigSelector", () => {
 		// Check if popover content is rendered
 		const popoverContent = screen.getByTestId("popover-content")
 		expect(popoverContent).toBeInTheDocument()
+	})
+
+	test("shows provider vendor label instead of modelId in the list", () => {
+		render(<ApiConfigSelector {...defaultProps} />)
+
+		const trigger = screen.getByTestId("dropdown-trigger")
+		fireEvent.click(trigger)
+
+		const popoverContent = screen.getByTestId("popover-content")
+
+		// Vendor labels derived from apiProvider are shown...
+		expect(popoverContent).toHaveTextContent("Anthropic")
+		expect(popoverContent).toHaveTextContent("OpenRouter")
+		// ...while the stored (possibly stale) modelId is not.
+		expect(popoverContent).not.toHaveTextContent("claude-3-opus-20240229")
 	})
 
 	test("renders search input when popover is open and more than 6 configs", () => {

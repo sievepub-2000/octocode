@@ -4,7 +4,7 @@ import * as fsSync from "fs"
 import { pbkdf2Sync } from "crypto"
 
 import NodeCache from "node-cache"
-import { z } from "zod"
+import { z } from "zod/v4"
 
 import type { ProviderName, ModelRecord } from "@roo-code/types"
 import { modelInfoSchema, providerIdentifiers, TelemetryEventName } from "@roo-code/types"

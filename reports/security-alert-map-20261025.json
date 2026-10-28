@@ -1,0 +1,5326 @@
+{
+  "snapshotDate": "2026-10-25",
+  "baselineAlerts": 265,
+  "githubVerified": false,
+  "boundary": "Version/range mapping only; source patches and final runtime acceptance require their separate evidence.",
+  "alerts": [
+    {
+      "number": 468,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "markdown-it",
+      "advisory": "GHSA-vfgh-jcmw-g37q",
+      "severity": "low",
+      "affectedRange": "< 14.3.3",
+      "currentVersions": [
+        "14.3.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-vfgh-jcmw-g37q"
+    },
+    {
+      "number": 467,
+      "manifest": "desktop-shell/extensions/markdown-language-features/package-lock.json",
+      "package": "markdown-it",
+      "advisory": "GHSA-vfgh-jcmw-g37q",
+      "severity": "low",
+      "affectedRange": "< 14.3.3",
+      "currentVersions": [
+        "14.3.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-vfgh-jcmw-g37q"
+    },
+    {
+      "number": 466,
+      "manifest": "desktop-shell/extensions/extension-editing/package-lock.json",
+      "package": "markdown-it",
+      "advisory": "GHSA-vfgh-jcmw-g37q",
+      "severity": "low",
+      "affectedRange": "< 14.3.3",
+      "currentVersions": [
+        "14.3.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-vfgh-jcmw-g37q"
+    },
+    {
+      "number": 465,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "markdown-it",
+      "advisory": "GHSA-vfgh-jcmw-g37q",
+      "severity": "low",
+      "affectedRange": "< 14.3.3",
+      "currentVersions": [
+        "14.3.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-vfgh-jcmw-g37q"
+    },
+    {
+      "number": 464,
+      "manifest": "desktop-shell/build/package-lock.json",
+      "package": "markdown-it",
+      "advisory": "GHSA-vfgh-jcmw-g37q",
+      "severity": "low",
+      "affectedRange": "< 14.3.3",
+      "currentVersions": [
+        "14.3.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-vfgh-jcmw-g37q"
+    },
+    {
+      "number": 463,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "@modelcontextprotocol/sdk",
+      "advisory": "GHSA-46jr-4wx8-v453",
+      "severity": "high",
+      "affectedRange": ">= 1.3.0, < 1.32.0",
+      "currentVersions": [
+        "1.32.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-46jr-4wx8-v453"
+    },
+    {
+      "number": 462,
+      "manifest": "octocode-core/src/package.json",
+      "package": "@modelcontextprotocol/sdk",
+      "advisory": "GHSA-46jr-4wx8-v453",
+      "severity": "high",
+      "affectedRange": ">= 1.3.0, < 1.32.0",
+      "currentVersions": [
+        "1.32.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-46jr-4wx8-v453"
+    },
+    {
+      "number": 461,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "@modelcontextprotocol/sdk",
+      "advisory": "GHSA-rvq5-wwqv-78pq",
+      "severity": "medium",
+      "affectedRange": ">= 1.6.0, < 1.32.0",
+      "currentVersions": [
+        "1.32.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-rvq5-wwqv-78pq"
+    },
+    {
+      "number": 460,
+      "manifest": "octocode-core/src/package.json",
+      "package": "@modelcontextprotocol/sdk",
+      "advisory": "GHSA-rvq5-wwqv-78pq",
+      "severity": "medium",
+      "affectedRange": ">= 1.6.0, < 1.32.0",
+      "currentVersions": [
+        "1.32.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-rvq5-wwqv-78pq"
+    },
+    {
+      "number": 459,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "@modelcontextprotocol/sdk",
+      "advisory": "GHSA-6prh-2h8m-c8cw",
+      "severity": "medium",
+      "affectedRange": "< 1.32.0",
+      "currentVersions": [
+        "1.32.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6prh-2h8m-c8cw"
+    },
+    {
+      "number": 458,
+      "manifest": "octocode-core/src/package.json",
+      "package": "@modelcontextprotocol/sdk",
+      "advisory": "GHSA-6prh-2h8m-c8cw",
+      "severity": "medium",
+      "affectedRange": "< 1.32.0",
+      "currentVersions": [
+        "1.32.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6prh-2h8m-c8cw"
+    },
+    {
+      "number": 457,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "markdown-it",
+      "advisory": "GHSA-r7fv-28h4-cvq7",
+      "severity": "high",
+      "affectedRange": "< 14.3.2",
+      "currentVersions": [
+        "14.3.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-r7fv-28h4-cvq7"
+    },
+    {
+      "number": 456,
+      "manifest": "desktop-shell/extensions/markdown-language-features/package-lock.json",
+      "package": "markdown-it",
+      "advisory": "GHSA-r7fv-28h4-cvq7",
+      "severity": "high",
+      "affectedRange": "< 14.3.2",
+      "currentVersions": [
+        "14.3.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-r7fv-28h4-cvq7"
+    },
+    {
+      "number": 455,
+      "manifest": "desktop-shell/extensions/extension-editing/package-lock.json",
+      "package": "markdown-it",
+      "advisory": "GHSA-r7fv-28h4-cvq7",
+      "severity": "high",
+      "affectedRange": "< 14.3.2",
+      "currentVersions": [
+        "14.3.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-r7fv-28h4-cvq7"
+    },
+    {
+      "number": 454,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "markdown-it",
+      "advisory": "GHSA-r7fv-28h4-cvq7",
+      "severity": "high",
+      "affectedRange": "< 14.3.2",
+      "currentVersions": [
+        "14.3.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-r7fv-28h4-cvq7"
+    },
+    {
+      "number": 453,
+      "manifest": "desktop-shell/build/package-lock.json",
+      "package": "markdown-it",
+      "advisory": "GHSA-r7fv-28h4-cvq7",
+      "severity": "high",
+      "affectedRange": "< 14.3.2",
+      "currentVersions": [
+        "14.3.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-r7fv-28h4-cvq7"
+    },
+    {
+      "number": 452,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "follow-redirects",
+      "advisory": "GHSA-q3jh-wrc6-jgq8",
+      "severity": "high",
+      "affectedRange": ">= 1.16.0, < 1.16.1",
+      "currentVersions": [
+        "1.16.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-q3jh-wrc6-jgq8"
+    },
+    {
+      "number": 451,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "follow-redirects",
+      "advisory": "GHSA-q3jh-wrc6-jgq8",
+      "severity": "high",
+      "affectedRange": ">= 1.16.0, < 1.16.1",
+      "currentVersions": [
+        "1.16.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-q3jh-wrc6-jgq8"
+    },
+    {
+      "number": 450,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "follow-redirects",
+      "advisory": "GHSA-8r9p-f939-6h3c",
+      "severity": "high",
+      "affectedRange": ">= 1.16.0, < 1.16.1",
+      "currentVersions": [
+        "1.16.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-8r9p-f939-6h3c"
+    },
+    {
+      "number": 449,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "follow-redirects",
+      "advisory": "GHSA-8r9p-f939-6h3c",
+      "severity": "high",
+      "affectedRange": ">= 1.16.0, < 1.16.1",
+      "currentVersions": [
+        "1.16.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-8r9p-f939-6h3c"
+    },
+    {
+      "number": 448,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "@modelcontextprotocol/sdk",
+      "advisory": "GHSA-46jr-4wx8-v453",
+      "severity": "high",
+      "affectedRange": ">= 1.3.0, < 1.32.0",
+      "currentVersions": [
+        "1.32.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-46jr-4wx8-v453"
+    },
+    {
+      "number": 447,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "markdown-it",
+      "advisory": "GHSA-gfr2-rv44-r23c",
+      "severity": "high",
+      "affectedRange": ">= 14.1.0, < 14.3.3",
+      "currentVersions": [
+        "14.3.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-gfr2-rv44-r23c"
+    },
+    {
+      "number": 446,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "@modelcontextprotocol/sdk",
+      "advisory": "GHSA-rvq5-wwqv-78pq",
+      "severity": "medium",
+      "affectedRange": ">= 1.6.0, < 1.32.0",
+      "currentVersions": [
+        "1.32.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-rvq5-wwqv-78pq"
+    },
+    {
+      "number": 445,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "@modelcontextprotocol/sdk",
+      "advisory": "GHSA-22jm-h49p-29qw",
+      "severity": "high",
+      "affectedRange": ">= 1.24.0, < 1.32.0",
+      "currentVersions": [
+        "1.32.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-22jm-h49p-29qw"
+    },
+    {
+      "number": 444,
+      "manifest": "octocode-core/src/package.json",
+      "package": "@modelcontextprotocol/sdk",
+      "advisory": "GHSA-22jm-h49p-29qw",
+      "severity": "high",
+      "affectedRange": ">= 1.24.0, < 1.32.0",
+      "currentVersions": [
+        "1.32.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-22jm-h49p-29qw"
+    },
+    {
+      "number": 443,
+      "manifest": "desktop-shell/extensions/markdown-language-features/package-lock.json",
+      "package": "markdown-it",
+      "advisory": "GHSA-gfr2-rv44-r23c",
+      "severity": "high",
+      "affectedRange": ">= 14.1.0, < 14.3.3",
+      "currentVersions": [
+        "14.3.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-gfr2-rv44-r23c"
+    },
+    {
+      "number": 442,
+      "manifest": "desktop-shell/extensions/extension-editing/package-lock.json",
+      "package": "markdown-it",
+      "advisory": "GHSA-gfr2-rv44-r23c",
+      "severity": "high",
+      "affectedRange": ">= 14.1.0, < 14.3.3",
+      "currentVersions": [
+        "14.3.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-gfr2-rv44-r23c"
+    },
+    {
+      "number": 441,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "markdown-it",
+      "advisory": "GHSA-gfr2-rv44-r23c",
+      "severity": "high",
+      "affectedRange": ">= 14.1.0, < 14.3.3",
+      "currentVersions": [
+        "14.3.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-gfr2-rv44-r23c"
+    },
+    {
+      "number": 440,
+      "manifest": "desktop-shell/build/package-lock.json",
+      "package": "markdown-it",
+      "advisory": "GHSA-gfr2-rv44-r23c",
+      "severity": "high",
+      "affectedRange": ">= 14.1.0, < 14.3.3",
+      "currentVersions": [
+        "14.3.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-gfr2-rv44-r23c"
+    },
+    {
+      "number": 439,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "@modelcontextprotocol/sdk",
+      "advisory": "GHSA-6prh-2h8m-c8cw",
+      "severity": "medium",
+      "affectedRange": "< 1.32.0",
+      "currentVersions": [
+        "1.32.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6prh-2h8m-c8cw"
+    },
+    {
+      "number": 438,
+      "manifest": "desktop-shell/test/mcp/package-lock.json",
+      "package": "@modelcontextprotocol/sdk",
+      "advisory": "GHSA-46jr-4wx8-v453",
+      "severity": "high",
+      "affectedRange": ">= 1.3.0, < 1.32.0",
+      "currentVersions": [
+        "1.32.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-46jr-4wx8-v453"
+    },
+    {
+      "number": 437,
+      "manifest": "desktop-shell/test/mcp/package.json",
+      "package": "@modelcontextprotocol/sdk",
+      "advisory": "GHSA-46jr-4wx8-v453",
+      "severity": "high",
+      "affectedRange": ">= 1.3.0, < 1.32.0",
+      "currentVersions": [
+        "1.32.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-46jr-4wx8-v453"
+    },
+    {
+      "number": 436,
+      "manifest": "desktop-shell/test/mcp/package-lock.json",
+      "package": "@modelcontextprotocol/sdk",
+      "advisory": "GHSA-rvq5-wwqv-78pq",
+      "severity": "medium",
+      "affectedRange": ">= 1.6.0, < 1.32.0",
+      "currentVersions": [
+        "1.32.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-rvq5-wwqv-78pq"
+    },
+    {
+      "number": 435,
+      "manifest": "desktop-shell/test/mcp/package.json",
+      "package": "@modelcontextprotocol/sdk",
+      "advisory": "GHSA-rvq5-wwqv-78pq",
+      "severity": "medium",
+      "affectedRange": ">= 1.6.0, < 1.32.0",
+      "currentVersions": [
+        "1.32.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-rvq5-wwqv-78pq"
+    },
+    {
+      "number": 434,
+      "manifest": "octocode-core/webview-ui/package.json",
+      "package": "vite",
+      "advisory": "GHSA-r825-w8mm-5pxw",
+      "severity": "medium",
+      "affectedRange": ">= 8.0.0, <= 8.1.5",
+      "currentVersions": [
+        "8.1.6"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-r825-w8mm-5pxw"
+    },
+    {
+      "number": 433,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "vite",
+      "advisory": "GHSA-r825-w8mm-5pxw",
+      "severity": "medium",
+      "affectedRange": ">= 8.0.0, <= 8.1.5",
+      "currentVersions": [
+        "8.1.6"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-r825-w8mm-5pxw"
+    },
+    {
+      "number": 432,
+      "manifest": "octocode-core/webview-ui/package.json",
+      "package": "vite",
+      "advisory": "GHSA-587h-7wmj-h5pm",
+      "severity": "high",
+      "affectedRange": ">= 8.0.0, <= 8.1.5",
+      "currentVersions": [
+        "8.1.6"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-587h-7wmj-h5pm"
+    },
+    {
+      "number": 431,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "vite",
+      "advisory": "GHSA-587h-7wmj-h5pm",
+      "severity": "high",
+      "affectedRange": ">= 8.0.0, <= 8.1.5",
+      "currentVersions": [
+        "8.1.6"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-587h-7wmj-h5pm"
+    },
+    {
+      "number": 430,
+      "manifest": "desktop-shell/test/mcp/package-lock.json",
+      "package": "@modelcontextprotocol/sdk",
+      "advisory": "GHSA-6prh-2h8m-c8cw",
+      "severity": "medium",
+      "affectedRange": "< 1.32.0",
+      "currentVersions": [
+        "1.32.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6prh-2h8m-c8cw"
+    },
+    {
+      "number": 429,
+      "manifest": "desktop-shell/test/mcp/package.json",
+      "package": "@modelcontextprotocol/sdk",
+      "advisory": "GHSA-6prh-2h8m-c8cw",
+      "severity": "medium",
+      "affectedRange": "< 1.32.0",
+      "currentVersions": [
+        "1.32.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6prh-2h8m-c8cw"
+    },
+    {
+      "number": 428,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "hono",
+      "advisory": "GHSA-5r4p-p66f-jhc7",
+      "severity": "medium",
+      "affectedRange": ">= 4.12.4, < 4.13.11",
+      "currentVersions": [
+        "4.13.11"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-5r4p-p66f-jhc7"
+    },
+    {
+      "number": 427,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "@modelcontextprotocol/sdk",
+      "advisory": "GHSA-22jm-h49p-29qw",
+      "severity": "high",
+      "affectedRange": ">= 1.24.0, < 1.32.0",
+      "currentVersions": [
+        "1.32.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-22jm-h49p-29qw"
+    },
+    {
+      "number": 426,
+      "manifest": "octocode-core/webview-ui/package.json",
+      "package": "vite",
+      "advisory": "GHSA-698v-4r3x-3vcv",
+      "severity": "medium",
+      "affectedRange": ">= 8.0.0, <= 8.1.5",
+      "currentVersions": [
+        "8.1.6"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-698v-4r3x-3vcv"
+    },
+    {
+      "number": 425,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "vite",
+      "advisory": "GHSA-698v-4r3x-3vcv",
+      "severity": "medium",
+      "affectedRange": ">= 8.0.0, <= 8.1.5",
+      "currentVersions": [
+        "8.1.6"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-698v-4r3x-3vcv"
+    },
+    {
+      "number": 424,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "hono",
+      "advisory": "GHSA-5r4p-p66f-jhc7",
+      "severity": "medium",
+      "affectedRange": ">= 4.12.4, < 4.13.11",
+      "currentVersions": [
+        "4.13.13"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-5r4p-p66f-jhc7"
+    },
+    {
+      "number": 423,
+      "manifest": "desktop-shell/test/mcp/package-lock.json",
+      "package": "hono",
+      "advisory": "GHSA-5r4p-p66f-jhc7",
+      "severity": "medium",
+      "affectedRange": ">= 4.12.4, < 4.13.11",
+      "currentVersions": [
+        "4.13.13"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-5r4p-p66f-jhc7"
+    },
+    {
+      "number": 422,
+      "manifest": "desktop-shell/test/mcp/package-lock.json",
+      "package": "@modelcontextprotocol/sdk",
+      "advisory": "GHSA-22jm-h49p-29qw",
+      "severity": "high",
+      "affectedRange": ">= 1.24.0, < 1.32.0",
+      "currentVersions": [
+        "1.32.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-22jm-h49p-29qw"
+    },
+    {
+      "number": 421,
+      "manifest": "desktop-shell/test/mcp/package.json",
+      "package": "@modelcontextprotocol/sdk",
+      "advisory": "GHSA-22jm-h49p-29qw",
+      "severity": "high",
+      "affectedRange": ">= 1.24.0, < 1.32.0",
+      "currentVersions": [
+        "1.32.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-22jm-h49p-29qw"
+    },
+    {
+      "number": 420,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "russh",
+      "advisory": "GHSA-4wc5-f2rc-q74m",
+      "severity": "medium",
+      "affectedRange": "<= 0.64.0",
+      "currentVersions": [
+        "0.64.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-4wc5-f2rc-q74m"
+    },
+    {
+      "number": 419,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "russh",
+      "advisory": "GHSA-j7h2-66j4-ghjf",
+      "severity": "low",
+      "affectedRange": ">= 0.34.0-beta.1, < 0.64.0",
+      "currentVersions": [
+        "0.64.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": null,
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-j7h2-66j4-ghjf"
+    },
+    {
+      "number": 418,
+      "manifest": "octocode-core/webview-ui/package.json",
+      "package": "katex",
+      "advisory": "GHSA-238p-pmpm-9mq7",
+      "severity": "low",
+      "affectedRange": ">= 0.11.0, < 0.18.2",
+      "currentVersions": [
+        "^0.18.2"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": "0.18.2",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-238p-pmpm-9mq7"
+    },
+    {
+      "number": 409,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "sprintf-js",
+      "advisory": "GHSA-hp3w-g68c-fv3c",
+      "severity": "medium",
+      "affectedRange": "<= 1.1.3",
+      "currentVersions": [],
+      "matchingAffectedVersions": [],
+      "localStatus": "removed from manifest graph",
+      "priorEvidence": {
+        "resolved": "removed: mammoth>argparse 2.0.1",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-hp3w-g68c-fv3c"
+    },
+    {
+      "number": 408,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "dompurify",
+      "advisory": "GHSA-6688-9rhm-gjv2",
+      "severity": "low",
+      "affectedRange": "<= 3.4.15",
+      "currentVersions": [
+        "3.4.17"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": "3.4.16",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6688-9rhm-gjv2"
+    },
+    {
+      "number": 406,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "katex",
+      "advisory": "GHSA-238p-pmpm-9mq7",
+      "severity": "low",
+      "affectedRange": ">= 0.11.0, < 0.18.2",
+      "currentVersions": [
+        "0.18.2"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": "0.18.2",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-238p-pmpm-9mq7"
+    },
+    {
+      "number": 403,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "braces",
+      "advisory": "GHSA-vfj7-8cjw-p6xm",
+      "severity": "high",
+      "affectedRange": "<= 3.0.3",
+      "currentVersions": [],
+      "matchingAffectedVersions": [],
+      "localStatus": "removed from manifest graph",
+      "priorEvidence": {
+        "resolved": "3.0.3 local MIT source + mandatory depth guard",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm"
+    },
+    {
+      "number": 402,
+      "manifest": "octo-harness/Cargo.lock",
+      "package": "rustls",
+      "advisory": "GHSA-2mjx-qc3c-rqvc",
+      "severity": "medium",
+      "affectedRange": ">= 0.23.13, < 0.23.45",
+      "currentVersions": [
+        "0.23.46"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.23.45"
+        ],
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-2mjx-qc3c-rqvc"
+    },
+    {
+      "number": 401,
+      "manifest": "octo-harness/Cargo.lock",
+      "package": "aws-smithy-json",
+      "advisory": "GHSA-8ffr-xgwf-xj56",
+      "severity": "high",
+      "affectedRange": "<= 0.62.6",
+      "currentVersions": [
+        "0.63.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.62.7"
+        ],
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-8ffr-xgwf-xj56"
+    },
+    {
+      "number": 399,
+      "manifest": "desktop-shell/test/monaco/package-lock.json",
+      "package": "source-map-js",
+      "advisory": "GHSA-68fv-2mgg-jv7q",
+      "severity": "high",
+      "affectedRange": ">= 1.0.0, < 1.2.2",
+      "currentVersions": [
+        "1.2.2"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.2.2"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-68fv-2mgg-jv7q"
+    },
+    {
+      "number": 398,
+      "manifest": "desktop-shell/test/monaco/package-lock.json",
+      "package": "postcss-selector-parser",
+      "advisory": "GHSA-rj75-hqrm-r3gf",
+      "severity": "medium",
+      "affectedRange": "< 7.1.6",
+      "currentVersions": [
+        "7.1.6"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "7.1.6"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-rj75-hqrm-r3gf"
+    },
+    {
+      "number": 397,
+      "manifest": "desktop-shell/test/mcp/package-lock.json",
+      "package": "@modelcontextprotocol/sdk",
+      "advisory": "GHSA-6qxp-vccf-f47h",
+      "severity": "high",
+      "affectedRange": ">= 1.12.0, < 1.31.0",
+      "currentVersions": [
+        "1.32.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.31.0"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6qxp-vccf-f47h"
+    },
+    {
+      "number": 393,
+      "manifest": "desktop-shell/test/automation/package-lock.json",
+      "package": "braces",
+      "advisory": "GHSA-vfj7-8cjw-p6xm",
+      "severity": "high",
+      "affectedRange": "<= 3.0.3",
+      "currentVersions": [
+        "3.0.3"
+      ],
+      "matchingAffectedVersions": [
+        "3.0.3"
+      ],
+      "localStatus": "requires reviewed patch or dependency-edge evidence",
+      "priorEvidence": {
+        "resolved": [
+          "patched-fork:@octocode/braces-security@3.0.3"
+        ],
+        "fix": "Maintained @octocode/braces-security fork, actual upstream version 3.0.3, catchable nesting guards; local code integrity verified"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm"
+    },
+    {
+      "number": 392,
+      "manifest": "desktop-shell/remote/web/package-lock.json",
+      "package": "katex",
+      "advisory": "GHSA-238p-pmpm-9mq7",
+      "severity": "low",
+      "affectedRange": ">= 0.11.0, < 0.18.2",
+      "currentVersions": [
+        "0.18.10"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.18.10"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-238p-pmpm-9mq7"
+    },
+    {
+      "number": 390,
+      "manifest": "desktop-shell/remote/package-lock.json",
+      "package": "katex",
+      "advisory": "GHSA-238p-pmpm-9mq7",
+      "severity": "low",
+      "affectedRange": ">= 0.11.0, < 0.18.2",
+      "currentVersions": [
+        "0.18.10"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.18.10"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-238p-pmpm-9mq7"
+    },
+    {
+      "number": 389,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "@modelcontextprotocol/sdk",
+      "advisory": "GHSA-6qxp-vccf-f47h",
+      "severity": "high",
+      "affectedRange": ">= 1.12.0, < 1.31.0",
+      "currentVersions": [
+        "1.32.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.32.1"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6qxp-vccf-f47h"
+    },
+    {
+      "number": 387,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "sprintf-js",
+      "advisory": "GHSA-hp3w-g68c-fv3c",
+      "severity": "medium",
+      "affectedRange": "<= 1.1.3",
+      "currentVersions": [],
+      "matchingAffectedVersions": [],
+      "localStatus": "removed from manifest graph",
+      "priorEvidence": {
+        "resolved": [],
+        "fix": "Removed vulnerable dependency chain"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-hp3w-g68c-fv3c"
+    },
+    {
+      "number": 386,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "katex",
+      "advisory": "GHSA-238p-pmpm-9mq7",
+      "severity": "low",
+      "affectedRange": ">= 0.11.0, < 0.18.2",
+      "currentVersions": [
+        "0.18.10"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.18.10"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-238p-pmpm-9mq7"
+    },
+    {
+      "number": 385,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "source-map-js",
+      "advisory": "GHSA-68fv-2mgg-jv7q",
+      "severity": "high",
+      "affectedRange": ">= 1.0.0, < 1.2.2",
+      "currentVersions": [
+        "1.2.2"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.2.2"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-68fv-2mgg-jv7q"
+    },
+    {
+      "number": 383,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "http-cache-semantics",
+      "advisory": "GHSA-ch52-4w7c-c8xp",
+      "severity": "high",
+      "affectedRange": "<= 4.2.0",
+      "currentVersions": [
+        "4.3.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.3.0"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-ch52-4w7c-c8xp"
+    },
+    {
+      "number": 382,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "braces",
+      "advisory": "GHSA-vfj7-8cjw-p6xm",
+      "severity": "high",
+      "affectedRange": "<= 3.0.3",
+      "currentVersions": [
+        "3.0.3"
+      ],
+      "matchingAffectedVersions": [
+        "3.0.3"
+      ],
+      "localStatus": "requires reviewed patch or dependency-edge evidence",
+      "priorEvidence": {
+        "resolved": [
+          "patched-fork:@octocode/braces-security@3.0.3"
+        ],
+        "fix": "Maintained @octocode/braces-security fork, actual upstream version 3.0.3, catchable nesting guards; local code integrity verified"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm"
+    },
+    {
+      "number": 381,
+      "manifest": "desktop-shell/extensions/vscode-api-tests/package-lock.json",
+      "package": "node-forge",
+      "advisory": "GHSA-86w9-cpqp-85rv",
+      "severity": "high",
+      "affectedRange": "<= 1.4.0",
+      "currentVersions": [],
+      "matchingAffectedVersions": [],
+      "localStatus": "removed from manifest graph",
+      "priorEvidence": {
+        "resolved": [],
+        "fix": "Removed vulnerable dependency chain"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-86w9-cpqp-85rv"
+    },
+    {
+      "number": 380,
+      "manifest": "desktop-shell/extensions/npm/package-lock.json",
+      "package": "sprintf-js",
+      "advisory": "GHSA-hp3w-g68c-fv3c",
+      "severity": "medium",
+      "affectedRange": "<= 1.1.3",
+      "currentVersions": [],
+      "matchingAffectedVersions": [],
+      "localStatus": "removed from manifest graph",
+      "priorEvidence": {
+        "resolved": [],
+        "fix": "Removed vulnerable dependency chain"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-hp3w-g68c-fv3c"
+    },
+    {
+      "number": 379,
+      "manifest": "desktop-shell/extensions/npm/package-lock.json",
+      "package": "braces",
+      "advisory": "GHSA-vfj7-8cjw-p6xm",
+      "severity": "high",
+      "affectedRange": "<= 3.0.3",
+      "currentVersions": [
+        "3.0.3"
+      ],
+      "matchingAffectedVersions": [
+        "3.0.3"
+      ],
+      "localStatus": "requires reviewed patch or dependency-edge evidence",
+      "priorEvidence": {
+        "resolved": [
+          "patched-fork:@octocode/braces-security@3.0.3"
+        ],
+        "fix": "Maintained @octocode/braces-security fork, actual upstream version 3.0.3, catchable nesting guards; local code integrity verified"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm"
+    },
+    {
+      "number": 378,
+      "manifest": "desktop-shell/extensions/notebook-renderers/package-lock.json",
+      "package": "source-map-js",
+      "advisory": "GHSA-68fv-2mgg-jv7q",
+      "severity": "high",
+      "affectedRange": ">= 1.0.0, < 1.2.2",
+      "currentVersions": [
+        "1.2.2"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.2.2"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-68fv-2mgg-jv7q"
+    },
+    {
+      "number": 377,
+      "manifest": "desktop-shell/extensions/markdown-math/package-lock.json",
+      "package": "katex",
+      "advisory": "GHSA-238p-pmpm-9mq7",
+      "severity": "low",
+      "affectedRange": ">= 0.11.0, < 0.18.2",
+      "currentVersions": [
+        "0.18.10"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.18.10"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-238p-pmpm-9mq7"
+    },
+    {
+      "number": 376,
+      "manifest": "desktop-shell/extensions/markdown-language-features/package-lock.json",
+      "package": "dompurify",
+      "advisory": "GHSA-6688-9rhm-gjv2",
+      "severity": "low",
+      "affectedRange": "<= 3.4.15",
+      "currentVersions": [
+        "3.4.17"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "3.4.17"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6688-9rhm-gjv2"
+    },
+    {
+      "number": 375,
+      "manifest": "desktop-shell/extensions/markdown-language-features/package-lock.json",
+      "package": "katex",
+      "advisory": "GHSA-238p-pmpm-9mq7",
+      "severity": "low",
+      "affectedRange": ">= 0.11.0, < 0.18.2",
+      "currentVersions": [
+        "0.18.10"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.18.10"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-238p-pmpm-9mq7"
+    },
+    {
+      "number": 374,
+      "manifest": "desktop-shell/build/vite/package-lock.json",
+      "package": "source-map-js",
+      "advisory": "GHSA-68fv-2mgg-jv7q",
+      "severity": "high",
+      "affectedRange": ">= 1.0.0, < 1.2.2",
+      "currentVersions": [
+        "1.2.2"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.2.2"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-68fv-2mgg-jv7q"
+    },
+    {
+      "number": 373,
+      "manifest": "desktop-shell/build/rspack/package-lock.json",
+      "package": "source-map-js",
+      "advisory": "GHSA-68fv-2mgg-jv7q",
+      "severity": "high",
+      "affectedRange": ">= 1.0.0, < 1.2.2",
+      "currentVersions": [
+        "1.2.2"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.2.2"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-68fv-2mgg-jv7q"
+    },
+    {
+      "number": 372,
+      "manifest": "desktop-shell/build/package-lock.json",
+      "package": "sprintf-js",
+      "advisory": "GHSA-hp3w-g68c-fv3c",
+      "severity": "medium",
+      "affectedRange": "<= 1.1.3",
+      "currentVersions": [],
+      "matchingAffectedVersions": [],
+      "localStatus": "removed from manifest graph",
+      "priorEvidence": {
+        "resolved": [],
+        "fix": "Removed vulnerable dependency chain"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-hp3w-g68c-fv3c"
+    },
+    {
+      "number": 371,
+      "manifest": "desktop-shell/build/package-lock.json",
+      "package": "http-cache-semantics",
+      "advisory": "GHSA-ch52-4w7c-c8xp",
+      "severity": "high",
+      "affectedRange": "<= 4.2.0",
+      "currentVersions": [],
+      "matchingAffectedVersions": [],
+      "localStatus": "removed from manifest graph",
+      "priorEvidence": {
+        "resolved": [],
+        "fix": "Removed vulnerable dependency chain"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-ch52-4w7c-c8xp"
+    },
+    {
+      "number": 370,
+      "manifest": "desktop-shell/build/package-lock.json",
+      "package": "braces",
+      "advisory": "GHSA-vfj7-8cjw-p6xm",
+      "severity": "high",
+      "affectedRange": "<= 3.0.3",
+      "currentVersions": [
+        "3.0.3"
+      ],
+      "matchingAffectedVersions": [
+        "3.0.3"
+      ],
+      "localStatus": "requires reviewed patch or dependency-edge evidence",
+      "priorEvidence": {
+        "resolved": [
+          "patched-fork:@octocode/braces-security@3.0.3"
+        ],
+        "fix": "Maintained @octocode/braces-security fork, actual upstream version 3.0.3, catchable nesting guards; local code integrity verified"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm"
+    },
+    {
+      "number": 368,
+      "manifest": "desktop-shell/build/npm/gyp/package-lock.json",
+      "package": "http-cache-semantics",
+      "advisory": "GHSA-ch52-4w7c-c8xp",
+      "severity": "high",
+      "affectedRange": "<= 4.2.0",
+      "currentVersions": [],
+      "matchingAffectedVersions": [],
+      "localStatus": "removed from manifest graph",
+      "priorEvidence": {
+        "resolved": [
+          "4.3.0"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-ch52-4w7c-c8xp"
+    },
+    {
+      "number": 367,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "hono",
+      "advisory": "GHSA-hxh3-vqpv-xpqv",
+      "severity": "medium",
+      "affectedRange": "< 4.13.7",
+      "currentVersions": [
+        "4.13.13"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.13.13"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-hxh3-vqpv-xpqv"
+    },
+    {
+      "number": 365,
+      "manifest": "desktop-shell/test/mcp/package-lock.json",
+      "package": "hono",
+      "advisory": "GHSA-hxh3-vqpv-xpqv",
+      "severity": "medium",
+      "affectedRange": "< 4.13.7",
+      "currentVersions": [
+        "4.13.13"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.13.13"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-hxh3-vqpv-xpqv"
+    },
+    {
+      "number": 364,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "russh",
+      "advisory": "GHSA-35g8-35p8-c8fw",
+      "severity": "medium",
+      "affectedRange": "<= 0.63.1",
+      "currentVersions": [
+        "0.64.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.63.3"
+        ],
+        "fix": "local upstream 0.63.3 with documented relay-only compatibility patch"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-35g8-35p8-c8fw"
+    },
+    {
+      "number": 363,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "russh",
+      "advisory": "GHSA-p8qx-h547-fjw9",
+      "severity": "low",
+      "affectedRange": "<= 0.63.0",
+      "currentVersions": [
+        "0.64.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.63.3"
+        ],
+        "fix": "local upstream 0.63.3 with documented relay-only compatibility patch"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-p8qx-h547-fjw9"
+    },
+    {
+      "number": 362,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "russh",
+      "advisory": "GHSA-47hw-gvq5-r2gm",
+      "severity": "high",
+      "affectedRange": "<= 0.63.0",
+      "currentVersions": [
+        "0.64.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.63.3"
+        ],
+        "fix": "local upstream 0.63.3 with documented relay-only compatibility patch"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-47hw-gvq5-r2gm"
+    },
+    {
+      "number": 361,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "russh",
+      "advisory": "GHSA-w3jg-pjxf-73p4",
+      "severity": "medium",
+      "affectedRange": "< 0.63.0",
+      "currentVersions": [
+        "0.64.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.63.3"
+        ],
+        "fix": "local upstream 0.63.3 with documented relay-only compatibility patch"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-w3jg-pjxf-73p4"
+    },
+    {
+      "number": 360,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "russh",
+      "advisory": "GHSA-g6xm-f9xp-qq35",
+      "severity": "low",
+      "affectedRange": "<= 0.62.5",
+      "currentVersions": [
+        "0.64.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.63.3"
+        ],
+        "fix": "local upstream 0.63.3 with documented relay-only compatibility patch"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-g6xm-f9xp-qq35"
+    },
+    {
+      "number": 359,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "dompurify",
+      "advisory": "GHSA-p98j-92pf-mc4p",
+      "severity": "low",
+      "affectedRange": ">= 3.4.13, <= 3.4.15",
+      "currentVersions": [
+        "3.4.17"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": "3.4.16",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-p98j-92pf-mc4p"
+    },
+    {
+      "number": 334,
+      "manifest": "octocode-core/webview-ui/package.json",
+      "package": "vitest",
+      "advisory": "GHSA-82fw-gwwq-j7x9",
+      "severity": "medium",
+      "affectedRange": ">= 2.1.0, < 4.1.11",
+      "currentVersions": [
+        "4.1.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": "4.1.11",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-82fw-gwwq-j7x9"
+    },
+    {
+      "number": 333,
+      "manifest": "octocode-core/src/package.json",
+      "package": "vitest",
+      "advisory": "GHSA-82fw-gwwq-j7x9",
+      "severity": "medium",
+      "affectedRange": ">= 2.1.0, < 4.1.11",
+      "currentVersions": [
+        "4.1.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": "4.1.11",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-82fw-gwwq-j7x9"
+    },
+    {
+      "number": 307,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "vitest",
+      "advisory": "GHSA-82fw-gwwq-j7x9",
+      "severity": "medium",
+      "affectedRange": ">= 2.1.0, < 4.1.11",
+      "currentVersions": [
+        "4.1.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": "4.1.11",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-82fw-gwwq-j7x9"
+    },
+    {
+      "number": 306,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "@vitest/mocker",
+      "advisory": "GHSA-82fw-gwwq-j7x9",
+      "severity": "medium",
+      "affectedRange": ">= 2.1.0, < 4.1.11",
+      "currentVersions": [
+        "4.1.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": "4.1.11",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-82fw-gwwq-j7x9"
+    },
+    {
+      "number": 303,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "@ai-sdk/provider-utils",
+      "advisory": "GHSA-866g-f22w-33x8",
+      "severity": "low",
+      "affectedRange": ">= 4.0.0-beta.10, < 4.0.33",
+      "currentVersions": [
+        "4.0.35"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": "4.0.35",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-866g-f22w-33x8"
+    },
+    {
+      "number": 302,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "fflate",
+      "advisory": "GHSA-px8p-9vwx-vf98",
+      "severity": "medium",
+      "affectedRange": ">= 0.8.0, < 0.8.3",
+      "currentVersions": [
+        "0.8.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": "0.8.3",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-px8p-9vwx-vf98"
+    },
+    {
+      "number": 296,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "qs",
+      "advisory": "GHSA-x5fp-wj9c-mxmx",
+      "severity": "medium",
+      "affectedRange": ">= 6.14.2, <= 6.15.3",
+      "currentVersions": [
+        "6.16.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": "6.16.0",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-x5fp-wj9c-mxmx"
+    },
+    {
+      "number": 295,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "qs",
+      "advisory": "GHSA-4mjr-xmp4-gh2g",
+      "severity": "medium",
+      "affectedRange": ">= 2.2.5, < 6.16.0",
+      "currentVersions": [
+        "6.16.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": "6.16.0",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-4mjr-xmp4-gh2g"
+    },
+    {
+      "number": 294,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "@humanfs/node",
+      "advisory": "GHSA-p498-v437-472g",
+      "severity": "medium",
+      "affectedRange": "< 0.16.8",
+      "currentVersions": [
+        "0.16.8"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": "0.16.8",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-p498-v437-472g"
+    },
+    {
+      "number": 293,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "browserslist",
+      "advisory": "GHSA-c83g-rgw3-j3cx",
+      "severity": "high",
+      "affectedRange": "<= 4.28.6",
+      "currentVersions": [
+        "4.28.7"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": "4.28.7",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-c83g-rgw3-j3cx"
+    },
+    {
+      "number": 292,
+      "manifest": "octocode-core/pnpm-lock.yaml",
+      "package": "browserslist",
+      "advisory": "GHSA-73wf-gq98-2v4g",
+      "severity": "high",
+      "affectedRange": "<= 4.28.6",
+      "currentVersions": [
+        "4.28.7"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": "4.28.7",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-73wf-gq98-2v4g"
+    },
+    {
+      "number": 287,
+      "manifest": "octocode-core/packages/vscode-shim/package.json",
+      "package": "vitest",
+      "advisory": "GHSA-82fw-gwwq-j7x9",
+      "severity": "medium",
+      "affectedRange": ">= 2.1.0, < 4.1.11",
+      "currentVersions": [
+        "4.1.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": "4.1.11",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-82fw-gwwq-j7x9"
+    },
+    {
+      "number": 286,
+      "manifest": "octocode-core/packages/types/package.json",
+      "package": "vitest",
+      "advisory": "GHSA-82fw-gwwq-j7x9",
+      "severity": "medium",
+      "affectedRange": ">= 2.1.0, < 4.1.11",
+      "currentVersions": [
+        "4.1.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": "4.1.11",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-82fw-gwwq-j7x9"
+    },
+    {
+      "number": 285,
+      "manifest": "octocode-core/packages/telemetry/package.json",
+      "package": "vitest",
+      "advisory": "GHSA-82fw-gwwq-j7x9",
+      "severity": "medium",
+      "affectedRange": ">= 2.1.0, < 4.1.11",
+      "currentVersions": [
+        "4.1.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": "4.1.11",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-82fw-gwwq-j7x9"
+    },
+    {
+      "number": 284,
+      "manifest": "octocode-core/packages/core/package.json",
+      "package": "vitest",
+      "advisory": "GHSA-82fw-gwwq-j7x9",
+      "severity": "medium",
+      "affectedRange": ">= 2.1.0, < 4.1.11",
+      "currentVersions": [
+        "4.1.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": "4.1.11",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-82fw-gwwq-j7x9"
+    },
+    {
+      "number": 283,
+      "manifest": "octocode-core/packages/cloud/package.json",
+      "package": "vitest",
+      "advisory": "GHSA-82fw-gwwq-j7x9",
+      "severity": "medium",
+      "affectedRange": ">= 2.1.0, < 4.1.11",
+      "currentVersions": [
+        "4.1.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": "4.1.11",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-82fw-gwwq-j7x9"
+    },
+    {
+      "number": 282,
+      "manifest": "octocode-core/packages/build/package.json",
+      "package": "vitest",
+      "advisory": "GHSA-82fw-gwwq-j7x9",
+      "severity": "medium",
+      "affectedRange": ">= 2.1.0, < 4.1.11",
+      "currentVersions": [
+        "4.1.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": "4.1.11",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-82fw-gwwq-j7x9"
+    },
+    {
+      "number": 281,
+      "manifest": "octocode-core/apps/cli/package.json",
+      "package": "vitest",
+      "advisory": "GHSA-82fw-gwwq-j7x9",
+      "severity": "medium",
+      "affectedRange": ">= 2.1.0, < 4.1.11",
+      "currentVersions": [
+        "4.1.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": "4.1.11",
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-82fw-gwwq-j7x9"
+    },
+    {
+      "number": 280,
+      "manifest": "octo-harness/crates/codegen/xai-grok-markdown/fuzz/Cargo.lock",
+      "package": "lru",
+      "advisory": "GHSA-rhfx-m35p-ff5j",
+      "severity": "low",
+      "affectedRange": ">= 0.9.0, < 0.16.3",
+      "currentVersions": [
+        "0.18.2"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.18.2"
+        ],
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-rhfx-m35p-ff5j"
+    },
+    {
+      "number": 279,
+      "manifest": "octo-harness/Cargo.lock",
+      "package": "rand",
+      "advisory": "GHSA-cq8v-f236-94qc",
+      "severity": "low",
+      "affectedRange": ">= 0.7.0, < 0.8.6",
+      "currentVersions": [
+        "0.8.6",
+        "0.9.5",
+        "0.10.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.8.6",
+          "0.9.5",
+          "0.10.1"
+        ],
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-cq8v-f236-94qc"
+    },
+    {
+      "number": 278,
+      "manifest": "octo-harness/Cargo.lock",
+      "package": "rand",
+      "advisory": "GHSA-cq8v-f236-94qc",
+      "severity": "low",
+      "affectedRange": "= 0.10.0",
+      "currentVersions": [
+        "0.8.6",
+        "0.9.5",
+        "0.10.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.8.6",
+          "0.9.5",
+          "0.10.1"
+        ],
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-cq8v-f236-94qc"
+    },
+    {
+      "number": 277,
+      "manifest": "octo-harness/Cargo.lock",
+      "package": "git2",
+      "advisory": "GHSA-j39j-6gw9-jw6h",
+      "severity": "low",
+      "affectedRange": "< 0.20.4",
+      "currentVersions": [
+        "0.21.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.20.4"
+        ],
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-j39j-6gw9-jw6h"
+    },
+    {
+      "number": 276,
+      "manifest": "octo-harness/Cargo.lock",
+      "package": "aws-sdk-sts",
+      "advisory": "GHSA-g59m-gf8j-gjf5",
+      "severity": "low",
+      "affectedRange": "< 1.91.0",
+      "currentVersions": [
+        "1.119.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.97.0"
+        ],
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-g59m-gf8j-gjf5"
+    },
+    {
+      "number": 275,
+      "manifest": "octo-harness/Cargo.lock",
+      "package": "aws-sdk-ssooidc",
+      "advisory": "GHSA-g59m-gf8j-gjf5",
+      "severity": "low",
+      "affectedRange": "< 1.91.0",
+      "currentVersions": [
+        "1.116.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.95.0"
+        ],
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-g59m-gf8j-gjf5"
+    },
+    {
+      "number": 274,
+      "manifest": "octo-harness/Cargo.lock",
+      "package": "aws-sdk-sso",
+      "advisory": "GHSA-g59m-gf8j-gjf5",
+      "severity": "low",
+      "affectedRange": "< 1.89.0",
+      "currentVersions": [
+        "1.114.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.93.0"
+        ],
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-g59m-gf8j-gjf5"
+    },
+    {
+      "number": 273,
+      "manifest": "octo-harness/Cargo.lock",
+      "package": "aws-sdk-s3",
+      "advisory": "GHSA-g59m-gf8j-gjf5",
+      "severity": "low",
+      "affectedRange": "< 1.112.0",
+      "currentVersions": [
+        "1.152.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.122.0"
+        ],
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-g59m-gf8j-gjf5"
+    },
+    {
+      "number": 272,
+      "manifest": "octo-harness/Cargo.lock",
+      "package": "lru",
+      "advisory": "GHSA-rhfx-m35p-ff5j",
+      "severity": "low",
+      "affectedRange": ">= 0.9.0, < 0.16.3",
+      "currentVersions": [
+        "0.18.2"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.16.3",
+          "0.18.2"
+        ],
+        "fix": "Patched dependency or removed vulnerable graph edge"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-rhfx-m35p-ff5j"
+    },
+    {
+      "number": 271,
+      "manifest": "desktop-shell/test/sanity/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-q2hr-2g5m-vwhr",
+      "severity": "medium",
+      "affectedRange": ">= 2.0.0, < 2.1.7",
+      "currentVersions": [
+        "2.1.7"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "2.1.7"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-q2hr-2g5m-vwhr"
+    },
+    {
+      "number": 270,
+      "manifest": "desktop-shell/test/sanity/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-qhr7-859c-m2p7",
+      "severity": "high",
+      "affectedRange": ">= 2.0.0, < 2.1.6",
+      "currentVersions": [
+        "2.1.7"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "2.1.7"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-qhr7-859c-m2p7"
+    },
+    {
+      "number": 269,
+      "manifest": "desktop-shell/test/sanity/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-6j4f-fj2g-mc7p",
+      "severity": "high",
+      "affectedRange": ">= 2.0.0, < 2.1.5",
+      "currentVersions": [
+        "2.1.7"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "2.1.7"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6j4f-fj2g-mc7p"
+    },
+    {
+      "number": 268,
+      "manifest": "desktop-shell/test/sanity/package-lock.json",
+      "package": "js-yaml",
+      "advisory": "GHSA-2883-xcg3-v3hh",
+      "severity": "high",
+      "affectedRange": ">= 4.0.0, < 4.3.2",
+      "currentVersions": [
+        "4.3.2"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.3.2"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-2883-xcg3-v3hh"
+    },
+    {
+      "number": 267,
+      "manifest": "desktop-shell/test/sanity/package-lock.json",
+      "package": "js-yaml",
+      "advisory": "GHSA-5p4m-2wfm-xmqj",
+      "severity": "high",
+      "affectedRange": ">= 4.0.0, < 4.3.1",
+      "currentVersions": [
+        "4.3.2"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.3.2"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-5p4m-2wfm-xmqj"
+    },
+    {
+      "number": 266,
+      "manifest": "desktop-shell/test/sanity/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-rgw5-rvv9-x895",
+      "severity": "high",
+      "affectedRange": ">= 2.0.0, < 2.1.4",
+      "currentVersions": [
+        "2.1.7"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "2.1.7"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-rgw5-rvv9-x895"
+    },
+    {
+      "number": 265,
+      "manifest": "desktop-shell/test/sanity/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-mh99-v99m-4gvg",
+      "severity": "high",
+      "affectedRange": ">= 2.0.0, < 2.1.3",
+      "currentVersions": [
+        "2.1.7"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "2.1.7"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-mh99-v99m-4gvg"
+    },
+    {
+      "number": 264,
+      "manifest": "desktop-shell/test/sanity/package-lock.json",
+      "package": "js-yaml",
+      "advisory": "GHSA-52cp-r559-cp3m",
+      "severity": "high",
+      "affectedRange": ">= 4.0.0, < 4.3.0",
+      "currentVersions": [
+        "4.3.2"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.3.2"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-52cp-r559-cp3m"
+    },
+    {
+      "number": 263,
+      "manifest": "desktop-shell/test/sanity/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-3jxr-9vmj-r5cp",
+      "severity": "high",
+      "affectedRange": ">= 2.0.0, < 2.1.2",
+      "currentVersions": [
+        "2.1.7"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "2.1.7"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-3jxr-9vmj-r5cp"
+    },
+    {
+      "number": 262,
+      "manifest": "desktop-shell/test/sanity/package-lock.json",
+      "package": "diff",
+      "advisory": "GHSA-73rr-hh4g-fpgx",
+      "severity": "low",
+      "affectedRange": ">= 6.0.0, < 8.0.3",
+      "currentVersions": [
+        "8.0.4"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "8.0.4"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-73rr-hh4g-fpgx"
+    },
+    {
+      "number": 259,
+      "manifest": "desktop-shell/test/monaco/package-lock.json",
+      "package": "baseline-browser-mapping",
+      "advisory": "GHSA-w5vr-8v7q-w6rv",
+      "severity": "medium",
+      "affectedRange": ">= 2.0.0, < 2.11.0",
+      "currentVersions": [
+        "2.11.28"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "2.11.28"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-w5vr-8v7q-w6rv"
+    },
+    {
+      "number": 254,
+      "manifest": "desktop-shell/test/monaco/package-lock.json",
+      "package": "nanoid",
+      "advisory": "GHSA-xwg4-73v4-xw9w",
+      "severity": "high",
+      "affectedRange": "< 3.3.12",
+      "currentVersions": [
+        "5.1.16"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "5.1.16"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-xwg4-73v4-xw9w"
+    },
+    {
+      "number": 253,
+      "manifest": "desktop-shell/test/monaco/package-lock.json",
+      "package": "browserslist",
+      "advisory": "GHSA-c83g-rgw3-j3cx",
+      "severity": "high",
+      "affectedRange": "<= 4.28.6",
+      "currentVersions": [
+        "4.29.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.29.3"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-c83g-rgw3-j3cx"
+    },
+    {
+      "number": 252,
+      "manifest": "desktop-shell/test/monaco/package-lock.json",
+      "package": "browserslist",
+      "advisory": "GHSA-73wf-gq98-2v4g",
+      "severity": "high",
+      "affectedRange": "<= 4.28.6",
+      "currentVersions": [
+        "4.29.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.29.3"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-73wf-gq98-2v4g"
+    },
+    {
+      "number": 251,
+      "manifest": "desktop-shell/test/monaco/package-lock.json",
+      "package": "postcss-selector-parser",
+      "advisory": "GHSA-w9m9-85wc-3x92",
+      "severity": "low",
+      "affectedRange": ">= 7.1.0, < 7.1.3",
+      "currentVersions": [
+        "7.1.6"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "7.1.6"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-w9m9-85wc-3x92"
+    },
+    {
+      "number": 250,
+      "manifest": "desktop-shell/test/monaco/package-lock.json",
+      "package": "nanoid",
+      "advisory": "GHSA-2v37-7h3g-55p8",
+      "severity": "high",
+      "affectedRange": "< 3.3.18",
+      "currentVersions": [
+        "5.1.16"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "5.1.16"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-2v37-7h3g-55p8"
+    },
+    {
+      "number": 249,
+      "manifest": "desktop-shell/test/monaco/package-lock.json",
+      "package": "nanoid",
+      "advisory": "GHSA-28wg-ghj8-5hjv",
+      "severity": "high",
+      "affectedRange": "< 3.3.16",
+      "currentVersions": [
+        "5.1.16"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "5.1.16"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-28wg-ghj8-5hjv"
+    },
+    {
+      "number": 247,
+      "manifest": "desktop-shell/test/monaco/package-lock.json",
+      "package": "postcss",
+      "advisory": "GHSA-fxqj-rqcc-2cmp",
+      "severity": "medium",
+      "affectedRange": "<= 8.5.22",
+      "currentVersions": [
+        "8.5.29"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "8.5.29"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-fxqj-rqcc-2cmp"
+    },
+    {
+      "number": 246,
+      "manifest": "desktop-shell/test/monaco/package-lock.json",
+      "package": "postcss",
+      "advisory": "GHSA-r28c-9q8g-f849",
+      "severity": "high",
+      "affectedRange": "<= 8.5.17",
+      "currentVersions": [
+        "8.5.29"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "8.5.29"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-r28c-9q8g-f849"
+    },
+    {
+      "number": 239,
+      "manifest": "desktop-shell/test/mcp/package-lock.json",
+      "package": "hono",
+      "advisory": "GHSA-gqvv-2mrq-wpjv",
+      "severity": "medium",
+      "affectedRange": "< 4.13.5",
+      "currentVersions": [
+        "4.13.13"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.13.13"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-gqvv-2mrq-wpjv"
+    },
+    {
+      "number": 238,
+      "manifest": "desktop-shell/test/mcp/package-lock.json",
+      "package": "hono",
+      "advisory": "GHSA-g6gw-c38x-mqfc",
+      "severity": "medium",
+      "affectedRange": "< 4.13.5",
+      "currentVersions": [
+        "4.13.13"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.13.13"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-g6gw-c38x-mqfc"
+    },
+    {
+      "number": 237,
+      "manifest": "desktop-shell/test/mcp/package-lock.json",
+      "package": "hono",
+      "advisory": "GHSA-crvj-82cr-hjcx",
+      "severity": "medium",
+      "affectedRange": "< 4.13.5",
+      "currentVersions": [
+        "4.13.13"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.13.13"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-crvj-82cr-hjcx"
+    },
+    {
+      "number": 232,
+      "manifest": "desktop-shell/test/mcp/package-lock.json",
+      "package": "qs",
+      "advisory": "GHSA-x5fp-wj9c-mxmx",
+      "severity": "medium",
+      "affectedRange": ">= 6.14.2, <= 6.15.3",
+      "currentVersions": [
+        "6.16.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "6.16.0"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-x5fp-wj9c-mxmx"
+    },
+    {
+      "number": 231,
+      "manifest": "desktop-shell/test/mcp/package-lock.json",
+      "package": "qs",
+      "advisory": "GHSA-4mjr-xmp4-gh2g",
+      "severity": "medium",
+      "affectedRange": ">= 2.2.5, < 6.16.0",
+      "currentVersions": [
+        "6.16.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "6.16.0"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-4mjr-xmp4-gh2g"
+    },
+    {
+      "number": 230,
+      "manifest": "desktop-shell/test/mcp/package-lock.json",
+      "package": "@hono/node-server",
+      "advisory": "GHSA-frvp-7c67-39w9",
+      "severity": "medium",
+      "affectedRange": "< 1.19.15",
+      "currentVersions": [
+        "2.1.5"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "2.1.5"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-frvp-7c67-39w9"
+    },
+    {
+      "number": 229,
+      "manifest": "desktop-shell/test/mcp/package-lock.json",
+      "package": "hono",
+      "advisory": "GHSA-f23p-vx2j-j53r",
+      "severity": "medium",
+      "affectedRange": ">= 3.8.0, < 4.12.34",
+      "currentVersions": [
+        "4.13.13"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.13.13"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-f23p-vx2j-j53r"
+    },
+    {
+      "number": 228,
+      "manifest": "desktop-shell/test/mcp/package-lock.json",
+      "package": "hono",
+      "advisory": "GHSA-79qm-7rj5-m7r9",
+      "severity": "low",
+      "affectedRange": ">= 4.7.0, < 4.12.34",
+      "currentVersions": [
+        "4.13.13"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.13.13"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-79qm-7rj5-m7r9"
+    },
+    {
+      "number": 227,
+      "manifest": "desktop-shell/test/mcp/package-lock.json",
+      "package": "hono",
+      "advisory": "GHSA-54fx-42gc-7vw4",
+      "severity": "medium",
+      "affectedRange": ">= 4.12.0, < 4.12.34",
+      "currentVersions": [
+        "4.13.13"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.13.13"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-54fx-42gc-7vw4"
+    },
+    {
+      "number": 226,
+      "manifest": "desktop-shell/test/mcp/package-lock.json",
+      "package": "hono",
+      "advisory": "GHSA-8j4g-w8fx-2239",
+      "severity": "medium",
+      "affectedRange": "< 4.12.34",
+      "currentVersions": [
+        "4.13.13"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.13.13"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-8j4g-w8fx-2239"
+    },
+    {
+      "number": 221,
+      "manifest": "desktop-shell/test/integration/browser/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-q2hr-2g5m-vwhr",
+      "severity": "medium",
+      "affectedRange": "< 1.1.21",
+      "currentVersions": [],
+      "matchingAffectedVersions": [],
+      "localStatus": "removed from manifest graph",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-q2hr-2g5m-vwhr"
+    },
+    {
+      "number": 220,
+      "manifest": "desktop-shell/test/integration/browser/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-qhr7-859c-m2p7",
+      "severity": "high",
+      "affectedRange": "< 1.1.20",
+      "currentVersions": [],
+      "matchingAffectedVersions": [],
+      "localStatus": "removed from manifest graph",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-qhr7-859c-m2p7"
+    },
+    {
+      "number": 219,
+      "manifest": "desktop-shell/test/integration/browser/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-6j4f-fj2g-mc7p",
+      "severity": "high",
+      "affectedRange": "< 1.1.19",
+      "currentVersions": [],
+      "matchingAffectedVersions": [],
+      "localStatus": "removed from manifest graph",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6j4f-fj2g-mc7p"
+    },
+    {
+      "number": 218,
+      "manifest": "desktop-shell/test/integration/browser/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-rgw5-rvv9-x895",
+      "severity": "high",
+      "affectedRange": "< 1.1.18",
+      "currentVersions": [],
+      "matchingAffectedVersions": [],
+      "localStatus": "removed from manifest graph",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-rgw5-rvv9-x895"
+    },
+    {
+      "number": 217,
+      "manifest": "desktop-shell/test/integration/browser/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-mh99-v99m-4gvg",
+      "severity": "high",
+      "affectedRange": "< 1.1.17",
+      "currentVersions": [],
+      "matchingAffectedVersions": [],
+      "localStatus": "removed from manifest graph",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-mh99-v99m-4gvg"
+    },
+    {
+      "number": 216,
+      "manifest": "desktop-shell/test/automation/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-q2hr-2g5m-vwhr",
+      "severity": "medium",
+      "affectedRange": "< 1.1.21",
+      "currentVersions": [
+        "1.1.21"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-q2hr-2g5m-vwhr"
+    },
+    {
+      "number": 215,
+      "manifest": "desktop-shell/test/automation/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-qhr7-859c-m2p7",
+      "severity": "high",
+      "affectedRange": "< 1.1.20",
+      "currentVersions": [
+        "1.1.21"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-qhr7-859c-m2p7"
+    },
+    {
+      "number": 214,
+      "manifest": "desktop-shell/test/automation/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-6j4f-fj2g-mc7p",
+      "severity": "high",
+      "affectedRange": "< 1.1.19",
+      "currentVersions": [
+        "1.1.21"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6j4f-fj2g-mc7p"
+    },
+    {
+      "number": 213,
+      "manifest": "desktop-shell/test/automation/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-rgw5-rvv9-x895",
+      "severity": "high",
+      "affectedRange": "< 1.1.18",
+      "currentVersions": [
+        "1.1.21"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-rgw5-rvv9-x895"
+    },
+    {
+      "number": 212,
+      "manifest": "desktop-shell/test/automation/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-mh99-v99m-4gvg",
+      "severity": "high",
+      "affectedRange": "< 1.1.17",
+      "currentVersions": [
+        "1.1.21"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-mh99-v99m-4gvg"
+    },
+    {
+      "number": 194,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-q2hr-2g5m-vwhr",
+      "severity": "medium",
+      "affectedRange": "< 1.1.21",
+      "currentVersions": [
+        "5.0.12",
+        "2.1.7",
+        "1.1.21"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "2.1.7",
+          "1.1.21",
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-q2hr-2g5m-vwhr"
+    },
+    {
+      "number": 193,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-q2hr-2g5m-vwhr",
+      "severity": "medium",
+      "affectedRange": ">= 2.0.0, < 2.1.7",
+      "currentVersions": [
+        "5.0.12",
+        "2.1.7",
+        "1.1.21"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "2.1.7",
+          "1.1.21",
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-q2hr-2g5m-vwhr"
+    },
+    {
+      "number": 192,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-q2hr-2g5m-vwhr",
+      "severity": "medium",
+      "affectedRange": ">= 4.0.0, < 5.0.12",
+      "currentVersions": [
+        "5.0.12",
+        "2.1.7",
+        "1.1.21"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "2.1.7",
+          "1.1.21",
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-q2hr-2g5m-vwhr"
+    },
+    {
+      "number": 191,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-qhr7-859c-m2p7",
+      "severity": "high",
+      "affectedRange": "< 1.1.20",
+      "currentVersions": [
+        "5.0.12",
+        "2.1.7",
+        "1.1.21"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "2.1.7",
+          "1.1.21",
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-qhr7-859c-m2p7"
+    },
+    {
+      "number": 190,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-qhr7-859c-m2p7",
+      "severity": "high",
+      "affectedRange": ">= 2.0.0, < 2.1.6",
+      "currentVersions": [
+        "5.0.12",
+        "2.1.7",
+        "1.1.21"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "2.1.7",
+          "1.1.21",
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-qhr7-859c-m2p7"
+    },
+    {
+      "number": 189,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-qhr7-859c-m2p7",
+      "severity": "high",
+      "affectedRange": ">= 4.0.0, < 5.0.11",
+      "currentVersions": [
+        "5.0.12",
+        "2.1.7",
+        "1.1.21"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "2.1.7",
+          "1.1.21",
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-qhr7-859c-m2p7"
+    },
+    {
+      "number": 188,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-6j4f-fj2g-mc7p",
+      "severity": "high",
+      "affectedRange": "< 1.1.19",
+      "currentVersions": [
+        "5.0.12",
+        "2.1.7",
+        "1.1.21"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "2.1.7",
+          "1.1.21",
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6j4f-fj2g-mc7p"
+    },
+    {
+      "number": 187,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-6j4f-fj2g-mc7p",
+      "severity": "high",
+      "affectedRange": ">= 2.0.0, < 2.1.5",
+      "currentVersions": [
+        "5.0.12",
+        "2.1.7",
+        "1.1.21"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "2.1.7",
+          "1.1.21",
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6j4f-fj2g-mc7p"
+    },
+    {
+      "number": 186,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-6j4f-fj2g-mc7p",
+      "severity": "high",
+      "affectedRange": ">= 4.0.0, < 5.0.10",
+      "currentVersions": [
+        "5.0.12",
+        "2.1.7",
+        "1.1.21"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "2.1.7",
+          "1.1.21",
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6j4f-fj2g-mc7p"
+    },
+    {
+      "number": 185,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "adm-zip",
+      "advisory": "GHSA-p634-w6r4-rjp2",
+      "severity": "medium",
+      "affectedRange": "<= 0.6.0",
+      "currentVersions": [
+        "0.6.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.6.1"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-p634-w6r4-rjp2"
+    },
+    {
+      "number": 184,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "adm-zip",
+      "advisory": "GHSA-c6fg-446q-cg94",
+      "severity": "medium",
+      "affectedRange": "<= 0.6.0",
+      "currentVersions": [
+        "0.6.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.6.1"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-c6fg-446q-cg94"
+    },
+    {
+      "number": 183,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "adm-zip",
+      "advisory": "GHSA-8238-w5pm-2374",
+      "severity": "high",
+      "affectedRange": "<= 0.6.0",
+      "currentVersions": [
+        "0.6.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.6.1"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-8238-w5pm-2374"
+    },
+    {
+      "number": 182,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "adm-zip",
+      "advisory": "GHSA-rcw4-f5rp-g42v",
+      "severity": "high",
+      "affectedRange": "<= 0.6.0",
+      "currentVersions": [
+        "0.6.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.6.1"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-rcw4-f5rp-g42v"
+    },
+    {
+      "number": 181,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "adm-zip",
+      "advisory": "GHSA-j5f4-cc29-5x44",
+      "severity": "high",
+      "affectedRange": "<= 0.6.0",
+      "currentVersions": [
+        "0.6.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.6.1"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-j5f4-cc29-5x44"
+    },
+    {
+      "number": 161,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "electron",
+      "advisory": "GHSA-gr2m-v5gq-v685",
+      "severity": "high",
+      "affectedRange": ">= 42.0.0-alpha.1, < 42.9.2",
+      "currentVersions": [
+        "43.8.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "42.11.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-gr2m-v5gq-v685"
+    },
+    {
+      "number": 160,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "electron",
+      "advisory": "GHSA-j84w-jfhq-vhvj",
+      "severity": "high",
+      "affectedRange": ">= 42.0.0-alpha.1, < 42.9.2",
+      "currentVersions": [
+        "43.8.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "42.11.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-j84w-jfhq-vhvj"
+    },
+    {
+      "number": 159,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "electron",
+      "advisory": "GHSA-9qh4-3jw8-366w",
+      "severity": "high",
+      "affectedRange": ">= 42.0.0-alpha.1, < 42.9.2",
+      "currentVersions": [
+        "43.8.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "42.11.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-9qh4-3jw8-366w"
+    },
+    {
+      "number": 158,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "electron",
+      "advisory": "GHSA-qmv3-fv6v-rmhq",
+      "severity": "high",
+      "affectedRange": ">= 42.3.3, < 42.10.0",
+      "currentVersions": [
+        "43.8.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "42.11.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-qmv3-fv6v-rmhq"
+    },
+    {
+      "number": 157,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "markdown-it",
+      "advisory": "GHSA-253c-mchw-3w2r",
+      "severity": "medium",
+      "affectedRange": "< 14.3.1",
+      "currentVersions": [
+        "14.3.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "14.3.2"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-253c-mchw-3w2r"
+    },
+    {
+      "number": 154,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "morgan",
+      "advisory": "GHSA-9f6g-j8ch-79g4",
+      "severity": "medium",
+      "affectedRange": "< 1.12.1",
+      "currentVersions": [
+        "1.12.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.12.1"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-9f6g-j8ch-79g4"
+    },
+    {
+      "number": 149,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "adm-zip",
+      "advisory": "GHSA-7q85-xj36-vmfc",
+      "severity": "high",
+      "affectedRange": "< 0.6.1",
+      "currentVersions": [
+        "0.6.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.6.1"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-7q85-xj36-vmfc"
+    },
+    {
+      "number": 148,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "morgan",
+      "advisory": "GHSA-jxfw-x594-9x9m",
+      "severity": "medium",
+      "affectedRange": "< 1.12.0",
+      "currentVersions": [
+        "1.12.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.12.1"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-jxfw-x594-9x9m"
+    },
+    {
+      "number": 147,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "js-yaml",
+      "advisory": "GHSA-2883-xcg3-v3hh",
+      "severity": "high",
+      "affectedRange": ">= 3.0.0, < 3.15.2",
+      "currentVersions": [
+        "3.15.2",
+        "4.3.2",
+        "5.5.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "3.15.2",
+          "4.3.2"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-2883-xcg3-v3hh"
+    },
+    {
+      "number": 146,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "js-yaml",
+      "advisory": "GHSA-2883-xcg3-v3hh",
+      "severity": "high",
+      "affectedRange": ">= 4.0.0, < 4.3.2",
+      "currentVersions": [
+        "3.15.2",
+        "4.3.2",
+        "5.5.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "3.15.2",
+          "4.3.2"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-2883-xcg3-v3hh"
+    },
+    {
+      "number": 145,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "hono",
+      "advisory": "GHSA-gqvv-2mrq-wpjv",
+      "severity": "medium",
+      "affectedRange": "< 4.13.5",
+      "currentVersions": [
+        "4.13.13"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.13.13"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-gqvv-2mrq-wpjv"
+    },
+    {
+      "number": 144,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "hono",
+      "advisory": "GHSA-g6gw-c38x-mqfc",
+      "severity": "medium",
+      "affectedRange": "< 4.13.5",
+      "currentVersions": [
+        "4.13.13"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.13.13"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-g6gw-c38x-mqfc"
+    },
+    {
+      "number": 143,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "hono",
+      "advisory": "GHSA-crvj-82cr-hjcx",
+      "severity": "medium",
+      "affectedRange": "< 4.13.5",
+      "currentVersions": [
+        "4.13.13"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.13.13"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-crvj-82cr-hjcx"
+    },
+    {
+      "number": 142,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "adm-zip",
+      "advisory": "GHSA-vwc7-r8mq-g2x9",
+      "severity": "medium",
+      "affectedRange": ">= 0.5.9, <= 0.6.0",
+      "currentVersions": [
+        "0.6.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.6.1"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-vwc7-r8mq-g2x9"
+    },
+    {
+      "number": 141,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "svgo",
+      "advisory": "GHSA-w27v-7q3p-w38r",
+      "severity": "high",
+      "affectedRange": ">= 1.0.0, < 2.8.4",
+      "currentVersions": [
+        "4.1.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.1.0"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-w27v-7q3p-w38r"
+    },
+    {
+      "number": 140,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "svgo",
+      "advisory": "GHSA-4vpr-x523-8j87",
+      "severity": "medium",
+      "affectedRange": ">= 1.0.0, < 2.8.4",
+      "currentVersions": [
+        "4.1.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.1.0"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-4vpr-x523-8j87"
+    },
+    {
+      "number": 132,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "baseline-browser-mapping",
+      "advisory": "GHSA-w5vr-8v7q-w6rv",
+      "severity": "medium",
+      "affectedRange": ">= 2.0.0, < 2.11.0",
+      "currentVersions": [
+        "2.11.28"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "2.11.28"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-w5vr-8v7q-w6rv"
+    },
+    {
+      "number": 128,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "qs",
+      "advisory": "GHSA-x5fp-wj9c-mxmx",
+      "severity": "medium",
+      "affectedRange": ">= 6.14.2, <= 6.15.3",
+      "currentVersions": [
+        "6.16.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "6.16.0"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-x5fp-wj9c-mxmx"
+    },
+    {
+      "number": 127,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "qs",
+      "advisory": "GHSA-4mjr-xmp4-gh2g",
+      "severity": "medium",
+      "affectedRange": ">= 2.2.5, < 6.16.0",
+      "currentVersions": [
+        "6.16.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "6.16.0"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-4mjr-xmp4-gh2g"
+    },
+    {
+      "number": 126,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "@humanfs/node",
+      "advisory": "GHSA-p498-v437-472g",
+      "severity": "medium",
+      "affectedRange": "< 0.16.8",
+      "currentVersions": [
+        "0.16.8"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.16.8"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-p498-v437-472g"
+    },
+    {
+      "number": 125,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "browserslist",
+      "advisory": "GHSA-c83g-rgw3-j3cx",
+      "severity": "high",
+      "affectedRange": "<= 4.28.6",
+      "currentVersions": [
+        "4.29.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.29.3"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-c83g-rgw3-j3cx"
+    },
+    {
+      "number": 124,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "browserslist",
+      "advisory": "GHSA-73wf-gq98-2v4g",
+      "severity": "high",
+      "affectedRange": "<= 4.28.6",
+      "currentVersions": [
+        "4.29.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.29.3"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-73wf-gq98-2v4g"
+    },
+    {
+      "number": 123,
+      "manifest": "desktop-shell/package-lock.json",
+      "package": "decode-uri-component",
+      "advisory": "GHSA-vcc3-ghjq-m6fr",
+      "severity": "medium",
+      "affectedRange": "<= 0.4.2",
+      "currentVersions": [],
+      "matchingAffectedVersions": [],
+      "localStatus": "removed from manifest graph",
+      "priorEvidence": {
+        "resolved": [
+          "0.5.0"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-vcc3-ghjq-m6fr"
+    },
+    {
+      "number": 100,
+      "manifest": "desktop-shell/extensions/markdown-language-features/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-q2hr-2g5m-vwhr",
+      "severity": "medium",
+      "affectedRange": "< 1.1.21",
+      "currentVersions": [
+        "1.1.21"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-q2hr-2g5m-vwhr"
+    },
+    {
+      "number": 99,
+      "manifest": "desktop-shell/extensions/markdown-language-features/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-qhr7-859c-m2p7",
+      "severity": "high",
+      "affectedRange": "< 1.1.20",
+      "currentVersions": [
+        "1.1.21"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-qhr7-859c-m2p7"
+    },
+    {
+      "number": 98,
+      "manifest": "desktop-shell/extensions/markdown-language-features/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-6j4f-fj2g-mc7p",
+      "severity": "high",
+      "affectedRange": "< 1.1.19",
+      "currentVersions": [
+        "1.1.21"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6j4f-fj2g-mc7p"
+    },
+    {
+      "number": 97,
+      "manifest": "desktop-shell/extensions/markdown-language-features/package-lock.json",
+      "package": "markdown-it",
+      "advisory": "GHSA-253c-mchw-3w2r",
+      "severity": "medium",
+      "affectedRange": "< 14.3.1",
+      "currentVersions": [
+        "14.3.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "14.3.2"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-253c-mchw-3w2r"
+    },
+    {
+      "number": 96,
+      "manifest": "desktop-shell/extensions/markdown-language-features/package-lock.json",
+      "package": "dompurify",
+      "advisory": "GHSA-55q2-fjhq-7xh7",
+      "severity": "medium",
+      "affectedRange": "<= 3.4.12",
+      "currentVersions": [
+        "3.4.17"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "3.4.17"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-55q2-fjhq-7xh7"
+    },
+    {
+      "number": 95,
+      "manifest": "desktop-shell/extensions/markdown-language-features/package-lock.json",
+      "package": "mermaid",
+      "advisory": "GHSA-rhh3-jpg6-66xh",
+      "severity": "medium",
+      "affectedRange": ">= 11.6.0, < 11.16.1",
+      "currentVersions": [
+        "11.17.2"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "11.17.2"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-rhh3-jpg6-66xh"
+    },
+    {
+      "number": 94,
+      "manifest": "desktop-shell/extensions/markdown-language-features/package-lock.json",
+      "package": "mermaid",
+      "advisory": "GHSA-c4c3-pg64-4m4v",
+      "severity": "low",
+      "affectedRange": ">= 11.0.0-alpha.1, < 11.16.1",
+      "currentVersions": [
+        "11.17.2"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "11.17.2"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-c4c3-pg64-4m4v"
+    },
+    {
+      "number": 93,
+      "manifest": "desktop-shell/extensions/markdown-language-features/package-lock.json",
+      "package": "mermaid",
+      "advisory": "GHSA-6x64-9x62-f2gx",
+      "severity": "medium",
+      "affectedRange": ">= 11.0.0-alpha.1, < 11.16.1",
+      "currentVersions": [
+        "11.17.2"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "11.17.2"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6x64-9x62-f2gx"
+    },
+    {
+      "number": 92,
+      "manifest": "desktop-shell/extensions/markdown-language-features/package-lock.json",
+      "package": "mermaid",
+      "advisory": "GHSA-3rrr-jr9j-h3q3",
+      "severity": "medium",
+      "affectedRange": ">= 11.5.0, < 11.16.1",
+      "currentVersions": [
+        "11.17.2"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "11.17.2"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-3rrr-jr9j-h3q3"
+    },
+    {
+      "number": 91,
+      "manifest": "desktop-shell/extensions/markdown-language-features/package-lock.json",
+      "package": "mermaid",
+      "advisory": "GHSA-2v8p-3f2j-5mp7",
+      "severity": "medium",
+      "affectedRange": ">= 11.0.0-alpha.1, < 11.16.1",
+      "currentVersions": [
+        "11.17.2"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "11.17.2"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-2v8p-3f2j-5mp7"
+    },
+    {
+      "number": 90,
+      "manifest": "desktop-shell/extensions/markdown-language-features/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-rgw5-rvv9-x895",
+      "severity": "high",
+      "affectedRange": "< 1.1.18",
+      "currentVersions": [
+        "1.1.21"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-rgw5-rvv9-x895"
+    },
+    {
+      "number": 89,
+      "manifest": "desktop-shell/extensions/markdown-language-features/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-mh99-v99m-4gvg",
+      "severity": "high",
+      "affectedRange": "< 1.1.17",
+      "currentVersions": [
+        "1.1.21"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-mh99-v99m-4gvg"
+    },
+    {
+      "number": 88,
+      "manifest": "desktop-shell/extensions/json-language-features/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-q2hr-2g5m-vwhr",
+      "severity": "medium",
+      "affectedRange": ">= 4.0.0, < 5.0.12",
+      "currentVersions": [
+        "5.0.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-q2hr-2g5m-vwhr"
+    },
+    {
+      "number": 87,
+      "manifest": "desktop-shell/extensions/json-language-features/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-qhr7-859c-m2p7",
+      "severity": "high",
+      "affectedRange": ">= 4.0.0, < 5.0.11",
+      "currentVersions": [
+        "5.0.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-qhr7-859c-m2p7"
+    },
+    {
+      "number": 86,
+      "manifest": "desktop-shell/extensions/json-language-features/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-6j4f-fj2g-mc7p",
+      "severity": "high",
+      "affectedRange": ">= 4.0.0, < 5.0.10",
+      "currentVersions": [
+        "5.0.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6j4f-fj2g-mc7p"
+    },
+    {
+      "number": 85,
+      "manifest": "desktop-shell/extensions/json-language-features/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-rgw5-rvv9-x895",
+      "severity": "high",
+      "affectedRange": ">= 4.0.0, < 5.0.9",
+      "currentVersions": [
+        "5.0.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-rgw5-rvv9-x895"
+    },
+    {
+      "number": 84,
+      "manifest": "desktop-shell/extensions/json-language-features/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-mh99-v99m-4gvg",
+      "severity": "high",
+      "affectedRange": ">= 4.0.0, < 5.0.8",
+      "currentVersions": [
+        "5.0.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-mh99-v99m-4gvg"
+    },
+    {
+      "number": 83,
+      "manifest": "desktop-shell/extensions/html-language-features/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-q2hr-2g5m-vwhr",
+      "severity": "medium",
+      "affectedRange": ">= 4.0.0, < 5.0.12",
+      "currentVersions": [
+        "5.0.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-q2hr-2g5m-vwhr"
+    },
+    {
+      "number": 82,
+      "manifest": "desktop-shell/extensions/html-language-features/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-qhr7-859c-m2p7",
+      "severity": "high",
+      "affectedRange": ">= 4.0.0, < 5.0.11",
+      "currentVersions": [
+        "5.0.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-qhr7-859c-m2p7"
+    },
+    {
+      "number": 81,
+      "manifest": "desktop-shell/extensions/html-language-features/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-6j4f-fj2g-mc7p",
+      "severity": "high",
+      "affectedRange": ">= 4.0.0, < 5.0.10",
+      "currentVersions": [
+        "5.0.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6j4f-fj2g-mc7p"
+    },
+    {
+      "number": 80,
+      "manifest": "desktop-shell/extensions/html-language-features/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-rgw5-rvv9-x895",
+      "severity": "high",
+      "affectedRange": ">= 4.0.0, < 5.0.9",
+      "currentVersions": [
+        "5.0.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-rgw5-rvv9-x895"
+    },
+    {
+      "number": 79,
+      "manifest": "desktop-shell/extensions/html-language-features/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-mh99-v99m-4gvg",
+      "severity": "high",
+      "affectedRange": ">= 4.0.0, < 5.0.8",
+      "currentVersions": [
+        "5.0.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-mh99-v99m-4gvg"
+    },
+    {
+      "number": 78,
+      "manifest": "desktop-shell/extensions/extension-editing/package-lock.json",
+      "package": "markdown-it",
+      "advisory": "GHSA-253c-mchw-3w2r",
+      "severity": "medium",
+      "affectedRange": "< 14.3.1",
+      "currentVersions": [
+        "14.3.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "14.3.2"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-253c-mchw-3w2r"
+    },
+    {
+      "number": 77,
+      "manifest": "desktop-shell/extensions/emmet/package-lock.json",
+      "package": "image-size",
+      "advisory": "GHSA-w3rx-r6r6-pgpr",
+      "severity": "high",
+      "affectedRange": ">= 0.6.3, <= 2.0.2",
+      "currentVersions": [
+        "2.0.4"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "2.0.4"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-w3rx-r6r6-pgpr"
+    },
+    {
+      "number": 76,
+      "manifest": "desktop-shell/extensions/css-language-features/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-q2hr-2g5m-vwhr",
+      "severity": "medium",
+      "affectedRange": ">= 4.0.0, < 5.0.12",
+      "currentVersions": [
+        "5.0.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-q2hr-2g5m-vwhr"
+    },
+    {
+      "number": 75,
+      "manifest": "desktop-shell/extensions/css-language-features/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-qhr7-859c-m2p7",
+      "severity": "high",
+      "affectedRange": ">= 4.0.0, < 5.0.11",
+      "currentVersions": [
+        "5.0.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-qhr7-859c-m2p7"
+    },
+    {
+      "number": 74,
+      "manifest": "desktop-shell/extensions/css-language-features/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-6j4f-fj2g-mc7p",
+      "severity": "high",
+      "affectedRange": ">= 4.0.0, < 5.0.10",
+      "currentVersions": [
+        "5.0.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6j4f-fj2g-mc7p"
+    },
+    {
+      "number": 73,
+      "manifest": "desktop-shell/extensions/css-language-features/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-rgw5-rvv9-x895",
+      "severity": "high",
+      "affectedRange": ">= 4.0.0, < 5.0.9",
+      "currentVersions": [
+        "5.0.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-rgw5-rvv9-x895"
+    },
+    {
+      "number": 72,
+      "manifest": "desktop-shell/extensions/css-language-features/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-mh99-v99m-4gvg",
+      "severity": "high",
+      "affectedRange": ">= 4.0.0, < 5.0.8",
+      "currentVersions": [
+        "5.0.12"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "5.0.12"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-mh99-v99m-4gvg"
+    },
+    {
+      "number": 71,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "russh",
+      "advisory": "GHSA-m65r-rprj-r5rg",
+      "severity": "medium",
+      "affectedRange": "<= 0.62.4",
+      "currentVersions": [
+        "0.64.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.63.3"
+        ],
+        "fix": "local upstream 0.63.3 with documented relay-only compatibility patch"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-m65r-rprj-r5rg"
+    },
+    {
+      "number": 70,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "russh",
+      "advisory": "GHSA-g9hv-x236-4qp3",
+      "severity": "medium",
+      "affectedRange": "<= 0.62.3",
+      "currentVersions": [
+        "0.64.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.63.3"
+        ],
+        "fix": "local upstream 0.63.3 with documented relay-only compatibility patch"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-g9hv-x236-4qp3"
+    },
+    {
+      "number": 69,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "russh",
+      "advisory": "GHSA-cqjc-rmpq-xprq",
+      "severity": "medium",
+      "affectedRange": "<= 0.62.3",
+      "currentVersions": [
+        "0.64.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.63.3"
+        ],
+        "fix": "local upstream 0.63.3 with documented relay-only compatibility patch"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-cqjc-rmpq-xprq"
+    },
+    {
+      "number": 68,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "russh",
+      "advisory": "GHSA-5xvq-cp9x-6p6r",
+      "severity": "medium",
+      "affectedRange": "<= 0.62.3",
+      "currentVersions": [
+        "0.64.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.63.3"
+        ],
+        "fix": "local upstream 0.63.3 with documented relay-only compatibility patch"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-5xvq-cp9x-6p6r"
+    },
+    {
+      "number": 67,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "russh",
+      "advisory": "GHSA-4r3c-5hpg-58qr",
+      "severity": "high",
+      "affectedRange": ">= 0.34.0, < 0.61.0",
+      "currentVersions": [
+        "0.64.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.63.3"
+        ],
+        "fix": "local upstream 0.63.3 with documented relay-only compatibility patch"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-4r3c-5hpg-58qr"
+    },
+    {
+      "number": 66,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "russh",
+      "advisory": "GHSA-76r6-x97p-67vr",
+      "severity": "medium",
+      "affectedRange": ">= 0.34.0-beta.1, < 0.61.0",
+      "currentVersions": [
+        "0.64.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.63.3"
+        ],
+        "fix": "local upstream 0.63.3 with documented relay-only compatibility patch"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-76r6-x97p-67vr"
+    },
+    {
+      "number": 65,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "russh",
+      "advisory": "GHSA-g9g7-5cgw-6v28",
+      "severity": "medium",
+      "affectedRange": ">= 0.37.0, < 0.61.0",
+      "currentVersions": [
+        "0.64.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.63.3"
+        ],
+        "fix": "local upstream 0.63.3 with documented relay-only compatibility patch"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-g9g7-5cgw-6v28"
+    },
+    {
+      "number": 64,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "russh",
+      "advisory": "GHSA-hpv4-5h6f-wqr3",
+      "severity": "medium",
+      "affectedRange": ">= 0.34.0-beta.1, < 0.61.0",
+      "currentVersions": [
+        "0.64.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.63.3"
+        ],
+        "fix": "local upstream 0.63.3 with documented relay-only compatibility patch"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-hpv4-5h6f-wqr3"
+    },
+    {
+      "number": 63,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "russh",
+      "advisory": "GHSA-wwx6-x28x-8259",
+      "severity": "high",
+      "affectedRange": ">= 0.34.0, < 0.61.1",
+      "currentVersions": [
+        "0.64.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.63.3"
+        ],
+        "fix": "local upstream 0.63.3 with documented relay-only compatibility patch"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-wwx6-x28x-8259"
+    },
+    {
+      "number": 62,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "russh",
+      "advisory": "GHSA-g9f8-wqj9-fjw5",
+      "severity": "high",
+      "affectedRange": "<= 0.60.2",
+      "currentVersions": [
+        "0.64.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.63.3"
+        ],
+        "fix": "local upstream 0.63.3 with documented relay-only compatibility patch"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-g9f8-wqj9-fjw5"
+    },
+    {
+      "number": 61,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "russh-cryptovec",
+      "advisory": "GHSA-g9f8-wqj9-fjw5",
+      "severity": "high",
+      "affectedRange": "<= 0.60.2",
+      "currentVersions": [
+        "0.62.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.62.0"
+        ],
+        "fix": "registry"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-g9f8-wqj9-fjw5"
+    },
+    {
+      "number": 60,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "russh",
+      "advisory": "GHSA-f5v4-2wr6-hqmg",
+      "severity": "high",
+      "affectedRange": "< 0.60.1",
+      "currentVersions": [
+        "0.64.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.63.3"
+        ],
+        "fix": "local upstream 0.63.3 with documented relay-only compatibility patch"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-f5v4-2wr6-hqmg"
+    },
+    {
+      "number": 59,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "rand",
+      "advisory": "GHSA-cq8v-f236-94qc",
+      "severity": "low",
+      "affectedRange": ">= 0.7.0, < 0.8.6",
+      "currentVersions": [
+        "0.8.6",
+        "0.9.5",
+        "0.10.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.8.6",
+          "0.9.4",
+          "0.10.3"
+        ],
+        "fix": "registry"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-cq8v-f236-94qc"
+    },
+    {
+      "number": 58,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "russh",
+      "advisory": "GHSA-h5rc-j5f5-3gcm",
+      "severity": "medium",
+      "affectedRange": "< 0.54.1",
+      "currentVersions": [
+        "0.64.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.63.3"
+        ],
+        "fix": "local upstream 0.63.3 with documented relay-only compatibility patch"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-h5rc-j5f5-3gcm"
+    },
+    {
+      "number": 57,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "russh",
+      "advisory": "GHSA-vgvv-x7xg-6cqg",
+      "severity": "high",
+      "affectedRange": "<= 0.44.0",
+      "currentVersions": [
+        "0.64.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.63.3"
+        ],
+        "fix": "local upstream 0.63.3 with documented relay-only compatibility patch"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-vgvv-x7xg-6cqg"
+    },
+    {
+      "number": 56,
+      "manifest": "desktop-shell/cli/Cargo.lock",
+      "package": "russh",
+      "advisory": "GHSA-45x7-px36-x8w8",
+      "severity": "medium",
+      "affectedRange": "< 0.40.2",
+      "currentVersions": [
+        "0.64.1"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "0.63.3"
+        ],
+        "fix": "local upstream 0.63.3 with documented relay-only compatibility patch"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-45x7-px36-x8w8"
+    },
+    {
+      "number": 55,
+      "manifest": "desktop-shell/build/vite/package-lock.json",
+      "package": "nanoid",
+      "advisory": "GHSA-xwg4-73v4-xw9w",
+      "severity": "high",
+      "affectedRange": "< 3.3.12",
+      "currentVersions": [
+        "5.1.16"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "5.1.16"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-xwg4-73v4-xw9w"
+    },
+    {
+      "number": 54,
+      "manifest": "desktop-shell/build/vite/package-lock.json",
+      "package": "nanoid",
+      "advisory": "GHSA-2v37-7h3g-55p8",
+      "severity": "high",
+      "affectedRange": "< 3.3.18",
+      "currentVersions": [
+        "5.1.16"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "5.1.16"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-2v37-7h3g-55p8"
+    },
+    {
+      "number": 53,
+      "manifest": "desktop-shell/build/vite/package-lock.json",
+      "package": "nanoid",
+      "advisory": "GHSA-28wg-ghj8-5hjv",
+      "severity": "high",
+      "affectedRange": "< 3.3.16",
+      "currentVersions": [
+        "5.1.16"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "5.1.16"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-28wg-ghj8-5hjv"
+    },
+    {
+      "number": 52,
+      "manifest": "desktop-shell/build/vite/package-lock.json",
+      "package": "postcss",
+      "advisory": "GHSA-fxqj-rqcc-2cmp",
+      "severity": "medium",
+      "affectedRange": "<= 8.5.22",
+      "currentVersions": [
+        "8.5.30"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "8.5.30"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-fxqj-rqcc-2cmp"
+    },
+    {
+      "number": 51,
+      "manifest": "desktop-shell/build/vite/package-lock.json",
+      "package": "postcss",
+      "advisory": "GHSA-r28c-9q8g-f849",
+      "severity": "high",
+      "affectedRange": "<= 8.5.17",
+      "currentVersions": [
+        "8.5.30"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "8.5.30"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-r28c-9q8g-f849"
+    },
+    {
+      "number": 48,
+      "manifest": "desktop-shell/build/rspack/package-lock.json",
+      "package": "baseline-browser-mapping",
+      "advisory": "GHSA-w5vr-8v7q-w6rv",
+      "severity": "medium",
+      "affectedRange": ">= 2.0.0, < 2.11.0",
+      "currentVersions": [
+        "2.11.28"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "2.11.28"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-w5vr-8v7q-w6rv"
+    },
+    {
+      "number": 43,
+      "manifest": "desktop-shell/build/rspack/package-lock.json",
+      "package": "browserslist",
+      "advisory": "GHSA-c83g-rgw3-j3cx",
+      "severity": "high",
+      "affectedRange": "<= 4.28.6",
+      "currentVersions": [
+        "4.29.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.29.3"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-c83g-rgw3-j3cx"
+    },
+    {
+      "number": 42,
+      "manifest": "desktop-shell/build/rspack/package-lock.json",
+      "package": "browserslist",
+      "advisory": "GHSA-73wf-gq98-2v4g",
+      "severity": "high",
+      "affectedRange": "<= 4.28.6",
+      "currentVersions": [
+        "4.29.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.29.3"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-73wf-gq98-2v4g"
+    },
+    {
+      "number": 39,
+      "manifest": "desktop-shell/build/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-q2hr-2g5m-vwhr",
+      "severity": "medium",
+      "affectedRange": "< 1.1.21",
+      "currentVersions": [
+        "1.1.21",
+        "5.0.12",
+        "2.1.7"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21",
+          "5.0.12",
+          "2.1.7"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-q2hr-2g5m-vwhr"
+    },
+    {
+      "number": 38,
+      "manifest": "desktop-shell/build/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-q2hr-2g5m-vwhr",
+      "severity": "medium",
+      "affectedRange": ">= 2.0.0, < 2.1.7",
+      "currentVersions": [
+        "1.1.21",
+        "5.0.12",
+        "2.1.7"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21",
+          "5.0.12",
+          "2.1.7"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-q2hr-2g5m-vwhr"
+    },
+    {
+      "number": 37,
+      "manifest": "desktop-shell/build/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-q2hr-2g5m-vwhr",
+      "severity": "medium",
+      "affectedRange": ">= 4.0.0, < 5.0.12",
+      "currentVersions": [
+        "1.1.21",
+        "5.0.12",
+        "2.1.7"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21",
+          "5.0.12",
+          "2.1.7"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-q2hr-2g5m-vwhr"
+    },
+    {
+      "number": 36,
+      "manifest": "desktop-shell/build/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-qhr7-859c-m2p7",
+      "severity": "high",
+      "affectedRange": "< 1.1.20",
+      "currentVersions": [
+        "1.1.21",
+        "5.0.12",
+        "2.1.7"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21",
+          "5.0.12",
+          "2.1.7"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-qhr7-859c-m2p7"
+    },
+    {
+      "number": 35,
+      "manifest": "desktop-shell/build/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-qhr7-859c-m2p7",
+      "severity": "high",
+      "affectedRange": ">= 2.0.0, < 2.1.6",
+      "currentVersions": [
+        "1.1.21",
+        "5.0.12",
+        "2.1.7"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21",
+          "5.0.12",
+          "2.1.7"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-qhr7-859c-m2p7"
+    },
+    {
+      "number": 34,
+      "manifest": "desktop-shell/build/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-qhr7-859c-m2p7",
+      "severity": "high",
+      "affectedRange": ">= 4.0.0, < 5.0.11",
+      "currentVersions": [
+        "1.1.21",
+        "5.0.12",
+        "2.1.7"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21",
+          "5.0.12",
+          "2.1.7"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-qhr7-859c-m2p7"
+    },
+    {
+      "number": 33,
+      "manifest": "desktop-shell/build/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-6j4f-fj2g-mc7p",
+      "severity": "high",
+      "affectedRange": "< 1.1.19",
+      "currentVersions": [
+        "1.1.21",
+        "5.0.12",
+        "2.1.7"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21",
+          "5.0.12",
+          "2.1.7"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6j4f-fj2g-mc7p"
+    },
+    {
+      "number": 32,
+      "manifest": "desktop-shell/build/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-6j4f-fj2g-mc7p",
+      "severity": "high",
+      "affectedRange": ">= 2.0.0, < 2.1.5",
+      "currentVersions": [
+        "1.1.21",
+        "5.0.12",
+        "2.1.7"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21",
+          "5.0.12",
+          "2.1.7"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6j4f-fj2g-mc7p"
+    },
+    {
+      "number": 31,
+      "manifest": "desktop-shell/build/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-6j4f-fj2g-mc7p",
+      "severity": "high",
+      "affectedRange": ">= 4.0.0, < 5.0.10",
+      "currentVersions": [
+        "1.1.21",
+        "5.0.12",
+        "2.1.7"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "1.1.21",
+          "5.0.12",
+          "2.1.7"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6j4f-fj2g-mc7p"
+    },
+    {
+      "number": 30,
+      "manifest": "desktop-shell/build/package-lock.json",
+      "package": "markdown-it",
+      "advisory": "GHSA-253c-mchw-3w2r",
+      "severity": "medium",
+      "affectedRange": "< 14.3.1",
+      "currentVersions": [
+        "14.3.3"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "14.3.2"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-253c-mchw-3w2r"
+    },
+    {
+      "number": 27,
+      "manifest": "desktop-shell/build/package-lock.json",
+      "package": "js-yaml",
+      "advisory": "GHSA-2883-xcg3-v3hh",
+      "severity": "high",
+      "affectedRange": ">= 4.0.0, < 4.3.2",
+      "currentVersions": [
+        "4.3.2"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "4.3.2"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-2883-xcg3-v3hh"
+    },
+    {
+      "number": 16,
+      "manifest": "desktop-shell/build/package-lock.json",
+      "package": "qs",
+      "advisory": "GHSA-x5fp-wj9c-mxmx",
+      "severity": "medium",
+      "affectedRange": ">= 6.14.2, <= 6.15.3",
+      "currentVersions": [
+        "6.16.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "6.16.0"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-x5fp-wj9c-mxmx"
+    },
+    {
+      "number": 15,
+      "manifest": "desktop-shell/build/package-lock.json",
+      "package": "qs",
+      "advisory": "GHSA-4mjr-xmp4-gh2g",
+      "severity": "medium",
+      "affectedRange": ">= 2.2.5, < 6.16.0",
+      "currentVersions": [
+        "6.16.0"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "6.16.0"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-4mjr-xmp4-gh2g"
+    },
+    {
+      "number": 12,
+      "manifest": "desktop-shell/build/npm/gyp/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-q2hr-2g5m-vwhr",
+      "severity": "medium",
+      "affectedRange": ">= 2.0.0, < 2.1.7",
+      "currentVersions": [],
+      "matchingAffectedVersions": [],
+      "localStatus": "removed from manifest graph",
+      "priorEvidence": {
+        "resolved": [
+          "2.1.7"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-q2hr-2g5m-vwhr"
+    },
+    {
+      "number": 11,
+      "manifest": "desktop-shell/build/npm/gyp/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-qhr7-859c-m2p7",
+      "severity": "high",
+      "affectedRange": ">= 2.0.0, < 2.1.6",
+      "currentVersions": [],
+      "matchingAffectedVersions": [],
+      "localStatus": "removed from manifest graph",
+      "priorEvidence": {
+        "resolved": [
+          "2.1.7"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-qhr7-859c-m2p7"
+    },
+    {
+      "number": 10,
+      "manifest": "desktop-shell/build/npm/gyp/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-6j4f-fj2g-mc7p",
+      "severity": "high",
+      "affectedRange": ">= 2.0.0, < 2.1.5",
+      "currentVersions": [],
+      "matchingAffectedVersions": [],
+      "localStatus": "removed from manifest graph",
+      "priorEvidence": {
+        "resolved": [
+          "2.1.7"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-6j4f-fj2g-mc7p"
+    },
+    {
+      "number": 7,
+      "manifest": "desktop-shell/build/npm/gyp/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-rgw5-rvv9-x895",
+      "severity": "high",
+      "affectedRange": ">= 2.0.0, < 2.1.4",
+      "currentVersions": [],
+      "matchingAffectedVersions": [],
+      "localStatus": "removed from manifest graph",
+      "priorEvidence": {
+        "resolved": [
+          "2.1.7"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-rgw5-rvv9-x895"
+    },
+    {
+      "number": 6,
+      "manifest": "desktop-shell/build/npm/gyp/package-lock.json",
+      "package": "brace-expansion",
+      "advisory": "GHSA-mh99-v99m-4gvg",
+      "severity": "high",
+      "affectedRange": ">= 2.0.0, < 2.1.3",
+      "currentVersions": [],
+      "matchingAffectedVersions": [],
+      "localStatus": "removed from manifest graph",
+      "priorEvidence": {
+        "resolved": [
+          "2.1.7"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-mh99-v99m-4gvg"
+    },
+    {
+      "number": 5,
+      "manifest": "desktop-shell/build/npm/gyp/package-lock.json",
+      "package": "tar",
+      "advisory": "GHSA-r292-9mhp-454m",
+      "severity": "high",
+      "affectedRange": "<= 7.5.20",
+      "currentVersions": [
+        "7.5.22"
+      ],
+      "matchingAffectedVersions": [],
+      "localStatus": "outside affected range",
+      "priorEvidence": {
+        "resolved": [
+          "7.5.22"
+        ],
+        "fix": "npm-updated patched dependency and generated lockfile"
+      },
+      "githubState": "awaiting default-branch dependency rescan",
+      "source": "https://github.com/advisories/GHSA-r292-9mhp-454m"
+    }
+  ]
+}

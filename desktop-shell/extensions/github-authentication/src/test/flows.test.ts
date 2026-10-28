@@ -26,6 +26,22 @@ suite('getFlows', () => {
 		Config.gitHubClientSecret = lastClientSecret;
 	});
 
+	test('OctoCode custom callback without a secret uses device code before PAT', () => {
+		const previous = Config.gitHubClientSecret;
+		Config.gitHubClientSecret = undefined;
+		try {
+			const flows = getFlows({ extensionHost: ExtensionHost.Local, isSupportedClient: false, target: GitHubTarget.DotCom });
+			assert.deepStrictEqual(flows.map(flow => flow.label), [Flows.DeviceCodeFlow, Flows.PatFlow]);
+		} finally {
+			Config.gitHubClientSecret = previous;
+		}
+	});
+
+	test('explicit token login selects PAT without an OAuth flow', () => {
+		const flows = getFlows({ extensionHost: ExtensionHost.Local, isSupportedClient: false, target: GitHubTarget.DotCom, useToken: true });
+		assert.deepStrictEqual(flows.map(flow => flow.label), [Flows.PatFlow]);
+	});
+
 	const testCases: Array<{ label: string; query: IFlowQuery; expectedFlows: Flows[] }> = [
 		{
 			label: 'VS Code Desktop. Local filesystem. GitHub.com',

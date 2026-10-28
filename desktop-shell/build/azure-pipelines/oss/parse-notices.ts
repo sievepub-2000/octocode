@@ -63,7 +63,7 @@ export function isPackageHeader(line: string): boolean {
 	// Standard npm-style package name (lowercase, may start with @)
 	const npmNameRe = /^@?[a-z0-9][a-z0-9\-\./@_]*$/;
 	// CG git-style: Org/Repo (e.g., "nickel-org/rust-mustache")
-	const gitRepoRe = /^[a-zA-Z0-9_\-]+\/[a-zA-Z0-9_\-\.]+$/;
+	const gitRepoRe = /^[a-zA-Z0-9_\-\.]+\/[a-zA-Z0-9_\-\.]+$/;
 
 	if (npmNameRe.test(firstWord) || gitRepoRe.test(firstWord)) {
 		return true;
@@ -71,7 +71,7 @@ export function isPackageHeader(line: string): boolean {
 
 	// Some entries have names with mixed case (rare but legitimate)
 	// Accept if the line matches "name version - license" pattern strictly
-	if (/^.+?\s+[\d][^\s]*\s+-\s+.+$/.test(line)) {
+	if (/^.+?\s+[\d][^\s]*(?:\s+-\s+.+)?$/.test(line)) {
 		return true;
 	}
 
@@ -124,12 +124,14 @@ export function parseNoticeFile(filePath: string): NoticeEntry[] {
 		}
 
 		// Parse: "name version - license" or just "name"
-		const match = headerLine.match(/^(.+?)\s+([\d][^\s]*)\s+-\s+(.+)$/);
+		const match = headerLine.match(/^(.+?)\s+(\d{1,2} [A-Za-z]+ \d{4})\s+-\s+(.+)$/)
+			?? headerLine.match(/^(.+?)\s+(\S+ \([^)]*\))\s+-\s+(.+)$/)
+			?? headerLine.match(/^(.+?)\s+([\d][^\s]*|[a-f0-9]{7,40})(?:\s+-\s+(.+))?$/);
 		let name: string, version: string, license: string;
 		if (match) {
 			name = match[1];
 			version = match[2];
-			license = match[3];
+			license = match[3] || '';
 		} else {
 			// Try: "name - license" (no version)
 			const match2 = headerLine.match(/^(.+?)\s+-\s+(.+)$/);
@@ -152,7 +154,10 @@ export function parseNoticeFile(filePath: string): NoticeEntry[] {
 		const bodyLines: string[] = [];
 		for (let j = headerIdx + 1; j < lines.length; j++) {
 			if (sepRe.test(lines[j].trim())) {
-				break;
+				const nextHeader = lines.slice(j + 1).find(line => line.trim())?.trim();
+				if (!nextHeader || isPackageHeader(nextHeader)) {
+					break;
+				}
 			}
 			textLength += lines[j].length + 1;
 			bodyLines.push(lines[j]);

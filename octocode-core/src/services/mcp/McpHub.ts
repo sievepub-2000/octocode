@@ -19,7 +19,7 @@ import chokidar, { FSWatcher } from "chokidar"
 import delay from "delay"
 import deepEqual from "fast-deep-equal"
 import { Agent, fetch as undiciFetch } from "undici"
-import { z } from "zod"
+import { z } from "zod/v4"
 
 import type {
 	McpResource,
@@ -48,6 +48,8 @@ import { sanitizeMcpName, toolNamesMatch } from "../../utils/mcp-name"
 import { getSharedEnvironmentProvisioner } from "../environments"
 import { getSystemToolDirectory } from "../environments/tools"
 import { ProjectToolCopies } from "../environments/ProjectToolCopies"
+import { ServerConfigSchema, typeErrorMessage } from "./server-config"
+export { ServerConfigSchema } from "./server-config"
 
 const streamableHttpDispatcher = new Agent({ connect: { autoSelectFamily: true } as never })
 
@@ -93,17 +95,7 @@ export enum DisableReason {
 	SERVER_DISABLED = "serverDisabled",
 }
 
-// Base configuration schema for common settings
-const BaseConfigSchema = z.object({
-	disabled: z.boolean().optional(),
-	timeout: z.number().min(1).max(3600).optional().default(60),
-	alwaysAllow: z.array(z.string()).default([]),
-	watchPaths: z.array(z.string()).optional(), // paths to watch for changes and restart server
-	disabledTools: z.array(z.string()).default([]),
-})
-
 // Custom error messages for better user feedback
-const typeErrorMessage = "Server type must be 'stdio', 'sse', or 'streamable-http'"
 const stdioFieldsErrorMessage =
 	"For 'stdio' type servers, you must provide a 'command' field and can optionally include 'args' and 'env'"
 const sseFieldsErrorMessage =
@@ -115,66 +107,9 @@ const mixedFieldsErrorMessage =
 const missingFieldsErrorMessage =
 	"Server configuration must include either 'command' (for stdio) or 'url' (for sse/streamable-http) and a corresponding 'type' if 'url' is used."
 
-// Helper function to create a refined schema with better error messages
-const createServerTypeSchema = () => {
-	return z.union([
-		// Stdio config (has command field)
-		BaseConfigSchema.extend({
-			type: z.enum(["stdio"]).optional(),
-			command: z.string().min(1, "Command cannot be empty"),
-			args: z.array(z.string()).optional(),
-			cwd: z.string().default(() => vscode.workspace.workspaceFolders?.at(0)?.uri.fsPath ?? process.cwd()),
-			env: z.record(z.string()).optional(),
-			// Ensure no SSE fields are present
-			url: z.undefined().optional(),
-			headers: z.undefined().optional(),
-		})
-			.transform((data) => ({
-				...data,
-				type: "stdio" as const,
-			}))
-			.refine((data) => data.type === undefined || data.type === "stdio", { message: typeErrorMessage }),
-		// SSE config (has url field)
-		BaseConfigSchema.extend({
-			type: z.enum(["sse"]).optional(),
-			url: z.string().url("URL must be a valid URL format"),
-			headers: z.record(z.string()).optional(),
-			// Ensure no stdio fields are present
-			command: z.undefined().optional(),
-			args: z.undefined().optional(),
-			env: z.undefined().optional(),
-		})
-			.transform((data) => ({
-				...data,
-				type: "sse" as const,
-			}))
-			.refine((data) => data.type === undefined || data.type === "sse", { message: typeErrorMessage }),
-		// StreamableHTTP config (has url field)
-		BaseConfigSchema.extend({
-			type: z.enum(["streamable-http"]).optional(),
-			url: z.string().url("URL must be a valid URL format"),
-			headers: z.record(z.string()).optional(),
-			// Ensure no stdio fields are present
-			command: z.undefined().optional(),
-			args: z.undefined().optional(),
-			env: z.undefined().optional(),
-		})
-			.transform((data) => ({
-				...data,
-				type: "streamable-http" as const,
-			}))
-			.refine((data) => data.type === undefined || data.type === "streamable-http", {
-				message: typeErrorMessage,
-			}),
-	])
-}
-
-// Server configuration schema with automatic type inference and validation
-export const ServerConfigSchema = createServerTypeSchema()
-
 // Settings schema
 const McpSettingsSchema = z.object({
-	mcpServers: z.record(ServerConfigSchema),
+	mcpServers: z.record(z.string(), ServerConfigSchema),
 })
 
 export class McpHub {
@@ -309,7 +244,7 @@ export class McpHub {
 		} catch (validationError) {
 			if (validationError instanceof z.ZodError) {
 				// Extract and format validation errors
-				const errorMessages = validationError.errors
+				const errorMessages = validationError.issues
 					.map((err) => `${err.path.join(".")}: ${err.message}`)
 					.join("; ")
 				throw new Error(
@@ -388,7 +323,7 @@ export class McpHub {
 			const result = McpSettingsSchema.safeParse(config)
 
 			if (!result.success) {
-				const errorMessages = result.error.errors
+				const errorMessages = result.error.issues
 					.map((err) => `${err.path.join(".")}: ${err.message}`)
 					.join("\n")
 				vscode.window.showErrorMessage(t("mcp:errors.invalid_settings_validation", { errorMessages }))
@@ -478,7 +413,7 @@ export class McpHub {
 				await this.updateServerConnections(result.data.mcpServers || {}, "project")
 			} else {
 				// Format validation errors for better user feedback
-				const errorMessages = result.error.errors
+				const errorMessages = result.error.issues
 					.map((err) => `${err.path.join(".")}: ${err.message}`)
 					.join("\n")
 				console.error("Invalid project MCP settings format:", errorMessages)
@@ -612,7 +547,7 @@ export class McpHub {
 				// Pass all servers including disabled ones - they'll be handled in updateServerConnections
 				await this.updateServerConnections(result.data.mcpServers || {}, source, false)
 			} else {
-				const errorMessages = result.error.errors
+				const errorMessages = result.error.issues
 					.map((err) => `${err.path.join(".")}: ${err.message}`)
 					.join("\n")
 				console.error(`Invalid ${source} MCP settings format:`, errorMessages)
@@ -2347,7 +2282,7 @@ export class McpHub {
 				// Update server connections with the correct source
 				await this.updateServerConnections(config.mcpServers, serverSource)
 				const toolsRoot = getSystemToolDirectory("mcp")
-				if (toolsRoot) {
+				if (toolsRoot && serverSource === "global") {
 					const directory = path.join(
 						toolsRoot,
 						createHash("sha256").update(serverName).digest("hex").slice(0, 24),

@@ -5,7 +5,7 @@
 
 /**
  * Builds one per-target tarball of the Foundry Local native runtime (the
- * prebuilt N-API addon + the Foundry Local Core / onnxruntime / onnxruntime-genai
+ * prebuilt N-API addons + the Foundry Local / onnxruntime / onnxruntime-genai
  * shared libraries). Callable as both a Node library (`buildOne(...)`) and a thin
  * CLI (bottom of this file).
  *
@@ -23,22 +23,18 @@
  * The produced tarball's internal layout mirrors the runtime cache layout so the
  * runtime extraction is a plain untar:
  *
- *   prebuilds/<target>/foundry_local_napi.node
- *   foundry-local-core/<target>/<core libraries>
+ *   prebuilds/<target>/<addons and shared libraries>
+ *   prebuilds/<target>/licenses/<upstream license and notice files>
  */
 
-import { createRequire } from 'module';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as tar from 'tar';
-import { getRuntimeVersion, parseFlags, SDK_PACKAGE_NAME, sha256OfFile, SUPPORTED_TARGETS } from './common.ts';
+import { getRuntimeVersion, getSdkRoot, parseFlags, SDK_PACKAGE_NAME, sha256OfFile, SUPPORTED_TARGETS } from './common.ts';
 import { fetchCoreLibraries } from './nuget.ts';
 
 const SCRIPT = 'package.ts';
-
-/** Resolve `foundry-local-sdk` subpaths from the repo-root `node_modules`. */
-const sdkRequire = createRequire(import.meta.url);
 
 export interface IBuildResult {
 	readonly tgzPath: string;
@@ -87,46 +83,61 @@ export async function buildOne(args: IBuildArgs): Promise<IBuildResult> {
 
 /**
  * Copy the prebuilt N-API addon for `target` out of the installed
- * `foundry-local-sdk` package (`prebuilds/<target>/foundry_local_napi.node`)
+ * `foundry-local-sdk` package (`prebuilds/<target>/`)
  * into the staging tree.
  */
-async function stageAddon(stagingDir: string, target: string): Promise<void> {
-	const sdkRoot = path.dirname(sdkRequire.resolve(`${SDK_PACKAGE_NAME}/package.json`));
-	const addonSrc = path.join(sdkRoot, 'prebuilds', target, 'foundry_local_napi.node');
-	if (!fs.existsSync(addonSrc)) {
-		throw new Error(`[${SCRIPT}] Prebuilt addon not found for ${target} at ${addonSrc}. Is ${SDK_PACKAGE_NAME} installed?`);
+export async function stageAddon(stagingDir: string, target: string, sdkRoot = getSdkRoot()): Promise<void> {
+	const source = path.join(sdkRoot, 'prebuilds', target);
+	for (const name of ['foundry_local_node.node', 'foundry_local_preload.node']) {
+		if (!fs.existsSync(path.join(source, name))) {
+			throw new Error(`[${SCRIPT}] SDK 2 addon ${name} missing for ${target}.`);
+		}
 	}
-	const addonDest = path.join(stagingDir, 'prebuilds', target, 'foundry_local_napi.node');
-	fs.mkdirSync(path.dirname(addonDest), { recursive: true });
-	fs.copyFileSync(addonSrc, addonDest);
+	const destination = path.join(stagingDir, 'prebuilds', target);
+	fs.cpSync(source, destination, { recursive: true, dereference: false });
+	const licenseDir = path.join(destination, 'licenses', SDK_PACKAGE_NAME);
+	fs.mkdirSync(licenseDir, { recursive: true });
+	fs.copyFileSync(path.join(sdkRoot, 'LICENSE'), path.join(licenseDir, 'LICENSE'));
 }
 
 /**
  * Fetch the Foundry Local core libraries for `target` into the staging tree from
  * NuGet, for that target's explicit RID (see `fetchCoreLibraries`). Replicates
- * the standard variant's artifact selection, including the linux-x64 GPU ONNX
- * Runtime package. Host-independent — `target` need not match the build host.
+ * SDK 2's standard ORT and GenAI artifact selection. Host-independent —
+ * `target` need not match the build host.
  */
 async function stageCoreLibraries(stagingDir: string, target: string): Promise<void> {
-	const deps = sdkRequire(`${SDK_PACKAGE_NAME}/deps_versions.json`) as {
-		'foundry-local-core': { nuget: string };
+	const deps = JSON.parse(fs.readFileSync(path.join(getSdkRoot(), 'deps_versions.json'), 'utf8')) as {
 		onnxruntime: { version: string };
 		'onnxruntime-genai': { version: string };
+		'windows-ai-machinelearning': { version: string };
 	};
 
-	// Microsoft.ML.OnnxRuntime.Gpu.Linux only ships x86_64 native binaries, so
-	// linux-arm64 (and every non-linux-x64 target) uses the cross-platform
-	// Foundry ORT package. Mirrors `ensureCoreLibraries` in the runtime.
-	const ortPackageName = target === 'linux-x64' ? 'Microsoft.ML.OnnxRuntime.Gpu.Linux' : 'Microsoft.ML.OnnxRuntime.Foundry';
-
 	const artifacts = [
-		{ name: 'Microsoft.AI.Foundry.Local.Core', version: deps['foundry-local-core'].nuget },
-		{ name: ortPackageName, version: deps.onnxruntime.version },
+		{ name: 'Microsoft.ML.OnnxRuntime', version: deps.onnxruntime.version },
 		{ name: 'Microsoft.ML.OnnxRuntimeGenAI.Foundry', version: deps['onnxruntime-genai'].version },
+		...(target.startsWith('win32-') ? [{
+			name: 'Microsoft.Windows.AI.MachineLearning',
+			version: deps['windows-ai-machinelearning'].version,
+			// Preserve the SDK's matching WinML legal files without replacing the
+			// separately pinned ONNX Runtime with WinML's bundled ORT version.
+			includeNative: ['Microsoft.Windows.AI.MachineLearning.dll'],
+		}] : []),
 	];
 
-	const coreDir = path.join(stagingDir, 'foundry-local-core', target);
+	const coreDir = path.join(stagingDir, 'prebuilds', target);
 	await fetchCoreLibraries(target, artifacts, coreDir);
+	if (!target.startsWith('win32-')) {
+		const mac = target.startsWith('darwin-');
+		const unversioned = path.join(coreDir, mac ? 'libonnxruntime.dylib' : 'libonnxruntime.so');
+		const versioned = path.join(coreDir, mac ? `libonnxruntime.${deps.onnxruntime.version.split('.')[0]}.dylib` : 'libonnxruntime.so.1');
+		if (fs.existsSync(unversioned) && !fs.existsSync(versioned)) {
+			fs.renameSync(unversioned, versioned);
+		}
+		if (mac && !fs.existsSync(unversioned)) {
+			fs.symlinkSync(path.basename(versioned), unversioned, 'file');
+		}
+	}
 
 	for (const name of requiredCoreLibraryNames(target)) {
 		if (!fs.existsSync(path.join(coreDir, name))) {
@@ -142,9 +153,10 @@ function requiredCoreLibraryNames(target: string): string[] {
 	const ext = isWin ? '.dll' : isMac ? '.dylib' : '.so';
 	const prefix = isWin ? '' : 'lib';
 	return [
-		`Microsoft.AI.Foundry.Local.Core${ext}`,
-		`${prefix}onnxruntime${ext}`,
+		`${prefix}foundry_local${ext}`,
+		isWin ? 'onnxruntime.dll' : isMac ? 'libonnxruntime.1.dylib' : 'libonnxruntime.so.1',
 		`${prefix}onnxruntime-genai${ext}`,
+		...(isWin ? ['Microsoft.Windows.AI.MachineLearning.dll'] : isMac ? ['libonnxruntime.dylib'] : []),
 	];
 }
 
@@ -162,7 +174,7 @@ async function buildTarball(stagingDir: string, outTgz: string): Promise<void> {
 			portable: true,
 			mtime: new Date(0),
 		},
-		['prebuilds', 'foundry-local-core'],
+		['prebuilds'],
 	);
 }
 

@@ -1,6 +1,6 @@
 import axios from "axios"
 import { ModelInfo, ollamaDefaultModelInfo } from "@roo-code/types"
-import { z } from "zod"
+import { z } from "zod/v4"
 
 const OllamaModelDetailsSchema = z.object({
 	family: z.string(),

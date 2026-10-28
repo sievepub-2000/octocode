@@ -53,6 +53,7 @@ async fn main() -> anyhow::Result<()> {
                             task_id: event.task_id.clone(), session_id: event.session_id.clone(),
                             kind: "agent.persistence_error".into(),
                             payload: json!({"message": error.to_string(), "operation": "lifecycle"}),
+                            created_at: chrono::Utc::now().timestamp_millis(),
                         };
                         write_json(&mut stdout, &failure).await?;
                     }
@@ -73,10 +74,11 @@ async fn main() -> anyhow::Result<()> {
                     Some(&event.session_id),
                 );
                 }
-                if let Err(error) = host.record_event(&event.session_id, &event.kind, &event.payload) {
+                if let Err(error) = host.record_event_at(&event.session_id, &event.kind, &event.payload, event.created_at) {
                     let failure = AgentEvent {
                         task_id: event.task_id.clone(), session_id: event.session_id.clone(),
                         kind: "agent.persistence_error".into(), payload: json!({"message": error.to_string()}),
+                        created_at: chrono::Utc::now().timestamp_millis(),
                     };
                     write_json(&mut stdout, &failure).await?;
                 }
@@ -279,7 +281,7 @@ mod guarded_delete_tests {
         // Real channel and handler, controlled producer completion, no agent/model.
         for (session_id, kind) in [(session, "agent.started"), (session, "agent.finished"), ("other", "agent.started")] {
             let producer = tx.clone();
-            producer.send(AgentEvent { session_id:session_id.into(), task_id:task.into(), kind:kind.into(), payload:json!({}) }).unwrap();
+            producer.send(AgentEvent { session_id:session_id.into(), task_id:task.into(), kind:kind.into(), payload:json!({}), created_at:chrono::Utc::now().timestamp_millis() }).unwrap();
             drop(producer);
             assert!(!agents.active_session(session).unwrap());
             assert_eq!(handle_request(&host, &agents, &tx, &rx, request()).result.unwrap()["deleted"], false);

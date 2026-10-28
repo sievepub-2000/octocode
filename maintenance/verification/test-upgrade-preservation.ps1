@@ -29,6 +29,9 @@ try {
     [IO.File]::WriteAllText($settings,'{"profile":"owned-test"}')
     $credential=Join-Path $user 'globalStorage\state.vscdb'
     [IO.File]::WriteAllText($credential,'opaque-owned-credential-fixture-not-a-real-key')
+    $shared=Join-Path $project 'runtime\data\shared-data\sharedStorage\state.vscdb'
+    New-Item -ItemType Directory -Path (Split-Path $shared -Parent) -Force | Out-Null
+    [IO.File]::WriteAllText($shared,'opaque-owned-shared-authentication-fixture')
     $task=Join-Path $user 'globalStorage\octocode.octocode\octocode.db'
     [IO.File]::WriteAllText($task,'owned-session-task-fixture')
     $workspace=Join-Path $project 'runtime\workspace\new-project.txt'
@@ -41,7 +44,8 @@ try {
     $snapshot=Get-Content -LiteralPath $baseline -Raw -Encoding UTF8 | ConvertFrom-Json
     Check (@($snapshot.files | Where-Object key -eq 'workspace/new-project.txt').Count -eq 1) 'Discover actual workspace, no legacy file list'
     Check (@($snapshot.files | Where-Object key -like '*private-profile/settings.json').Count -eq 1) 'Discover non-default profiles'
-    Check (@($snapshot.files | Where-Object key -like '*state.vscdb').Count -eq 1) 'Fingerprint encrypted credential storage without printing values'
+    Check (@($snapshot.files | Where-Object key -eq 'shared-data/sharedStorage/state.vscdb').Count -eq 1) 'Fingerprint actual shared authentication storage'
+    Check (@($snapshot.files | Where-Object key -like '*state.vscdb').Count -eq 2) 'Fingerprint encrypted credential stores without printing values'
     Check (@($snapshot.files | Where-Object key -like '*octocode.db').Count -eq 1) 'Discover current task/session store'
     Check (@($snapshot.files | Where-Object key -like '*outside.txt').Count -eq 0) 'Do not follow workspace links'
     Check ((Get-Acl -LiteralPath (Split-Path $baseline -Parent)).AreAccessRulesProtected) 'Private evidence ACL'
@@ -50,7 +54,7 @@ try {
     [IO.File]::WriteAllText((Join-Path $project 'runtime\workspace\added-default.txt'),'permitted new file')
     & $Helper -VerifyOnly -ProjectRoot $project -InstallRoot $install | Out-Null
     $passed++
-    foreach($file in @($settings,$credential,$task,$workspace)){
+    foreach($file in @($settings,$credential,$shared,$task,$workspace)){
         $original=[IO.File]::ReadAllText($file);[IO.File]::WriteAllText($file,'changed-fixture')
         Reject {& $Helper -VerifyOnly -ProjectRoot $project -InstallRoot $install} 'Preserved user state changed'
         [IO.File]::WriteAllText($file,$original)

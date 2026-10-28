@@ -21,7 +21,7 @@ foreach ($relative in @('', 'data', 'workspace', 'environments')) {
 	New-Item -ItemType Directory -Force -Path $directory | Out-Null
 	$access = @('/inheritancelevel:r', '/remove:g', '*S-1-5-11', '*S-1-5-32-545',
 		'/grant:r', '*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F', "*${userSid}:(OI)(CI)F")
-	if (!$relative -or $relative -eq 'environments') { $access += @('/grant:r', '*S-1-5-32-545:(OI)(CI)RX') }
+	if (!$relative) { $access += @('/grant:r', '*S-1-5-32-545:(OI)(CI)RX') }
 	icacls.exe $directory @access | Out-Null
 	if ($LASTEXITCODE -ne 0) { throw "Unable to secure OctoCode directory: $directory" }
 }
@@ -72,21 +72,8 @@ foreach ($candidate in Get-ChildItem -LiteralPath ($extensionScope.TrimEnd('\'))
 
 # Windows console launchers embed an interpreter path; bind them to this installation.
 $python = Join-Path $AppRoot 'environments\python\python.exe'
-& $python (Join-Path $AppRoot 'environments\scripts\system_tools.py') --root $AppRoot
+& $python (Join-Path $AppRoot 'environments\scripts\system_tools.py') --root $AppRoot --relocate-launchers
 if ($LASTEXITCODE -ne 0) { throw 'System tools migration failed; existing sources were preserved' }
-$launcherCode = @'
-import importlib.metadata, pathlib, sys
-from pip._vendor.distlib.scripts import ScriptMaker
-maker = ScriptMaker(None, str(pathlib.Path(sys.executable).parent / "Scripts"))
-maker.executable = sys.executable
-maker.variants = {""}
-maker.clobber = True
-entries = {e.name:e for e in importlib.metadata.entry_points(group="console_scripts")}
-for name in ("code-review-graph", "crg-daemon"):
-    maker.make(f"{name} = {entries[name].value}")
-'@
-$launcherCode | & $python -
-if ($LASTEXITCODE -ne 0) { throw 'Unable to relocate Python console launchers' }
 
 # WSL is provisioned on demand by the extension (Ubuntu 24.04 from Canonical), not here.
 

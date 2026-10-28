@@ -345,6 +345,10 @@
 	"dismiss": "닫기",
 	"dismissAndDontShowAgain": "닫고 다시 표시하지 않음",
 	"extensions": {
+		"pagination": "구성 요소 페이지",
+		"pageNumber": "{{number}} 페이지",
+		"previousPage": "이전",
+		"nextPage": "다음",
 		"market": "마켓",
 		"systemToolsHint": "시스템 도구 · 모든 작업 공간에서 사용 가능",
 		"environments": "Runtimes",

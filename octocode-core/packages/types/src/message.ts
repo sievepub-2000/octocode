@@ -1,4 +1,4 @@
-import { z } from "zod"
+import { z } from "zod/v4"
 
 /**
  * ClineAsk
@@ -372,6 +372,8 @@ export const queuedMessageSchema = z.object({
 	id: z.string(),
 	text: z.string(),
 	images: z.array(z.string()).optional(),
+	/** Absolute paths copied into the session directory when this message becomes a turn. */
+	attachmentPaths: z.array(z.string()).optional(),
 })
 
 export type QueuedMessage = z.infer<typeof queuedMessageSchema>

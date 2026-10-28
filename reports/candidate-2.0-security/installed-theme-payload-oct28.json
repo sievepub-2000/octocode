@@ -1,0 +1,31 @@
+{
+  "status": "PASS",
+  "themes": [
+    {
+      "name": "octocode-dark.json",
+      "sourcePackageInstalledEqual": true,
+      "background": "#000000",
+      "accent": "#9b6b50"
+    },
+    {
+      "name": "octocode-hc-dark.json",
+      "sourcePackageInstalledEqual": true,
+      "background": "#1c1a2b",
+      "accent": "#D4554F"
+    },
+    {
+      "name": "octocode-light.json",
+      "sourcePackageInstalledEqual": true,
+      "background": "#fdf6e3",
+      "accent": "#268bd2"
+    },
+    {
+      "name": "octocode-hc-light.json",
+      "sourcePackageInstalledEqual": true,
+      "background": "#ffffff",
+      "accent": "#242424"
+    }
+  ],
+  "extensionVsixSha256": "995ef76678505170a4e5426c20e01c581b4c991f375a2dfc480faf6bdaf64825",
+  "fourInstalledExtensionPayloadsMatch": true
+}

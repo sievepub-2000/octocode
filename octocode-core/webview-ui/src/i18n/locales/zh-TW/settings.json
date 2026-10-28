@@ -28,6 +28,7 @@
 		"discardButton": "取消變更"
 	},
 	"sections": {
+		"memoryKnowledge": "記憶與知識庫",
 		"providers": "供應商",
 		"modes": "模式",
 		"mcp": "MCP 伺服器",
@@ -202,6 +203,12 @@
 		"description": "設定用於快速操作的支援提示詞，如增強提示詞、解釋程式碼和修復問題。這些提示詞幫助 OctoCode 為常見開發工作提供更好的支援。"
 	},
 	"codeIndex": {
+		"indexReadyLabel": "索引就緒",
+		"nativeProvider": "本機程式碼索引（符號與詞彙搜尋，離線）",
+		"memoryKnowledgeDescription": "Harness 記憶保留在所屬對話中。在此管理及搜尋所選專案的程式碼知識；本機索引不需要模型金鑰或外部資料庫。",
+		"searchQuery": "搜尋專案程式碼知識",
+		"searchButton": "搜尋索引",
+		"noSearchResults": "找不到相符的已索引程式碼。",
 		"title": "程式碼庫索引",
 		"description": "設定程式碼庫索引設定以啟用專案的語意搜尋。<0>了解更多</0>",
 		"statusTitle": "狀態",

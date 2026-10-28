@@ -1,6 +1,6 @@
 // npx vitest src/core/config/__tests__/ModeConfig.spec.ts
 
-import { ZodError } from "zod"
+import { ZodError } from "zod/v4"
 
 import { type ModeConfig, modeConfigSchema } from "@roo-code/types"
 

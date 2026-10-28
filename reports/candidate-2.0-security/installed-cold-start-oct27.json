@@ -1,0 +1,9 @@
+{
+  "checkedAt": "2026-10-27T19:54:48.5352086+08:00",
+  "normalShutdown": true,
+  "processColdStart": true,
+  "unexpectedLogIssues": 0,
+  "testWaitsForShell": true,
+  "themes": "white and charcoal",
+  "scope": "Windows installed shell and extension"
+}

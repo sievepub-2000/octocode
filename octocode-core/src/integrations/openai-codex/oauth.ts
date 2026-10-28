@@ -2,7 +2,7 @@ import * as crypto from "crypto"
 import * as http from "http"
 import { URL } from "url"
 import type { ExtensionContext } from "vscode"
-import { z } from "zod"
+import { z } from "zod/v4"
 
 /**
  * OpenAI Codex OAuth Configuration

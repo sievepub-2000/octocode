@@ -532,7 +532,7 @@ it("applies fetched model context to the selected model and to later selections"
 			}),
 		),
 	)
-	expect(setField).toHaveBeenCalledWith("openAiCustomModelInfo", { contextWindow: 262144 })
+	expect(setField).toHaveBeenCalledWith("openAiCustomModelInfo", { contextWindow: 262144 }, false)
 	expect(mockModelPicker.mock.lastCall?.[0].models.qwen38.contextWindow).toBe(262144)
 	act(() => mockModelPicker.mock.lastCall?.[0].onModelChange("fallback"))
 	expect(setField).toHaveBeenCalledWith("openAiCustomModelInfo", { contextWindow: 128000 })

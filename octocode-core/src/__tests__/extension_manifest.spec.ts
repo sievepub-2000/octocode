@@ -13,14 +13,10 @@ describe("OctoCode extension manifest", () => {
 		expect(manifest.contributes.configurationDefaults).not.toHaveProperty("security.workspace.trust.startupPrompt")
 	})
 
-	it("contributes four consecutive activity containers with real views", () => {
+	it("keeps one agent container and removes separate component shortcuts", () => {
 		const containerIds = manifest.contributes.viewsContainers.activitybar.map(({ id }) => id)
-		expect(containerIds).toEqual([
-			"octocode-ActivityBar",
-			"octocode-mcp-ActivityBar",
-			"octocode-skills-ActivityBar",
-			"octocode-agentmods-ActivityBar",
-		])
+		expect(containerIds).toEqual(["octocode-ActivityBar"])
+		expect(Object.keys(manifest.contributes.views)).toEqual(["octocode-ActivityBar"])
 
 		for (const id of containerIds) {
 			expect(manifest.contributes.views[id as keyof typeof manifest.contributes.views]).toHaveLength(1)
@@ -28,11 +24,6 @@ describe("OctoCode extension manifest", () => {
 		for (const { icon } of manifest.contributes.viewsContainers.activitybar) {
 			expect(existsSync(resolve(import.meta.dirname, "..", icon))).toBe(true)
 		}
-		expect(manifest.contributes.viewsContainers.activitybar.slice(1).map(({ icon }) => icon)).toEqual([
-			"assets/icons/activity/mcp-services.svg",
-			"assets/icons/activity/skills.svg",
-			"assets/icons/activity/agentmods.svg",
-		])
 		expect(Object.keys(manifest.contributes.viewsContainers)).toEqual(["activitybar"])
 	})
 

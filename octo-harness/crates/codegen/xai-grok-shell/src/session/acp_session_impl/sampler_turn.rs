@@ -1118,6 +1118,33 @@ impl SessionActor {
     ) -> Result<SamplerFailureRecovery, acp::Error> {
         use xai_grok_sampler::SamplingErrorKind;
 
+        // Server prefill allocation failures need an explicit user retry once
+        // capacity is available. A provider may mention context length in the
+        // message, but that must not trigger compaction or salvage.
+        if error
+            .error_code
+            .as_ref()
+            .is_some_and(|code| code.as_str() == "prefill_memory_exceeded")
+        {
+            self.mark_turn_usage_unaccounted();
+            self.log_terminal_failure("prefill_memory_exceeded", error.status_code, &error.message);
+            self.send_xai_notification(XaiSessionUpdate::RetryState(
+                crate::extensions::notification::RetryState::Failed {
+                    error_type: "prefill_memory_exceeded".to_owned(),
+                    message: error.message.clone(),
+                },
+            ))
+            .await;
+            return Err(acp::Error::internal_error().data(
+                crate::sampling::error::terminal_error_data_with_code(
+                    error.message,
+                    error.status_code,
+                    error.kind,
+                    error.error_code.as_ref(),
+                ),
+            ));
+        }
+
         // On an in-flight salvage continuation, a max-tokens failure or a probable context overflow is not terminal
         // For an overflow, compact-and-resubmit would delete the continue reminder and split the report
         // The turn loop completes the turn truncated with the committed segments
@@ -1563,13 +1590,14 @@ impl SessionActor {
             },
         ))
         .await;
-        Err(
-            acp::Error::internal_error().data(crate::sampling::error::terminal_error_data(
+        Err(acp::Error::internal_error().data(
+            crate::sampling::error::terminal_error_data_with_code(
                 detailed_message,
                 error.status_code,
                 error.kind,
-            )),
-        )
+                error.error_code.as_ref(),
+            ),
+        ))
     }
 
     async fn wait_for_stream_drain(

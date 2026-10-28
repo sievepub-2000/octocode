@@ -41,6 +41,7 @@ describe("SimpleInstaller", () => {
 	let installer: SimpleInstaller
 	let mockContext: vscode.ExtensionContext
 	let mockCustomModesManager: CustomModesManager
+	let savedEnvironments: string | undefined
 
 	beforeEach(() => {
 		mockContext = {} as vscode.ExtensionContext
@@ -52,6 +53,12 @@ describe("SimpleInstaller", () => {
 		installer = new SimpleInstaller(mockContext, mockCustomModesManager)
 		vi.clearAllMocks()
 
+		// This machine runs with OCTOCODE_ENVIRONMENTS set, which redirects MCP
+		// installs to the shared system tool directory; the suite verifies the
+		// portable workspace/global paths, so the var is cleared per test.
+		savedEnvironments = process.env.OCTOCODE_ENVIRONMENTS
+		delete process.env.OCTOCODE_ENVIRONMENTS
+
 		// Mock mkdir to always succeed
 		mockFs.mkdir.mockResolvedValue(undefined as any)
 		// Mock rm to always succeed
@@ -60,6 +67,11 @@ describe("SimpleInstaller", () => {
 		vi.mocked(os.homedir).mockReturnValue("/home/user")
 		// Mock fileExistsAtPath to return false by default
 		vi.mocked(fileExistsAtPath).mockResolvedValue(false)
+	})
+
+	afterEach(() => {
+		if (savedEnvironments !== undefined) process.env.OCTOCODE_ENVIRONMENTS = savedEnvironments
+		else delete process.env.OCTOCODE_ENVIRONMENTS
 	})
 
 	describe("installMode", () => {
@@ -143,6 +155,25 @@ describe("SimpleInstaller", () => {
 	})
 
 	describe("installMcp", () => {
+		it("persists the remote transport discriminator required by the hub", async () => {
+			mockFs.readFile.mockRejectedValueOnce(Object.assign(new Error("missing"), { code: "ENOENT" }))
+			await installer.installItem(
+				{ ...mockMcpItem, content: JSON.stringify({ url: "https://example.com/mcp" }) },
+				{ target: "project" },
+			)
+			expect(vi.mocked(safeWriteJson).mock.calls[0][1]).toMatchObject({
+				mcpServers: { "test-mcp": { type: "sse", url: "https://example.com/mcp" } },
+			})
+		})
+		it("keeps explicit project installs and removals out of the shared MCP configuration", async () => {
+			process.env.OCTOCODE_ENVIRONMENTS = "/shared/environments"
+			await expect(installer.installItem(mockMcpItem, { target: "project" })).rejects.toThrow(
+				"Project-scoped MCP",
+			)
+			await expect(installer.removeItem(mockMcpItem, { target: "project" })).rejects.toThrow("Project-scoped MCP")
+			expect(safeWriteJson).not.toHaveBeenCalled()
+			expect(mockFs.readFile).not.toHaveBeenCalled()
+		})
 		it("seeds missing optional dependencies as disabled with installation guidance", async () => {
 			mockFs.readFile.mockRejectedValue(Object.assign(new Error("missing"), { code: "ENOENT" }))
 			vi.mocked(missingBundledMcpDependencies).mockResolvedValueOnce(["local-tools/module.mjs"])
@@ -230,19 +261,39 @@ describe("SimpleInstaller", () => {
 			expect(writtenData.mcpServers["test-mcp"]).toBeDefined()
 		})
 
-		it("should reject remote and non-command MCP servers", async () => {
+		it("installs HTTPS remote MCP and rejects invalid or mixed transports before writing", async () => {
 			const remote = {
 				...mockMcpItem,
 				content: JSON.stringify({ type: "streamable-http", url: "https://example.com/mcp" }),
 			}
 			const missingCommand = { ...mockMcpItem, content: JSON.stringify({ args: ["serve"] }) }
 
-			await expect(installer.installItem(remote, { target: "project" })).rejects.toThrow(
-				"Only fully local command-based MCP servers are allowed",
-			)
-			await expect(installer.installItem(missingCommand, { target: "project" })).rejects.toThrow(
-				"Only fully local command-based MCP servers are allowed",
-			)
+			mockFs.readFile.mockRejectedValue(Object.assign(new Error("missing"), { code: "ENOENT" }))
+			await installer.installItem(remote, { target: "project" })
+			expect(vi.mocked(safeWriteJson).mock.calls[0][1]).toMatchObject({
+				mcpServers: { "test-mcp": { type: "streamable-http", url: "https://example.com/mcp" } },
+			})
+			vi.mocked(safeWriteJson).mockClear()
+			await expect(installer.installItem(missingCommand, { target: "project" })).rejects.toThrow()
+			await expect(
+				installer.installItem(
+					{
+						...remote,
+						content: JSON.stringify({
+							type: "streamable-http",
+							url: "https://example.com/mcp",
+							command: "mixed",
+						}),
+					},
+					{ target: "project" },
+				),
+			).rejects.toThrow()
+			await expect(
+				installer.installItem(
+					{ ...remote, content: JSON.stringify({ type: "sse", url: "http://example.com/mcp" }) },
+					{ target: "project" },
+				),
+			).rejects.toThrow("HTTPS")
 			expect(safeWriteJson).not.toHaveBeenCalled()
 		})
 	})
@@ -270,7 +321,7 @@ describe("SimpleInstaller", () => {
 			await installer.removeItem(mockModeItem, { target: "project" })
 
 			// Should call deleteCustomMode with fromMarketplace flag set to true
-			expect(mockCustomModesManager.deleteCustomMode).toHaveBeenCalledWith("test", true)
+			expect(mockCustomModesManager.deleteCustomMode).toHaveBeenCalledWith("test", true, "project")
 			// The rules folder deletion is now handled by CustomModesManager, not SimpleInstaller
 			expect(fileExistsAtPath).not.toHaveBeenCalled()
 			expect(mockFs.rm).not.toHaveBeenCalled()
@@ -285,7 +336,7 @@ describe("SimpleInstaller", () => {
 			await installer.removeItem(mockModeItem, { target: "global" })
 
 			// Should call deleteCustomMode with fromMarketplace flag set to true
-			expect(mockCustomModesManager.deleteCustomMode).toHaveBeenCalledWith("test", true)
+			expect(mockCustomModesManager.deleteCustomMode).toHaveBeenCalledWith("test", true, "global")
 			// The rules folder deletion is now handled by CustomModesManager, not SimpleInstaller
 			expect(fileExistsAtPath).not.toHaveBeenCalled()
 			expect(mockFs.rm).not.toHaveBeenCalled()
@@ -300,7 +351,7 @@ describe("SimpleInstaller", () => {
 			await installer.removeItem(mockModeItem, { target: "project" })
 
 			// Should call deleteCustomMode with fromMarketplace flag set to true
-			expect(mockCustomModesManager.deleteCustomMode).toHaveBeenCalledWith("test", true)
+			expect(mockCustomModesManager.deleteCustomMode).toHaveBeenCalledWith("test", true, "project")
 			// The rules folder deletion is now handled by CustomModesManager, not SimpleInstaller
 			expect(fileExistsAtPath).not.toHaveBeenCalled()
 			expect(mockFs.rm).not.toHaveBeenCalled()
@@ -317,7 +368,7 @@ describe("SimpleInstaller", () => {
 			// Should throw the error from deleteCustomMode
 			await expect(installer.removeItem(mockModeItem, { target: "project" })).rejects.toThrow("Permission denied")
 
-			expect(mockCustomModesManager.deleteCustomMode).toHaveBeenCalledWith("test", true)
+			expect(mockCustomModesManager.deleteCustomMode).toHaveBeenCalledWith("test", true, "project")
 		})
 
 		it("should handle mode not found in custom modes list", async () => {
@@ -326,7 +377,7 @@ describe("SimpleInstaller", () => {
 
 			await installer.removeItem(mockModeItem, { target: "project" })
 
-			expect(mockCustomModesManager.deleteCustomMode).toHaveBeenCalledWith("test", true)
+			expect(mockCustomModesManager.deleteCustomMode).toHaveBeenCalledWith("test", true, "project")
 			// Should not attempt to delete rules folder
 			expect(fileExistsAtPath).not.toHaveBeenCalled()
 			expect(mockFs.rm).not.toHaveBeenCalled()
@@ -379,7 +430,7 @@ describe("SimpleInstaller", () => {
 
 			await installer.removeItem(arrayContentItem, { target: "project" })
 
-			expect(mockCustomModesManager.deleteCustomMode).toHaveBeenCalledWith("test-array", true)
+			expect(mockCustomModesManager.deleteCustomMode).toHaveBeenCalledWith("test-array", true, "project")
 		})
 
 		it("should throw error when CustomModesManager is not available", async () => {

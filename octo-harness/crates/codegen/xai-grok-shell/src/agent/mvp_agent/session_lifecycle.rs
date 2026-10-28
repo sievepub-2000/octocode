@@ -398,8 +398,8 @@ impl MvpAgent {
         self.remove_session_terminal(id, SessionLiveState::DeadFailed);
     }
     /// Reap finished actor threads.
-    /// Resident and finished is a crash (`DeadFailed`); non-resident and finished is the expected clean exit, dropped without demotion.
-    /// `is_finished()` alone cannot tell them apart, which is why residency decides.
+    /// Join finished threads to distinguish complete actor teardown from panic/abort.
+    /// Graceful process shutdown can finish an actor while it is still resident.
     pub(super) fn sweep_dead_sessions(&self) {
         let dead = self.session_registry.finished_threads();
         for id in dead {
@@ -408,12 +408,19 @@ impl MvpAgent {
             {
                 continue;
             }
-            if self.is_resident(&id) {
+            let Some(clean) = self.session_registry.join_finished_thread(&id) else {
+                continue;
+            };
+            if !clean {
                 tracing::warn!(
                     session_id = %id.0,
-                    "Resident session actor exited unexpectedly; reaping as DeadFailed"
+                    "Session actor exited unexpectedly; reaping as DeadFailed"
                 );
                 self.reap_dead_session(&id);
+            } else if self.is_resident(&id) {
+                // Shutdown and command-channel drop keep the conversation resumable.
+                // Only an explicit session close finalizes its replica.
+                self.remove_session_terminal(&id, SessionLiveState::Dormant);
             } else {
                 self.session_registry.clear_exited_thread(&id);
                 tracing::debug!(

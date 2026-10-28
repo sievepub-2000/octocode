@@ -19,9 +19,8 @@ import packageJson from '../package.json' with { type: 'json' };
 import { untar } from './lib/util.ts';
 import File from 'vinyl';
 import * as fs from 'fs';
-import glob from 'glob';
-import { promisify } from 'util';
-import rceditCallback from 'rcedit';
+import { glob, globSync } from 'glob';
+import { rcedit } from 'rcedit';
 import { compileBuildWithManglingTask } from './gulpfile.compile.ts';
 import { cleanExtensionsBuildTask, compileNonNativeExtensionsBuildTask, compileNativeExtensionsBuildTask, compileExtensionMediaBuildTask } from './gulpfile.extensions.ts';
 import { vscodeWebResourceIncludes, createVSCodeWebFileContentMapper } from './gulpfile.vscode.web.ts';
@@ -31,10 +30,9 @@ import log from 'fancy-log';
 import buildfile from './buildfile.ts';
 import { fetchUrls } from './lib/fetch.ts';
 import { downloadFeedPackage } from './lib/azureFeed.ts';
-import { getMxcExcludeFilter, getRipgrepExcludeFilter } from './lib/nativePlatformPackages.ts';
+import { getMxcExcludeFilter, getNodePtyExcludeFilter, getRipgrepExcludeFilter } from './lib/nativePlatformPackages.ts';
 
 
-const rcedit = promisify(rceditCallback);
 
 const REPO_ROOT = path.dirname(import.meta.dirname);
 const commit = getVersion(REPO_ROOT);
@@ -365,7 +363,7 @@ function packageTask(type: string, platform: string, arch: string, sourceFolderN
 				}
 			}
 		};
-		const localWorkspaceExtensions = glob.sync('extensions/*/package.json')
+		const localWorkspaceExtensions = globSync('extensions/*/package.json').sort()
 			.filter((extensionPath) => {
 				if (type === 'reh-web') {
 					return true; // web: ship all extensions for now
@@ -433,6 +431,7 @@ function packageTask(type: string, platform: string, arch: string, sourceFolderN
 			.pipe(util.cleanNodeModules(path.join(import.meta.dirname, `.moduleignore.${process.platform}`)));
 		const deps = cleanedDeps
 			.pipe(filter(getRipgrepExcludeFilter(platform, arch)))
+			.pipe(filter(getNodePtyExcludeFilter(platform, arch)))
 			.pipe(filter(getMxcExcludeFilter(arch)))
 			.pipe(jsFilter)
 			.pipe(util.stripSourceMappingURL())
@@ -555,9 +554,9 @@ function patchWin32DependenciesTask(destinationFolderName: string) {
 
 	return async () => {
 		const deps = (await Promise.all([
-			promisify(glob)('**/*.node', { cwd }),
-			promisify(glob)('**/rg.exe', { cwd }),
-			promisify(glob)('**/tgrep.exe', { cwd }),
+			glob('**/*.node', { cwd }),
+			glob('**/rg.exe', { cwd }),
+			glob('**/tgrep.exe', { cwd }),
 		])).flatMap(o => o);
 		const packageJsonContents = JSON.parse(await fs.promises.readFile(path.join(cwd, 'package.json'), 'utf8'));
 		const productContents = JSON.parse(await fs.promises.readFile(path.join(cwd, 'product.json'), 'utf8'));

@@ -1,5 +1,5 @@
 import axios from "axios"
-import { z } from "zod"
+import { z } from "zod/v4"
 
 import type { ModelInfo } from "@roo-code/types"
 import { kenariDefaultModelInfo, KENARI_BASE_URL } from "@roo-code/types"

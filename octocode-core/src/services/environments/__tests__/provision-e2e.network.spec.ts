@@ -28,7 +28,9 @@ describe.skipIf(!enabled)("environment provisioning (network, end to end)", () =
 		nock.cleanAll()
 		nock.restore()
 		nock.enableNetConnect()
-		root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "octocode-provision-"))
+		root = await fs.promises.mkdtemp(
+			path.join(process.env.OCTOCODE_ENV_TEST_ROOT ?? os.tmpdir(), "octocode-provision-"),
+		)
 	})
 
 	afterAll(async () => {
@@ -56,6 +58,13 @@ describe.skipIf(!enabled)("environment provisioning (network, end to end)", () =
 		const { runProcess } = await import("../../managed-binary/archive")
 		const { stdout, stderr } = await runProcess(marker, ["--version"], 60_000)
 		expect(`${stdout}${stderr}`).toMatch(/^Python 3\.\d+\.\d+/)
+		const installedPackage = await runProcess(
+			marker,
+			["-c", "import importlib.metadata; print(importlib.metadata.version('code-review-graph'))"],
+			60_000,
+		)
+		expect(installedPackage.stdout.trim()).toBe("2.3.8+octocode.1")
+		expect(await new EnvironmentProvisioner(createNodeProvisionerHost(root)).isInstalled("python")).toBe(true)
 
 		// Progress must state the size before a multi-tens-of-MB download starts,
 		// since that line is what the agent narrates to the user.
@@ -73,4 +82,23 @@ describe.skipIf(!enabled)("environment provisioning (network, end to end)", () =
 		expect(result.installed).toBe(false)
 		expect(progress.map((p) => p.phase)).toEqual(["already-present"])
 	}, 120_000)
+
+	it("installs, reloads, executes and removes an on-demand tool in isolation", async () => {
+		const provisioner = new EnvironmentProvisioner(createNodeProvisionerHost(root))
+		try {
+			expect(await provisioner.isInstalled("uv")).toBe(false)
+			expect((await provisioner.ensure("uv")).installed).toBe(true)
+			const reloaded = new EnvironmentProvisioner(createNodeProvisionerHost(root))
+			expect(await reloaded.isInstalled("uv")).toBe(true)
+			expect((await reloaded.ensure("uv")).installed).toBe(false)
+			const { runProcess } = await import("../../managed-binary/archive")
+			const marker = path.join(root, "uv", process.platform === "win32" ? "uv.exe" : "uv")
+			expect((await runProcess(marker, ["--version"], 60_000)).stdout).toMatch(/^uv \d+\.\d+\.\d+/)
+			await reloaded.remove("uv")
+			expect(await new EnvironmentProvisioner(createNodeProvisionerHost(root)).isInstalled("uv")).toBe(false)
+			expect(fs.existsSync(path.join(root, "uv"))).toBe(false)
+		} finally {
+			await provisioner.remove("uv")
+		}
+	}, 900_000)
 })

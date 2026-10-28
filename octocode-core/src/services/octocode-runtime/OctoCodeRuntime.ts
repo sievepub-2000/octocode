@@ -1,8 +1,7 @@
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { randomUUID } from "node:crypto"
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
-import { createInterface } from "node:readline"
+import type { Socket } from "node:net"
 import * as vscode from "vscode"
 import {
 	DEFAULT_AUTO_CONDENSE_CONTEXT_PERCENT,
@@ -23,8 +22,11 @@ import { getBinPath as getRipgrepPath } from "../ripgrep"
 import { Package } from "../../shared/package"
 import { configuredWorkspacePath } from "../../utils/defaultWorkspace"
 import { TaskApprovals, type ApprovalTask } from "./TaskApprovals"
+import { connectSharedHost } from "./RuntimeBrokerClient"
 
 export type { RuntimeEvent, RuntimeTask } from "@roo-code/types"
+/** What session.list returns; only the fields the update gate reads are named. */
+type SessionSummary = { status?: string; id?: string }
 export type PreparedTask = RuntimeTask & {
 	route: ProviderRoute
 	profileId?: string
@@ -79,7 +81,7 @@ type PendingUserInput = {
 }
 
 export class OctoCodeRuntime implements vscode.Disposable {
-	private process?: ChildProcessWithoutNullStreams
+	private process?: Socket
 	private starting?: Promise<void>
 	private disposed = false
 	private nextId = 1
@@ -132,11 +134,18 @@ export class OctoCodeRuntime implements vscode.Disposable {
 		images: string[],
 		settings: ProviderSettings,
 		permission: PermissionProfile,
+		attachmentPaths?: string[],
 	): Promise<void> {
 		this.queueSettings.set(sessionId, { settings, permission })
 		await this.editQueue(sessionId, (queue) => [
 			...queue,
-			{ id: randomUUID(), timestamp: Date.now(), text, images },
+			{
+				id: randomUUID(),
+				timestamp: Date.now(),
+				text,
+				images,
+				...(attachmentPaths?.length ? { attachmentPaths } : {}),
+			},
 		])
 		await this.drainQueue(sessionId)
 	}
@@ -162,7 +171,16 @@ export class OctoCodeRuntime implements vscode.Disposable {
 			const taskId = this.runningSessions.get(sessionId)
 			if (!taskId) return [entry, ...queue.filter((item) => item.id !== id)]
 			try {
-				await this.steer(taskId, entry)
+				let text = entry.text
+				if (entry.attachmentPaths?.length) {
+					const working = await this.call<{ working_directory: string | null }>("session.working_directory", {
+						id: sessionId,
+					})
+					if (!working?.working_directory) throw new Error("会话工作目录不可用，附件无法复制")
+					const { prepareAttachmentPrompt } = await import("./attachments")
+					text = await prepareAttachmentPrompt(entry.attachmentPaths, working.working_directory, text)
+				}
+				await this.steer(taskId, { ...entry, text })
 			} catch (error) {
 				this.queueSettings.delete(sessionId)
 				throw error
@@ -218,7 +236,18 @@ export class OctoCodeRuntime implements vscode.Disposable {
 			if (!config || this.runningSessions.has(sessionId)) return
 			const queued = (await this.getQueue(sessionId))[0]
 			if (!queued) return
-			const prepared = await this.prepareContinuation(sessionId, queued.text, config.settings, queued.images)
+			// Queued attachments are copied into the session directory at turn
+			// time, not enqueue time: the queue may outlive the picker by hours.
+			let prompt = queued.text
+			if (queued.attachmentPaths?.length) {
+				const working = await this.call<{ working_directory: string | null }>("session.working_directory", {
+					id: sessionId,
+				})
+				if (!working?.working_directory) throw new Error("会话工作目录不可用，附件无法复制")
+				const { prepareAttachmentPrompt } = await import("./attachments")
+				prompt = await prepareAttachmentPrompt(queued.attachmentPaths, working.working_directory, prompt)
+			}
+			const prepared = await this.prepareContinuation(sessionId, prompt, config.settings, queued.images)
 			taskId = prepared.taskId
 			this.eventEmitter.fire({
 				task_id: prepared.taskId,
@@ -226,12 +255,13 @@ export class OctoCodeRuntime implements vscode.Disposable {
 				kind: "runtime.started",
 				payload: { sessionId, taskId: prepared.taskId, prompt: queued.text, images: queued.images ?? [] },
 			})
-			await this.runPreparedAgentTask(prepared, queued.text, queued.images ?? [], true, config.permission)
+			await this.runPreparedAgentTask(prepared, prompt, queued.images ?? [], true, config.permission)
 			await this.editQueue(sessionId, (queue) => queue.filter((entry) => entry.id !== queued.id))
 			launched = true
 		} catch (error) {
 			const uncertain = isAgentRunTimeout(error)
-			if (uncertain) this.queueSettings.delete(sessionId)
+			// Pause retries without losing a turn the agent has not acknowledged.
+			this.queueSettings.delete(sessionId)
 			this.eventEmitter.fire({
 				task_id: taskId,
 				session_id: sessionId,
@@ -239,7 +269,7 @@ export class OctoCodeRuntime implements vscode.Disposable {
 				payload: {
 					message: uncertain
 						? "启动响应超时，队列已暂停；请检查该条消息是否已执行，再删除或恢复队列。"
-						: `排队消息启动失败，消息已保留：${error instanceof Error ? error.message : String(error)}`,
+						: `排队消息启动失败，消息已保留且队列已暂停，请删除或恢复队列：${error instanceof Error ? error.message : String(error)}`,
 				},
 			})
 		} finally {
@@ -301,7 +331,7 @@ export class OctoCodeRuntime implements vscode.Disposable {
 				reject(new Error(`OctoCode host request timed out: ${method}`))
 			}, requestTimeout(method))
 			this.pending.set(id, { method, startedAt, resolve: resolve as (value: unknown) => void, reject, timer })
-			this.process!.stdin.write(`${JSON.stringify({ id, method, params })}\n`)
+			this.process!.write(`${JSON.stringify({ id, method, params })}\n`)
 		})
 	}
 
@@ -310,7 +340,7 @@ export class OctoCodeRuntime implements vscode.Disposable {
 	}
 
 	async resolveProvider(settings: ProviderSettings): Promise<ProviderRoute> {
-		return this.call("provider.resolve", settings)
+		return this.call("provider.resolve", thinkingSettings(settings))
 	}
 
 	async modelContext(
@@ -359,22 +389,51 @@ export class OctoCodeRuntime implements vscode.Disposable {
 		images: string[] = [],
 	): Promise<PreparedTask> {
 		if (this.runningSessions.has(sessionId)) throw new Error("此对话仍在执行，请将消息加入队列")
-		const profileId = this.selectedProfileId()
+		// A conversation runs on its own model: the session's frozen override
+		// wins over whatever the global profile points at right now.
+		const { settings: effective, profileId } = await this.sessionTurnSettings(sessionId, settings)
 		const prepared = await this.call<{
 			session_id: string
 			task_id: string
 			route: ProviderRoute
 			working_directory?: string
-		}>("harness.continue", { session_id: sessionId, prompt, provider: thinkingSettings(settings), images })
+		}>("harness.continue", { session_id: sessionId, prompt, provider: thinkingSettings(effective), images })
 		return {
 			profileId,
 			sessionId: prepared.session_id,
 			taskId: prepared.task_id,
 			route: prepared.route,
 			workingDirectory: prepared.working_directory,
-			autoCompactThresholdPercent: this.readAutoCompactThreshold(settings),
-			providerSettings: settings,
+			autoCompactThresholdPercent: this.readAutoCompactThreshold(effective),
+			providerSettings: effective,
 		}
+	}
+
+	/**
+	 * Settings one turn of a session runs on: the session's own profile
+	 * override when it exists, otherwise the settings the caller already
+	 * resolved (the global pick). A deleted override falls back silently.
+	 */
+	private async sessionTurnSettings(
+		sessionId: string,
+		fallback: ProviderSettings,
+	): Promise<{ settings: ProviderSettings; profileId?: string }> {
+		const overrideId = await this.call<string | null>("setting.get", { key: `session-profile:${sessionId}` })
+		if (typeof overrideId === "string" && overrideId) {
+			try {
+				const {
+					id,
+					name: _name,
+					...profile
+				} = await new ProviderSettingsManager(this.context).getProfile({
+					id: overrideId,
+				})
+				return { settings: profile, profileId: id }
+			} catch {
+				// A deleted profile falls back with its settings and identity together.
+			}
+		}
+		return { settings: fallback, profileId: this.selectedProfileId() }
 	}
 
 	async prepareHandoff(sourceSessionId: string, allowCompleted = false): Promise<PreparedHandoff | undefined> {
@@ -571,6 +630,15 @@ export class OctoCodeRuntime implements vscode.Disposable {
 			if (!profileId) {
 				throw new Error(`Cannot start session ${prepared.sessionId}: model profile identity unavailable`)
 			}
+			// A chat owns its model from birth: the profile that prepared the
+			// first turn is frozen as this session's default. Later global
+			// switches leave it untouched, and in-chat switches rewrite only
+			// this override — other conversations never follow.
+			const sessionProfileKey = `session-profile:${prepared.sessionId}`
+			const existingProfile = await this.call<string | null>("setting.get", { key: sessionProfileKey })
+			if (typeof existingProfile !== "string" || !existingProfile) {
+				await this.call("setting.set", { key: sessionProfileKey, value: profileId })
+			}
 			await this.call("setting.set", {
 				key: `runtime-session:${prepared.sessionId}`,
 				value: {
@@ -660,6 +728,9 @@ export class OctoCodeRuntime implements vscode.Disposable {
 				resume,
 				permission_profile: permissionProfile,
 				read_only: readOnlyTask,
+				codebase_indexing: prepared.workingDirectory
+					? await this.codeIndexEnabledForWorkspace(prepared.workingDirectory)
+					: false,
 				supervision,
 			})
 			if (result.task_id !== prepared.taskId) throw new Error("Runtime returned a different task identity")
@@ -679,6 +750,13 @@ export class OctoCodeRuntime implements vscode.Disposable {
 			}
 			throw error
 		}
+	}
+
+	private async codeIndexEnabledForWorkspace(workspace: string): Promise<boolean> {
+		const config = this.context.globalState.get<{ codebaseIndexEnabled?: boolean }>("codebaseIndexConfig")
+		if (config?.codebaseIndexEnabled !== true) return false
+		const { CodeIndexManager } = await import("../code-index/manager")
+		return CodeIndexManager.getInstance(this.context, workspace)?.isWorkspaceEnabled ?? false
 	}
 
 	private async defaultWorkspace(): Promise<string> {
@@ -770,18 +848,32 @@ export class OctoCodeRuntime implements vscode.Disposable {
 		pending.reject(error)
 	}
 
+	/**
+	 * Update gate: nothing may replace the extension while a task could still
+	 * write state. The queue write is awaited first, then the Host is asked for
+	 * every session it knows — including ones owned by other windows — because
+	 * this process only sees its own sessions. The Host's own snapshot is the
+	 * one source of truth across windows.
+	 */
+	async awaitIdleForUpdate(): Promise<void> {
+		if (this.hasActiveTasks()) throw new Error("OctoCode has active tasks; cancel or finish them before updating")
+		await this.queueWrite
+		await this.call("ping")
+		const sessions = await this.call<SessionSummary[]>("session.list", {})
+		// The Host's snapshot covers sessions from every window and a task that
+		// started after this gate opened; "prepared" also writes, so both block.
+		if (
+			this.hasActiveTasks() ||
+			sessions.some((session) => session?.status === "running" || session?.status === "prepared")
+		)
+			throw new Error("OctoCode has active tasks in another window; close or finish them before updating")
+	}
+
 	dispose(): void {
 		this.disposed = true
 		this.approvals?.dispose()
 		this.modelsApi.dispose()
-		const child = this.process
-		if (child) {
-			// Let the host drop its agent tasks and their child processes before forcing termination.
-			child.stdin.end()
-			const timer = setTimeout(() => child.kill(), 5000)
-			timer.unref()
-			child.once("exit", () => clearTimeout(timer))
-		}
+		this.process?.end()
 		this.failPending(new Error("OctoCode host stopped"))
 		this.failUserInput(new Error("OctoCode host stopped"))
 		this.eventEmitter.dispose()
@@ -793,24 +885,34 @@ export class OctoCodeRuntime implements vscode.Disposable {
 			await fs.promises.mkdir(this.context.globalStorageUri.fsPath, { recursive: true })
 			const executable = resolveHostBinary(this.context.extensionPath)
 			const database = path.join(this.context.globalStorageUri.fsPath, "octocode.db")
-			const child = spawn(executable, ["--db", database], {
+			const environments =
+				process.env.OCTOCODE_ENVIRONMENTS ?? path.join(path.dirname(process.execPath), "environments")
+			const bundledNode = path.join(
+				environments,
+				"node",
+				...(process.platform === "win32" ? ["node.exe"] : ["bin", "node"]),
+			)
+			const child = await connectSharedHost({
+				database,
+				executable,
 				cwd: await this.defaultWorkspace(),
 				env: await hostEnvironment(vscode.env.appRoot),
-				windowsHide: true,
-				stdio: ["pipe", "pipe", "pipe"],
+				node: fs.existsSync(bundledNode) ? bundledNode : process.execPath,
+				script: path.join(this.context.extensionPath, "dist", "runtime", "hostBroker.js"),
+				onLine: (line) => this.acceptLine(line),
+				onLog: (line) => {
+					if (!this.disposed) this.output.appendLine(line)
+				},
+				onError: (error) => this.stop(error),
 			})
+			if (this.disposed) {
+				child.end()
+				throw new Error("OctoCode runtime is disposed")
+			}
+			if (child.destroyed) throw new Error("OctoCode host broker disconnected")
 			this.process = child
-			this.output.appendLine(`[OctoCode host] started pid=${child.pid ?? "pending"} db=${database}`)
-			createInterface({ input: child.stdout }).on("line", (line) => this.acceptLine(line))
-			createInterface({ input: child.stderr }).on("line", (line) =>
-				this.output.appendLine(`[OctoCode host] ${line}`),
-			)
-			child.once("error", (error) => {
-				if (this.process === child) this.stop(error)
-			})
-			child.once("exit", (code, signal) => {
-				if (this.process === child)
-					this.stop(new Error(`OctoCode host exited (${code ?? signal ?? "unknown"})`))
+			child.once("close", () => {
+				if (this.process === child) this.stop(new Error("OctoCode host broker disconnected"))
 			})
 		})()
 		try {
@@ -821,6 +923,7 @@ export class OctoCodeRuntime implements vscode.Disposable {
 	}
 
 	private acceptLine(line: string): void {
+		if (this.disposed) return
 		try {
 			const message = parseHostLine(line)
 			if ("kind" in message) {
@@ -966,6 +1069,7 @@ export function isExplicitReadOnlyTask(prompt: string): boolean {
 }
 
 export function thinkingSettings(settings: ProviderSettings): ProviderSettings {
+	if (!settings.apiProvider) throw new Error("请先在模型设置中选择 API 提供商并保存配置")
 	return withResolvedThinking(settings, getModelId(settings))
 }
 

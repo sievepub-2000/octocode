@@ -1,0 +1,17 @@
+{
+  "package": "@vscode/gulp-electron",
+  "version": "1.43.1",
+  "resolved": "https://registry.npmjs.org/@vscode/gulp-electron/-/gulp-electron-1.43.1.tgz",
+  "integrity": "sha512-CLaLnt1iP9nr9hFudT/DXjt04OzxVysRS8sllyM1nGxJMxvZ4PGZMZJfW1U/Dmg12xRyvc8MRIPAWQK9L78ocw==",
+  "originalFiles": {
+    "azure-pipelines.yml": "0438b9e410d44b8738dc484e9910e37050e0f3edeeb2987c572a979765680fd7",
+    "package.json": "6c057ff6ebb155d47831af89ce11bec6d01f7e228291a3e56a578c8196e5c708",
+    "README.md": "13a98d2ba6d710350a758b5da184232030c185f42de984e70e47cbaa0cbd06be",
+    "SECURITY.md": "430987b8c5f30c366ecd501bc344c8b29b6280e8a10174376a769f7443a187cd",
+    "src/darwin.js": "fbc0cdad8f3447f11adc4403e34199b02b8c759cf489dffb4e1aa85efaf81bf5",
+    "src/download.js": "42ca726bf211117a906abdaf8a09c4dd9b7f90964662558c6613b8ed1e40c90b",
+    "src/index.js": "f60d7eb3895c971b3d75b1cc0b54525233f8680312cc71e79545db5be443531f",
+    "src/linux.js": "4f12655ddaadd5d179684a7dffca4de5ff0d3c13f8ee2c2bd057de7f5eb25940",
+    "src/win32.js": "bfdc3626e739398c805af96bfca4bacdb9bb6eb4e1857dbd4aba284119d29799"
+  }
+}

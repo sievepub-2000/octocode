@@ -41,6 +41,15 @@ async function pathExists(target: string): Promise<boolean> {
 	}
 }
 
+/** Bundled code runs from dist; direct TypeScript execution runs from services/environments. */
+export async function resolvePythonWheelDirectory(moduleDirectory = __dirname): Promise<string> {
+	for (const relative of ["../resources/python", "../../resources/python"]) {
+		const directory = path.resolve(moduleDirectory, relative)
+		if (await pathExists(directory)) return directory
+	}
+	throw new Error("Bundled Python wheels are missing. Repair or reinstall OctoCode.")
+}
+
 /**
  * Vendor archives usually contain a single versioned root directory
  * (`go/`, `jdk-25+9/`, `pandoc-3.11/`). Hoist its contents up one level so the
@@ -66,7 +75,10 @@ export async function withRetries<T>(label: string, work: () => Promise<T>, atte
 		} catch (error) {
 			lastError = error
 			const message = error instanceof Error ? error.message : String(error)
-			const transient = /socket|TLS|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ECONNREFUSED|network|hang up/i.test(message)
+			const transient =
+				/socket|TLS|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ECONNREFUSED|network|hang up|timed out|timeout|aborted/i.test(
+					message,
+				)
 			if (!transient || attempt === attempts) break
 			await new Promise((resolve) => setTimeout(resolve, delayMs * attempt))
 		}
@@ -100,9 +112,14 @@ export function createNodeProvisionerHost(environmentsDir: string): ProvisionerH
 		): Promise<void> {
 			const resolved =
 				env.source.kind === "resolver"
-					? await getResolver(env.source.resolver)()
+					? await withRetries(`${env.label} resolution`, getResolver(env.source.resolver))
 					: env.source.kind === "archive"
-						? { url: env.source.url, archive: env.source.archive, version: "pinned", stripRoot: false }
+						? {
+								url: env.source.url,
+								archive: env.source.archive,
+								version: env.source.version ?? "pinned",
+								stripRoot: false,
+							}
 						: (() => {
 								throw new Error(`${env.label} is not installed from an archive`)
 							})()
@@ -113,7 +130,10 @@ export function createNodeProvisionerHost(environmentsDir: string): ProvisionerH
 				throw new Error(`${env.label} resolved to an untrusted download host: ${resolved.url}`)
 			}
 
-			const work = await fs.mkdtemp(path.join(os.tmpdir(), `octocode-env-${env.id}-`))
+			// Staging must share the destination volume: Windows cannot rename from
+			// the user's C: temp directory into an installation on another drive.
+			await fs.mkdir(path.dirname(targetDir), { recursive: true })
+			const work = await fs.mkdtemp(path.join(path.dirname(targetDir), `.octocode-env-${env.id}-`))
 			const archivePath = path.join(work, `payload.${resolved.archive === "exe" ? "exe" : resolved.archive}`)
 			const staging = path.join(work, "staging")
 
@@ -130,10 +150,16 @@ export function createNodeProvisionerHost(environmentsDir: string): ProvisionerH
 					downloadBinaryFile(resolved.url, archivePath, {
 						name: env.label,
 						trustedDomains: TRUSTED_TOOLCHAIN_DOMAINS,
-						timeoutMs: 20 * 60_000,
+						timeoutMs: 60_000,
 						maxBytes: MAX_ARCHIVE_BYTES,
 					}),
 				)
+				if (env.source.kind === "archive") {
+					const actual = await sha256File(archivePath)
+					if (!/^[0-9a-f]{64}$/i.test(env.source.sha256) || actual !== env.source.sha256.toLowerCase()) {
+						throw new Error(`${env.label} archive failed its SHA-256 check.`)
+					}
+				}
 
 				onProgress({
 					id: env.id,
@@ -218,7 +244,7 @@ export function createNodeProvisionerHost(environmentsDir: string): ProvisionerH
 					"--disable-pip-version-check",
 					"--no-warn-script-location",
 					"--find-links",
-					path.resolve(__dirname, "../resources/python"),
+					await resolvePythonWheelDirectory(),
 					...packages,
 				],
 				20 * 60_000,

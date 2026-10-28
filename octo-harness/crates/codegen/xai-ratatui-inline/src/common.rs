@@ -36,11 +36,16 @@ pub trait TerminalLike {
 }
 
 // Implementation for our Terminal with any Backend that implements Write
-impl<B: Backend + Write> TerminalLike for Terminal<B> {
+impl<B: Backend + Write> TerminalLike for Terminal<B>
+where
+    B::Error: Send + Sync + 'static,
+{
     type Writer = B;
 
     fn size(&self) -> io::Result<Size> {
-        self.backend().size()
+        self.backend()
+            .size()
+            .map_err(crate::terminal::backend_error)
     }
 
     fn viewport_area(&self) -> Rect {

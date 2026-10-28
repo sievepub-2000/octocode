@@ -10,9 +10,35 @@ import { IRawRequestFunction, lookupKerberosAuthorization, nodeRequest } from '.
 import { isWindows } from '../../../../base/common/platform.js';
 import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
 import { CancellationError } from '../../../../base/common/errors.js';
+import { createServer } from 'http';
+import { AddressInfo } from 'net';
 
 suite('Request Service', () => {
 	const store = ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('cancellation after headers closes the actual download connection', async () => {
+		let closed!: () => void;
+		const disconnected = new Promise<void>(resolve => closed = resolve);
+		const server = createServer((_request, response) => {
+			response.writeHead(200);
+			response.write('download has started');
+			response.on('close', closed);
+		});
+		const cts = store.add(new CancellationTokenSource());
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+			const response = await nodeRequest({ url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/download`, callSite: 'requestService.test.downloadCancellation' }, cts.token);
+			response.stream.on('error', () => { });
+			response.stream.on('data', () => { });
+			cts.cancel();
+			await Promise.race([disconnected, new Promise<void>((_resolve, reject) => timer = setTimeout(() => reject(new Error('Download was not aborted after headers')), 1000))]);
+		} finally {
+			clearTimeout(timer);
+			server.closeAllConnections();
+			await new Promise<void>(resolve => server.close(() => resolve()));
+		}
+	});
 
 	// A local Windows account has no domain credentials to request.
 	const hasDomainIdentity = isWindows && !!process.env.USERDNSDOMAIN;

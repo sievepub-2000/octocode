@@ -9,10 +9,12 @@ import { CodeIndexSearchService } from "./search-service"
 import { CodeIndexOrchestrator } from "./orchestrator"
 import { CacheManager } from "./cache-manager"
 import { SembleProvider } from "./semble"
+import { NativeCodeIndexProvider } from "./native-provider"
 import { RooIgnoreController } from "../../core/ignore/RooIgnoreController"
 import fs from "fs/promises"
 import ignore from "ignore"
 import path from "path"
+import { realpathSync } from "node:fs"
 import { t } from "../../i18n"
 import { TelemetryService } from "@roo-code/telemetry"
 import { TelemetryEventName } from "@roo-code/types"
@@ -28,10 +30,11 @@ export class CodeIndexManager {
 	private _orchestrator: CodeIndexOrchestrator | undefined
 	private _searchService: CodeIndexSearchService | undefined
 	private _cacheManager: CacheManager | undefined
-	private _sembleProvider: SembleProvider | undefined
+	private _localProvider: SembleProvider | NativeCodeIndexProvider | undefined
 
 	// Flag to prevent race conditions during error recovery
 	private _isRecoveringFromError = false
+	private _initialization: Promise<{ requiresRestart: boolean }> | undefined
 
 	public static getInstance(context: vscode.ExtensionContext, workspacePath?: string): CodeIndexManager | undefined {
 		// Resolve the workspace folder to get both fsPath and the real URI
@@ -54,18 +57,17 @@ export class CodeIndexManager {
 			workspacePath = folder.uri.fsPath
 		}
 
+		if (!folder || folder.uri.scheme === "file") {
+			try {
+				workspacePath = realpathSync.native(workspacePath)
+			} catch {
+				workspacePath = path.resolve(workspacePath)
+			}
+		}
 		if (!CodeIndexManager.instances.has(workspacePath)) {
 			// folder may be undefined when workspacePath was provided but doesn't match
 			// any workspace folder (e.g. cwd passed from a tool). Fall back to file:// URI.
-			const folderUri =
-				folder?.uri ??
-				({
-					fsPath: workspacePath,
-					scheme: "file",
-					authority: "",
-					path: workspacePath,
-					toString: () => `file://${workspacePath}`,
-				} as unknown as vscode.Uri)
+			const folderUri = folder?.uri ?? vscode.Uri.file(workspacePath)
 			CodeIndexManager.instances.set(workspacePath, new CodeIndexManager(workspacePath, folderUri, context))
 		}
 		return CodeIndexManager.instances.get(workspacePath)!
@@ -112,6 +114,7 @@ export class CodeIndexManager {
 
 	public async setWorkspaceEnabled(enabled: boolean): Promise<void> {
 		await this.context.workspaceState.update(this._workspaceEnabledKey(), enabled)
+		if (!enabled) this.stopIndexing()
 	}
 
 	public get autoEnableDefault(): boolean {
@@ -127,7 +130,7 @@ export class CodeIndexManager {
 	}
 
 	private assertInitialized() {
-		if (this._sembleProvider) {
+		if (this._localProvider) {
 			// When semble is active, we don't need orchestrator/searchService
 			return
 		}
@@ -137,11 +140,11 @@ export class CodeIndexManager {
 	}
 
 	public get state(): IndexingState {
-		if (!this.isFeatureEnabled) {
+		if (!this.isFeatureEnabled || !this.isWorkspaceEnabled) {
 			return "Standby"
 		}
-		if (this._sembleProvider) {
-			return this._sembleProvider.state
+		if (this._localProvider) {
+			return this._localProvider.state
 		}
 		this.assertInitialized()
 		return this._orchestrator!.state
@@ -170,6 +173,16 @@ export class CodeIndexManager {
 	 * @returns Object indicating if a restart is needed
 	 */
 	public async initialize(contextProxy: ContextProxy): Promise<{ requiresRestart: boolean }> {
+		if (this._initialization) return this._initialization
+		this._initialization = this.initializeServices(contextProxy)
+		try {
+			return await this._initialization
+		} finally {
+			this._initialization = undefined
+		}
+	}
+
+	private async initializeServices(contextProxy: ContextProxy): Promise<{ requiresRestart: boolean }> {
 		// 1. ConfigManager Initialization and Configuration Loading
 		if (!this._configManager) {
 			this._configManager = new CodeIndexConfigManager(contextProxy)
@@ -182,8 +195,8 @@ export class CodeIndexManager {
 			if (this._orchestrator) {
 				this._orchestrator.stopWatcher()
 			}
-			if (this._sembleProvider) {
-				this._sembleProvider.stopIndexing()
+			if (this._localProvider) {
+				this._localProvider.stopIndexing()
 			}
 			return { requiresRestart }
 		}
@@ -197,29 +210,34 @@ export class CodeIndexManager {
 
 		// 4. Check workspace-level enablement (before creating expensive services)
 		if (!this.isWorkspaceEnabled) {
+			this.stopIndexing()
 			this._stateManager.setSystemState("Standby", "Indexing not enabled for this workspace")
 			return { requiresRestart }
 		}
 
 		// 5. CacheManager Initialization
-		if (!this._cacheManager) {
+		if (!this._cacheManager && this._configManager.currentEmbedderProvider !== "native") {
 			this._cacheManager = new CacheManager(this.context, this.workspacePath)
 			await this._cacheManager.initialize()
 		}
 
 		// 6. Determine if Core Services Need Recreation
-		const needsServiceRecreation = (!this._serviceFactory && !this._sembleProvider) || requiresRestart
+		const needsServiceRecreation = (!this._serviceFactory && !this._localProvider) || requiresRestart
 
 		if (needsServiceRecreation) {
 			await this._recreateServices()
 		}
 
 		// 7. Handle Indexing Start/Restart
-		if (this._sembleProvider) {
+		if (this._localProvider) {
 			// For semble, start indexing if needed
 			const shouldStartIndexing = requiresRestart || needsServiceRecreation
 			if (shouldStartIndexing) {
-				await this._sembleProvider.startIndexing()
+				if (this._localProvider instanceof NativeCodeIndexProvider)
+					void this._localProvider
+						.ensureIndex()
+						.catch((error) => console.error("Native indexing failed:", error))
+				else await this._localProvider.startIndexing()
 			}
 		} else {
 			const shouldStartOrRestartIndexing =
@@ -247,8 +265,8 @@ export class CodeIndexManager {
 		}
 
 		// Delegate to semble provider if active
-		if (this._sembleProvider) {
-			await this._sembleProvider.startIndexing()
+		if (this._localProvider) {
+			await this._localProvider.startIndexing()
 			return
 		}
 
@@ -270,8 +288,8 @@ export class CodeIndexManager {
 	 * Stops any in-progress indexing operation and the file watcher.
 	 */
 	public stopIndexing(): void {
-		if (this._sembleProvider) {
-			this._sembleProvider.stopIndexing()
+		if (this._localProvider) {
+			this._localProvider.stopIndexing()
 			return
 		}
 		if (this._orchestrator) {
@@ -319,13 +337,15 @@ export class CodeIndexManager {
 			// Log error but continue with recovery - clearing service instances is more important
 			console.error("Failed to clear error state during recovery:", error)
 		} finally {
+			this._localProvider?.dispose()
+			this._orchestrator?.stopIndexing()
 			// Force re-initialization by clearing service instances
 			// This ensures a clean slate even if state update failed
 			this._configManager = undefined
 			this._serviceFactory = undefined
 			this._orchestrator = undefined
 			this._searchService = undefined
-			this._sembleProvider = undefined
+			this._localProvider = undefined
 
 			// Reset the flag after recovery is complete
 			this._isRecoveringFromError = false
@@ -337,9 +357,9 @@ export class CodeIndexManager {
 	 */
 	public dispose(): void {
 		this.stopIndexing()
-		if (this._sembleProvider) {
-			this._sembleProvider.dispose()
-			this._sembleProvider = undefined
+		if (this._localProvider) {
+			this._localProvider.dispose()
+			this._localProvider = undefined
 		}
 		this._stateManager.dispose()
 	}
@@ -349,13 +369,20 @@ export class CodeIndexManager {
 	 * and deleting the cache file.
 	 */
 	public async clearIndexData(): Promise<void> {
-		if (!this.isFeatureEnabled) {
+		if (this._localProvider) {
+			await this._localProvider.clearIndexData()
 			return
 		}
-		if (this._sembleProvider) {
-			await this._sembleProvider.clearIndexData()
+		if (this._configManager?.currentEmbedderProvider === "native") {
+			const local = new NativeCodeIndexProvider(this.workspacePath, this.context, this._stateManager)
+			try {
+				await local.clearIndexData()
+			} finally {
+				local.dispose()
+			}
 			return
 		}
+		if (!this.isFeatureEnabled) return
 		this.assertInitialized()
 		await this._orchestrator!.clearIndexData()
 		await this._cacheManager!.clearCacheFile()
@@ -374,11 +401,18 @@ export class CodeIndexManager {
 	}
 
 	public async searchIndex(query: string, directoryPrefix?: string): Promise<VectorStoreSearchResult[]> {
-		if (!this.isFeatureEnabled) {
+		if (!this.isFeatureEnabled || !this.isWorkspaceEnabled) {
 			return []
 		}
-		if (this._sembleProvider) {
-			return this._sembleProvider.searchIndex(query, directoryPrefix)
+		if (this._localProvider) {
+			if (this._localProvider instanceof NativeCodeIndexProvider) {
+				return this._localProvider.searchIndex(
+					query,
+					directoryPrefix,
+					this._configManager?.currentSearchMaxResults,
+				)
+			}
+			return this._localProvider.searchIndex(query, directoryPrefix)
 		}
 		this.assertInitialized()
 		return this._searchService!.searchIndex(query, directoryPrefix)
@@ -394,18 +428,31 @@ export class CodeIndexManager {
 			this.stopWatcher()
 		}
 		// Dispose existing semble provider if switching away
-		if (this._sembleProvider) {
-			this._sembleProvider.dispose()
-			this._sembleProvider = undefined
+		if (this._localProvider) {
+			this._localProvider.dispose()
+			this._localProvider = undefined
 		}
 		// Clear existing services to ensure clean state
 		this._orchestrator = undefined
 		this._searchService = undefined
+		this._serviceFactory = undefined
+
+		if (this._configManager!.currentEmbedderProvider === "native") {
+			if (this._folderUri.scheme !== "file") throw new Error("Native indexing requires a local workspace")
+			this._localProvider = new NativeCodeIndexProvider(
+				this.workspacePath,
+				this.context,
+				this._stateManager,
+				this._configManager!.currentSearchMaxResults,
+			)
+			await this._localProvider.initialize()
+			return
+		}
 
 		// Branch: if provider is "semble", create SembleProvider instead of external services
 		if (this._configManager!.currentEmbedderProvider === "semble") {
-			this._sembleProvider = new SembleProvider(this.workspacePath, this.context, this._stateManager)
-			await this._sembleProvider.initialize()
+			this._localProvider = new SembleProvider(this.workspacePath, this.context, this._stateManager)
+			await this._localProvider.initialize()
 			return
 		}
 
@@ -497,7 +544,7 @@ export class CodeIndexManager {
 			const isFeatureConfigured = this.isFeatureConfigured
 
 			// If feature is disabled, stop the service (including any active scan)
-			if (!isFeatureEnabled) {
+			if (!isFeatureEnabled || !this.isWorkspaceEnabled) {
 				this.stopIndexing()
 				this._stateManager.setSystemState("Standby", "Code indexing is disabled")
 				return
@@ -506,13 +553,17 @@ export class CodeIndexManager {
 			if (requiresRestart && isFeatureEnabled && isFeatureConfigured) {
 				try {
 					// Ensure cacheManager is initialized before recreating services
-					if (!this._cacheManager) {
+					if (!this._cacheManager && this._configManager.currentEmbedderProvider !== "native") {
 						this._cacheManager = new CacheManager(this.context, this.workspacePath)
 						await this._cacheManager.initialize()
 					}
 
 					// Recreate services with new configuration
 					await this._recreateServices()
+					if (this._localProvider instanceof NativeCodeIndexProvider)
+						void this._localProvider
+							.ensureIndex()
+							.catch((error) => console.error("Native indexing failed:", error))
 				} catch (error) {
 					// Error state already set in _recreateServices
 					console.error("Failed to recreate services:", error)

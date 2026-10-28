@@ -1,0 +1,7 @@
+{
+  "name": "octocode-llmwiki-runtime",
+  "private": true,
+  "dependencies": {
+    "@llmwiki/core": "file:./llmwiki-core-0.1.2.tgz"
+  }
+}

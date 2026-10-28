@@ -11,68 +11,31 @@ $env:PATH = "$nodeRoot;$env:PATH"
 $env:OCTOCODE_ISCC = "D:\Program Files\develop\Inno Setup 7\ISCC.exe"
 if (-not (Test-Path -LiteralPath $env:OCTOCODE_ISCC)) { throw "Inno Setup 7 compiler missing" }
 $productRoot = [IO.Path]::GetFullPath('D:\gpt-workspace\octocode\source\VSCode-win32-x64').TrimEnd('\')
-Assert-StoppedBuildProduct -ProductRoot $productRoot
-Assert-PhysicalBuildPath -Path $productRoot -ScopeDirectory $PSScriptRoot -InspectChildren
-# A product used as an interactive workspace must not be rewritten or packaged.
-$userData = Join-Path $productRoot 'data\user-data'
-$forbiddenRuntimeState = @(
-	'logs', 'Backups', 'User\History', 'User\workspaceStorage',
-	'User\globalStorage\octocode.octocode\octocode.db',
-	'User\globalStorage\octocode.octocode\octocode.db.runtime-lock',
-	'code.lock', 'DevToolsActivePort'
-)
-$foundRuntimeState = @($forbiddenRuntimeState | Where-Object { Test-Path -LiteralPath (Join-Path $userData $_) })
-if ($foundRuntimeState) { throw "Product tree contains runtime state; rebuild it before packaging: $($foundRuntimeState -join ', ')" }
-$manifest = Join-Path (Split-Path $PSScriptRoot -Parent) 'updates\stable\latest.json'
-if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { throw "Stable update manifest missing: $manifest" }
-$stable = Get-Content -LiteralPath $manifest -Raw -Encoding UTF8 | ConvertFrom-Json
-$expectedVsixHash = $stable.sha256
-foreach ($vsix in @((Join-Path $productRoot 'environments\installer\octocode.vsix'), (Join-Path $root '.build\environments\installer\octocode.vsix'))) {
-	if ((Get-FileHash -LiteralPath $vsix -Algorithm SHA256).Hash -ne $expectedVsixHash) { throw "Installer VSIX does not match stable manifest: $vsix" }
+$manifest = Join-Path (Split-Path $PSScriptRoot -Parent) 'releases\release-manifest.json'
+$coreRoot = Join-Path (Split-Path $root -Parent) 'octocode-core'
+Assert-InstallerBuildInputs -ProductRoot $productRoot -DesktopRoot $root -CoreRoot $coreRoot -ManifestPath $manifest -ScopeDirectory $PSScriptRoot
+Copy-Harness2BuildInputs -DesktopRoot $root -ProductRoot (Join-Path $root '.build')
+Copy-Harness2BuildInputs -DesktopRoot $root -ProductRoot $productRoot
+foreach ($targetRoot in @((Join-Path $root '.build'), $productRoot)) {
+	& (Join-Path $root 'build\win32\octocode-validate-tools.ps1') -AppRoot $targetRoot
 }
-# The product stage installs the VSIX to verify its binaries. The native
-# installer installs that same VSIX during initialization, so remove only the
-# verified temporary copy before packaging the product tree.
+# A release stage must contain no installed extensions or interactive state.
 $extensionDirectory = Join-Path $productRoot 'data\extensions'
-$preinstalled = @(Get-ChildItem -LiteralPath $extensionDirectory -Directory -Filter 'octocode.octocode-*' -ErrorAction SilentlyContinue)
-if ($preinstalled.Count -ne 1 -or $preinstalled[0].Name -cne "octocode.octocode-$($stable.version)") {
-	throw "Expected one verified OctoCode extension $($stable.version) before installer packaging"
-}
-$temporaryExtension = $preinstalled[0]
-$otherEntries = @(Get-ChildItem -LiteralPath $extensionDirectory -Force | Where-Object {
-	$_.Name -ne $temporaryExtension.Name -and $_.Name -ne 'extensions.json'
-})
-if ($otherEntries.Count) { throw "Unexpected product extension entries: $($otherEntries.Name -join ', ')" }
-$expectedPath = [IO.Path]::GetFullPath((Join-Path $extensionDirectory $temporaryExtension.Name))
-if ($temporaryExtension.FullName -ine $expectedPath -or
-	($temporaryExtension.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-	throw 'Temporary extension path is not a physical child of the product tree'
-}
-Assert-PhysicalBuildPath -Path $temporaryExtension.FullName -ScopeDirectory $PSScriptRoot -InspectChildren
-$coreBinaries = Join-Path (Split-Path $root -Parent) 'octocode-core\src\bin\win32-x64'
-foreach ($binary in @('octocode-host.exe', 'octocode-harness.exe')) {
-	$built = Join-Path $coreBinaries $binary
-	$packaged = Join-Path $temporaryExtension.FullName "bin\win32-x64\$binary"
-	if (!(Test-Path -LiteralPath $built) -or !(Test-Path -LiteralPath $packaged) -or
-		(Get-FileHash -LiteralPath $built -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $packaged -Algorithm SHA256).Hash) {
-		throw "Temporary extension binary does not match the fresh build: $binary"
-	}
-}
-Remove-Item -LiteralPath $temporaryExtension.FullName -Recurse -Force
-if (Test-Path -LiteralPath $temporaryExtension.FullName) { throw 'Temporary extension removal failed' }
+New-Item -ItemType Directory -Path $extensionDirectory -Force | Out-Null
 [IO.File]::WriteAllText((Join-Path $extensionDirectory 'extensions.json'), '[]', [Text.UTF8Encoding]::new($false))
 $settingsPath = Join-Path $productRoot 'data\user-data\User\settings.json'
 $settings = if (Test-Path -LiteralPath $settingsPath) {
 	Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
 } else { [pscustomobject]@{} }
-$settings | Add-Member -MemberType NoteProperty -Name 'octocode.update.manifestUrl' -Value ([Uri]$manifest).AbsoluteUri -Force
-$settings | Add-Member -MemberType NoteProperty -Name 'octocode.update.mode' -Value 'start' -Force
+# Do not distribute a builder-local update URL to users.
+$settings.PSObject.Properties.Remove('octocode.update.manifestUrl')
+$settings | Add-Member -MemberType NoteProperty -Name 'octocode.update.mode' -Value 'manual' -Force
 New-Item -ItemType Directory -Path (Split-Path $settingsPath -Parent) -Force | Out-Null
 [IO.File]::WriteAllText($settingsPath, ($settings | ConvertTo-Json -Depth 20), [Text.UTF8Encoding]::new($false))
 # Installer-only builds must use the authoritative helpers, too.
-foreach ($name in @('initialize', 'uninitialize', 'self-test', 'mcp-self-test')) {
-	$source = Join-Path $root "build\win32\octocode-$name.ps1"
-	$relative = if ($name -like '*self-test') { "test\$name.ps1" } else { "environments\scripts\$name.ps1" }
+foreach ($name in @('initialize', 'uninitialize', 'self-test', 'mcp-self-test', 'octocode_api')) {
+	$source = if ($name -eq 'octocode_api') { Join-Path $root 'build\environment-scripts\octocode_api.py' } else { Join-Path $root "build\win32\octocode-$name.ps1" }
+	$relative = if ($name -eq 'octocode_api') { 'environments\scripts\octocode_api.py' } elseif ($name -like '*self-test') { "test\$name.ps1" } else { "environments\scripts\$name.ps1" }
 	foreach ($targetRoot in @((Join-Path $root '.build'), $productRoot)) {
 		$target = Join-Path $targetRoot $relative
 		Copy-Item -LiteralPath $source -Destination $target -Force
@@ -80,6 +43,28 @@ foreach ($name in @('initialize', 'uninitialize', 'self-test', 'mcp-self-test'))
 	}
 }
 $uninitialize = Get-Content (Join-Path $productRoot 'environments\scripts\uninitialize.ps1') -Raw
+foreach ($targetRoot in @((Join-Path $root '.build'), $productRoot)) {
+	Copy-Item -LiteralPath (Join-Path $root 'build\environment-scripts\TOOLS.md') -Destination (Join-Path $targetRoot 'environments\TOOLS.md') -Force
+}
+foreach ($name in @('runtime-python-requirements.txt', 'test_runtime_python_security.py', 'system_tools.py', 'product_tools.py', 'mcp_defaults.json', 'scrapling_mcp.py')) {
+    foreach ($targetRoot in @((Join-Path $root '.build'), $productRoot)) {
+        Copy-Item -LiteralPath (Join-Path $root "build\environment-scripts\$name") -Destination (Join-Path $targetRoot "environments\scripts\$name") -Force
+        if ((Get-FileHash -LiteralPath (Join-Path $root "build\environment-scripts\$name")).Hash -ne (Get-FileHash -LiteralPath (Join-Path $targetRoot "environments\scripts\$name")).Hash) { throw "Packaged helper mismatch: $name" }
+    }
+}
+$graphWheel = Join-Path $coreRoot 'src\resources\python\code_review_graph-2.3.8+octocode.1-py3-none-any.whl'
+if ((Get-FileHash -LiteralPath $graphWheel -Algorithm SHA256).Hash -ne 'BF9FCAC8B81FE7D6E123A4726EE1AAF610021DA9DDA7DCF4221ADC42AE06F6C5') { throw 'CodeGraph wheel verification failed.' }
+foreach ($targetRoot in @((Join-Path $root '.build'), $productRoot)) {
+	$python = Join-Path $targetRoot 'environments\python\python.exe'
+	& $python -m pip install --force-reinstall --no-index --no-deps --no-warn-script-location $graphWheel
+	if ($LASTEXITCODE -ne 0) { throw 'CodeGraph installer input update failed.' }
+	& $python (Join-Path $targetRoot 'environments\scripts\system_tools.py') --root $targetRoot --build-bundle
+	if ($LASTEXITCODE -ne 0) { throw 'Installer product programs consolidation failed.' }
+}
+& (Join-Path $productRoot 'environments\python\python.exe') (Join-Path $productRoot 'environments\scripts\test_runtime_python_security.py')
+if ($LASTEXITCODE -ne 0) { throw 'Staged Python security regression failed' }
+& (Join-Path $productRoot 'environments\python\python.exe') -m pip check
+if ($LASTEXITCODE -ne 0) { throw 'Staged Python dependency graph is inconsistent' }
 if ($uninitialize -match '--unregister' -or $uninitialize -notmatch '--terminate') { throw 'Unsafe WSL uninstall helper' }
 New-Item -ItemType Directory -Force -Path $logs | Out-Null
 Set-Location -LiteralPath $root

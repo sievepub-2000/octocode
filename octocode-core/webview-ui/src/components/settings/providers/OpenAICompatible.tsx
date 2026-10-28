@@ -138,7 +138,7 @@ export const OpenAICompatible = ({
 					setOpenAiModels(updatedModels)
 					const selected = apiConfiguration.openAiModelId
 					if (selected && updatedModels[selected])
-						setApiConfigurationField("openAiCustomModelInfo", updatedModels[selected])
+						setApiConfigurationField("openAiCustomModelInfo", updatedModels[selected], false)
 					setIsFetchingModels(false)
 					break
 				}

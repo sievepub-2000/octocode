@@ -3,7 +3,7 @@
 	"displayName": "%extension.displayName%",
 	"description": "%extension.description%",
 	"publisher": "OctoCode",
-	"version": "0.1.10",
+	"version": "0.1.14",
 	"icon": "assets/icons/icon.png",
 	"galleryBanner": {
 		"color": "#617A91",
@@ -11,7 +11,7 @@
 	},
 	"engines": {
 		"vscode": "^1.100.0",
-		"node": "24.20.0"
+		"node": "26.12.1"
 	},
 	"author": {
 		"name": "OctoCode"
@@ -60,21 +60,6 @@
 					"id": "octocode-ActivityBar",
 					"title": "%views.activitybar.title%",
 					"icon": "assets/icons/icon.png"
-				},
-				{
-					"id": "octocode-mcp-ActivityBar",
-					"title": "%views.mcpServices.title%",
-					"icon": "assets/icons/activity/mcp-services.svg"
-				},
-				{
-					"id": "octocode-skills-ActivityBar",
-					"title": "%views.skills.title%",
-					"icon": "assets/icons/activity/skills.svg"
-				},
-				{
-					"id": "octocode-agentmods-ActivityBar",
-					"title": "%views.agentMods.title%",
-					"icon": "assets/icons/activity/agentmods.svg"
 				}
 			]
 		},
@@ -84,24 +69,6 @@
 					"type": "webview",
 					"id": "octocode.SidebarProvider",
 					"name": "%views.sidebar.name%"
-				}
-			],
-			"octocode-mcp-ActivityBar": [
-				{
-					"id": "octocode.mcpServicesView",
-					"name": "%views.mcpServices.title%"
-				}
-			],
-			"octocode-skills-ActivityBar": [
-				{
-					"id": "octocode.skillsView",
-					"name": "%views.skills.title%"
-				}
-			],
-			"octocode-agentmods-ActivityBar": [
-				{
-					"id": "octocode.agentModsView",
-					"name": "%views.agentMods.title%"
 				}
 			]
 		},
@@ -124,6 +91,11 @@
 			{
 				"command": "octocode.openInNewTab",
 				"title": "%command.openInNewTab.title%",
+				"category": "%configuration.title%"
+			},
+			{
+				"command": "octocode.recoverDesktopUpdate",
+				"title": "%command.recoverDesktopUpdate.title%",
 				"category": "%configuration.title%"
 			},
 			{
@@ -551,7 +523,7 @@
 				},
 				"octocode.update.manifestUrl": {
 					"type": "string",
-					"default": "",
+					"default": "https://api.github.com/repos/sievepub-2000/octocode/releases/latest",
 					"markdownDescription": "%configuration.update.manifestUrl.description%"
 				},
 				"octocode.update.mode": {
@@ -593,7 +565,7 @@
 		"@google/genai": "^2.18.0",
 		"@lmstudio/sdk": "^1.1.1",
 		"@mistralai/mistralai": "^1.9.18",
-		"@modelcontextprotocol/sdk": "1.31.0",
+		"@modelcontextprotocol/sdk": "1.32.0",
 		"@qdrant/js-client-rest": "^1.14.0",
 		"@roo-code/cloud": "workspace:^",
 		"@roo-code/core": "workspace:^",
@@ -654,7 +626,7 @@
 		"web-tree-sitter": "^0.25.6",
 		"workerpool": "^9.2.0",
 		"yaml": "^2.8.0",
-		"zod": "3.25.76"
+		"zod": "4.6.6"
 	},
 	"devDependencies": {
 		"@ai-sdk/openai-compatible": "2.0.56",
@@ -669,7 +641,7 @@
 		"@types/ps-tree": "1.1.6",
 		"@types/semver-compare": "1.0.3",
 		"@types/vscode": "1.100.0",
-		"@vitest/coverage-v8": "4.1.9",
+		"@vitest/coverage-v8": "4.1.12",
 		"@vscode/vsce": "3.9.2",
 		"ai": "6.0.218",
 		"esbuild-wasm": "0.28.1",
@@ -678,6 +650,6 @@
 		"nock": "14.0.15",
 		"ovsx": "1.1.1",
 		"rimraf": "6.0.1",
-		"vitest": "4.1.9"
+		"vitest": "4.1.12"
 	}
 }

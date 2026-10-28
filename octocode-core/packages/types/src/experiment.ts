@@ -1,4 +1,4 @@
-import { z } from "zod"
+import { z } from "zod/v4"
 
 import type { Keys, Equals, AssertEqual } from "./type-fu.js"
 

@@ -1,6 +1,6 @@
 import { useEffect } from "react"
 
-import { DEFAULT_THEME_BY_KIND } from "./palettes"
+import { DEFAULT_THEME_BY_KIND, legacyDark, whiteHighContrastLight } from "./palettes"
 import { buildThemeVariables } from "./tokens"
 
 /**
@@ -40,7 +40,10 @@ export function useOctoCodeTheme(): void {
 				return !document.body.className.includes("vscode-dark")
 			}
 			const [r, g, b] = m[1].includes(",")
-				? m[1].split(",").slice(0, 3).map((v) => Number(v.trim()))
+				? m[1]
+						.split(",")
+						.slice(0, 3)
+						.map((v) => Number(v.trim()))
 				: [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16))
 			// Rec. 601 luma is enough to separate the two families.
 			return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5
@@ -50,14 +53,17 @@ export function useOctoCodeTheme(): void {
 
 		const apply = () => {
 			const themeId = DEFAULT_THEME_BY_KIND[isLightTheme() ? "light" : "dark"]
+			const highContrastLight = document.body.dataset.vscodeThemeKind === "vscode-high-contrast-light"
+			const highContrastDark = document.body.dataset.vscodeThemeKind === "vscode-high-contrast"
+			const selection = `${themeId}:${highContrastLight}:${highContrastDark}`
 
 			// This function writes custom properties onto the same element the
 			// observer below watches, so re-applying an unchanged theme would feed
 			// the observer its own mutations forever.
-			if (themeId === applied) {
+			if (selection === applied) {
 				return
 			}
-			applied = themeId
+			applied = selection
 
 			/*
 			 * Only the `--octo-*` half is published.
@@ -68,7 +74,12 @@ export function useOctoCodeTheme(): void {
 			 * from this very palette — so writing them again would override the
 			 * live theme with a second copy that cannot follow a user's own theme.
 			 */
-			for (const [name, value] of Object.entries(buildThemeVariables(themeId))) {
+			for (const [name, value] of Object.entries(
+				buildThemeVariables(
+					themeId,
+					highContrastLight ? whiteHighContrastLight : highContrastDark ? legacyDark : undefined,
+				),
+			)) {
 				if (name.startsWith("--octo-")) {
 					root.style.setProperty(name, value)
 				}
@@ -86,7 +97,7 @@ export function useOctoCodeTheme(): void {
 		 */
 		const observer = new MutationObserver(apply)
 		observer.observe(root, { attributes: true, attributeFilter: ["style", "class"] })
-		observer.observe(document.body, { attributes: true, attributeFilter: ["class"] })
+		observer.observe(document.body, { attributes: true, attributeFilter: ["class", "data-vscode-theme-kind"] })
 		return () => observer.disconnect()
 	}, [])
 }

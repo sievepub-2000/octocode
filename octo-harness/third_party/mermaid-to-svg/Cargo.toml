@@ -153,7 +153,7 @@ dagre_rust = { path = "../dagre_rust" }
 graphlib_rust = { path = "../graphlib_rust" }
 unicode-segmentation = "1"
 unicode-width = "0.2"
-serde_yaml = "0.9"
+serde_yaml = { package = "noyalib", version = "0.0.58" }
 
 # Clippy lints local/path crates (this vendored crate is one) under the
 # workspace's `-D warnings`. We do not restyle upstream third-party code, so

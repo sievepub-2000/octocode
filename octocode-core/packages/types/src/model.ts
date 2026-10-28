@@ -1,4 +1,4 @@
-import { z } from "zod"
+import { z } from "zod/v4"
 import { DynamicProvider, LocalProvider } from "./provider-settings.js"
 
 /**

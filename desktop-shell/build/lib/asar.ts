@@ -4,9 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 import path from 'path';
+import fs from 'fs';
+import os from 'os';
+import { Readable } from 'stream';
 import es from 'event-stream';
-import pickle from 'chromium-pickle-js';
-import Filesystem from 'asar/lib/filesystem.js';
+import { createPackageFromStreams } from '@electron/asar';
 import VinylFile from 'vinyl';
 import { minimatch } from 'minimatch';
 
@@ -41,12 +43,7 @@ export function createAsar(folderPath: string, unpackGlobs: string[], skipGlobs:
 		return false;
 	};
 
-	const filesystem = new Filesystem(folderPath);
-	const out: Buffer[] = [];
-
-	// Keep track of pending inserts
-	let pendingInserts = 0;
-	let onFileInserted = () => { pendingInserts--; };
+	const entries: Parameters<typeof createPackageFromStreams>[1] = [];
 
 	// Do not insert twice the same directory
 	const seenDir: { [key: string]: boolean } = {};
@@ -63,7 +60,7 @@ export function createAsar(folderPath: string, unpackGlobs: string[], skipGlobs:
 			insertDirectoryRecursive(dir.substring(0, lastSlash));
 		}
 		seenDir[dir] = true;
-		filesystem.insertDirectory(dir);
+		entries.push({ type: 'directory', path: dir, unpacked: false });
 	};
 
 	const insertDirectoryForFile = (file: string) => {
@@ -76,20 +73,15 @@ export function createAsar(folderPath: string, unpackGlobs: string[], skipGlobs:
 		}
 	};
 
-	const insertFile = (relativePath: string, stat: { size: number; mode: number }, shouldUnpack: boolean) => {
-		insertDirectoryForFile(relativePath);
-		pendingInserts++;
-		// Do not pass `onFileInserted` directly because it gets overwritten below.
-		// Create a closure capturing `onFileInserted`.
-		filesystem.insertFile(relativePath, shouldUnpack, { stat: stat }, {}).then(() => onFileInserted(), () => onFileInserted());
-	};
-
 	return es.through(function (file) {
 		if (file.stat.isDirectory()) {
 			return;
 		}
 		if (!file.stat.isFile()) {
 			throw new Error(`unknown item in stream!`);
+		}
+		if (!Buffer.isBuffer(file.contents)) {
+			throw new Error(`ASAR requires buffered contents: ${file.path}`);
 		}
 		if (shouldSkipFile(file)) {
 			this.queue(new VinylFile({
@@ -109,58 +101,42 @@ export function createAsar(folderPath: string, unpackGlobs: string[], skipGlobs:
 			}));
 		}
 		const shouldUnpack = shouldUnpackFile(file);
-		insertFile(file.relative, { size: file.contents.length, mode: file.stat.mode }, shouldUnpack);
+		// The Vinyl base can be the app root; the archive and its unpacked sibling
+		// must both be rooted at folderPath (node_modules), with identical paths.
+		const relative = path.relative(folderPath, file.path);
+		if (!relative || relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
+			throw new Error(`ASAR input is outside its source folder: ${file.path}`);
+		}
+		insertDirectoryForFile(relative);
+		// Use the transformed Vinyl buffer, not the possibly stale source file on disk.
+		const contents = file.contents;
+		entries.push({
+			type: 'file', path: relative, unpacked: shouldUnpack,
+			stat: { ...file.stat, size: contents.length },
+			streamGenerator: () => Readable.from([contents])
+		});
 
 		if (shouldUnpack) {
 			// The file goes outside of xx.asar, in a folder xx.asar.unpacked
-			const relative = path.relative(folderPath, file.path);
 			this.queue(new VinylFile({
 				base: '.',
 				path: path.join(destFilename + '.unpacked', relative),
 				stat: file.stat,
 				contents: file.contents
 			}));
-		} else {
-			// The file goes inside of xx.asar
-			out.push(file.contents);
 		}
 	}, function () {
-
-		const finish = () => {
-			{
-				const headerPickle = pickle.createEmpty();
-				headerPickle.writeString(JSON.stringify(filesystem.header));
-				const headerBuf = headerPickle.toBuffer();
-
-				const sizePickle = pickle.createEmpty();
-				sizePickle.writeUInt32(headerBuf.length);
-				const sizeBuf = sizePickle.toBuffer();
-
-				out.unshift(headerBuf);
-				out.unshift(sizeBuf);
+		const finish = async () => {
+			const temporary = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'octocode-asar-'));
+			try {
+				const archive = path.join(temporary, 'archive.asar');
+				await createPackageFromStreams(archive, entries);
+				this.queue(new VinylFile({ base: '.', path: destFilename, contents: await fs.promises.readFile(archive) }));
+			} finally {
+				entries.length = 0;
+				await fs.promises.rm(temporary, { recursive: true, force: true });
 			}
-
-			const contents = Buffer.concat(out);
-			out.length = 0;
-
-			this.queue(new VinylFile({
-				base: '.',
-				path: destFilename,
-				contents: contents
-			}));
-			this.queue(null);
 		};
-
-		// Call finish() only when all file inserts have finished...
-		if (pendingInserts === 0) {
-			finish();
-		} else {
-			onFileInserted = () => {
-				pendingInserts--;
-				if (pendingInserts === 0) {
-					finish();
-				}
-			};
-		}
+		void finish().then(() => this.queue(null), error => this.emit('error', error));
 	});
 }

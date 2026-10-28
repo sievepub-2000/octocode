@@ -8,7 +8,6 @@ import fs from 'fs';
 import path from 'path';
 import { gulp } from '../lib/gulp/facade.ts';
 import vfs from 'vinyl-fs';
-import rimraf from 'rimraf';
 import minimist from 'minimist';
 
 interface Options {
@@ -87,7 +86,7 @@ function update(options: Options) {
 
 		if (fs.existsSync(translationDataFolder) && fs.existsSync(path.join(translationDataFolder, 'main.i18n.json'))) {
 			console.log('Clearing  \'' + translationDataFolder + '\'...');
-			rimraf.sync(translationDataFolder);
+			fs.rmSync(translationDataFolder, { recursive: true, force: true });
 		}
 
 		console.log(`Importing translations for ${languageId} form '${location}' to '${translationDataFolder}' ...`);
@@ -95,7 +94,7 @@ function update(options: Options) {
 		gulp.src([
 			path.join(location!, '**', languageId, '*.xlf'),
 			...i18n.EXTERNAL_EXTENSIONS.map((extensionId: string) => path.join(externalExtensionsLocation!, extensionId, languageId, '*-new.xlf'))
-		], { silent: false })
+		])
 			.pipe(i18n.prepareI18nPackFiles(translationPaths))
 			.on('error', (error: unknown) => {
 				console.log(`Error occurred while importing translations:`);

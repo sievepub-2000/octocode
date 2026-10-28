@@ -295,9 +295,28 @@ impl StorageImplementation for ThreadKeyringStorage {
 	}
 }
 
+fn initialize_keyring() -> Result<(), std::io::Error> {
+	static INITIALIZED: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
+	let mut initialized = INITIALIZED
+		.lock()
+		.map_err(|e| std::io::Error::other(e.to_string()))?;
+	if *initialized {
+		return Ok(());
+	}
+	#[cfg(windows)]
+	let store = windows_native_keyring_store::Store::new();
+	#[cfg(target_os = "macos")]
+	let store = apple_native_keyring_store::keychain::Store::new();
+	#[cfg(target_os = "linux")]
+	let store = dbus_secret_service_keyring_store::Store::new();
+	keyring_core::set_default_store(store.map_err(|e| std::io::Error::other(e.to_string()))?);
+	*initialized = true;
+	Ok(())
+}
+
 struct KeyringStorage {
 	prefix: String,
-	entries: Vec<keyring::Entry>,
+	entries: Vec<keyring_core::Entry>,
 }
 
 impl KeyringStorage {
@@ -314,8 +333,9 @@ macro_rules! get_next_entry {
 		match $self.entries.get($i) {
 			Some(e) => e,
 			None => {
-				let e = keyring::Entry::new(&$self.prefix, &format!("{}-{}", $self.prefix, $i))
-					.unwrap();
+				initialize_keyring().map_err(|e| wrap(e, "error initializing keyring"))?;
+				let e = keyring_core::Entry::new(&$self.prefix, &format!("{}-{}", $self.prefix, $i))
+					.map_err(|e| wrap(e, "error creating keyring entry"))?;
 				$self.entries.push(e);
 				$self.entries.last().unwrap()
 			}
@@ -331,7 +351,7 @@ impl StorageImplementation for KeyringStorage {
 			let entry = get_next_entry!(self, i);
 			let next_chunk = match entry.get_password() {
 				Ok(value) => value,
-				Err(keyring::Error::NoEntry) => return Ok(None), // missing entries?
+				Err(keyring_core::Error::NoEntry) => return Ok(None), // missing entries?
 				Err(e) => return Err(wrap(e, "error reading keyring").into()),
 			};
 
@@ -354,7 +374,7 @@ impl StorageImplementation for KeyringStorage {
 			let entry = get_next_entry!(self, i / step_size);
 
 			let cutoff = i + step_size;
-			let stored = if cutoff <= sealed.len() {
+			let stored = if cutoff < sealed.len() {
 				let mut part = sealed[i..cutoff].to_string();
 				part.push_str(CONTINUE_MARKER);
 				entry.set_password(&part)
@@ -374,12 +394,117 @@ impl StorageImplementation for KeyringStorage {
 		self.read().ok(); // make sure component parts are available
 		for entry in self.entries.iter() {
 			entry
-				.delete_password()
+				.delete_credential()
 				.map_err(|e| wrap(e, "error updating keyring"))?;
 		}
 		self.entries.clear();
 
 		Ok(())
+	}
+}
+
+#[cfg(all(test, windows))]
+mod keyring_tests {
+	use super::*;
+
+	#[test]
+	fn isolated_native_keyring_round_trip_and_delete() {
+		if let Ok(prefix) = std::env::var("OCTOCODE_KEYRING_TEST_CHILD") {
+			assert!(prefix.starts_with("octocode-security-fixture-"));
+			let mut restarted = KeyringStorage::new(prefix);
+			assert_eq!(
+				restarted.read().unwrap().unwrap().access_token,
+				"owned-fixture-value".repeat(1000)
+			);
+			return;
+		}
+		let prefix = format!("octocode-security-fixture-{}", uuid::Uuid::new_v4());
+		let mut storage = KeyringStorage::new(prefix.clone());
+		let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+			assert!(storage.read().unwrap().is_none());
+			let legacy = StoredCredential {
+				provider: AuthProvider::Github,
+				access_token: "owned-legacy-fixture".to_string(),
+				refresh_token: None,
+				expires_at: None,
+			};
+			// Match keyring 2's generic target and UTF-16 password encoding exactly.
+			use windows_sys::Win32::Security::Credentials::{
+				CredWriteW, CREDENTIALW, CRED_PERSIST_ENTERPRISE, CRED_TYPE_GENERIC,
+			};
+			let mut target: Vec<u16> = format!("{prefix}-0.{prefix}")
+				.encode_utf16()
+				.chain(Some(0))
+				.collect();
+			let mut username: Vec<u16> = format!("{prefix}-0")
+				.encode_utf16()
+				.chain(Some(0))
+				.collect();
+			let mut blob: Vec<u8> = seal(&legacy)
+				.encode_utf16()
+				.flat_map(u16::to_le_bytes)
+				.collect();
+			let credential = CREDENTIALW {
+				Flags: 0,
+				Type: CRED_TYPE_GENERIC,
+				TargetName: target.as_mut_ptr(),
+				Comment: std::ptr::null_mut(),
+				LastWritten: windows_sys::Win32::Foundation::FILETIME {
+					dwLowDateTime: 0,
+					dwHighDateTime: 0,
+				},
+				CredentialBlobSize: blob.len() as u32,
+				CredentialBlob: blob.as_mut_ptr(),
+				Persist: CRED_PERSIST_ENTERPRISE,
+				AttributeCount: 0,
+				Attributes: std::ptr::null_mut(),
+				TargetAlias: std::ptr::null_mut(),
+				UserName: username.as_mut_ptr(),
+			};
+			// All pointers refer to live buffers and CredWriteW copies their contents.
+			assert_ne!(unsafe { CredWriteW(&credential, 0) }, 0);
+			assert_eq!(
+				storage.read().unwrap().unwrap().access_token,
+				legacy.access_token
+			);
+			let value = StoredCredential {
+				provider: AuthProvider::Github,
+				access_token: "owned-fixture-value".repeat(1000),
+				refresh_token: None,
+				expires_at: None,
+			};
+			storage.store(value.clone()).unwrap();
+			let child = std::process::Command::new(std::env::current_exe().unwrap())
+				.args([
+					"--exact",
+					"auth::keyring_tests::isolated_native_keyring_round_trip_and_delete",
+				])
+				.env("OCTOCODE_KEYRING_TEST_CHILD", &prefix)
+				.output()
+				.unwrap();
+			assert!(
+				child.status.success(),
+				"fresh-process keyring read failed: {}",
+				String::from_utf8_lossy(&child.stderr)
+			);
+			assert!(String::from_utf8_lossy(&child.stdout).contains("1 passed"));
+			let mut restarted = KeyringStorage::new(prefix);
+			assert_eq!(
+				restarted.read().unwrap().unwrap().access_token,
+				value.access_token
+			);
+			restarted.clear().unwrap();
+			assert!(restarted.read().unwrap().is_none());
+		}));
+		for entry in &storage.entries {
+			match entry.delete_credential() {
+				Ok(()) | Err(keyring_core::Error::NoEntry) => {}
+				Err(e) => panic!("fixture cleanup failed: {e}"),
+			}
+		}
+		if let Err(panic) = result {
+			std::panic::resume_unwind(panic);
+		}
 	}
 }
 

@@ -1,4 +1,4 @@
-type EventRow = [number, string, unknown]
+export type EventRow = [number, string, unknown, number?]
 type EventPage = { rows: EventRow[]; next: number; has_more: boolean }
 type RuntimeReader = { call<T>(method: string, params: unknown): Promise<T> }
 
@@ -14,6 +14,7 @@ export async function* readEventPages(
 			after,
 			limit: 2000,
 			presentation,
+			...(presentation ? { include_timestamps: true } : {}),
 		})
 		if (
 			!Array.isArray(page.rows) ||

@@ -37,6 +37,7 @@ function validateModelsAndKeysProvided(
 	apiConfiguration: ProviderSettings,
 	octoCodeIsAuthenticated?: boolean,
 ): string | undefined {
+	if (!apiConfiguration.apiProvider) return i18next.t("settings:validation.apiProvider")
 	switch (apiConfiguration.apiProvider) {
 		case providerIdentifiers.openrouter:
 			if (!apiConfiguration.openRouterApiKey) {

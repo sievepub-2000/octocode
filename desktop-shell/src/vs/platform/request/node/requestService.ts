@@ -6,7 +6,7 @@
 import type * as http from 'http';
 import type * as https from 'https';
 import { Promises, timeout } from '../../../base/common/async.js';
-import { streamToBufferReadableStream } from '../../../base/common/buffer.js';
+import { bufferToStream, streamToBufferReadableStream, VSBuffer } from '../../../base/common/buffer.js';
 import { CancellationToken } from '../../../base/common/cancellation.js';
 import { CancellationError, getErrorMessage } from '../../../base/common/errors.js';
 import * as streams from '../../../base/common/stream.js';
@@ -203,7 +203,7 @@ async function nodeRequestAttempt(options: NodeRequestOptions, token: Cancellati
 			? options.getRawRequest(options)
 			: await getNodeRequest(options);
 
-		const opts: https.RequestOptions & { cache?: 'default' | 'no-store' | 'reload' | 'no-cache' | 'force-cache' | 'only-if-cached' } = {
+		const opts: https.RequestOptions & { cache?: 'default' | 'no-store' | 'reload' | 'no-cache' | 'force-cache' | 'only-if-cached'; redirect?: 'manual' } = {
 			hostname: endpoint.hostname,
 			port: endpoint.port ? parseInt(endpoint.port) : (endpoint.protocol === 'https:' ? 443 : 80),
 			protocol: endpoint.protocol,
@@ -220,6 +220,9 @@ async function nodeRequestAttempt(options: NodeRequestOptions, token: Cancellati
 
 		if (options.disableCache) {
 			opts.cache = 'no-store';
+		}
+		if (options.isChromiumNetwork && options.followRedirects === 0) {
+			opts.redirect = 'manual';
 		}
 
 		const req = rawRequest(opts, (res: http.IncomingMessage) => {
@@ -247,6 +250,12 @@ async function nodeRequestAttempt(options: NodeRequestOptions, token: Cancellati
 		});
 
 		req.on('error', reject);
+		if (opts.redirect === 'manual') {
+			req.on('redirect', (statusCode: number, _method: string, redirectUrl: string, responseHeaders: Record<string, string[]>) => {
+				resolve({ res: { statusCode, headers: { ...responseHeaders, location: redirectUrl } }, stream: bufferToStream(VSBuffer.alloc(0)) });
+				req.abort();
+			});
+		}
 
 		// Handle timeout
 		if (options.timeout) {
@@ -289,7 +298,14 @@ async function nodeRequestAttempt(options: NodeRequestOptions, token: Cancellati
 			reject(new CancellationError());
 		});
 
-		req.on('response', () => cancellationListener.dispose());
+		// A response only starts a download. Keep cancellation wired until its
+		// body ends, including private release assets streamed to the installer.
+		req.on('response', (response: http.IncomingMessage) => {
+			response.on('end', () => cancellationListener.dispose());
+			response.on('error', () => cancellationListener.dispose());
+			response.on('aborted', () => cancellationListener.dispose());
+		});
 		req.on('error', () => cancellationListener.dispose());
+		req.on('abort', () => cancellationListener.dispose());
 	});
 }

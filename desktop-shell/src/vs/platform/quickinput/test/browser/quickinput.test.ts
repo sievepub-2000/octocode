@@ -264,7 +264,7 @@ suite('QuickInput', () => { // https://github.com/microsoft/vscode/issues/147543
 
 	for (const elapsed of [100, 800]) {
 		test(`busy progress - hide after ${elapsed}ms cancels and re-arms progress on re-show`, () => {
-			const clock = sinon.useFakeTimers();
+			const clock = sinon.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
 			const input = store.add(controller.createInputBox());
 			input.busy = true;
 			input.show();
@@ -283,7 +283,7 @@ suite('QuickInput', () => { // https://github.com/microsoft/vscode/issues/147543
 	}
 
 	test('busy progress - disposing a pending input cancels its timer', () => {
-		const clock = sinon.useFakeTimers();
+		const clock = sinon.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
 		const input = store.add(controller.createInputBox());
 		input.show();
 		clock.runAll();
@@ -457,7 +457,7 @@ suite('QuickInput', () => { // https://github.com/microsoft/vscode/issues/147543
 	});
 
 	test('close motion requires modern UI with motion enabled', () => {
-		const clock = sinon.useFakeTimers();
+		const clock = sinon.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
 		const quickpick = store.add(controller.createQuickPick());
 		const widget = fixture.querySelector<HTMLElement>('.quick-input-widget')!;
 		const states: { display: string; closing: boolean; inert: boolean; visible: boolean }[] = [];

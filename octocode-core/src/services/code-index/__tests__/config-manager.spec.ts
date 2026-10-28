@@ -53,10 +53,28 @@ describe("CodeIndexConfigManager", () => {
 	}
 
 	describe("constructor", () => {
+		it.each([true, false])(
+			"maps legacy semble to native while preserving enabled=%s and stored settings",
+			(enabled) => {
+				const saved = {
+					codebaseIndexEnabled: enabled,
+					codebaseIndexEmbedderProvider: "semble",
+					codebaseIndexSearchMaxResults: 7,
+				}
+				mockContextProxy.getGlobalState.mockReturnValue(saved)
+				const migrated = new CodeIndexConfigManager(mockContextProxy)
+				expect(migrated.currentEmbedderProvider).toBe("native")
+				expect(migrated.isFeatureEnabled).toBe(enabled)
+				expect(saved.codebaseIndexEmbedderProvider).toBe("semble")
+				expect(mockContextProxy.updateGlobalState).not.toHaveBeenCalled()
+			},
+		)
+
 		it("should initialize with ContextProxy", () => {
 			expect(configManager).toBeDefined()
 			expect(configManager.isFeatureEnabled).toBe(false)
-			expect(configManager.currentEmbedderProvider).toBe("openai")
+			expect(configManager.currentEmbedderProvider).toBe("native")
+			expect(configManager.isConfigured()).toBe(true)
 		})
 	})
 
@@ -101,8 +119,8 @@ describe("CodeIndexConfigManager", () => {
 			const result = await configManager.loadConfiguration()
 
 			expect(result.currentConfig).toEqual({
-				isConfigured: false,
-				embedderProvider: "openai",
+				isConfigured: true,
+				embedderProvider: "native",
 				modelId: undefined,
 				openAiOptions: { openAiNativeApiKey: "" },
 				ollamaOptions: { ollamaBaseUrl: "" },
@@ -1140,7 +1158,7 @@ describe("CodeIndexConfigManager", () => {
 
 				const result = await configManager.loadConfiguration()
 
-				expect(result.currentConfig.embedderProvider).toBe("semble")
+				expect(result.currentConfig.embedderProvider).toBe("native")
 				expect(result.currentConfig.isConfigured).toBe(true)
 			})
 

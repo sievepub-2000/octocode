@@ -8,9 +8,11 @@ import path from 'path';
 import * as os from 'os';
 import * as child_process from 'child_process';
 import { dirs } from './dirs.ts';
+import { patchFoundryNativeLoader } from './foundryNativePatch.ts';
+import { configureNodeGypEnvironment } from './nativeToolchainPatch.ts';
 import { root, stateFile, stateContentsFile, computeState, computeContents, isUpToDate } from './installStateHash.ts';
 
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const npmCli = process.env['npm_execpath'] || path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
 const rootNpmrcConfigKeys = getNpmrcConfigKeys(path.join(root, '.npmrc'));
 
 function log(dir: string, message: string) {
@@ -57,7 +59,7 @@ async function npmInstallAsync(dir: string, opts?: child_process.SpawnOptions): 
 		env: { ...process.env },
 		...(opts ?? {}),
 		cwd: path.join(root, dir),
-		shell: true,
+		shell: false,
 	};
 
 	const command = process.env['npm_command'] || 'install';
@@ -67,7 +69,7 @@ async function npmInstallAsync(dir: string, opts?: child_process.SpawnOptions): 
 			env: finalOpts.env,
 			cwd: root,
 			stdio: 'inherit',
-			shell: true,
+			shell: false,
 		};
 		const userinfo = os.userInfo();
 		log(dir, `Installing dependencies inside container ${process.env['VSCODE_REMOTE_DEPENDENCIES_CONTAINER_NAME']}...`);
@@ -83,12 +85,15 @@ async function npmInstallAsync(dir: string, opts?: child_process.SpawnOptions): 
 			'-v', `${process.env['VSCODE_NPMRC_PATH']}:/root/.npmrc`,
 			'-w', path.resolve('/root/vscode', dir),
 			process.env['VSCODE_REMOTE_DEPENDENCIES_CONTAINER_NAME'],
-			'sh', '-c', `\"chown -R root:root ${path.resolve('/root/vscode', dir)} && export PATH="/root/vscode/.build/nodejs-musl/usr/local/bin:$PATH" && npm i -g node-gyp-build && npm ci\"`
+			'sh', '-c', `chown -R root:root ${path.resolve('/root/vscode', dir)} && export PATH="/root/vscode/.build/nodejs-musl/usr/local/bin:$PATH" && npm i -g node-gyp-build && npm ci`
 		], syncOpts);
 		run('sudo', ['chown', '-R', `${userinfo.uid}:${userinfo.gid}`, `${path.resolve(root, dir)}`], syncOpts);
 	} else {
 		log(dir, 'Installing dependencies...');
-		const output = await spawnAsync(npm, command.split(' '), finalOpts);
+		if (!fs.existsSync(npmCli)) {
+			throw new Error(`npm CLI is unavailable: ${npmCli}`);
+		}
+		const output = await spawnAsync(process.execPath, [npmCli, ...command.trim().split(/\s+/)], finalOpts);
 		if (output.trim()) {
 			for (const line of output.trim().split('\n')) {
 				log(dir, line);
@@ -100,9 +105,7 @@ async function npmInstallAsync(dir: string, opts?: child_process.SpawnOptions): 
 
 function setNodeGypConfig(dir: string, env: NodeJS.ProcessEnv) {
 	const packageJson = JSON.parse(fs.readFileSync(path.join(root, dir, 'package.json'), 'utf8'));
-	for (const [key, value] of Object.entries(packageJson.config ?? {})) {
-		env[`npm_package_config_${key}`] = String(value);
-	}
+	configureNodeGypEnvironment(env, packageJson.config ?? {});
 
 	// Use our bundled node-gyp version
 	env['npm_config_node_gyp'] =
@@ -119,7 +122,7 @@ function setNodeGypConfig(dir: string, env: NodeJS.ProcessEnv) {
 	// in preinstall sync with this logic.
 	// Change was first introduced in https://github.com/nodejs/node/commit/6e0a2bb54c5bbeff0e9e33e1a0c683ed980a8a0f
 	if ((dir === 'remote' || dir === 'build') && process.platform === 'darwin') {
-		env['npm_config_force_process_config'] = 'true';
+		env['npm_package_config_node_gyp_force_process_config'] = 'true';
 	} else {
 		delete env['npm_config_force_process_config'];
 	}
@@ -130,7 +133,7 @@ function setNodeGypConfig(dir: string, env: NodeJS.ProcessEnv) {
 		// This is fixed in v0.25.1 however the version is not published to npm, refs
 		// https://github.com/tree-sitter/node-tree-sitter/issues/268.
 		// env['npm_config_target'] = process.versions.node;
-		env['npm_config_arch'] = process.arch;
+		env['npm_package_config_node_gyp_arch'] = process.arch;
 	}
 }
 
@@ -387,41 +390,16 @@ async function main() {
 	// the addon and the core libraries, falling back to the original
 	// package-relative logic so dev-from-source still works. Idempotent.
 	for (const dir of ['', 'remote']) {
-		const coreInteropFile = path.join(root, dir, 'node_modules', 'foundry-local-sdk', 'dist', 'detail', 'coreInterop.js');
-		if (!fs.existsSync(coreInteropFile)) {
+		const sdkDir = path.join(root, dir, 'node_modules', 'foundry-local-sdk');
+		if (!fs.existsSync(path.join(sdkDir, 'package.json'))) {
 			continue;
 		}
-		const content = fs.readFileSync(coreInteropFile, 'utf8');
-		// Apply the addon and core patches independently. They previously shared
-		// a single `VSCODE_FOUNDRY_LOCAL_NATIVE_DIR` presence check, so if only
-		// one SDK needle changed the file was left half-patched and every later
-		// run skipped it entirely — and since packaging removes both native
-		// fallbacks, a missing half makes shipped dictation unusable. Use a
-		// distinct marker per half and apply whichever is absent.
-		const addonMarker = '// VSCODE_PATCH:foundry-addon-native-dir';
-		const coreMarker = '// VSCODE_PATCH:foundry-core-native-dir';
-		const addonNeedle = `    const platformKey = \`\${platform}-\${arch}\`;\n    // The prebuilt addon ships inside the SDK package under prebuilds/<platform>/\n    const sdkRoot = path.resolve(__dirname, '..', '..');`;
-		const addonReplacement = `    const platformKey = \`\${platform}-\${arch}\`;\n    ${addonMarker}: prefer the on-demand native runtime cache when present.\n    const overrideDir = process.env.VSCODE_FOUNDRY_LOCAL_NATIVE_DIR;\n    if (overrideDir) {\n        const overridePath = path.join(overrideDir, 'prebuilds', platformKey, 'foundry_local_napi.node');\n        if (fs.existsSync(overridePath)) {\n            return require(overridePath);\n        }\n    }\n    // The prebuilt addon ships inside the SDK package under prebuilds/<platform>/\n    const sdkRoot = path.resolve(__dirname, '..', '..');`;
-		const coreNeedle = `        const platformKey = \`\${platform}-\${arch}\`;\n        // Resolve the native binary directory at foundry-local-core/<platform>,`;
-		const coreReplacement = `        const platformKey = \`\${platform}-\${arch}\`;\n        ${coreMarker}: prefer the on-demand native runtime cache when present.\n        const overrideDir = process.env.VSCODE_FOUNDRY_LOCAL_NATIVE_DIR;\n        if (overrideDir) {\n            const overrideExt = CoreInterop._getLibraryExtension();\n            const overrideCorePath = path.join(overrideDir, 'foundry-local-core', platformKey, \`Microsoft.AI.Foundry.Local.Core\${overrideExt}\`);\n            if (fs.existsSync(overrideCorePath)) {\n                config.params['FoundryLocalCorePath'] = overrideCorePath;\n                return overrideCorePath;\n            }\n        }\n        // Resolve the native binary directory at foundry-local-core/<platform>,`;
-		let patched = content;
-		if (!patched.includes(addonMarker)) {
-			if (patched.includes(addonNeedle)) {
-				patched = patched.replace(addonNeedle, addonReplacement);
-			} else {
-				log(dir || '.', 'WARNING: foundry-local-sdk coreInterop.js loadAddon shape changed; skipped addon override patch');
-			}
-		}
-		if (!patched.includes(coreMarker)) {
-			if (patched.includes(coreNeedle)) {
-				patched = patched.replace(coreNeedle, coreReplacement);
-			} else {
-				log(dir || '.', 'WARNING: foundry-local-sdk coreInterop.js _resolveDefaultCorePath shape changed; skipped core override patch');
-			}
-		}
-		if (content !== patched) {
-			fs.writeFileSync(coreInteropFile, patched);
-			log(dir || '.', 'Patched foundry-local-sdk coreInterop.js (on-demand native runtime override)');
+		const loader = path.join(sdkDir, 'dist', 'detail', 'native.js');
+		const source = fs.readFileSync(loader, 'utf8');
+		const patched = patchFoundryNativeLoader(source);
+		if (source !== patched) {
+			fs.writeFileSync(loader, patched);
+			log(dir || '.', 'Patched foundry-local-sdk native.js (SDK 2 on-demand addons)');
 		}
 	}
 }

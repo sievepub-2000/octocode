@@ -21,7 +21,7 @@ import { isWeb } from '../../../../base/common/platform.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { RawContextKey, IContextKey, IContextKeyService, ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { MenuRegistry, MenuId, registerAction2, Action2 } from '../../../../platform/actions/common/actions.js';
-import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
+import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IHostService } from '../../../services/host/browser/host.js';
 import { IProductService } from '../../../../platform/product/common/productService.js';
 import { IUserDataSyncEnablementService, IUserDataSyncService, IUserDataSyncStoreManagementService, SyncStatus, UserDataSyncStoreType } from '../../../../platform/userDataSync/common/userDataSync.js';
@@ -32,6 +32,7 @@ import { Event } from '../../../../base/common/event.js';
 import { IDefaultAccountService } from '../../../../platform/defaultAccount/common/defaultAccount.js';
 import { getInternalOrg } from '../../../../platform/assignment/common/assignment.js';
 import { IVersion, tryParseVersion } from '../common/updateUtils.js';
+import { getGitHubReleaseFeed } from '../../../../platform/update/common/githubUpdate.js';
 
 export const CONTEXT_UPDATE_STATE = new RawContextKey<string>('updateState', StateType.Uninitialized);
 export const MAJOR_MINOR_UPDATE_AVAILABLE = new RawContextKey<boolean>('majorMinorUpdateAvailable', false);
@@ -229,6 +230,8 @@ export class UpdateContribution extends Disposable implements IWorkbenchContribu
 		@IContextKeyService contextKeyService: IContextKeyService,
 		@IProductService private readonly productService: IProductService,
 		@IHostService private readonly hostService: IHostService,
+		@INotificationService private readonly notificationService: INotificationService,
+		@ICommandService private readonly commandService: ICommandService,
 	) {
 		super();
 		this.state = updateService.state;
@@ -263,6 +266,18 @@ export class UpdateContribution extends Disposable implements IWorkbenchContribu
 
 		switch (state.type) {
 			case StateType.Idle:
+				if (state.error && getGitHubReleaseFeed(this.productService.updateUrl) && await this.hostService.hadLastFocus()) {
+					this.notificationService.prompt(severity.Error, state.error, [{
+						label: nls.localize('update.backup', 'Use Backup Update'),
+						run: async () => {
+							try {
+								await this.commandService.executeCommand('octocode.recoverDesktopUpdate');
+							} catch {
+								this.notificationService.error(nls.localize('update.backupUnavailable', 'The backup update could not start. Check that the OctoCode extension is enabled and try again.'));
+							}
+						}
+					}]);
+				}
 				// Themed dialog shown from the last focused window; the windowless macOS case is handled by the main process.
 				if (state.notAvailable && !state.error && await this.hostService.hadLastFocus()) {
 					this.dialogService.info(nls.localize('noUpdatesAvailable', "There are currently no updates available."));

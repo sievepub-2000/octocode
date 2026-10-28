@@ -1306,6 +1306,63 @@ impl ScopeGraphIndex {
         self.aliases.len()
     }
 
+    /// Case-insensitive lexical symbol lookup. Scores describe name matches,
+    /// not embedding similarity. Definitions rank ahead of references.
+    pub fn search_symbols(
+        &self,
+        query: &str,
+        limit: usize,
+        allowed: impl Fn(&str) -> bool,
+    ) -> Vec<(String, String, usize, f32)> {
+        let query = query.trim().to_lowercase();
+        if query.is_empty() || limit == 0 {
+            return Vec::new();
+        }
+        let mut results: Vec<(String, String, usize, f32)> = Vec::new();
+        for (table, reference) in [(&self.definitions, false), (&self.references, true)] {
+            for (symbol_id, locations) in table {
+                let Some(symbol) = self.get_str(*symbol_id) else {
+                    continue;
+                };
+                let normalized = symbol.to_lowercase();
+                if !query
+                    .split_whitespace()
+                    .all(|term| normalized.contains(term))
+                {
+                    continue;
+                }
+                let score = if normalized == query {
+                    1.0
+                } else if normalized.starts_with(&query) {
+                    0.8
+                } else {
+                    0.6
+                };
+                let score = if reference { score - 0.1 } else { score };
+                for (path, line) in locations
+                    .iter()
+                    .filter_map(|(path, line)| {
+                        self.get_str(*path)
+                            .filter(|path| allowed(path))
+                            .map(|path| (path, line))
+                    })
+                    .take(limit)
+                {
+                    results.push((symbol.to_owned(), path.to_owned(), *line as usize, score));
+                }
+            }
+        }
+        results.sort_by(|a, b| {
+            b.3.total_cmp(&a.3)
+                .then_with(|| a.1.cmp(&b.1))
+                .then_with(|| a.2.cmp(&b.2))
+                .then_with(|| a.0.cmp(&b.0))
+        });
+        results.dedup_by(|a, b| a.1 == b.1 && a.2 == b.2 && a.0 == b.0);
+        results.truncate(limit);
+        results
+    }
+
     /// Get top symbols by reference count for statistics display.
     /// Returns (symbol_name, reference_count) tuples sorted by count descending.
     pub fn top_referenced_symbols(&self, limit: usize) -> Vec<(String, usize)> {

@@ -1,4 +1,4 @@
-import { themes, type Palette, type ThemeId } from "./palettes"
+import { legacyDark, themes, whiteHighContrastLight, type Palette, type ThemeId } from "./palettes"
 
 /**
  * Generates VS Code colour themes from the same palette the webview uses.
@@ -51,6 +51,7 @@ function buildColors(p: Palette, kind: "light" | "dark"): Record<string, string>
 	const hover = toward(0.06)
 	const active = toward(0.1)
 	const shadow = kind === "dark" ? "#00000066" : "#0000001f"
+	const textAccent = kind === "dark" ? mix(p.accent, p.fgStrong, 0.45) : p.accent
 
 	return {
 		// --- base ---
@@ -145,7 +146,7 @@ function buildColors(p: Palette, kind: "light" | "dark"): Record<string, string>
 		"list.activeSelectionBackground": mix(p.bg, p.accent, 0.18),
 		"list.activeSelectionForeground": p.fgStrong,
 		"list.inactiveSelectionBackground": active,
-		"list.highlightForeground": p.accent,
+		"list.highlightForeground": textAccent,
 		"list.errorForeground": p.danger,
 		"list.warningForeground": p.warning,
 
@@ -220,8 +221,8 @@ function buildColors(p: Palette, kind: "light" | "dark"): Record<string, string>
 		"gitDecoration.ignoredResourceForeground": p.fgMuted,
 
 		// --- links / text ---
-		"textLink.foreground": p.accent,
-		"textLink.activeForeground": mix(p.accent, p.fgStrong, 0.25),
+		"textLink.foreground": textAccent,
+		"textLink.activeForeground": mix(textAccent, p.fgStrong, 0.25),
 		"textPreformat.foreground": p.syntax.string,
 		"textBlockQuote.background": p.bgSunken,
 		"textBlockQuote.border": p.borderStrong,
@@ -232,14 +233,46 @@ function buildColors(p: Palette, kind: "light" | "dark"): Record<string, string>
 function buildTokenColors(p: Palette): VsCodeTheme["tokenColors"] {
 	const s = p.syntax
 	return [
-		{ name: "Comment", scope: ["comment", "punctuation.definition.comment"], settings: { foreground: s.comment, fontStyle: "italic" } },
-		{ name: "String", scope: ["string", "string.quoted", "punctuation.definition.string"], settings: { foreground: s.string } },
-		{ name: "Number / Constant", scope: ["constant.numeric", "constant.language", "constant.character"], settings: { foreground: s.number } },
-		{ name: "Keyword", scope: ["keyword", "storage", "storage.type", "keyword.control"], settings: { foreground: s.keyword } },
-		{ name: "Operator", scope: ["keyword.operator", "punctuation.separator", "punctuation.terminator"], settings: { foreground: s.operator } },
-		{ name: "Function", scope: ["entity.name.function", "support.function", "meta.function-call"], settings: { foreground: s.function } },
-		{ name: "Type / Class", scope: ["entity.name.type", "entity.name.class", "support.type", "support.class"], settings: { foreground: s.type } },
-		{ name: "Variable", scope: ["variable", "meta.definition.variable.name", "support.variable"], settings: { foreground: s.variable } },
+		{
+			name: "Comment",
+			scope: ["comment", "punctuation.definition.comment"],
+			settings: { foreground: s.comment, fontStyle: "italic" },
+		},
+		{
+			name: "String",
+			scope: ["string", "string.quoted", "punctuation.definition.string"],
+			settings: { foreground: s.string },
+		},
+		{
+			name: "Number / Constant",
+			scope: ["constant.numeric", "constant.language", "constant.character"],
+			settings: { foreground: s.number },
+		},
+		{
+			name: "Keyword",
+			scope: ["keyword", "storage", "storage.type", "keyword.control"],
+			settings: { foreground: s.keyword },
+		},
+		{
+			name: "Operator",
+			scope: ["keyword.operator", "punctuation.separator", "punctuation.terminator"],
+			settings: { foreground: s.operator },
+		},
+		{
+			name: "Function",
+			scope: ["entity.name.function", "support.function", "meta.function-call"],
+			settings: { foreground: s.function },
+		},
+		{
+			name: "Type / Class",
+			scope: ["entity.name.type", "entity.name.class", "support.type", "support.class"],
+			settings: { foreground: s.type },
+		},
+		{
+			name: "Variable",
+			scope: ["variable", "meta.definition.variable.name", "support.variable"],
+			settings: { foreground: s.variable },
+		},
 		{ name: "Tag", scope: ["entity.name.tag"], settings: { foreground: s.keyword } },
 		{ name: "Attribute", scope: ["entity.other.attribute-name"], settings: { foreground: s.type } },
 		{ name: "Invalid", scope: ["invalid", "invalid.illegal"], settings: { foreground: p.danger } },
@@ -275,39 +308,47 @@ export function buildVsCodeTheme(themeId: ThemeId): VsCodeTheme {
  * visible borders high-contrast users rely on.
  */
 export function buildHighContrastTheme(base: "dark" | "light"): VsCodeTheme {
-	const p = base === "dark" ? themes["midnight-purple"].palette : themes["solarized-light"].palette
+	const p = base === "dark" ? legacyDark : whiteHighContrastLight
 	const ground = base === "dark" ? "#000000" : "#ffffff"
 	const ink = base === "dark" ? "#ffffff" : "#000000"
 
 	const colors = buildColors(p, base)
-	const overrides: Record<string, string> = {
-		foreground: ink,
-		"editor.background": ground,
-		"editor.foreground": ink,
-		"sideBar.background": ground,
-		"sideBar.foreground": ink,
-		"panel.background": ground,
-		"terminal.background": ground,
-		"terminal.foreground": ink,
-		"statusBar.background": ground,
-		"statusBar.foreground": ink,
-		"titleBar.activeBackground": ground,
-		"titleBar.activeForeground": ink,
-		"tab.activeBackground": ground,
-		"tab.activeForeground": ink,
-		"tab.inactiveBackground": ground,
-		"input.background": ground,
-		"input.foreground": ink,
-		"dropdown.background": ground,
-		"dropdown.foreground": ink,
-		"quickInput.background": ground,
-		"quickInput.foreground": ink,
-		// High contrast is defined by visible edges, so every border is drawn.
-		"contrastBorder": ink,
-		"contrastActiveBorder": p.accent,
-		"widget.border": ink,
-		"focusBorder": p.accent,
-	}
+	const overrides: Record<string, string> =
+		base === "dark"
+			? {
+					contrastBorder: ink,
+					contrastActiveBorder: p.accent,
+					"widget.border": ink,
+					focusBorder: p.accent,
+				}
+			: {
+					foreground: ink,
+					"editor.background": ground,
+					"editor.foreground": ink,
+					"sideBar.background": ground,
+					"sideBar.foreground": ink,
+					"panel.background": ground,
+					"terminal.background": ground,
+					"terminal.foreground": ink,
+					"statusBar.background": ground,
+					"statusBar.foreground": ink,
+					"titleBar.activeBackground": ground,
+					"titleBar.activeForeground": ink,
+					"tab.activeBackground": ground,
+					"tab.activeForeground": ink,
+					"tab.inactiveBackground": ground,
+					"input.background": ground,
+					"input.foreground": ink,
+					"dropdown.background": ground,
+					"dropdown.foreground": ink,
+					"quickInput.background": ground,
+					"quickInput.foreground": ink,
+					// High contrast is defined by visible edges, so every border is drawn.
+					contrastBorder: ink,
+					contrastActiveBorder: p.accent,
+					"widget.border": ink,
+					focusBorder: p.accent,
+				}
 
 	return {
 		name: `OctoCode High Contrast ${base === "dark" ? "Dark" : "Light"}`,
@@ -328,9 +369,8 @@ export function buildHighContrastTheme(base: "dark" | "light"): VsCodeTheme {
  * flash rather than shortening it.
  */
 export function buildInitialColorsModule(): string {
-	const emit = (name: string, kind: "light" | "dark") => {
-		const p = kind === "light" ? themes["solarized-light"].palette : themes["midnight-purple"].palette
-		const body = Object.entries(buildColors(p, kind))
+	const emit = (name: string, colors: Record<string, string>) => {
+		const body = Object.entries(colors)
 			.sort(([a], [b]) => a.localeCompare(b))
 			.map(([k, v]) => `\t'${k}': '${v}',`)
 			.join("\n")
@@ -352,9 +392,13 @@ export function buildInitialColorsModule(): string {
 		"// only to keep a cold start from flashing a different palette than the one that",
 		"// resolves a moment later.",
 		"",
-		emit("COLOR_THEME_DARK_INITIAL_COLORS", "dark"),
+		emit("COLOR_THEME_DARK_INITIAL_COLORS", buildColors(themes["midnight-purple"].palette, "dark")),
 		"",
-		emit("COLOR_THEME_LIGHT_INITIAL_COLORS", "light"),
+		emit("COLOR_THEME_LIGHT_INITIAL_COLORS", buildColors(themes["solarized-light"].palette, "light")),
+		"",
+		emit("COLOR_THEME_HC_DARK_INITIAL_COLORS", buildHighContrastTheme("dark").colors),
+		"",
+		emit("COLOR_THEME_HC_LIGHT_INITIAL_COLORS", buildHighContrastTheme("light").colors),
 		"",
 	].join("\n")
 }

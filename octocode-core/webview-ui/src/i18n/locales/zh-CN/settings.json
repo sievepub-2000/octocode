@@ -28,6 +28,7 @@
 		"discardButton": "放弃更改"
 	},
 	"sections": {
+		"memoryKnowledge": "记忆和知识库",
 		"providers": "提供商",
 		"modes": "模式",
 		"mcp": "MCP 服务",
@@ -182,8 +183,14 @@
 		"description": "配置用于快速操作的支持提示词，如增强提示词、解释代码和修复问题。这些提示词帮助 OctoCode 为常见开发任务提供更好的支持。"
 	},
 	"codeIndex": {
+		"indexReadyLabel": "索引就绪",
+		"nativeProvider": "本机代码索引（符号/词法，无网络）",
+		"memoryKnowledgeDescription": "执行器记忆跟随所属对话。这里管理并检索所选项目的代码知识；本机索引无需模型密钥或外部数据库。",
+		"searchQuery": "检索项目代码知识",
+		"searchButton": "查询索引",
+		"noSearchResults": "索引中没有匹配的代码。",
 		"title": "代码库索引",
-		"description": "配置代码库索引设置以启用项目的语义搜索。<0>了解更多</0>",
+		"description": "为当前项目建立本机符号与文本索引，也可配置嵌入服务使用语义搜索。<0>了解更多</0>",
 		"statusTitle": "状态",
 		"enableLabel": "启用代码库索引",
 		"enableDescription": "启用代码索引以改进搜索和上下文理解",
@@ -1004,6 +1011,7 @@
 		"maxThinkingTokens": "最大思考Token数"
 	},
 	"validation": {
+		"apiProvider": "请先选择 API 提供商并保存配置，再开始或继续任务。",
 		"apiKey": "您必须提供有效的 API 密钥。",
 		"awsRegion": "您必须选择一个区域来使用 Amazon Bedrock。",
 		"googleCloud": "您必须提供有效的 Google Cloud 项目 ID 和区域。",

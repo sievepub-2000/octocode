@@ -28,6 +28,7 @@
 		"discardButton": "Descartar cambios"
 	},
 	"sections": {
+		"memoryKnowledge": "Memoria y conocimiento",
 		"providers": "Proveedores",
 		"modes": "Modos",
 		"mcp": "Servidores MCP",
@@ -170,6 +171,12 @@
 		"description": "Configura indicaciones de soporte que se utilizan para acciones rápidas como mejorar indicaciones, explicar código y solucionar problemas. Estas indicaciones ayudan a OctoCode a brindar mejor asistencia para tareas comunes de desarrollo."
 	},
 	"codeIndex": {
+		"indexReadyLabel": "Índice listo",
+		"nativeProvider": "Índice de código local (símbolos y búsqueda léxica, sin conexión)",
+		"memoryKnowledgeDescription": "La memoria de Harness permanece vinculada a su conversación. Gestiona y busca aquí el conocimiento del código del proyecto seleccionado; la indexación local no necesita una clave de modelo ni una base de datos externa.",
+		"searchQuery": "Buscar en el conocimiento del código del proyecto",
+		"searchButton": "Buscar en el índice",
+		"noSearchResults": "No se encontró código indexado que coincida.",
 		"title": "Indexación de código",
 		"description": "Configura los ajustes de indexación de código para habilitar búsqueda semántica en tu proyecto. <0>Más información</0>",
 		"statusTitle": "Estado",

@@ -55,11 +55,11 @@ vi.mock("../RuntimeTranscript", () => ({
 		running,
 	}: {
 		prompt: string
-		events: Array<{ payload: { data?: string } }>
+		events: Array<{ kind: string; payload: { data?: string } | null }>
 		running: boolean
 	}) => (
-		<div data-testid="transcript">
-			{prompt}:{events.map((event) => event.payload.data).join("")}:{String(running)}
+		<div data-testid="transcript" data-event-kinds={events.map((event) => event.kind).join(",")}>
+			{prompt}:{events.map((event) => event.payload?.data).join("")}:{String(running)}
 		</div>
 	),
 }))
@@ -74,6 +74,22 @@ const load = (id: string) => {
 }
 
 describe("single Runtime conversation model", () => {
+	it.each(["tool_call", "tool_call_update"])(
+		"preserves hidden %s boundaries between live answers, matching reopened history",
+		(toolKind) => {
+			render(<ChatView isHidden={false} showAnnouncement={false} hideAnnouncement={() => undefined} />)
+			load("A")
+			for (const [kind, payload] of [
+				["text", { data: "before command" }],
+				[toolKind, { kind: "execute", toolName: "run_terminal_cmd" }],
+				["text", { data: "after command" }],
+			] as const) {
+				emit("agentEvent", { session_id: "A", task_id: "A-task", kind, payload, created_at: 1000 })
+			}
+			act(() => vi.advanceTimersByTime(50))
+			expect(screen.getByTestId("transcript")).toHaveAttribute("data-event-kinds", `text,${toolKind},text`)
+		},
+	)
 	it("clears drafts and attachments on session changes and rejects stale picker responses", () => {
 		render(<ChatView isHidden={false} showAnnouncement={false} hideAnnouncement={() => undefined} />)
 		load("A")
@@ -107,6 +123,7 @@ describe("single Runtime conversation model", () => {
 			type: "newTask",
 			text: "project task",
 			images: [],
+			attachmentPaths: [],
 			projectId: "project-a",
 		})
 	})
@@ -124,6 +141,7 @@ describe("single Runtime conversation model", () => {
 			taskId: "A",
 			text: "keep queued",
 			images: [],
+			attachmentPaths: [],
 		})
 		emit("agentEvent", {
 			session_id: "A",
@@ -246,7 +264,12 @@ describe("single Runtime conversation model", () => {
 		render(<ChatView isHidden={false} showAnnouncement={false} hideAnnouncement={() => undefined} />)
 		fireEvent.change(screen.getByLabelText("draft"), { target: { value: "new prompt" } })
 		fireEvent.click(screen.getByText("send"))
-		expect(vscode.postMessage).toHaveBeenLastCalledWith({ type: "newTask", text: "new prompt", images: [] })
+		expect(vscode.postMessage).toHaveBeenLastCalledWith({
+			type: "newTask",
+			text: "new prompt",
+			images: [],
+			attachmentPaths: [],
+		})
 		emit("runtimeTaskStarted", { sessionId: "A", taskId: "A-task", prompt: "new prompt" })
 		fireEvent.change(screen.getByLabelText("draft"), { target: { value: "queued" } })
 		fireEvent.click(screen.getByText("send"))
@@ -255,6 +278,7 @@ describe("single Runtime conversation model", () => {
 			taskId: "A",
 			text: "queued",
 			images: [],
+			attachmentPaths: [],
 		})
 		emit("agentEvent", { session_id: "A", task_id: "A-task", kind: "agent.finished", payload: {} })
 		fireEvent.change(screen.getByLabelText("draft"), { target: { value: "continue" } })
@@ -264,6 +288,38 @@ describe("single Runtime conversation model", () => {
 			taskId: "A",
 			text: "continue",
 			images: [],
+			attachmentPaths: [],
+		})
+	})
+	it("permits retry after a prefill rejection and continuation startup failure without losing history", () => {
+		render(<ChatView isHidden={false} showAnnouncement={false} hideAnnouncement={() => undefined} />)
+		load("A")
+		emit("agentEvent", { session_id: "A", task_id: "A-task", kind: "text", payload: { data: "preserved answer" } })
+		emit("agentEvent", {
+			session_id: "A",
+			task_id: "A-task",
+			kind: "error",
+			payload: { message: "prefill_memory_exceeded" },
+		})
+		emit("agentEvent", {
+			session_id: "A",
+			task_id: "A-task",
+			kind: "agent.finished",
+			payload: { success: false, exit_code: 1 },
+		})
+		expect(screen.getByTestId("transcript")).toHaveTextContent("A:preserved answer:false")
+		fireEvent.change(screen.getByLabelText("draft"), { target: { value: "first continuation" } })
+		fireEvent.click(screen.getByText("send"))
+		emit("runtimeTaskFailed", { sessionId: "A", resetSession: false, error: "continuation preparation failed" })
+		expect(screen.getByTestId("transcript")).toHaveTextContent("A:preserved answer:false")
+		fireEvent.change(screen.getByLabelText("draft"), { target: { value: "retry same conversation" } })
+		fireEvent.click(screen.getByText("send"))
+		expect(vscode.postMessage).toHaveBeenLastCalledWith({
+			type: "continueRuntimeTask",
+			taskId: "A",
+			text: "retry same conversation",
+			images: [],
+			attachmentPaths: [],
 		})
 	})
 	it("rolls over only the selected running task and keeps its conversation visible", () => {

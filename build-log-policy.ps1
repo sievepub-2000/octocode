@@ -6,8 +6,8 @@ function Assert-CleanBuildLog {
 
 	$issuePattern = '(?i)(?:\b(?:npm\s+)?warn(?:ing)?s?\b|\bfallback\s*:|\busing fallback\b|\bfalling back\b|\bfell back\b)'
 	$issues = @(Select-String -LiteralPath $Log -Pattern $issuePattern -ErrorAction Stop | Where-Object {
-		$line = $_.Line
-		-not @($Allowlist | Where-Object { $line -match $_ }).Count
+		$line = $_.Line -replace '(?<!\S)--max-warnings=0(?=\s|$)', ''
+		$line -match $issuePattern -and -not @($Allowlist | Where-Object { $line -match $_ }).Count
 	})
 	if ($issues) {
 		$issues | Select-Object -First 20 | ForEach-Object { "BUILD_LOG_ISSUE=$($_.LineNumber):$($_.Line)" }

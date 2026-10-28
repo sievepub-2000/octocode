@@ -127,7 +127,10 @@ fn acquire_cache_lock(lock_path: &Path, timeout: Duration) -> Result<File, Strin
     loop {
         match file.try_lock_exclusive() {
             Ok(()) => return Ok(file),
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+            Err(e)
+                if e.kind() == io::ErrorKind::WouldBlock
+                    || e.raw_os_error() == fs2::lock_contended_error().raw_os_error() =>
+            {
                 if Instant::now() >= deadline {
                     return Err(format!(
                         "cache lock timeout after {}s for {}",
@@ -945,7 +948,7 @@ mod tests {
 
         let start = Instant::now();
         let err = acquire_cache_lock(&lock_path, Duration::from_millis(50)).unwrap_err();
-        assert!(err.contains("cache lock timeout"));
+        assert!(err.contains("cache lock timeout"), "{err}");
         assert!(start.elapsed() >= Duration::from_millis(50));
         drop(lease);
         let _lock = acquire_cache_lock(&lock_path, Duration::from_millis(1)).unwrap();

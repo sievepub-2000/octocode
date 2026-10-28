@@ -4,7 +4,7 @@ import * as path from "path"
 import fs from "fs/promises"
 
 import * as vscode from "vscode"
-import { z, ZodError } from "zod"
+import { z, ZodError } from "zod/v4"
 
 import {
 	globalSettingsSchema,

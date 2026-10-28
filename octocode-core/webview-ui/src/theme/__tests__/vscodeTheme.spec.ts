@@ -33,6 +33,25 @@ function contrast(a: string, b: string): number {
 }
 
 describe("generated VS Code themes", () => {
+	it("keeps copper links readable on the raised charcoal surface", () => {
+		const { colors } = buildVsCodeTheme("midnight-purple")
+		expect(contrast(colors["textLink.foreground"], colors["menu.background"])).toBeGreaterThanOrEqual(4.5)
+	})
+	it("keeps high contrast light white and neutral across every main surface", () => {
+		const { colors } = buildHighContrastTheme("light")
+		for (const token of [
+			"editor.background",
+			"terminal.background",
+			"sideBar.background",
+			"menu.background",
+			"notifications.background",
+			"titleBar.inactiveBackground",
+		]) {
+			expect(colors[token]).toBe("#ffffff")
+		}
+		expect(colors["activityBar.background"]).toBe("#f7f7f7")
+		expect(contrast(colors.descriptionForeground, colors["editor.background"])).toBeGreaterThanOrEqual(4.5)
+	})
 	// The point of generating these is that the committed files cannot disagree
 	// with the palette. If they can, the palette has stopped being the source of
 	// truth and the workbench would show colours nobody chose.
@@ -196,12 +215,21 @@ describe("generated VS Code themes", () => {
 
 			const hcRatio = contrast(hc.colors["editor.foreground"], hc.colors["editor.background"])
 			const regularRatio = contrast(regular.colors["editor.foreground"], regular.colors["editor.background"])
-			expect(hcRatio).toBeGreaterThan(regularRatio)
+			if (base === "light") expect(hcRatio).toBeGreaterThan(regularRatio)
 			expect(hcRatio).toBeGreaterThanOrEqual(7)
 
 			// High contrast is defined by visible edges, not just by ratios.
 			expect(hc.colors["contrastBorder"]).toBeTruthy()
 			expect(hc.type).toBe("hc")
 		}
+	})
+
+	it("keeps the legacy purple high contrast dark separate from charcoal dark", () => {
+		const hc = buildHighContrastTheme("dark")
+		expect(hc.colors["editor.background"]).toBe("#1c1a2b")
+		expect(hc.colors["sideBar.background"]).toBe("#272438")
+		expect(hc.colors["button.background"]).toBe("#D4554F")
+		expect(buildVsCodeTheme("midnight-purple").colors["editor.background"]).toBe("#000000")
+		expect(buildVsCodeTheme("midnight-purple").colors["button.background"]).toBe("#9b6b50")
 	})
 })

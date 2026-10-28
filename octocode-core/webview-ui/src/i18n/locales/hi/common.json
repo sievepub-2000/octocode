@@ -345,6 +345,10 @@
 	"dismiss": "खारिज करें",
 	"dismissAndDontShowAgain": "खारिज करें और फिर से न दिखाएं",
 	"extensions": {
+		"pagination": "घटक पृष्ठ",
+		"pageNumber": "पृष्ठ {{number}}",
+		"previousPage": "पिछला",
+		"nextPage": "अगला",
 		"market": "मार्केटप्लेस",
 		"systemToolsHint": "सिस्टम टूल · सभी कार्यस्थानों में उपलब्ध",
 		"environments": "Runtimes",

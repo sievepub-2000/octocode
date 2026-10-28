@@ -1,5 +1,3 @@
-import * as https from "https"
-
 import { classifyExtension, looksLikeLanguageServer, type ExtensionManifest } from "../classify"
 import { satisfiesEngine, searchExtensions, getExtension } from "../open-vsx"
 
@@ -14,32 +12,21 @@ import { satisfiesEngine, searchExtensions, getExtension } from "../open-vsx"
  */
 const enabled = process.env.OCTOCODE_NET_TESTS === "1"
 
-function getJson<T>(url: string, redirectsLeft = 3): Promise<T> {
-	return new Promise((resolve, reject) => {
-		https
-			.get(url, { headers: { "User-Agent": "OctoCode", Accept: "application/json" }, timeout: 25_000 }, (res) => {
-				const status = res.statusCode ?? 0
-				if (status >= 300 && status < 400 && res.headers.location && redirectsLeft > 0) {
-					res.resume()
-					return resolve(getJson<T>(new URL(res.headers.location, url).toString(), redirectsLeft - 1))
-				}
-				if (status !== 200) {
-					res.resume()
-					return reject(new Error(`HTTP ${status}`))
-				}
-				let body = ""
-				res.setEncoding("utf8")
-				res.on("data", (c) => (body += c))
-				res.on("end", () => {
-					try {
-						resolve(JSON.parse(body))
-					} catch (e) {
-						reject(e)
-					}
-				})
-			})
-			.on("error", reject)
+async function getJson<T>(url: string, redirectsLeft = 3): Promise<T> {
+	const response = await fetch(url, {
+		headers: { "User-Agent": "OctoCode", Accept: "application/json" },
+		redirect: "manual",
+		signal: AbortSignal.timeout(25_000),
 	})
+	if (response.status >= 300 && response.status < 400 && response.headers.get("location") && redirectsLeft > 0) {
+		await response.body?.cancel()
+		return getJson<T>(new URL(response.headers.get("location")!, url).toString(), redirectsLeft - 1)
+	}
+	if (response.status !== 200) {
+		await response.body?.cancel()
+		throw new Error(`HTTP ${response.status}`)
+	}
+	return (await response.json()) as T
 }
 
 describe.skipIf(!enabled)("marketplace tier survey (network)", () => {
@@ -63,8 +50,8 @@ describe.skipIf(!enabled)("marketplace tier survey (network)", () => {
 		const seen = new Map<string, ExtensionManifest>()
 		for (const q of queries) {
 			const found = await searchExtensions(q, 12).catch(() => [])
-			for (const ext of found) {
-				if (seen.has(ext.id)) continue
+			const sample = async (ext: (typeof found)[number]) => {
+				if (seen.has(ext.id)) return
 				try {
 					const detail = await getExtension(ext.namespace, ext.name)
 					const manifestUrl = `https://open-vsx.org/api/${ext.namespace}/${ext.name}/${detail.version}/file/package.json`
@@ -74,6 +61,10 @@ describe.skipIf(!enabled)("marketplace tier survey (network)", () => {
 					// A single unavailable manifest must not sink the survey; it is
 					// counted as unsampled rather than silently treated as supported.
 				}
+			}
+			// Bound live registry concurrency while keeping the full sample within the test budget.
+			for (let start = 0; start < found.length; start += 3) {
+				await Promise.all(found.slice(start, start + 3).map(sample))
 			}
 		}
 

@@ -2,11 +2,12 @@
 //! signal, with a `delay` inhibitor lock so we get a short window to react
 //! before the system actually sleeps.
 //!
-//! Uses the `zbus` blocking API on a dedicated thread so we don't require the
+//! Drives the `zbus` async API on a dedicated thread so we don't require the
 //! caller to run any particular async runtime. If the system bus or logind is
 //! unavailable (non-systemd distro, container, permission error), `start`
 //! returns `None` and the caller degrades gracefully.
 
+use futures_util::StreamExt;
 use std::thread;
 
 use super::{PowerCallback, PowerEvent};
@@ -31,13 +32,16 @@ impl Listener {
     pub(crate) fn start(callback: PowerCallback) -> Option<Self> {
         // Probe synchronously so registration failures return `None` to the
         // caller rather than dying silently on the worker thread.
-        let conn = zbus::blocking::Connection::system().ok()?;
-        let proxy = zbus::blocking::Proxy::new(&conn, DEST, PATH, IFACE).ok()?;
-        let signals = proxy.receive_signal("PrepareForSleep").ok()?;
+        let (proxy, signals) = zbus::block_on(async {
+            let conn = zbus::Connection::system().await.ok()?;
+            let proxy = zbus::Proxy::new(&conn, DEST, PATH, IFACE).await.ok()?;
+            let signals = proxy.receive_signal("PrepareForSleep").await.ok()?;
+            Some((proxy, signals))
+        })?;
 
         thread::Builder::new()
             .name("xai-power-listener".into())
-            .spawn(move || run_thread(proxy, signals, callback))
+            .spawn(move || zbus::block_on(run_thread(proxy, signals, callback)))
             .ok()?;
 
         Some(Self)
@@ -46,24 +50,25 @@ impl Listener {
 
 /// Take a `delay` sleep inhibitor: logind holds off sleep until the returned fd
 /// drops. `None` if unavailable — we then react without a pre-sleep window.
-fn take_inhibitor(proxy: &zbus::blocking::Proxy<'_>) -> Option<zbus::zvariant::OwnedFd> {
+async fn take_inhibitor(proxy: &zbus::Proxy<'_>) -> Option<zbus::OwnedFd> {
     proxy
         .call(
             "Inhibit",
             &("sleep", "grok", "Pause token refresh across sleep", "delay"),
         )
+        .await
         .ok()
 }
 
-fn run_thread(
-    proxy: zbus::blocking::Proxy<'static>,
-    signals: zbus::blocking::proxy::SignalIterator<'static>,
+async fn run_thread(
+    proxy: zbus::Proxy<'static>,
+    mut signals: zbus::proxy::SignalStream<'static>,
     callback: PowerCallback,
 ) {
     // Hold the delay lock so the first PrepareForSleep(true) gives us a window.
-    let mut inhibitor = take_inhibitor(&proxy);
+    let mut inhibitor = take_inhibitor(&proxy).await;
 
-    for msg in signals {
+    while let Some(msg) = signals.next().await {
         let Ok(about_to_sleep) = msg.body().deserialize::<bool>() else {
             continue;
         };
@@ -78,7 +83,7 @@ fn run_thread(
         } else {
             callback(PowerEvent::DidWake);
             // Re-acquire the delay lock for the next sleep cycle.
-            inhibitor = take_inhibitor(&proxy);
+            inhibitor = take_inhibitor(&proxy).await;
         }
     }
 

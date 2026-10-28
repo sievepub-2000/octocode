@@ -156,6 +156,10 @@ impl Host {
         self.store.append_event(Some(session_id), kind, payload)
     }
 
+    pub fn record_event_at(&self, session_id: &str, kind: &str, payload: &Value, created_at: i64) -> rusqlite::Result<i64> {
+        self.store.append_event_at(Some(session_id), kind, payload, created_at)
+    }
+
     pub fn set_session_status(&self, session_id: &str, status: &str) -> rusqlite::Result<bool> {
         self.store.update_session_status(session_id, status)
     }
@@ -496,6 +500,8 @@ impl Host {
                     after: i64,
                     #[serde(default)]
                     presentation: bool,
+                    #[serde(default)]
+                    include_timestamps: bool,
                     limit: Option<i64>,
                 }
                 let p: P = decode(params)?;
@@ -513,6 +519,11 @@ impl Host {
                 let has_more = paged && rows.len() > limit as usize;
                 if has_more { rows.pop(); }
                 let next = rows.last().map_or(p.after, |row| row.0);
+                let mut times = if paged && p.include_timestamps {
+                    self.store.event_times(&p.session_id, p.after, next)?
+                } else {
+                    std::collections::HashMap::new()
+                };
                 if paged && p.presentation {
                     let mut compacted: Vec<(i64, String, Value)> = Vec::new();
                     for row in rows {
@@ -524,7 +535,15 @@ impl Host {
                                     && previous.2.get("type") == row.2.get("type")
                                 {
                                     if let (Some(Value::String(old)), Some(new)) = (previous.2.get_mut(key), row.2[key].as_str()) {
+                                        // Timestamp clients need the source chunks around visible phase tags.
+                                        if p.include_timestamps && (old.contains('<') || new.contains('<') || old.ends_with('>') || (old.trim().is_empty() && !new.trim().is_empty())) {
+                                            compacted.push(row);
+                                            continue;
+                                        }
                                         old.push_str(new);
+                                        if let Some(first) = times.get(&previous.0).copied() {
+                                            times.insert(row.0, first);
+                                        }
                                         previous.0 = row.0;
                                         continue;
                                     }
@@ -535,7 +554,13 @@ impl Host {
                     }
                     rows = compacted;
                 }
-                if paged { Ok(json!({"rows":rows,"next":next,"has_more":has_more})) }
+                if paged && p.include_timestamps {
+                    let rows: Vec<_> = rows.into_iter().map(|(sequence,kind,payload)| {
+                        json!([sequence,kind,payload,times.get(&sequence)])
+                    }).collect();
+                    Ok(json!({"rows":rows,"next":next,"has_more":has_more}))
+                }
+                else if paged { Ok(json!({"rows":rows,"next":next,"has_more":has_more})) }
                 else { Ok(serde_json::to_value(rows)?) }
             }
             "event.append" => {

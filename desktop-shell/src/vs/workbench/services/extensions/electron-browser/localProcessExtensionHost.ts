@@ -24,7 +24,7 @@ import { ILabelService } from '../../../../platform/label/common/label.js';
 import { ILogService, ILoggerService } from '../../../../platform/log/common/log.js';
 import { INativeHostService } from '../../../../platform/native/common/native.js';
 import { INotificationService, NotificationPriority, Severity } from '../../../../platform/notification/common/notification.js';
-import { IProductService } from '../../../../platform/product/common/productService.js';
+import { IProductService, getVscodeApiVersion } from '../../../../platform/product/common/productService.js';
 import { IWorkbenchAssignmentService } from '../../assignment/common/assignmentService.js';
 import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
 import { isLoggingOnly } from '../../../../platform/telemetry/common/telemetryUtils.js';
@@ -525,7 +525,7 @@ export class NativeLocalProcessExtensionHost extends Disposable implements IExte
 		const enabledApiProposalsFallback = await resolveEnabledApiProposalsFallbackExperiment(this._workbenchAssignmentService, this._productService.quality);
 		return {
 			commit: this._productService.commit,
-			version: this._productService.version,
+			version: getVscodeApiVersion(this._productService),
 			quality: this._productService.quality,
 			date: this._productService.date,
 			parentPid: 0,

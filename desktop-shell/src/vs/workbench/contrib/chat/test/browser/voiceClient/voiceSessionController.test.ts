@@ -455,7 +455,7 @@ suite('VoiceSessionController', () => {
 	let clock: sinon.SinonFakeTimers;
 
 	setup(() => {
-		clock = sinon.useFakeTimers();
+		clock = sinon.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
 	});
 
 	teardown(() => {

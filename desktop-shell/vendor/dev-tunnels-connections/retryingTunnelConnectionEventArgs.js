@@ -1,0 +1,29 @@
+"use strict";
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.RetryingTunnelConnectionEventArgs = void 0;
+/**
+ * Event args for tunnel connection retry event.
+ */
+class RetryingTunnelConnectionEventArgs {
+    constructor(
+    /**
+     * Gets the error that caused the retry.
+     */
+    error, 
+    /**
+     * Gets the amount of time to wait before retrying. An event handler may change this value.
+     */
+    delayMs) {
+        this.error = error;
+        this.delayMs = delayMs;
+        /**
+         * Gets or sets a value indicating whether the retry will proceed. An event handler may
+         * set this to false to stop retrying.
+         */
+        this.retry = true;
+    }
+}
+exports.RetryingTunnelConnectionEventArgs = RetryingTunnelConnectionEventArgs;
+//# sourceMappingURL=retryingTunnelConnectionEventArgs.js.map

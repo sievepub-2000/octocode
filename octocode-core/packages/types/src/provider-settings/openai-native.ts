@@ -1,4 +1,4 @@
-import { z } from "zod"
+import { z } from "zod/v4"
 
 import { providerIdentifiers } from "../provider-identifiers.js"
 import { serviceTierSchema } from "../model.js"

@@ -215,7 +215,7 @@ suite('AbstractUpdateService', () => {
 	});
 
 	test('default schedules a background check, none does not', async () => {
-		const clock = sinon.useFakeTimers();
+		const clock = sinon.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
 		try {
 			const service = createService('default');
 			await service.whenInitialized;

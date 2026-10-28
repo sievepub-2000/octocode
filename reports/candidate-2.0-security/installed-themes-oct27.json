@@ -1,0 +1,20 @@
+[
+  {
+    "className": "vscode-high-contrast-light vscode-high-contrast",
+    "kind": "vscode-high-contrast-light",
+    "id": "OctoCode High Contrast Light",
+    "editor": "#ffffff",
+    "sidebar": "#ffffff",
+    "contrastBorder": "#000000",
+    "octo": "#ffffff"
+  },
+  {
+    "className": "vscode-dark",
+    "kind": "vscode-dark",
+    "id": "OctoCode Dark",
+    "editor": "#000000",
+    "sidebar": "#0e0e10",
+    "contrastBorder": "",
+    "octo": "#000000"
+  }
+]

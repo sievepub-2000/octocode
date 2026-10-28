@@ -345,6 +345,10 @@
 	"dismiss": "Sluiten",
 	"dismissAndDontShowAgain": "Sluiten en niet opnieuw weergeven",
 	"extensions": {
+		"pagination": "Componentpagina's",
+		"pageNumber": "Pagina {{number}}",
+		"previousPage": "Vorige",
+		"nextPage": "Volgende",
 		"market": "Marktplaats",
 		"systemToolsHint": "Systeemtools · beschikbaar in alle werkruimten",
 		"environments": "Runtimes",

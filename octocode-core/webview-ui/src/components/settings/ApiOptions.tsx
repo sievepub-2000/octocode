@@ -180,9 +180,10 @@ const ApiOptions = ({
 		info: selectedModelInfo,
 	} = useSelectedModel(apiConfiguration)
 
-	const activeSelectedProvider: ProviderName | undefined = isRetiredProvider(selectedProvider)
-		? undefined
-		: selectedProvider
+	const activeSelectedProvider =
+		apiConfiguration.apiProvider && !isRetiredProvider(apiConfiguration.apiProvider)
+			? apiConfiguration.apiProvider
+			: undefined
 
 	// Manual "Fetch model list" / "Save selected model" actions for every provider panel.
 	// Automatic fetching below (debounced effect + useRouterModels) is unchanged.
@@ -255,7 +256,7 @@ const ApiOptions = ({
 
 	// Update `apiModelId` whenever `selectedModelId` changes.
 	useEffect(() => {
-		if (isRetiredSelectedProvider) {
+		if (!activeSelectedProvider) {
 			return
 		}
 
@@ -264,7 +265,7 @@ const ApiOptions = ({
 			// This is an internal sync, not a user-initiated change
 			setApiConfigurationField("apiModelId", selectedModelId, false)
 		}
-	}, [selectedModelId, setApiConfigurationField, apiConfiguration.apiModelId, isRetiredSelectedProvider])
+	}, [selectedModelId, setApiConfigurationField, apiConfiguration.apiModelId, activeSelectedProvider])
 
 	// Debounced refresh model updates, only executed 250ms after the user
 	// stops typing.
@@ -326,6 +327,9 @@ const ApiOptions = ({
 	)
 
 	useEffect(() => {
+		// The welcome form validates on Finish, before saving any configuration.
+		if (fromWelcomeView) return
+
 		if (isRetiredSelectedProvider) {
 			setErrorMessage(undefined)
 			return
@@ -345,7 +349,14 @@ const ApiOptions = ({
 			organizationAllowList,
 		)
 		setErrorMessage(apiValidationResult)
-	}, [apiConfiguration, routerModels, organizationAllowList, setErrorMessage, isRetiredSelectedProvider])
+	}, [
+		apiConfiguration,
+		routerModels,
+		organizationAllowList,
+		setErrorMessage,
+		isRetiredSelectedProvider,
+		fromWelcomeView,
+	])
 
 	const onProviderChange = useCallback(
 		(value: ProviderName) => {
@@ -484,7 +495,7 @@ const ApiOptions = ({
 					)}
 				</div>
 				<SearchableSelect
-					value={selectedProvider}
+					value={apiConfiguration.apiProvider ?? ""}
 					onValueChange={(value) => onProviderChange(value as ProviderName)}
 					options={providerOptions}
 					placeholder={t("settings:common.select")}

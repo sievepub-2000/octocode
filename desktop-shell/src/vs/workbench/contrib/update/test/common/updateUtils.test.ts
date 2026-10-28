@@ -15,7 +15,7 @@ suite('UpdateUtils', () => {
 	let clock: sinon.SinonFakeTimers;
 
 	setup(() => {
-		clock = sinon.useFakeTimers();
+		clock = sinon.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
 	});
 
 	teardown(() => {

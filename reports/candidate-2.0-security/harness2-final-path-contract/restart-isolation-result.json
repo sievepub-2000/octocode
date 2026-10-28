@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "fresh_process_adopted_guidance_loaded": true,
+  "other_project_default_guidance": true,
+  "wrong_project_resume_http": 400,
+  "original_conversation_messages_events_unchanged": true,
+  "conversation_sha256": "94435fa6c32fa620b5fdf2e57b3f567d18391f9be1289ec0a59cabd7a1d60c8f",
+  "extra_model_requests": 0
+}

@@ -370,7 +370,7 @@ suite('ChatModel', () => {
 	});
 
 	test('persists reasoning duration when response progress moves on', () => {
-		const clock = sinon.useFakeTimers({ now: 1000 });
+		const clock = sinon.useFakeTimers({ now: 1000, toFake: ['Date', 'setTimeout', 'clearTimeout'] });
 		try {
 			const response = testDisposables.add(new Response([]));
 			response.updateContent({ kind: 'thinking', value: ['First', ' thought'] });
@@ -391,7 +391,7 @@ suite('ChatModel', () => {
 	});
 
 	test('persists reasoning duration when response completes without a rendered row', () => {
-		const clock = sinon.useFakeTimers({ now: 1000 });
+		const clock = sinon.useFakeTimers({ now: 1000, toFake: ['Date', 'setTimeout', 'clearTimeout'] });
 		try {
 			const model = testDisposables.add(instantiationService.createInstance(ChatModel, undefined, { initialLocation: ChatAgentLocation.Chat, canUseTools: true }));
 			const text = 'hello';
@@ -1433,7 +1433,7 @@ suite('ChatResponseModel', () => {
 	});
 
 	test('timestamp and confirmationAdjustedTimestamp', async () => {
-		const clock = sinon.useFakeTimers();
+		const clock = sinon.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
 		try {
 			const model = testDisposables.add(instantiationService.createInstance(ChatModel, undefined, { initialLocation: ChatAgentLocation.Chat, canUseTools: true }));
 			const start = Date.now();
@@ -1482,7 +1482,7 @@ suite('ChatResponseModel', () => {
 	});
 
 	test('isIncomplete stays true during tool confirmations', async () => {
-		const clock = sinon.useFakeTimers();
+		const clock = sinon.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
 		try {
 			const model = testDisposables.add(instantiationService.createInstance(ChatModel, undefined, { initialLocation: ChatAgentLocation.Chat, canUseTools: true }));
 

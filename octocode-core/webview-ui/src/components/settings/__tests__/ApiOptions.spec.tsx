@@ -287,6 +287,23 @@ const renderApiOptions = (props: Partial<ApiOptionsProps> = {}) => {
 }
 
 describe("ApiOptions", () => {
+	it("leaves first-time provider validation to the welcome form submission", () => {
+		const setErrorMessage = vi.fn()
+		renderApiOptions({ fromWelcomeView: true, apiConfiguration: { apiProvider: "openrouter" }, setErrorMessage })
+		expect(setErrorMessage).not.toHaveBeenCalled()
+	})
+
+	it("requires an explicit provider instead of showing the model hook's OpenRouter fallback", async () => {
+		const { useSelectedModel } = await import("@src/components/ui/hooks/useSelectedModel")
+		vi.mocked(useSelectedModel).mockReturnValueOnce({ provider: "openrouter", id: "fallback-model" } as ReturnType<
+			typeof useSelectedModel
+		>)
+		const setApiConfigurationField = vi.fn()
+		renderApiOptions({ setApiConfigurationField })
+		expect(screen.getByTestId("provider-select").querySelector("select")).toHaveValue("")
+		expect(setApiConfigurationField).not.toHaveBeenCalledWith("apiModelId", "fallback-model", false)
+	})
+
 	it("resets model to provider default when switching to openai-codex with an invalid prior apiModelId", () => {
 		const mockSetApiConfigurationField = vi.fn()
 
@@ -331,7 +348,11 @@ describe("ApiOptions", () => {
 		fireEvent.change(providerSelect, { target: { value: "octocode-gateway" } })
 
 		expect(mockSetApiConfigurationField).toHaveBeenCalledWith("apiProvider", "octocode-gateway")
-		expect(mockSetApiConfigurationField).toHaveBeenCalledWith("octoCodeGatewayModelId", octoCodeGatewayDefaultModelId, false)
+		expect(mockSetApiConfigurationField).toHaveBeenCalledWith(
+			"octoCodeGatewayModelId",
+			octoCodeGatewayDefaultModelId,
+			false,
+		)
 	})
 
 	it("renders the Friendli provider form when friendli is selected", () => {

@@ -1,11 +1,19 @@
 * text=auto
 
 LICENSE.txt eol=crlf
-ThirdPartyNotices.txt eol=crlf
+.gitattributes text eol=lf
+ThirdPartyNotices.txt text eol=lf
+cli/Cargo.lock text eol=lf
+cli/ThirdPartyNotices.txt text eol=lf
+
+# Preserve maintained upstream source bytes, including upstream whitespace.
+vendor/** -text -whitespace
+cli/vendor/** -text -whitespace
 
 *.bat eol=crlf
 *.cmd eol=crlf
 *.ps1 eol=lf
 *.sh eol=lf
+test/unit/node/*.mjs text eol=lf
 *.rtf -text
 **/*.json linguist-language=jsonc

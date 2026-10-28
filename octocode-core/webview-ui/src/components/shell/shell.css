@@ -69,6 +69,11 @@
 	align-items: center;
 }
 
+/* A hidden update control must not reserve a blank row in the rail. */
+.octo-rail-cell:has(> .octo-rail-slot:empty) {
+	display: none;
+}
+
 .octo-rail-cell--divided {
 	margin-top: 6px;
 	padding-top: 12px;

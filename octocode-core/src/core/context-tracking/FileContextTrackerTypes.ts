@@ -1,4 +1,4 @@
-import { z } from "zod"
+import { z } from "zod/v4"
 
 // Zod schema for RecordSource
 export const recordSourceSchema = z.enum(["read_tool", "user_edited", "roo_edited", "file_mentioned"])

@@ -1,5 +1,5 @@
 import axios from "axios"
-import { z } from "zod"
+import { z } from "zod/v4"
 
 import { NANOGPT_BASE_URL, nanoGptDefaultModelInfo, type ModelInfo, type ModelRecord } from "@roo-code/types"
 

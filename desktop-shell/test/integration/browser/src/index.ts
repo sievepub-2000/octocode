@@ -8,7 +8,7 @@ import * as cp from 'child_process';
 import * as playwright from '@playwright/test';
 import * as url from 'url';
 import * as tmp from 'tmp';
-import * as rimraf from 'rimraf';
+import { rmSync } from 'fs';
 import { URI } from 'vscode-uri';
 import kill from 'tree-kill';
 import minimist from 'minimist';
@@ -182,7 +182,7 @@ async function launchServer(browserType: BrowserType, browserChannel: BrowserCha
 	// Ensure a tmp user-data-dir is used for the tests
 	const tmpDir = tmp.dirSync({ prefix: 't' });
 	const testDataPath = tmpDir.name;
-	process.once('exit', () => rimraf.sync(testDataPath));
+	process.once('exit', () => rmSync(testDataPath, { recursive: true, force: true }));
 
 	const userDataDir = path.join(testDataPath, 'd');
 

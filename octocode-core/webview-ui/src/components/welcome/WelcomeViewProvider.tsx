@@ -50,6 +50,7 @@ const WelcomeViewProvider = () => {
 
 	const setApiConfigurationFieldForApiOptions = useCallback(
 		<K extends keyof ProviderSettings>(field: K, value: ProviderSettings[K]) => {
+			setErrorMessage(undefined)
 			setWelcomeApiConfiguration((current) => ({
 				...(current ?? effectiveApiConfiguration),
 				[field]: value,

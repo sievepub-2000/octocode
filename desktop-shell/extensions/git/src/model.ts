@@ -314,7 +314,8 @@ export class Model implements IRepositoryResolver, IBranchProtectionProviderRegi
 	private async doInitialScan(): Promise<void> {
 		this.logger.info('[Model][doInitialScan] Initial repository scan started');
 
-		const config = workspace.getConfiguration('git');
+		// Initial scanning and its progress UI apply to the whole workspace.
+		const config = workspace.getConfiguration('git', null);
 		const autoRepositoryDetection = config.get<boolean | 'subFolders' | 'openEditors'>('autoRepositoryDetection');
 		const parentRepositoryConfig = config.get<'always' | 'never' | 'prompt'>('openRepositoryInParentFolders', 'prompt');
 
@@ -1178,7 +1179,7 @@ export class Model implements IRepositoryResolver, IBranchProtectionProviderRegi
 			commands.executeCommand('git.openRepositoriesInParentFolders');
 		} else if (choice === always || choice === never) {
 			// Update setting
-			const config = workspace.getConfiguration('git');
+			const config = workspace.getConfiguration('git', null);
 			await config.update('openRepositoryInParentFolders', choice === always ? 'always' : 'never', true);
 
 			if (choice === always) {

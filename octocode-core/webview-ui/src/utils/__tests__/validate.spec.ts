@@ -29,6 +29,11 @@ import {
 } from "../validate"
 
 describe("Model Validation Functions", () => {
+	it("rejects a model without an explicit provider", () => {
+		const settings = { openRouterModelId: "nvidia/test:free", openRouterApiKey: "fixture-key" }
+		expect(validateApiConfiguration(settings)).toBe("settings:validation.apiProvider")
+		expect(validateApiConfigurationExcludingModelErrors(settings)).toBe("settings:validation.apiProvider")
+	})
 	const mockRouterModels: RouterModels = {
 		openrouter: {
 			"valid-model": {

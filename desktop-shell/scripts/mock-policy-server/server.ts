@@ -59,7 +59,18 @@ for (const endpoint of endpoints) {
 }
 
 const server = http.createServer((req, res) => {
-	const url = new URL(req.url || '/', `http://${req.headers.host}`);
+	let url: URL;
+	let requestOrigin: string;
+	try {
+		const hostUrl = new URL(`http://${req.headers.host}`);
+		if (!['localhost', '127.0.0.1', '[::1]', HOST].includes(hostUrl.hostname) || Number(hostUrl.port || 80) !== PORT) {
+			return sendJson(res, 403, { error: 'Forbidden host' });
+		}
+		requestOrigin = hostUrl.origin;
+		url = new URL(req.url || '/', requestOrigin);
+	} catch {
+		return sendJson(res, 400, { error: 'Invalid URL' });
+	}
 	const pathname = url.pathname;
 
 	try {
@@ -69,8 +80,24 @@ const server = http.createServer((req, res) => {
 		// where an unrelated website could drive /api/wire and rewrite the local
 		// product.overrides.json.
 		const endpoint = endpointByPath.get(pathname);
+		const origin = req.headers.origin;
+		if (origin) {
+			let allowed = false;
+			try {
+				const originUrl = new URL(origin);
+				allowed = endpoint
+					? ['http:', 'https:'].includes(originUrl.protocol) && ['localhost', '127.0.0.1', '[::1]', HOST].includes(originUrl.hostname)
+					: originUrl.origin === requestOrigin;
+			} catch { }
+			if (!allowed) {
+				return sendJson(res, 403, { error: 'Forbidden origin' });
+			}
+		}
 		if (endpoint) {
-			res.setHeader('Access-Control-Allow-Origin', '*');
+			if (origin) {
+				res.setHeader('Access-Control-Allow-Origin', origin);
+				res.setHeader('Vary', 'Origin');
+			}
 			res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
 			res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
 			if (req.method === 'OPTIONS') {
@@ -273,7 +300,7 @@ function wireOverrides(): void {
 		console.log(`  Backed up ${PRODUCT_OVERRIDES_JSON} -> ${PRODUCT_OVERRIDES_BACKUP}`);
 	}
 
-	let overrides = {};
+	let overrides: Record<string, unknown> = {};
 	try {
 		overrides = JSON.parse(fs.readFileSync(PRODUCT_OVERRIDES_JSON, 'utf8'));
 	} catch {

@@ -259,11 +259,7 @@ export class ExtHostOutputService implements ExtHostOutputServiceShape {
 	}
 
 	private createExtHostLogOutputChannel(name: string, logLevel: LogLevel, channelPromise: Promise<ExtHostOutputChannel>, channelDisposables: DisposableStore): vscode.LogOutputChannel {
-		const validate = () => {
-			if (channelDisposables.isDisposed) {
-				throw new Error('Channel has been closed');
-			}
-		};
+		const logService = this.logService;
 		const onDidChangeLogLevel = channelDisposables.add(new Emitter<LogLevel>());
 		function setLogLevel(newLogLevel: LogLevel): void {
 			logLevel = newLogLevel;
@@ -280,23 +276,24 @@ export class ExtHostOutputService implements ExtHostOutputServiceShape {
 			get logLevel() { return logLevel; },
 			onDidChangeLogLevel: onDidChangeLogLevel.event,
 			trace(value: string, ...args: unknown[]): void {
-				validate();
+				// Deactivation can log after disposal; retain diagnostics without reopening the channel.
+				if (channelDisposables.isDisposed) { logService.trace(value, ...args); return; }
 				channelPromise.then(channel => channel.trace(value, ...args));
 			},
 			debug(value: string, ...args: unknown[]): void {
-				validate();
+				if (channelDisposables.isDisposed) { logService.debug(value, ...args); return; }
 				channelPromise.then(channel => channel.debug(value, ...args));
 			},
 			info(value: string, ...args: unknown[]): void {
-				validate();
+				if (channelDisposables.isDisposed) { logService.info(value, ...args); return; }
 				channelPromise.then(channel => channel.info(value, ...args));
 			},
 			warn(value: string, ...args: unknown[]): void {
-				validate();
+				if (channelDisposables.isDisposed) { logService.warn(value, ...args); return; }
 				channelPromise.then(channel => channel.warn(value, ...args));
 			},
 			error(value: Error | string, ...args: unknown[]): void {
-				validate();
+				if (channelDisposables.isDisposed) { logService.error(value, ...args); return; }
 				channelPromise.then(channel => channel.error(value, ...args));
 			}
 		};

@@ -1154,9 +1154,9 @@ fn make_test_handle(
         upload_queue: Arc::new(OnceLock::new()),
         upload_failures_since_success: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         tool_context: crate::tools::ToolContext::new_local_context(
-            xai_grok_paths::AbsPathBuf::new(std::path::PathBuf::from("/tmp")).unwrap(),
+            xai_grok_paths::AbsPathBuf::new(std::env::temp_dir()).unwrap(),
             std::sync::Arc::new(xai_grok_workspace::file_system::LocalFs::new(
-                std::path::PathBuf::from("/tmp"),
+                std::env::temp_dir(),
             )),
             std::sync::Arc::new(crate::terminal::LocalTerminalRunner),
         ),
@@ -5114,6 +5114,75 @@ fn supervisor_reaps_panicked_resident_actor() {
             agent.finalize_spy.borrow().is_empty(),
             "reaping a dead actor must NOT finalize (conversation persists)"
         );
+    });
+}
+
+#[test]
+fn supervisor_preserves_clean_resident_actor_exit_as_dormant() {
+    run_local_for_bridge_test(|| async {
+        let agent = build_minimal_agent_for_tests();
+        let sid = acp::SessionId::new("sess-clean-exit");
+        let (handle, _tx, _rx) = make_live_session_handle(&sid, None);
+        agent.insert_resident(&sid, handle);
+        agent.session_registry.set_thread(
+            &sid,
+            crate::session::SessionThread::from_handle(std::thread::spawn(|| {})),
+        );
+        while agent.session_registry.thread_is_finished(&sid) != Some(true) {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        agent.sweep_dead_sessions();
+        assert!(!agent.is_resident(&sid));
+        assert!(!agent.session_registry.has_thread(&sid));
+        assert_eq!(
+            agent.roster_delta_spy.borrow().as_slice(),
+            &[(sid.0.to_string(), SessionLiveState::Dormant)],
+            "normal actor termination must not become DeadFailed or finalize the conversation"
+        );
+        assert!(agent.finalize_spy.borrow().is_empty());
+    });
+}
+
+#[test]
+fn supervisor_process_shutdown_flush_is_clean_for_resident_actor() {
+    run_local_for_bridge_test(|| async {
+        let agent = build_minimal_agent_for_tests();
+        let sid = acp::SessionId::new("sess-shutdown-flush");
+        let (handle, _tx, mut rx) = make_live_session_handle(&sid, None);
+        agent.activity.register_session(sid.0.as_ref(), &handle);
+        agent.insert_resident(&sid, handle);
+        agent.session_registry.set_thread(&sid, crate::session::SessionThread::from_handle(
+            std::thread::spawn(move || {
+                assert!(matches!(rx.blocking_recv(), Some(TestSessionCommand::Shutdown(crate::session::ShutdownKind::Graceful))));
+            }),
+        ));
+        agent.ensure_session_supervisor();
+        agent.flush_all_sessions(std::time::Duration::from_secs(2)).await.unwrap();
+        assert!(!agent.is_resident(&sid));
+        assert!(!agent.session_registry.has_actor_failure());
+        assert_eq!(agent.roster_delta_spy.borrow().as_slice(), &[(sid.0.to_string(), SessionLiveState::Dormant)]);
+        assert!(agent.finalize_spy.borrow().is_empty());
+    });
+}
+
+#[test]
+fn supervisor_process_shutdown_reports_actor_failure_even_after_reap() {
+    run_local_for_bridge_test(|| async {
+        let agent = build_minimal_agent_for_tests();
+        let sid = acp::SessionId::new("sess-failed-flush");
+        let (handle, _tx, _rx) = make_live_session_handle(&sid, None);
+        agent.insert_resident(&sid, handle);
+        agent.session_registry.set_thread(&sid, crate::session::SessionThread::from_handle(
+            std::thread::spawn(|| panic!("injected actor panic during shutdown")),
+        ));
+        while agent.session_registry.thread_is_finished(&sid) != Some(true) {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        agent.sweep_dead_sessions();
+        let error = agent.flush_all_sessions(std::time::Duration::from_secs(2)).await.unwrap_err();
+        assert!(error.to_string().contains("session actor failed"));
+        assert!(agent.roster_delta_spy.borrow().iter().any(|(_, state)| *state == SessionLiveState::DeadFailed));
+        assert!(agent.finalize_spy.borrow().is_empty());
     });
 }
 /// Regression: writeback must self-correct once remote settings arrive (the field used to be frozen at construction).

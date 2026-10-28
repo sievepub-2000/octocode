@@ -87,7 +87,7 @@ vi.mock("../../../components/common/Tab", () => ({
 			</div>
 		)
 	},
-	TabTrigger: ({ children, value, "data-testid": dataTestId, onClick, isSelected }: any) => {
+	TabTrigger: ({ children, value, "data-testid": dataTestId, onClick, isSelected, "aria-label": ariaLabel }: any) => {
 		// This function simulates clicking on a tab and making its content visible
 		const handleClick = () => {
 			if (onClick) onClick()
@@ -106,7 +106,12 @@ vi.mock("../../../components/common/Tab", () => ({
 		}
 
 		return (
-			<button data-testid={dataTestId} data-value={value} data-selected={isSelected} onClick={handleClick}>
+			<button
+				data-testid={dataTestId}
+				data-value={value}
+				data-selected={isSelected}
+				aria-label={ariaLabel}
+				onClick={handleClick}>
 				{children}
 			</button>
 		)
@@ -163,8 +168,13 @@ vi.mock("@/components/ui", () => ({
 			data-testid={dataTestId}
 		/>
 	),
-	Button: ({ children, onClick, variant, className, "data-testid": dataTestId }: any) => (
-		<button onClick={onClick} data-variant={variant} className={className} data-testid={dataTestId}>
+	Button: ({ children, onClick, disabled, variant, className, "data-testid": dataTestId }: any) => (
+		<button
+			onClick={onClick}
+			disabled={disabled}
+			data-variant={variant}
+			className={className}
+			data-testid={dataTestId}>
 			{children}
 		</button>
 	),
@@ -322,10 +332,26 @@ describe("SettingsView - Sound Settings", () => {
 		expect(screen.getAllByTestId("settings-group").map((element) => element.textContent)).toEqual([
 			"common:ui.commonSettings",
 			"common:ui.agents",
-			"common:ui.toolsExtensions",
 			"common:ui.taskExecution",
 			"common:ui.system",
 		])
+		expect(screen.getAllByTestId("settings-group")[0]).toHaveClass("text-[14px]", "font-bold")
+		expect(screen.getByTestId("tab-providers").querySelector(".tab-label")).toHaveClass("text-[13px]")
+	})
+
+	it("clears dirty state when a buffered setting is restored to its saved value", () => {
+		const onDone = vi.fn()
+		renderWithExtensionState(<SettingsView onDone={onDone} targetSection="notifications" />, {
+			state: { soundEnabled: false },
+		})
+		const sound = screen.getByTestId("sound-enabled-checkbox")
+		fireEvent.click(sound)
+		expect(screen.getByTestId("save-button")).toBeEnabled()
+		fireEvent.click(sound)
+		expect(screen.getByTestId("save-button")).toBeDisabled()
+		fireEvent.click(screen.getByText("settings:common.done"))
+		expect(onDone).toHaveBeenCalledTimes(1)
+		expect(screen.getByTestId("alert-dialog")).toHaveAttribute("data-open", "false")
 	})
 
 	it("initializes with tts disabled by default", () => {
@@ -446,16 +472,10 @@ describe("SettingsView - Sound Settings", () => {
 	})
 
 	it("saves terminal defaults without writing retired checkpoint controls", async () => {
-		const { activateTab, getSettingsContent } = renderSettingsView({
-			soundEnabled: undefined,
-			enableCheckpoints: undefined,
-			checkpointTimeout: undefined,
-			terminalShellIntegrationTimeout: undefined,
-			settingsImportedAt: new Date().toISOString(),
+		renderWithExtensionState(<SettingsView onDone={vi.fn()} targetSection="notifications" />, {
+			state: { soundEnabled: false, terminalShellIntegrationTimeout: undefined },
 		})
-
-		activateTab("notifications")
-		const content = getSettingsContent()
+		const content = screen.getByTestId("settings-content")
 		fireEvent.click(await within(content).findByTestId("sound-enabled-checkbox"))
 		fireEvent.click(screen.getByTestId("save-button"))
 
@@ -572,6 +592,35 @@ describe("SettingsView - Sound Settings", () => {
 })
 
 describe("SettingsView - API Configuration", () => {
+	it("routes old index links to the selected memory and knowledge tab", () => {
+		renderWithExtensionState(<SettingsView onDone={vi.fn()} targetSection="codeIndex" />)
+		expect(screen.getByTestId("tab-memoryKnowledge")).toHaveAttribute("data-selected", "true")
+		expect(screen.queryByTestId("tab-codeIndex")).not.toBeInTheDocument()
+	})
+
+	it("places project indexing and search under memory and knowledge settings", () => {
+		const { activateTab, getSettingsContent } = renderSettingsView({
+			codeIndexWorkspacePath: "/owned/project",
+			codebaseIndexConfig: { codebaseIndexEnabled: true, codebaseIndexEmbedderProvider: "native" },
+		})
+		activateTab("memoryKnowledge")
+		const content = getSettingsContent()
+		expect(within(content).getByRole("button", { name: "settings:codeIndex.searchButton" })).toBeInTheDocument()
+		expect(within(content).getByText("settings:codeIndex.title")).toBeInTheDocument()
+	})
+
+	it("keeps index management and search together in memory and knowledge", () => {
+		const { activateTab, getSettingsContent } = renderSettingsView({
+			codeIndexWorkspacePath: "/owned/project",
+			codebaseIndexConfig: { codebaseIndexEnabled: true, codebaseIndexEmbedderProvider: "native" },
+		})
+		const tabLabels = screen.getAllByTestId(/^tab-/).map((element) => element.getAttribute("aria-label"))
+		expect(tabLabels).not.toContain("settings:codeIndex.indexReadyLabel")
+		activateTab("memoryKnowledge")
+		const content = getSettingsContent()
+		expect(within(content).getByRole("button", { name: "settings:codeIndex.searchButton" })).toBeInTheDocument()
+		expect(vscode.postMessage).toHaveBeenCalledWith({ type: "requestIndexingStatus" })
+	})
 	beforeEach(() => {
 		vi.clearAllMocks()
 	})
@@ -631,6 +680,36 @@ describe("SettingsView - Runtime permissions", () => {
 
 			// Check that unsaved changes dialog is shown
 			expect(screen.getByText("settings:unsavedChangesDialog.title")).toBeInTheDocument()
+		})
+
+		it("saves and continues when choosing the save option in the unsaved changes dialog", async () => {
+			const { activateTab, getSettingsContent, onDone } = renderSettingsView()
+
+			activateTab("notifications")
+
+			const content = getSettingsContent()
+			const soundCheckbox = within(content).getByTestId("sound-enabled-checkbox")
+			fireEvent.click(soundCheckbox)
+
+			// Click the Done button to trigger the unsaved changes dialog
+			fireEvent.click(screen.getByText("settings:common.done"))
+			expect(screen.getByTestId("alert-dialog")).toHaveAttribute("data-open", "true")
+
+			// Choose "Save changes": the settings are sent to the host and the
+			// pending navigation (back to tasks) still runs.
+			fireEvent.click(
+				within(screen.getByTestId("alert-dialog-content")).getByText(
+					"settings:unsavedChangesDialog.saveButton",
+				),
+			)
+
+			expect(vscode.postMessage).toHaveBeenCalledWith(
+				expect.objectContaining({
+					type: "updateSettings",
+					updatedSettings: expect.objectContaining({ soundEnabled: true }),
+				}),
+			)
+			await waitFor(() => expect(onDone).toHaveBeenCalled())
 		})
 	})
 })

@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-use zbus::{dbus_proxy, Connection};
+use zbus::{proxy, Connection};
 
 use crate::{
 	constants::APPLICATION_NAME,
@@ -17,26 +17,26 @@ use crate::{
 /// permission to request inhibition, which is not possible here.
 ///
 /// See https://source.chromium.org/chromium/chromium/src/+/main:services/device/wake_lock/power_save_blocker/power_save_blocker_linux.cc;l=54;drc=2e85357a8b76996981cc6f783853a49df2cedc3a
-#[dbus_proxy(
+#[proxy(
 	interface = "org.freedesktop.PowerManagement.Inhibit",
 	gen_blocking = false,
 	default_service = "org.freedesktop.PowerManagement.Inhibit",
 	default_path = "/org/freedesktop/PowerManagement/Inhibit"
 )]
 trait PMInhibitor {
-	#[dbus_proxy(name = "Inhibit")]
+	#[zbus(name = "Inhibit")]
 	fn inhibit(&self, what: &str, why: &str) -> zbus::Result<u32>;
 }
 
 /// A slightly better documented version which seems commonly used.
-#[dbus_proxy(
+#[proxy(
 	interface = "org.freedesktop.ScreenSaver",
 	gen_blocking = false,
 	default_service = "org.freedesktop.ScreenSaver",
 	default_path = "/org/freedesktop/ScreenSaver"
 )]
 trait ScreenSaver {
-	#[dbus_proxy(name = "Inhibit")]
+	#[zbus(name = "Inhibit")]
 	fn inhibit(&self, what: &str, why: &str) -> zbus::Result<u32>;
 }
 

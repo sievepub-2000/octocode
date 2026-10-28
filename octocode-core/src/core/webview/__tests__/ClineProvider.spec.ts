@@ -1,6 +1,7 @@
 // pnpm --filter roo-cline test core/webview/__tests__/ClineProvider.spec.ts
 
 import * as path from "path"
+import { realpathSync } from "node:fs"
 
 import Anthropic from "@octocode/sdk"
 import * as vscode from "vscode"
@@ -28,8 +29,23 @@ import { safeWriteJson } from "../../../utils/safeWriteJson"
 
 import { ClineProvider } from "../ClineProvider"
 import { webviewMessageHandler } from "../webviewMessageHandler"
+
 import { Terminal } from "../../../integrations/terminal/Terminal"
 import { forceFullModelDetailsLoad, hasLoadedFullDetails } from "../../../api/providers/fetchers/lmstudio"
+
+afterEach(async () => {
+	// Auth tests deliberately substitute partial or throwing cloud instances.
+	// Restore that boundary for resource teardown across every describe block.
+	const { CloudService } = await import("@roo-code/cloud")
+	const available = vi.mocked(CloudService.hasInstance)
+	const previous = available.getMockImplementation()
+	available.mockReturnValue(false)
+	try {
+		await Promise.all(ClineProvider.getAllInstances().map((instance) => instance.dispose()))
+	} finally {
+		available.mockImplementation(previous ?? (() => false))
+	}
+})
 
 // Mock setup must come before imports.
 vi.mock("../../prompts/sections/custom-instructions")
@@ -407,6 +423,9 @@ afterAll(() => {
 })
 
 describe("ClineProvider", () => {
+	afterEach(async () => {
+		await Promise.all(ClineProvider.getAllInstances().map((instance) => instance.dispose()))
+	})
 	beforeAll(() => {})
 
 	let provider: ClineProvider
@@ -588,14 +607,13 @@ describe("ClineProvider", () => {
 		})
 	})
 
-	test("resolveWebviewView sets up webview correctly in development mode even if local server is not running", async () => {
+	test("uses bundled resources in a development host without a frontend source tree", async () => {
 		provider = new ClineProvider(
 			{ ...mockContext, extensionMode: vscode.ExtensionMode.Development },
 			mockOutputChannel,
 			"sidebar",
 			new ContextProxy(mockContext),
 		)
-		;(axios.get as any).mockRejectedValueOnce(new Error("Network error"))
 
 		await provider.resolveWebviewView(mockWebviewView)
 
@@ -605,6 +623,7 @@ describe("ClineProvider", () => {
 		})
 
 		expect(mockWebviewView.webview.html).toContain("<!DOCTYPE html>")
+		expect(axios.get).not.toHaveBeenCalled()
 
 		// Verify Content Security Policy contains the necessary PostHog domains
 		expect(mockWebviewView.webview.html).toContain(
@@ -913,6 +932,88 @@ describe("ClineProvider", () => {
 		const state = await provider.getState()
 
 		expect(state.destructiveCommandGuardEnabled).toBe(true)
+	})
+
+	test("routes indexing only to the active session's explicit project directory", async () => {
+		const { CodeIndexManager } = await import("../../../services/code-index/manager")
+		const getManager = vi.spyOn(CodeIndexManager, "getInstance").mockReturnValue(undefined)
+		const resolve = vi.spyOn(provider, "resolveSessionProfile").mockResolvedValue({})
+		const first = path.join(path.sep, "test", "project-a")
+		const second = path.join(path.sep, "test", "project-b")
+		try {
+			ClineProvider.setActiveRuntimeSession("index-session-a", "task-a", first)
+			provider.getCurrentWorkspaceCodeIndexManager()
+			expect(getManager).toHaveBeenLastCalledWith(mockContext, first)
+			expect((await provider.getStateToPostToWebview()).codeIndexWorkspacePath).toBe(first)
+			ClineProvider.setActiveRuntimeSession("index-session-b", "task-b", second)
+			provider.getCurrentWorkspaceCodeIndexManager()
+			expect(getManager).toHaveBeenLastCalledWith(mockContext, second)
+			expect((await provider.getStateToPostToWebview()).codeIndexWorkspacePath).toBe(second)
+			ClineProvider.setActiveRuntimeSession("index-session-missing", "task-c")
+			getManager.mockClear()
+			expect(provider.getCurrentWorkspaceCodeIndexManager()).toBeUndefined()
+			expect(getManager).not.toHaveBeenCalled()
+			expect((await provider.getStateToPostToWebview()).codeIndexWorkspacePath).toBeUndefined()
+		} finally {
+			ClineProvider.clearActiveRuntimeSession("index-session-missing")
+			getManager.mockRestore()
+			resolve.mockRestore()
+		}
+	})
+
+	test("posts the same canonical index path used by the manager", () => {
+		const canonical = "E:\\Program Files\\octocode\\workspace"
+		const native = vi.spyOn(realpathSync, "native").mockReturnValue(canonical)
+		try {
+			ClineProvider.setActiveRuntimeSession(
+				"canonical-index-session",
+				"task",
+				"e:\\Program Files\\octocode\\workspace",
+			)
+			expect(provider.codeIndexWorkspacePath).toBe(canonical)
+		} finally {
+			ClineProvider.clearActiveRuntimeSession("canonical-index-session")
+			native.mockRestore()
+		}
+	})
+
+	test("posts session model settings separately from the global settings form", async () => {
+		await provider.resolveWebviewView(mockWebviewView)
+		ClineProvider.setActiveRuntimeSession("session-model-test", "task")
+		await provider.contextProxy.setProviderSettings({ apiProvider: "anthropic" })
+		const resolve = vi.spyOn(provider, "resolveSessionProfile").mockResolvedValue({
+			profileId: "session-profile",
+			name: "session model",
+			settings: { apiProvider: "openai", openAiModelId: "session-model" },
+		})
+		try {
+			const state = await provider.getStateToPostToWebview()
+			expect(state.apiConfiguration.apiProvider).toBe("anthropic")
+			expect(state).toMatchObject({
+				sessionApiConfigName: "session model",
+				sessionApiConfiguration: { apiProvider: "openai", openAiModelId: "session-model" },
+			})
+		} finally {
+			ClineProvider.clearActiveRuntimeSession("session-model-test")
+			resolve.mockRestore()
+		}
+	})
+
+	test("updates a chat profile without activating it globally", async () => {
+		await provider.resolveWebviewView(mockWebviewView)
+		const handler = vi.mocked(mockWebviewView.webview.onDidReceiveMessage).mock.calls[0][0]
+		const upsert = vi.spyOn(provider, "upsertProviderProfile").mockResolvedValue("session-profile")
+		try {
+			await handler({
+				type: "upsertApiConfiguration",
+				text: "session model",
+				apiConfiguration: { apiProvider: "openai" },
+				activate: false,
+			})
+			expect(upsert).toHaveBeenCalledWith("session model", { apiProvider: "openai" }, false)
+		} finally {
+			upsert.mockRestore()
+		}
 	})
 
 	test("getStateToPostToWebview returns the saved destructive command guard setting", async () => {
@@ -1996,13 +2097,10 @@ describe("webviewMessageHandler no-floating-promises coverage", () => {
 		expect(provider.log).toHaveBeenCalledWith("Cannot start indexing: No workspace folder open")
 	})
 
-	it("catches both start-indexing calls during error recovery", async () => {
+	it("catches one explicit start failure after initialization", async () => {
 		const manager = createIndexManager({
 			isInitialized: false,
-			startIndexing: vi
-				.fn()
-				.mockRejectedValueOnce(new Error("first failure"))
-				.mockRejectedValueOnce(new Error("second failure")),
+			startIndexing: vi.fn().mockRejectedValueOnce(new Error("first failure")),
 		})
 		const provider = createProvider({
 			getCurrentWorkspaceCodeIndexManager: vi.fn().mockReturnValue(manager),
@@ -2011,10 +2109,75 @@ describe("webviewMessageHandler no-floating-promises coverage", () => {
 		await webviewMessageHandler(provider, { type: "startIndexing" })
 		await Promise.resolve()
 
-		expect(manager.startIndexing).toHaveBeenCalledTimes(2)
+		expect(manager.initialize).toHaveBeenCalledOnce()
+		expect(manager.startIndexing).toHaveBeenCalledOnce()
 		expect(provider.log).toHaveBeenCalledWith("Indexing error: Error: first failure")
-		expect(provider.log).toHaveBeenCalledWith("Indexing error: Error: second failure")
 	})
+
+	it.each(["startIndexing", "saveCodeIndexSettingsAtomic"] as const)(
+		"initializes before reading enabled flags on first %s",
+		async (type) => {
+			let ready = false
+			const settingsChanged = vi.fn().mockResolvedValue(undefined)
+			const manager = createIndexManager({
+				initialize: vi.fn().mockImplementation(async () => {
+					ready = true
+				}),
+				handleSettingsChange: settingsChanged,
+			})
+			Object.defineProperties(manager, {
+				isFeatureEnabled: { get: () => ready },
+				isFeatureConfigured: { get: () => ready },
+			})
+			const provider = createProvider({ getCurrentWorkspaceCodeIndexManager: vi.fn().mockReturnValue(manager) })
+			await webviewMessageHandler(provider, {
+				type,
+				...(type === "saveCodeIndexSettingsAtomic"
+					? {
+							codeIndexSettings: {
+								codebaseIndexEnabled: true,
+								codebaseIndexEmbedderProvider: "native" as const,
+								codebaseIndexQdrantUrl: "",
+								codebaseIndexEmbedderModelId: "",
+							},
+						}
+					: {}),
+			})
+			expect(manager.initialize).toHaveBeenCalled()
+			if (type === "startIndexing") expect(manager.startIndexing).toHaveBeenCalledOnce()
+			else {
+				expect(settingsChanged).toHaveBeenCalledOnce()
+				expect(manager.initialize.mock.invocationCallOrder[0]).toBeLessThan(
+					settingsChanged.mock.invocationCallOrder[0],
+				)
+			}
+		},
+	)
+
+	it.each([true, false])(
+		"echoes the code-index save request ID on acknowledgement (success: %s)",
+		async (success) => {
+			const provider = createProvider()
+			if (!success) vi.spyOn(provider.contextProxy, "setValue").mockRejectedValueOnce(new Error("save failed"))
+			await webviewMessageHandler(provider, {
+				type: "saveCodeIndexSettingsAtomic",
+				requestId: "index-save-request",
+				codeIndexSettings: {
+					codebaseIndexEnabled: true,
+					codebaseIndexEmbedderProvider: "native",
+					codebaseIndexQdrantUrl: "",
+					codebaseIndexEmbedderModelId: "",
+				},
+			})
+			expect(provider.postMessageToWebview).toHaveBeenCalledWith(
+				expect.objectContaining({
+					type: "codeIndexSettingsSaved",
+					requestId: "index-save-request",
+					success,
+				}),
+			)
+		},
+	)
 
 	it("covers changed stop, toggle, and detached toggle rejection paths", async () => {
 		const manager = createIndexManager({
@@ -2173,9 +2336,16 @@ describe("Project MCP Settings", () => {
 	let mockOutputChannel: vscode.OutputChannel
 	let mockWebviewView: any
 	let mockPostMessage: any
+	let savedEnvironments: string | undefined
 
 	beforeEach(async () => {
 		vi.clearAllMocks()
+		// The handler takes the shared system tool directory when
+		// OCTOCODE_ENVIRONMENTS is set (as it is on this machine); these tests
+		// exercise the portable workspace path, so the env var is cleared here
+		// and restored afterwards.
+		savedEnvironments = process.env.OCTOCODE_ENVIRONMENTS
+		delete process.env.OCTOCODE_ENVIRONMENTS
 		const pathUtils = await import("../../../utils/path")
 		vi.mocked(pathUtils.getWorkspacePath).mockReturnValue("")
 
@@ -2315,6 +2485,11 @@ describe("Project MCP Settings", () => {
 
 		// Verify the translated error key is surfaced in test mode
 		expect(vscode.window.showErrorMessage).toHaveBeenCalledWith("errors.create_json")
+	})
+
+	afterEach(() => {
+		if (savedEnvironments !== undefined) process.env.OCTOCODE_ENVIRONMENTS = savedEnvironments
+		else delete process.env.OCTOCODE_ENVIRONMENTS
 	})
 })
 

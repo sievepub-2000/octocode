@@ -345,6 +345,10 @@
 	"dismiss": "Bỏ qua",
 	"dismissAndDontShowAgain": "Bỏ qua và không hiển thị lại",
 	"extensions": {
+		"pagination": "Trang thành phần",
+		"pageNumber": "Trang {{number}}",
+		"previousPage": "Trước",
+		"nextPage": "Tiếp",
 		"market": "Chợ công cụ",
 		"systemToolsHint": "Công cụ hệ thống · dùng trong mọi không gian làm việc",
 		"environments": "Runtimes",

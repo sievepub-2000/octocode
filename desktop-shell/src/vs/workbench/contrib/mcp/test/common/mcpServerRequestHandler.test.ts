@@ -416,7 +416,7 @@ suite.skip('Workbench - MCP - McpTask', () => { // TODO@connor4312 https://githu
 	let clock: sinon.SinonFakeTimers;
 
 	setup(() => {
-		clock = sinon.useFakeTimers();
+		clock = sinon.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
 	});
 
 	teardown(() => {

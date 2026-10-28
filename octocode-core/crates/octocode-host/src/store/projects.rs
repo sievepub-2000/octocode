@@ -185,6 +185,9 @@ fn collect_files(directory: &Path, paths: &mut BTreeSet<PathBuf>) -> anyhow::Res
 }
 
 pub(crate) fn ensure_owned_path(root: &Path, target: &Path) -> anyhow::Result<()> {
+    let root = comparison_path(root);
+    let target = comparison_path(target);
+    let (root, target) = (root.as_ref(), target.as_ref());
     ensure!(target.starts_with(root) && target != root, "项目索引目录越界");
     let mut cursor = root.to_path_buf();
     for component in target.strip_prefix(root)?.components() {
@@ -192,10 +195,47 @@ pub(crate) fn ensure_owned_path(root: &Path, target: &Path) -> anyhow::Result<()
         cursor.push(component);
         if cursor.exists() {
             ensure!(!fs::symlink_metadata(&cursor)?.file_type().is_symlink(), "项目或会话目录不能使用符号链接");
-            ensure!(fs::canonicalize(&cursor)?.starts_with(root), "项目索引目录链接越界");
+            ensure!(comparison_path(&fs::canonicalize(&cursor)?).starts_with(root), "项目索引目录链接越界");
         }
     }
     Ok(())
+}
+
+fn comparison_path(path: &Path) -> std::borrow::Cow<'_, Path> {
+    #[cfg(windows)]
+    if let (Some(std::path::Component::Prefix(prefix)), Some(text)) = (path.components().next(), path.to_str()) {
+        match prefix.kind() {
+            std::path::Prefix::VerbatimDisk(_) => return PathBuf::from(&text[4..]).into(),
+            std::path::Prefix::VerbatimUNC(_, _) => return PathBuf::from(format!(r"\\{}", &text[8..])).into(),
+            _ => {}
+        }
+    }
+    path.into()
+}
+
+#[cfg(all(test, windows))]
+mod windows_path_tests {
+    use super::*;
+
+    #[test]
+    fn migrated_plain_directory_remains_inside_canonical_workspace() {
+        let workspace = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(workspace.path()).unwrap();
+        let plain_root = comparison_path(&root).into_owned();
+        let target = plain_root.join(".octocode").join("projects").join("owned");
+        fs::create_dir_all(&target).unwrap();
+        ensure_owned_path(&root, &target).unwrap();
+        assert!(ensure_owned_path(&root, &plain_root).is_err());
+        assert!(ensure_owned_path(&root, &plain_root.join("..").join("outside")).is_err());
+        let other = tempfile::tempdir().unwrap();
+        assert!(ensure_owned_path(&root, other.path()).is_err());
+        let store = Store::open(":memory:").unwrap();
+        let project = store.create_project("migrated", &[], plain_root.to_str()).unwrap();
+        let migrated = comparison_path(Path::new(&project.directory)).into_owned();
+        store.conn.execute("UPDATE projects SET directory=?1 WHERE id=?2", params![migrated.to_str(), project.id]).unwrap();
+        assert!(store.refresh_project_indexes().unwrap()["warnings"].as_array().unwrap().is_empty());
+        assert!(migrated.join("artifacts.json").is_file());
+    }
 }
 
 fn write_index(p: &Project, index: &Value) -> anyhow::Result<()> {

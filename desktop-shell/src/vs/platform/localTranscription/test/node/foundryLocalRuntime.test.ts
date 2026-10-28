@@ -40,10 +40,11 @@ flakySuite('FoundryLocalRuntime', () => {
 
 	function writePayload(overrideDir: string, key: string): void {
 		fs.mkdirSync(join(overrideDir, 'prebuilds', key), { recursive: true });
-		fs.writeFileSync(join(overrideDir, 'prebuilds', key, 'foundry_local_napi.node'), 'addon');
-		const coreDir = join(overrideDir, 'foundry-local-core', key);
+		fs.writeFileSync(join(overrideDir, 'prebuilds', key, 'foundry_local_node.node'), 'addon');
+		fs.writeFileSync(join(overrideDir, 'prebuilds', key, 'foundry_local_preload.node'), 'preload');
+		const coreDir = join(overrideDir, 'prebuilds', key);
 		fs.mkdirSync(coreDir, { recursive: true });
-		for (const name of requiredCoreLibraryNames()) {
+		for (const name of requiredCoreLibraryNames(key)) {
 			fs.writeFileSync(join(coreDir, name), 'lib');
 		}
 	}
@@ -62,6 +63,19 @@ flakySuite('FoundryLocalRuntime', () => {
 		assert.strictEqual(isRuntimeProvisioned(testDir, platformKey), false);
 	});
 
+	test('accepts the complete SDK 2.1 Windows payload and rejects a missing preload addon', () => {
+		const key = 'win32-x64';
+		const native = join(testDir, 'prebuilds', key);
+		fs.mkdirSync(native, { recursive: true });
+		for (const name of ['foundry_local_node.node', 'foundry_local_preload.node', 'foundry_local.dll', 'onnxruntime.dll', 'onnxruntime-genai.dll', 'Microsoft.Windows.AI.MachineLearning.dll']) {
+			fs.writeFileSync(join(native, name), 'native');
+		}
+		writeMarker(testDir, key);
+		assert.strictEqual(isRuntimeProvisioned(testDir, key), true);
+		fs.rmSync(join(native, 'foundry_local_preload.node'));
+		assert.strictEqual(isRuntimeProvisioned(testDir, key), false);
+	});
+
 	test('isRuntimeProvisioned: true only when marker AND payload are present (cache hit)', () => {
 		writePayload(testDir, platformKey);
 		writeMarker(testDir, platformKey);
@@ -76,7 +90,7 @@ flakySuite('FoundryLocalRuntime', () => {
 	test('isRuntimeProvisioned: false when one core library is missing (partial cache)', () => {
 		writePayload(testDir, platformKey);
 		writeMarker(testDir, platformKey);
-		fs.rmSync(join(testDir, 'foundry-local-core', platformKey, requiredCoreLibraryNames()[0]));
+		fs.rmSync(join(testDir, 'prebuilds', platformKey, requiredCoreLibraryNames(platformKey)[0]));
 		assert.strictEqual(isRuntimeProvisioned(testDir, platformKey), false);
 	});
 
@@ -155,15 +169,16 @@ flakySuite('FoundryLocalRuntime', () => {
 	async function makeTarball(key: string, opts?: { omitCoreLib?: boolean }): Promise<string> {
 		const src = join(testDir, `src-${key}`);
 		fs.mkdirSync(join(src, 'prebuilds', key), { recursive: true });
-		fs.writeFileSync(join(src, 'prebuilds', key, 'foundry_local_napi.node'), 'addon');
-		const coreDir = join(src, 'foundry-local-core', key);
+		fs.writeFileSync(join(src, 'prebuilds', key, 'foundry_local_node.node'), 'addon');
+		fs.writeFileSync(join(src, 'prebuilds', key, 'foundry_local_preload.node'), 'preload');
+		const coreDir = join(src, 'prebuilds', key);
 		fs.mkdirSync(coreDir, { recursive: true });
-		const libs = requiredCoreLibraryNames();
+		const libs = requiredCoreLibraryNames(key);
 		for (const name of opts?.omitCoreLib ? libs.slice(1) : libs) {
 			fs.writeFileSync(join(coreDir, name), 'lib');
 		}
 		const tgz = join(testDir, `${key}.tgz`);
-		await tar.c({ file: tgz, cwd: src, gzip: true }, ['prebuilds', 'foundry-local-core']);
+		await tar.c({ file: tgz, cwd: src, gzip: true }, ['prebuilds']);
 		return tgz;
 	}
 
@@ -205,9 +220,9 @@ flakySuite('FoundryLocalRuntime', () => {
 			// {target} was substituted with the platform key in the request URL.
 			assert.deepStrictEqual(server.requested, [`${platformKey}.tgz`]);
 			// Payload extracted into the cache layout + completion marker written.
-			assert.strictEqual(fs.existsSync(join(overrideDir, 'prebuilds', platformKey, 'foundry_local_napi.node')), true);
-			for (const name of requiredCoreLibraryNames()) {
-				assert.strictEqual(fs.existsSync(join(overrideDir, 'foundry-local-core', platformKey, name)), true);
+			assert.strictEqual(fs.existsSync(join(overrideDir, 'prebuilds', platformKey, 'foundry_local_node.node')), true);
+			for (const name of requiredCoreLibraryNames(platformKey)) {
+				assert.strictEqual(fs.existsSync(join(overrideDir, 'prebuilds', platformKey, name)), true);
 			}
 			assert.strictEqual(isRuntimeProvisioned(overrideDir, platformKey), true);
 		} finally {

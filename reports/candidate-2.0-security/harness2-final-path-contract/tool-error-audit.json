@@ -1,0 +1,17 @@
+{
+  "event_count": 1941,
+  "error_indicators": 0,
+  "event_kinds": {
+    "agent.finished": 7,
+    "agent.started": 7,
+    "agent.stderr": 7,
+    "available_commands": 25,
+    "end": 7,
+    "harness.prepared": 7,
+    "text": 193,
+    "thought": 1665,
+    "tool_call": 4,
+    "tool_call_update": 8,
+    "usage": 11
+  }
+}

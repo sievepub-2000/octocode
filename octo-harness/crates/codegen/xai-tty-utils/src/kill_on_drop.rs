@@ -59,6 +59,6 @@ impl Drop for KillOnDrop {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "kill_on_drop_tests.rs"]
 mod tests;

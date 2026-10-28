@@ -277,9 +277,10 @@ fn parse_metadata(
     let mut author = None;
     let mut rest = std::collections::HashMap::new();
     for (k, v) in map {
-        let (Some(key), Some(val)) = (k.as_str(), v.as_str()) else {
+        let Some(val) = v.as_str() else {
             continue;
         };
+        let key = k.as_str();
         match key {
             "short-description" => short_description = Some(val.to_string()),
             "author" => author = Some(val.to_string()),

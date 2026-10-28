@@ -363,10 +363,20 @@ impl HeadlessEmitter {
 
     /// Emit the terminal error; `stop_reason_override` stamps a Messages stop reason (e.g. `max_tokens`).
     fn on_error(&mut self, message: &str, stop_reason_override: Option<&str>) {
+        self.on_error_with_data(message, stop_reason_override, None);
+    }
+
+    fn on_error_with_data(
+        &mut self,
+        message: &str,
+        stop_reason_override: Option<&str>,
+        data: Option<&Value>,
+    ) {
         match self.format {
             OutputFormat::Plain => eprintln!("{message}"),
             OutputFormat::Json => {
                 let mut err = serde_json::json!({"type":"error","message": message});
+                attach_terminal_error_details(&mut err, data);
                 if let Some(usage) = &self.usage {
                     attach_result_usage(&mut err, usage);
                 }
@@ -378,11 +388,27 @@ impl HeadlessEmitter {
                 let lines = self.reducer.as_mut().map(|reducer| {
                     reducer.error(message, usage.as_ref(), duration_ms, stop_reason_override)
                 });
-                if let Some(lines) = lines {
+                if let Some(mut lines) = lines {
+                    for line in &mut lines {
+                        if line["type"] == "error" {
+                            attach_terminal_error_details(line, data);
+                        }
+                    }
                     self.emit_lines(lines);
                 }
             }
         }
+    }
+}
+
+fn attach_terminal_error_details(line: &mut Value, data: Option<&Value>) {
+    let Some(data) = data.filter(|data| data["error_code"] == "prefill_memory_exceeded") else {
+        return;
+    };
+    line["error_code"] = data["error_code"].clone();
+    line["recoverable"] = serde_json::json!(true);
+    if data["http_status"].is_u64() {
+        line["http_status"] = data["http_status"].clone();
     }
 }
 
@@ -877,7 +903,7 @@ pub async fn run_single_turn(
             anyhow::bail!("{msg}");
         }
     };
-    let _agent_guard = AgentShutdownGuard::new(cancel.clone(), Some(spawned.thread_handle));
+    let mut agent_guard = AgentShutdownGuard::new(cancel.clone(), Some(spawned.thread_handle));
     let (acp_tx, mut acp_rx) = (spawned.channel.tx, spawned.channel.rx);
     crate::unified_log::init(acp_tx.clone());
     crate::unified_log::info(
@@ -1394,7 +1420,7 @@ pub async fn run_single_turn(
             let stop_reason_override =
                 (xai_grok_shell::sampling::error::stop_reason_for_turn_error(&err) == "MaxTokens")
                     .then_some("max_tokens");
-            emitter.on_error(&msg, stop_reason_override);
+            emitter.on_error_with_data(&msg, stop_reason_override, err.data.as_ref());
             Err(anyhow::anyhow!("{msg}"))
         }
         None => Ok(()),
@@ -1421,7 +1447,8 @@ pub async fn run_single_turn(
     if let Some(err) = emitter.take_output_error() {
         return Err(anyhow::Error::new(err).context("headless: stdout write failed"));
     }
-    outcome
+    let shutdown = agent_guard.finish();
+    outcome.and(shutdown)
 }
 
 /// Invoke `x.ai/memory/flush` and wait for the flush LLM to finish.

@@ -47,7 +47,7 @@ import { IStorageService, StorageScope, StorageTarget } from '../../../../platfo
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IExtensionManifest, ExtensionType, IExtension as IPlatformExtension, TargetPlatform, ExtensionIdentifier, IExtensionIdentifier, IExtensionDescription, isApplicationScopedExtension } from '../../../../platform/extensions/common/extensions.js';
 import { ILanguageService } from '../../../../editor/common/languages/language.js';
-import { IProductService } from '../../../../platform/product/common/productService.js';
+import { IProductService, getVscodeApiVersion } from '../../../../platform/product/common/productService.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { IIgnoredExtensionsManagementService } from '../../../../platform/userDataSync/common/ignoredExtensions.js';
 import { IUserDataAutoSyncService, IUserDataSyncEnablementService, SyncResource } from '../../../../platform/userDataSync/common/userDataSync.js';
@@ -1564,7 +1564,7 @@ export class ExtensionsWorkbenchService extends Disposable implements IExtension
 		const invalidExtensions = this.local.filter(e => e.enablementState === EnablementState.DisabledByInvalidExtension && !e.isWorkspaceScoped);
 		if (invalidExtensions.length) {
 			if (invalidExtensions.some(e => e.local && e.local.manifest.engines?.vscode &&
-				!isEngineValid(e.local.manifest.engines.vscode, this.productService.version, this.productService.date)
+				!isEngineValid(e.local.manifest.engines.vscode, getVscodeApiVersion(this.productService), this.productService.date)
 			)) {
 				computedNotificiations.push({
 					message: nls.localize('incompatibleExtensions', "Some extensions are disabled due to version incompatibility. Review and update them."),
@@ -2329,7 +2329,7 @@ export class ExtensionsWorkbenchService extends Disposable implements IExtension
 	}
 
 	private getProductCurrentVersion(): IProductVersion {
-		return { version: this.productService.version, date: this.productService.date };
+		return { version: getVscodeApiVersion(this.productService), date: this.productService.date };
 	}
 
 	private getProductUpdateVersion(): IProductVersion | undefined {
@@ -2338,7 +2338,8 @@ export class ExtensionsWorkbenchService extends Disposable implements IExtension
 			case StateType.Downloaded:
 			case StateType.Updating:
 			case StateType.Ready: {
-				const version = this.updateService.state.update.productVersion;
+				const version = this.updateService.state.update.vscodeApiVersion
+					?? (this.productService.vscodeApiVersion ? getVscodeApiVersion(this.productService) : this.updateService.state.update.productVersion);
 				if (version && semver.valid(version)) {
 					return { version, date: this.updateService.state.update.timestamp ? new Date(this.updateService.state.update.timestamp).toISOString() : undefined };
 				}

@@ -6,7 +6,6 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import rimraf from 'rimraf';
 import es from 'event-stream';
 import { rename } from './gulp/facade.ts';
 import vfs from 'vinyl-fs';
@@ -140,7 +139,7 @@ function syncMarketplaceExtension(extension: IExtensionDefinition): Stream {
 		return es.readArray([]);
 	}
 
-	rimraf.sync(getExtensionPath(extension));
+	fs.rmSync(getExtensionPath(extension), { recursive: true, force: true });
 
 	return getExtensionDownloadStream(extension)
 		.pipe(vfs.dest('.build/builtInExtensions'))

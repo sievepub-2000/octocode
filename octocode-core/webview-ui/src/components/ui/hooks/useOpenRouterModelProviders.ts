@@ -1,5 +1,5 @@
 import { getJson } from "@src/utils/getJson"
-import { z } from "zod"
+import { z } from "zod/v4"
 import { useQuery, UseQueryOptions } from "@tanstack/react-query"
 
 import type { ModelInfo } from "@roo-code/types"
@@ -87,7 +87,7 @@ async function getOpenRouterProvidersForModel(modelId: string, baseUrl?: string)
 		}
 	} catch (error) {
 		if (error instanceof z.ZodError) {
-			console.error(`OpenRouter API response validation failed:`, error.errors)
+			console.error(`OpenRouter API response validation failed:`, error.issues)
 		} else {
 			console.error(`Error fetching OpenRouter providers:`, error)
 		}

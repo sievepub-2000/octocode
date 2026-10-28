@@ -256,13 +256,13 @@ export class ExtHostWorkspace implements ExtHostWorkspaceShape, IExtHostWorkspac
 	}
 
 	private _useIgnoreFilesInFindFiles(): boolean {
-		return this._configProvider?.getConfiguration('search').get<boolean>('experimental.useIgnoreFilesInFindFiles') ?? false;
+		return this._configProvider?.getConfiguration('search', null).get<boolean>('experimental.useIgnoreFilesInFindFiles') ?? false;
 	}
 
 	private _userIgnoreFilesSetting(): boolean {
 		// Default in `search.useIgnoreFiles` is `true`; mirror that here so telemetry computed against
 		// an unset config still reflects the fallback the query builder will apply.
-		return this._configProvider?.getConfiguration('search').get<boolean>('useIgnoreFiles') ?? true;
+		return this._configProvider?.getConfiguration('search', null).get<boolean>('useIgnoreFiles') ?? true;
 	}
 
 	$initializeWorkspace(data: IWorkspaceData | null, trusted: boolean): void {

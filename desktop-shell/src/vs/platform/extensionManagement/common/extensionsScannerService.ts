@@ -27,7 +27,7 @@ import { validateExtensionManifest } from '../../extensions/common/extensionVali
 import { FileOperationResult, IFileService, toFileOperationResult } from '../../files/common/files.js';
 import { createDecorator, IInstantiationService } from '../../instantiation/common/instantiation.js';
 import { ILogService } from '../../log/common/log.js';
-import { IProductService } from '../../product/common/productService.js';
+import { IProductService, getVscodeApiVersion } from '../../product/common/productService.js';
 import { Emitter, Event } from '../../../base/common/event.js';
 import { revive } from '../../../base/common/marshalling.js';
 import { ExtensionsProfileScanningError, ExtensionsProfileScanningErrorCode, IExtensionsProfileScannerService, IProfileExtensionsScanOptions, IScannedProfileExtension } from './extensionsProfileScannerService.js';
@@ -334,7 +334,10 @@ export abstract class AbstractExtensionsScannerService extends Disposable implem
 						try {
 							await this.fileService.createFile(this.userDataProfilesService.defaultProfile.extensionsResource, VSBuffer.fromString(JSON.stringify([])));
 						} catch (error) {
-							if (toFileOperationResult(error) !== FileOperationResult.FILE_NOT_FOUND) {
+							if (toFileOperationResult(error) === FileOperationResult.FILE_MODIFIED_SINCE) {
+								// Another process created it while scanning; validate and preserve its registrations.
+								await this.extensionsProfileScannerService.scanProfileExtensions(this.userDataProfilesService.defaultProfile.extensionsResource, { bailOutWhenFileNotFound: true });
+							} else if (toFileOperationResult(error) !== FileOperationResult.FILE_NOT_FOUND) {
 								this.logService.warn('Failed to create default profile extensions manifest in extensions installation folder.', this.userExtensionsLocation.toString(), getErrorMessage(error));
 							}
 						}
@@ -521,7 +524,7 @@ export abstract class AbstractExtensionsScannerService extends Disposable implem
 
 	private getProductVersion(): IProductVersion {
 		return {
-			version: this.productService.version,
+			version: getVscodeApiVersion(this.productService),
 			date: this.productService.date,
 		};
 	}

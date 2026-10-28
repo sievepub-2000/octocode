@@ -85,7 +85,9 @@ describe("webviewMessageHandler - queueMessage", () => {
 			images: ["img"],
 		})
 
-		expect(enqueue).toHaveBeenCalledWith("task-1", "later", ["img"], { apiProvider: "openai" }, "full")
+		// The queue entry carries the attachment source paths (undefined when the
+		// message has none); the copy happens when the entry becomes a turn.
+		expect(enqueue).toHaveBeenCalledWith("task-1", "later", ["img"], { apiProvider: "openai" }, "full", undefined)
 		expect(call).toHaveBeenCalledWith("session.working_directory", { id: "task-1" })
 		expect((provider as unknown as { startRuntimeTask: Mock }).startRuntimeTask).not.toHaveBeenCalled()
 	})
@@ -97,7 +99,17 @@ describe("webviewMessageHandler - queueMessage", () => {
 		await webviewMessageHandler(provider, { type: "queueMessage", text: "do it", images: [] })
 
 		expect(enqueue).not.toHaveBeenCalled()
-		expect((provider as unknown as { startRuntimeTask: Mock }).startRuntimeTask).toHaveBeenCalledWith("do it", [])
+		// The handler forwards attachment paths (undefined here) plus the runtime
+		// task options the direct path resolves from state.
+		expect((provider as unknown as { startRuntimeTask: Mock }).startRuntimeTask).toHaveBeenCalledWith(
+			"do it",
+			[],
+			undefined,
+			{},
+			undefined,
+			undefined,
+			undefined,
+		)
 	})
 
 	it("edits and removes through the same queue", async () => {

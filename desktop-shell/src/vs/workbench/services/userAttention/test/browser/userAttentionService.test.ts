@@ -28,7 +28,7 @@ suite('UserAttentionService', () => {
 	const ATTENTION_TIMEOUT = 60_000; // USER_ATTENTION_TIMEOUT_MS is 60 seconds
 
 	setup(() => {
-		clock = sinon.useFakeTimers();
+		clock = sinon.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
 		insta = store.add(new TestInstantiationService());
 		insta.stub(ILogService, new NullLogService());
 

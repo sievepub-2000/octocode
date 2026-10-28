@@ -39,6 +39,18 @@
 	opacity: 1;
 }
 
+.vscode-dark .octocode-brand-outline,
+.vscode-high-contrast-light .octocode-brand-outline {
+	border-color: var(--vscode-button-background);
+	outline-color: var(--vscode-focusBorder);
+}
+
+.vscode-dark .octocode-brand-fill,
+.vscode-high-contrast-light .octocode-brand-fill {
+	background-color: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+}
+
 @theme {
 	--font-display: var(--vscode-font-family);
 

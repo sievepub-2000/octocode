@@ -137,7 +137,7 @@ suite('Decorators', () => {
 
 	test('throttle', () => {
 		const spy = sinon.spy();
-		const clock = sinon.useFakeTimers();
+		const clock = sinon.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
 		try {
 			class ThrottleTest {
 				private _handle: Function;

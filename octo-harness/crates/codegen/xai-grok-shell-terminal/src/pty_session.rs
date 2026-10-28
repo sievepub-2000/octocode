@@ -277,6 +277,9 @@ pub async fn create_pty(
     for (k, v) in &env {
         cmd.env(k, v);
     }
+    if let Some(key) = crate::conflicting_color_env(&env) {
+        cmd.env_remove(key);
+    }
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("LANG", "en_US.UTF-8");

@@ -1,0 +1,30 @@
+{
+  "name": "@vscode/deviceid",
+  "version": "0.1.5",
+  "tarball": "https://registry.npmjs.org/@vscode/deviceid/-/deviceid-0.1.5.tgz",
+  "integrity": "sha512-D0be67wWo7WyyBqHnRkL2bK7lp7CDH/EMN4kMV6INoKc7kxRL3nsTtngt9JZrOcZdnW59gquGRk+6KFIDyD3QA==",
+  "archiveSha256": "3298cbb0c9ca1976c8c993407db1a6f00d1b9309641317bd9d018cb0d0bc5597",
+  "originalFiles": {
+    ".config/TSAOptions.json": "b130634e194fc5257bca62e8cf16ed858589100cd39454ea40cb059732dd1630",
+    "azure-pipelines/azure-pipeline.yml": "baaca6db94ce823df74ab54a76096e437aa8444fa8f4ab260a3123938d04fa8b",
+    "azure-pipelines/release.yml": "6dca66c7516ca2ac19e4ad33fb308bf2db1425154d1f9e0fd34df6535a2c5dca",
+    "binding.gyp": "63b0164bfedee58640c3984a4a3339aa514c5651400715c80c3cafd70137f95f",
+    "CODE_OF_CONDUCT.md": "c9169389a1b6e7fb93de363dc6fad32f49d7afaa9fd53e79a213972c9c76cc7e",
+    "CONTRIBUTING.md": "f83f35400c698ee4a2eb6287a567edc45bb54a0170117b7801332fb870183edd",
+    "dist/devdeviceid.d.ts": "f4a656896d1e42e1e9ee9aa8fe41bfb6fc00e0073bd2116f8f576ebc4250e524",
+    "dist/devdeviceid.js": "0d30d86857783615a35a42e14f3770d4fc956769c9dd0911e054ad390805df72",
+    "dist/index.d.ts": "f704daa4d52b3676b06eb665b4c609964250ba15a7cf7c1d2c393826e9e62dc1",
+    "dist/index.js": "a3c23187fd5e2ff1b727cbb30793048d6178183154ee96442ec0121564fdf1c6",
+    "dist/storage.d.ts": "669bc78ad94e31307815497c4885f45342c184b8edf8e2d06814807e0f9ed1f2",
+    "dist/storage.js": "518013180a98b70fa922cc3a6a9ef00a9b27f4eed3e39cf37cee93ab44f42e38",
+    "LICENSE.txt": "2fade85119c086eff03b6cc04d1b0975152c4920cb27122ca3f27473b3fdcefa",
+    "NOTICE.txt": "191466bbe90c2b90089338e869f7ac6ee05be59827ad0b18543c4d760fa87a35",
+    "nuget.config": "c17d8527746ae7722691efa2b6a8300d69c0b057981f9fb89ee383aa8f7dcd42",
+    "owners.txt": "046ba4464f178be9f5f9b76cf026db71f3c17b4efc808ab326cfa9ef14dd8983",
+    "package.json": "031958ead47834a8069d5da665f729d0965e87e1f91eca7044fd75b617dfafc3",
+    "README.md": "505bdcba0aebc02ff1193956fb691e8f0e63845f21ec6061a4f483b7ea98c616",
+    "SECURITY.md": "891c6326bdd8ea026af23af20fd7dd7167b666f4bd4f63cf22dfdef09d5e78b2",
+    "src/windows.cc": "b986ca5872c555bea0b89a0e3a439753409ae7015910137e5c8aad609384b51e",
+    "SUPPORT.md": "9e372b841997caa96feb1ca89b69124d092a782772a50f20cd7614e0c5d443d5"
+  }
+}

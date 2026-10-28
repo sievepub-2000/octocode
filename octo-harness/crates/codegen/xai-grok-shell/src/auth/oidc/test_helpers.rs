@@ -12,18 +12,20 @@ pub(super) fn test_nonce() -> String {
 pub(super) const TEST_CLIENT_ID: &str = "test-client-id";
 pub(super) fn ensure_crypto_provider() {
     xai_grok_extra_ca::ensure_default_crypto_provider();
-    let _ = jsonwebtoken::crypto::rust_crypto::DEFAULT_PROVIDER.install_default();
+    let _ = jsonwebtoken::crypto::aws_lc::DEFAULT_PROVIDER.install_default();
 }
 pub(super) fn generate_test_rsa_key() -> (String, String, String) {
-    use rsa::pkcs8::EncodePrivateKey;
-    use rsa::traits::PublicKeyParts;
-    let private_key = rsa::RsaPrivateKey::new(&mut rsa::rand_core::OsRng, 2048).unwrap();
-    let pem = private_key
-        .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
-        .unwrap()
-        .to_string();
-    let jwk_n = URL_SAFE_NO_PAD.encode(private_key.n().to_bytes_be());
-    let jwk_e = URL_SAFE_NO_PAD.encode(private_key.e().to_bytes_be());
+    use aws_lc_rs::encoding::{AsDer, Pkcs8V1Der};
+    use aws_lc_rs::signature::KeyPair;
+    let key = aws_lc_rs::rsa::KeyPair::generate(aws_lc_rs::rsa::KeySize::Rsa2048).unwrap();
+    let der: Pkcs8V1Der<'static> = key.as_der().unwrap();
+    let public = aws_lc_rs::rsa::PublicKeyComponents::<Vec<u8>>::from(key.public_key());
+    let jwk_n = URL_SAFE_NO_PAD.encode(public.n);
+    let jwk_e = URL_SAFE_NO_PAD.encode(public.e);
+    let pem = format!(
+        "-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----\n",
+        base64::engine::general_purpose::STANDARD.encode(der.as_ref())
+    );
     (pem, jwk_n, jwk_e)
 }
 pub(super) async fn mock_idp_token() -> (String, String, Discovery, tokio::task::JoinHandle<()>) {

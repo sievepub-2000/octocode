@@ -1,0 +1,32 @@
+"use strict";
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ConnectionStatusChangedEventArgs = void 0;
+/**
+ * Connection status changed event args.
+ */
+class ConnectionStatusChangedEventArgs {
+    /**
+     * Creates a new instance of ConnectionStatusChangedEventArgs.
+     */
+    constructor(
+    /**
+     * Gets the previous connection status.
+     */
+    previousStatus, 
+    /**
+     * Gets the current connection status.
+     */
+    status, 
+    /**
+     * Gets the error that caused disconnect if {@link status} is {@link ConnectionStatus.Disconnected}.
+     */
+    disconnectError) {
+        this.previousStatus = previousStatus;
+        this.status = status;
+        this.disconnectError = disconnectError;
+    }
+}
+exports.ConnectionStatusChangedEventArgs = ConnectionStatusChangedEventArgs;
+//# sourceMappingURL=connectionStatusChangedEventArgs.js.map

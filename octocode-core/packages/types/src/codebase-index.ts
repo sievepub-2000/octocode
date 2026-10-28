@@ -1,4 +1,4 @@
-import { z } from "zod"
+import { z } from "zod/v4"
 
 /**
  * Codebase Index Constants
@@ -23,6 +23,7 @@ export const codebaseIndexConfigSchema = z.object({
 	codebaseIndexQdrantUrl: z.string().optional(),
 	codebaseIndexEmbedderProvider: z
 		.enum([
+			"native",
 			"openai",
 			"ollama",
 			"openai-compatible",
@@ -60,6 +61,7 @@ export type CodebaseIndexConfig = z.infer<typeof codebaseIndexConfigSchema>
  */
 
 export const codebaseIndexModelsSchema = z.object({
+	native: z.record(z.string(), z.object({ dimension: z.number() })).optional(),
 	openai: z.record(z.string(), z.object({ dimension: z.number() })).optional(),
 	ollama: z.record(z.string(), z.object({ dimension: z.number() })).optional(),
 	"openai-compatible": z.record(z.string(), z.object({ dimension: z.number() })).optional(),

@@ -36,7 +36,6 @@ import {
 	registerTerminalActions,
 	CodeActionProvider,
 } from "./activate"
-import { registerResourceViews } from "./activate/resourceViews"
 import { initializeI18n } from "./i18n"
 import { initOctoCodeAuth } from "./services/octocode-auth"
 import { initializeOctoCodeRuntime } from "./services/octocode-runtime/OctoCodeRuntime"
@@ -436,7 +435,6 @@ export async function activate(context: vscode.ExtensionContext) {
 	}
 
 	registerCommands({ context, outputChannel, provider })
-	registerResourceViews(context, provider)
 
 	/**
 	 * We use the text document content provider API to show the left side for diff

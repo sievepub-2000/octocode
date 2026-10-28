@@ -65,7 +65,7 @@ const fs = require('fs');
 const { ipcRenderer } = require('electron');
 const assert = require('assert');
 const path = require('path');
-const glob = require('glob');
+const { glob: globAsync } = require('glob');
 const util = require('util');
 const coverage = require('../coverage');
 const { pathToFileURL } = require('url');
@@ -156,7 +156,6 @@ async function loadModules(modules) {
 	}
 }
 
-const globAsync = util.promisify(glob);
 
 async function loadTestModules(opts) {
 
@@ -170,7 +169,7 @@ async function loadTestModules(opts) {
 	}
 
 	const pattern = opts.runGlob || _tests_glob;
-	const files = await globAsync(pattern, { cwd: loadFn._out });
+	const files = (await globAsync(pattern, { cwd: loadFn._out, windowsPathsNoEscape: true })).sort();
 	let modules = files.map(file => file.replace(/\.js$/, ''));
 	if (opts.testSplit) {
 		const [i, n] = opts.testSplit.split('/').map(Number);

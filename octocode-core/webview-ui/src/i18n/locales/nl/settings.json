@@ -28,6 +28,7 @@
 		"discardButton": "Wijzigingen negeren"
 	},
 	"sections": {
+		"memoryKnowledge": "Geheugen en kennis",
 		"providers": "Providers",
 		"modes": "Modi",
 		"mcp": "MCP-servers",
@@ -170,6 +171,12 @@
 		"description": "Configureer ondersteuningsprompts die worden gebruikt voor snelle acties zoals het verbeteren van prompts, het uitleggen van code en het oplossen van problemen. Deze prompts helpen OctoCode om betere ondersteuning te bieden voor veelvoorkomende ontwikkelingstaken."
 	},
 	"codeIndex": {
+		"indexReadyLabel": "Index gereed",
+		"nativeProvider": "Lokale code-index (symbolen en lexicale zoekfunctie, offline)",
+		"memoryKnowledgeDescription": "Het Harness-geheugen blijft gekoppeld aan het bijbehorende gesprek. Beheer en doorzoek hier de codekennis van het geselecteerde project; lokale indexering vereist geen modelsleutel of externe database.",
+		"searchQuery": "Codekennis van het project doorzoeken",
+		"searchButton": "Index doorzoeken",
+		"noSearchResults": "Geen overeenkomende geïndexeerde code.",
 		"title": "Codebase indexering",
 		"enableLabel": "Codebase indexering inschakelen",
 		"enableDescription": "Code-indexering inschakelen voor verbeterde zoekresultaten en contextbegrip",

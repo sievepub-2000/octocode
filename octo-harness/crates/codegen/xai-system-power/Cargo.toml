@@ -9,6 +9,7 @@ description = "Cross-platform system sleep/wake (suspend) notifications — used
 
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { workspace = true }
+futures-util = { workspace = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.59", features = [

@@ -49,3 +49,8 @@
 	margin-right: 12px;
 	white-space: nowrap;
 }
+
+.monaco-workbench.vs-dark .octocode-titlebar-wordmark,
+.monaco-workbench.hc-light .octocode-titlebar-wordmark {
+	color: var(--vscode-titleBar-activeForeground);
+}

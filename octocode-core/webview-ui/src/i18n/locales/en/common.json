@@ -343,6 +343,10 @@
 	"dismiss": "Dismiss",
 	"dismissAndDontShowAgain": "Dismiss and do not show again",
 	"extensions": {
+		"pagination": "Component pages",
+		"pageNumber": "Page {{number}}",
+		"previousPage": "Previous",
+		"nextPage": "Next",
 		"market": "Marketplace",
 		"systemToolsHint": "System tools · available in every workspace",
 		"environments": "Runtimes",
@@ -356,7 +360,7 @@
 		"working": "Working…",
 		"empty": "Nothing to show.",
 		"environmentsHint": "Toolchains the agent can use. They are downloaded when first needed; install one ahead of time or remove it here.",
-		"search": "Search VS Code extensions (Open VSX)…",
+		"search": "Search the component marketplace…",
 		"vscodeHint": "VS Code extensions add languages, debuggers and editor features. Search the gallery, then install or uninstall here."
 	}
 }

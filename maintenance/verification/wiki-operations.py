@@ -7,7 +7,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 root = pathlib.Path(r'D:\gpt-workspace\octocode')
-app = pathlib.Path(r'D:\Program Files\OctoCode')
+app = pathlib.Path(r'E:\Program Files\octocode')
 body = '''# OctoCode operations — 2026-09-21
 
 The sole executable installation is D:\\Program Files\\OctoCode.

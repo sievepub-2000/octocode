@@ -28,6 +28,7 @@
 		"discardButton": "Descartar canvis"
 	},
 	"sections": {
+		"memoryKnowledge": "Memòria i coneixement",
 		"providers": "Proveïdors",
 		"modes": "Modes",
 		"mcp": "Servidors MCP",
@@ -170,6 +171,12 @@
 		"description": "Configura les indicacions de suport utilitzades per a accions ràpides com millorar indicacions, explicar codi i solucionar problemes. Aquestes indicacions ajuden OctoCode a proporcionar millor assistència per a tasques comunes de desenvolupament."
 	},
 	"codeIndex": {
+		"indexReadyLabel": "Índex a punt",
+		"nativeProvider": "Índex de codi local (símbols i cerca lèxica, sense connexió)",
+		"memoryKnowledgeDescription": "La memòria del Harness es manté amb la seva conversa. Gestiona i cerca aquí el coneixement del codi del projecte seleccionat; la indexació local no necessita cap clau de model ni base de dades externa.",
+		"searchQuery": "Cerca al coneixement del codi del projecte",
+		"searchButton": "Cerca a l'índex",
+		"noSearchResults": "No s'ha trobat cap codi indexat coincident.",
 		"title": "Indexació de codi",
 		"enableLabel": "Habilitar indexació de codi",
 		"enableDescription": "Habilita la indexació de codi per millorar la cerca i la comprensió del context",

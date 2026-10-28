@@ -449,16 +449,33 @@ impl Store {
         kind: &str,
         payload: &Value,
     ) -> rusqlite::Result<i64> {
+        self.append_event_at(session_id, kind, payload, Utc::now().timestamp_millis())
+    }
+
+    pub fn append_event_at(
+        &self,
+        session_id: Option<&str>,
+        kind: &str,
+        payload: &Value,
+        created_at: i64,
+    ) -> rusqlite::Result<i64> {
         self.conn.execute(
             "INSERT INTO events(session_id,kind,payload,created_at) VALUES (?1,?2,?3,?4)",
             params![
                 session_id,
                 kind,
                 payload.to_string(),
-                Utc::now().timestamp_millis()
+                created_at
             ],
         )?;
         Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn event_times(&self, session_id: &str, after: i64, through: i64) -> rusqlite::Result<std::collections::HashMap<i64, i64>> {
+        let mut statement = self.conn.prepare(
+            "SELECT sequence,created_at FROM events WHERE session_id=?1 AND sequence>?2 AND sequence<=?3",
+        )?;
+        statement.query_map(params![session_id, after, through], |row| Ok((row.get(0)?, row.get(1)?)))?.collect()
     }
 
     pub fn events(

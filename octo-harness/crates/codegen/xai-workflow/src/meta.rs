@@ -56,6 +56,9 @@ pub fn extract_meta(script: &str) -> Result<WorkflowMeta, MetaError> {
     let mut engine = rhai::Engine::new();
     engine.set_max_operations(META_PROBE_MAX_OPS);
     engine.set_max_expr_depths(128, 64);
+    engine.set_max_string_size(16 * 1024 * 1024);
+    engine.set_max_array_size(65_536);
+    engine.set_max_map_size(65_536);
     engine.set_module_resolver(rhai::module_resolvers::DummyModuleResolver::new());
     engine.disable_symbol("eval");
 
@@ -188,6 +191,21 @@ fn first_statement_is_meta(script: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn metadata_string_expansion_obeys_the_execution_limit() {
+        let small = extract_meta(
+            r#"let meta = #{ name: "demo", description: "x" }; meta.description.pad(4, 'x');"#,
+        )
+        .expect("ordinary expressions remain supported");
+        assert_eq!(small.description, "xxxx");
+        let bounded = extract_meta(r#"let meta = #{ name: "demo", description: "x" }; meta.description.pad(16777217, 'x');"#)
+            .expect("a failed later expression preserves previously extracted metadata");
+        assert_eq!(bounded.description, "x");
+        let bounded = extract_meta(r#"let meta = #{ name: "demo", description: "x", phases: [] }; meta.phases.pad(65537, #{ title: "phase" });"#)
+            .expect("array expansion is bounded before metadata validation");
+        assert!(bounded.phases.is_empty());
+    }
 
     #[test]
     fn extracts_valid_meta() {

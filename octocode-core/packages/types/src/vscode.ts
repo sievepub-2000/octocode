@@ -1,4 +1,4 @@
-import { z } from "zod"
+import { z } from "zod/v4"
 
 /**
  * CodeAction
@@ -34,6 +34,7 @@ export const commandIds = [
 	"popoutButtonClicked",
 	"settingsButtonClicked",
 	"checkForUpdate",
+	"recoverDesktopUpdate",
 
 	"openInNewTab",
 	"openChatPanel",

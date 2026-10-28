@@ -24,7 +24,11 @@ def check():
         assert not (root / "environments/tools/skills/private").exists()
         assert migrate(root)["files_verified"] == 0
         authoritative = root / "environments/tools/mcp/mcp_settings.json"
-        current = json.loads(authoritative.read_text(encoding="utf-8"))
+        unchanged = b'\xef\xbb\xbf' + json.dumps(json.loads(authoritative.read_text()), indent=4).encode() + b'\r\n'
+        authoritative.write_bytes(unchanged)
+        migrate(root)
+        assert authoritative.read_bytes() == unchanged, "Unchanged MCP settings must retain original bytes"
+        current = json.loads(authoritative.read_text(encoding="utf-8-sig"))
         current["mcpServers"]["code-review-graph"] = {
             "command": "python", "args": ["-m", "code_review_graph"],
             "env": {"PYTHONPATH": "${env:OCTOCODE_ENVIRONMENTS}/tools/mcp/code-review-graph"},

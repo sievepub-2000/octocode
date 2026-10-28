@@ -28,6 +28,7 @@
 		"discardButton": "Änderungen verwerfen"
 	},
 	"sections": {
+		"memoryKnowledge": "Gedächtnis und Wissen",
 		"providers": "Anbieter",
 		"modes": "Modi",
 		"mcp": "MCP-Server",
@@ -170,6 +171,12 @@
 		"description": "Konfiguriere Support-Prompts, die für schnelle Aktionen wie das Verbessern von Prompts, das Erklären von Code und das Beheben von Problemen verwendet werden. Diese Prompts helfen OctoCode dabei, bessere Unterstützung für häufige Entwicklungsaufgaben zu bieten."
 	},
 	"codeIndex": {
+		"indexReadyLabel": "Index bereit",
+		"nativeProvider": "Lokaler Codeindex (Symbole und lexikalische Suche, offline)",
+		"memoryKnowledgeDescription": "Der Harness-Speicher bleibt seiner Unterhaltung zugeordnet. Verwalte und durchsuche hier das Codewissen des ausgewählten Projekts; die lokale Indexierung benötigt weder einen Modellschlüssel noch eine externe Datenbank.",
+		"searchQuery": "Codewissen des Projekts durchsuchen",
+		"searchButton": "Index durchsuchen",
+		"noSearchResults": "Kein passender indexierter Code gefunden.",
 		"title": "Codebase-Indexierung",
 		"description": "Konfiguriere Codebase-Indexierungseinstellungen, um semantische Suche in deinem Projekt zu aktivieren. <0>Mehr erfahren</0>",
 		"statusTitle": "Status",

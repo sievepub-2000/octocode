@@ -20,6 +20,8 @@ export type RuntimeEvent = {
 	session_id: string
 	kind: string
 	payload: unknown
+	/** Persisted event time in milliseconds since the Unix epoch. Older undated events omit it. */
+	created_at?: number
 }
 
 export type RuntimePlanEntry = { content: string; status: string }

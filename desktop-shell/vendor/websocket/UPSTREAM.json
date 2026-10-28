@@ -1,0 +1,31 @@
+{
+  "package": "websocket",
+  "version": "1.0.35",
+  "resolved": "https://registry.npmjs.org/websocket/-/websocket-1.0.35.tgz",
+  "integrity": "sha512-/REy6amwPZl44DDzvRCkaI1q1bIiQB0mEFQLUrhz3z2EK91cp3n72rAjUlrTP0zV22HJIUOVHQGPxhFRjxjt+Q==",
+  "originalFiles": {
+    ".github/workflows/websocket-tests.yml": "7edf14e8d87947be06c8c0ddc93c121ac66dca583d6af3d29745692981d508ec",
+    ".jshintrc": "9e6b7fb803a441b167161b7481d3377a9f4095a2c16c00743f2cc2bc7b53ad98",
+    "CHANGELOG.md": "b643097e300aa4148e84fd2201fef5b604953bd0c91d2e6bc0ba69af1dd9429b",
+    "gulpfile.js": "eab84fa11ac4621e762b856fb9cfdb610d599e0db49e878cc450f6578c6d5e60",
+    "index.js": "34fe40b1e70c26339dedac1897614f040cb4fb6f91d928496659294a14d9762b",
+    "lib/browser.js": "55ac7555ed54d923a215ac1c7033a8894f944ee5d51cba9cea612c81d12a7d03",
+    "lib/Deprecation.js": "5c7a11a506792341f1ca514576e3d52f4146cfaa3eaf93d19fdba0902d2eaca6",
+    "lib/utils.js": "17a575e764b3cb24295759b3ae5fc0879ec85b65d7582486deb41d0d63c6324d",
+    "lib/version.js": "d7339e2f3cc1f1ff2624c5e084dff2654793c198dfd1a0bc933fa03fd2f1bbbc",
+    "lib/W3CWebSocket.js": "af62b10e6858c8072f61c27614ec1a0ebaf592cf151df47ec5d05e5318370cda",
+    "lib/websocket.js": "c598e6944102793f8a1d78873085e265576926b4ebf70d2cf30e4b2900933776",
+    "lib/WebSocketClient.js": "aa05fd231f5367f72e724989f1df8f423f1f7145e14ef074f6112dfe86a0e691",
+    "lib/WebSocketConnection.js": "4fd8fac5d573223e14e45a18967c0920c8966e486b4f276e8a2931bc47893b82",
+    "lib/WebSocketFrame.js": "de492fc2d713ea1cc139099d088ff7a02edc13a00c6fea1cc03be50b3d6db436",
+    "lib/WebSocketRequest.js": "74926538165d612c02d728cd1beb5a235508f58c4325f0064790f905d7c73098",
+    "lib/WebSocketRouter.js": "cd39c3e38d84ff1294d6db2e4831ce28fdb3207c8ad286c553045ee11a40a6fa",
+    "lib/WebSocketRouterRequest.js": "a71c81eaa25a091099a1e3a55f5e007b4520ce835582921f6abdbc8f85dcc9d6",
+    "lib/WebSocketServer.js": "49bcfcd8e2e46d06f7c6f9717ce19878fb7c60886b05fc030fd102816f3c2334",
+    "LICENSE": "39445b459f86621683f9731fb6a7d070819dc379840e8ef52f62bb1c68942291",
+    "Makefile": "336551c4b6d96db77ec472c33a5f27a25ba55ed85825415b0924852e30e1e00e",
+    "package.json": "d7c95518bab967557a744d0b5774b6ae061d6c3fbeae4257653b1080a966b3c1",
+    "README.md": "3f0de646ee69db839a13a6fa153b33dfbacf273a8d905b48fb7531d7a76193d0",
+    "vendor/FastBufferList.js": "ac5a8444dfe1112a0f21f7dbe39388e5b838e298e44681917b376493aad5252e"
+  }
+}

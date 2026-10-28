@@ -19,7 +19,6 @@ vitest.mock("@vscode/webview-ui-toolkit/react", () => ({
 }))
 
 vitest.mock("@/components/ui", () => ({
-	...vitest.importActual("@/components/ui"),
 	Dialog: ({ children, open }: any) => (
 		<div role="dialog" aria-modal="true" style={{ display: open ? "block" : "none" }} data-testid="dialog">
 			{children}
@@ -111,6 +110,7 @@ describe("ApiConfigManager", () => {
 	const mockOnDeleteConfig = vitest.fn()
 	const mockOnRenameConfig = vitest.fn()
 	const mockOnUpsertConfig = vitest.fn()
+	const mockOnCreateConfig = vitest.fn()
 
 	const defaultProps = {
 		currentApiConfigName: "Default Config",
@@ -122,6 +122,7 @@ describe("ApiConfigManager", () => {
 		onDeleteConfig: mockOnDeleteConfig,
 		onRenameConfig: mockOnRenameConfig,
 		onUpsertConfig: mockOnUpsertConfig,
+		onCreateConfig: mockOnCreateConfig,
 	}
 
 	beforeEach(() => {
@@ -141,7 +142,7 @@ describe("ApiConfigManager", () => {
 		expect(screen.getByTestId("dialog-title")).toHaveTextContent("settings:providers.newProfile")
 	})
 
-	it("creates new profile with entered name", () => {
+	it("creates new profile with entered name via blank-slate create callback", () => {
 		render(<ApiConfigManager {...defaultProps} />)
 
 		// Open dialog
@@ -156,7 +157,9 @@ describe("ApiConfigManager", () => {
 		const createButton = screen.getByText("settings:providers.createProfile")
 		fireEvent.click(createButton)
 
-		expect(mockOnUpsertConfig).toHaveBeenCalledWith("New Profile")
+		// Creating must use onCreateConfig (no inherited fields), not upsert.
+		expect(mockOnCreateConfig).toHaveBeenCalledWith("New Profile")
+		expect(mockOnUpsertConfig).not.toHaveBeenCalled()
 	})
 
 	it("shows error when creating profile with existing name", () => {
@@ -318,7 +321,7 @@ describe("ApiConfigManager", () => {
 		// Test Enter key
 		fireEvent.input(input, { target: { value: "New Profile" } })
 		fireEvent.keyDown(input, { key: "Enter" })
-		expect(mockOnUpsertConfig).toHaveBeenCalledWith("New Profile")
+		expect(mockOnCreateConfig).toHaveBeenCalledWith("New Profile")
 
 		// Test Escape key
 		fireEvent.keyDown(input, { key: "Escape" })

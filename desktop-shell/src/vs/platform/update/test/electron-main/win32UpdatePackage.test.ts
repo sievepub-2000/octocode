@@ -21,6 +21,7 @@ suite('Windows update package', () => {
 		assert.throws(() => validateWindowsUpdate({ ...update, sha256hash: undefined }));
 		assert.throws(() => validateWindowsUpdate({ ...update, sha256hash: 'bad' }));
 		assert.throws(() => validateWindowsUpdate({ ...update, url: 'http://example.com/setup.exe' }));
+		assert.throws(() => validateWindowsUpdate({ ...update, size: -1 }));
 	});
 
 	test('verifies both fresh and cached packages and rejects tampering', async () => {
@@ -29,6 +30,8 @@ suite('Windows update package', () => {
 			const file = join(directory, 'setup.exe');
 			await writeFile(file, 'installer');
 			await verifyWindowsUpdatePackage(file, update);
+			await verifyWindowsUpdatePackage(file, { ...update, size: 9 });
+			await assert.rejects(verifyWindowsUpdatePackage(file, { ...update, size: 10 }), /size/);
 			await verifyWindowsUpdatePackage(file, { ...update, sha256hash: update.sha256hash.toUpperCase() });
 			await writeFile(file, 'tampered');
 			await assert.rejects(verifyWindowsUpdatePackage(file, update));

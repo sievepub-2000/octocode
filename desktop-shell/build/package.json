@@ -4,7 +4,7 @@
   "license": "MIT",
   "config": {
     "node_gyp_dist_url": "https://nodejs.org/dist",
-    "node_gyp_target": "24.19.0",
+    "node_gyp_target": "26.12.1",
     "node_gyp_runtime": "node",
     "node_gyp_build_from_source": "true",
     "node_gyp_force_process_config": "true"
@@ -13,9 +13,9 @@
     "@azure/core-auth": "^1.9.0",
     "@azure/cosmos": "^4",
     "@azure/identity": "^4.13.1",
-    "@azure/msal-node": "^5.2.2",
+    "@azure/msal-node": "^7.1.1",
     "@azure/storage-blob": "^12.25.0",
-    "@electron/get": "^2.0.0",
+    "@electron/get": "^5.1.0",
     "@electron/osx-sign": "^2.0.0",
     "@types/ansi-colors": "^3.2.0",
     "@types/byline": "^4.2.32",
@@ -23,7 +23,6 @@
     "@types/debug": "^4.1.5",
     "@types/fancy-log": "^1.3.0",
     "@types/fs-extra": "^9.0.12",
-    "@types/glob": "^7.1.1",
     "@types/gulp": "^4.0.17",
     "@types/gulp-filter": "^3.0.32",
     "@types/gulp-flatmap": "^1.0.0",
@@ -41,7 +40,6 @@
     "@types/node": "24.x",
     "@types/p-all": "^1.0.0",
     "@types/pump": "^1.0.1",
-    "@types/rimraf": "^2.0.4",
     "@types/through": "^0.0.29",
     "@types/through2": "^2.0.36",
     "@types/vinyl": "^2.0.12",
@@ -51,9 +49,11 @@
     "@vscode/ripgrep-universal": "^1.18.0",
     "@vscode/vsce": "3.6.1",
     "ansi-colors": "^3.2.3",
+    "braces": "file:../vendor/braces",
     "byline": "^5.0.0",
     "debug": "^4.3.2",
     "esbuild": "0.27.2",
+    "glob": "^13.0.6",
     "gulp-merge-json": "^2.1.1",
     "gulp-sort": "^2.0.0",
     "jsonc-parser": "^2.3.0",
@@ -64,7 +64,7 @@
     "ternary-stream": "^3.0.0",
     "through2": "^4.0.2",
     "tree-sitter": "^0.25.1",
-    "vscode-universal-bundler": "^0.1.3",
+    "vscode-universal-bundler": "file:../vendor/vscode-universal-bundler",
     "workerpool": "^6.4.0",
     "yauzl": "^3.3.1",
     "zx": "^8.8.5"
@@ -82,10 +82,25 @@
     "vscode-gulp-watch": "^5.0.3"
   },
   "overrides": {
+    "argparse": "2.0.1",
+    "braces": "$braces",
     "path-scurry": {
       "lru-cache": "11.2.1"
     },
-    "yauzl": "^3.3.1"
+    "yauzl": "^3.3.1",
+    "http-cache-semantics": "^4.3.0",
+    "brace-expansion@<2": "1.1.21",
+    "brace-expansion@>=2 <3": "2.1.7",
+    "brace-expansion@>=3": "5.0.12",
+    "markdown-it": "^14.3.3",
+    "js-yaml@<4": "3.15.2",
+    "js-yaml@>=4": "4.3.2",
+    "qs": "^6.16.0",
+    "@azure/identity": {
+      "@azure/msal-node": "$@azure/msal-node"
+    },
+    "fast-uri": "^3.1.9",
+    "undici": "^7.30.1"
   },
   "allowScripts": {
     "@vscode/vsce-sign@2.0.7": true,

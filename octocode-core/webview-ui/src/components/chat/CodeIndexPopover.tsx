@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
+import React, { useState, useEffect, useMemo, useCallback, useRef, useImperativeHandle } from "react"
 import { Trans } from "react-i18next"
-import { z } from "zod"
+import { z } from "zod/v4"
 import {
 	VSCodeButton,
 	VSCodeTextField,
@@ -51,9 +51,17 @@ import {
 const DEFAULT_QDRANT_URL = "http://localhost:6333"
 const DEFAULT_OLLAMA_URL = "http://localhost:11434"
 
+export interface CodeIndexSettingsActions {
+	save: () => Promise<boolean>
+	discard: () => void
+}
+
 interface CodeIndexPopoverProps {
-	children: React.ReactNode
+	children?: React.ReactNode
 	indexingStatus: IndexingStatus
+	inline?: boolean
+	onDirtyChange?: (dirty: boolean) => void
+	settingsRef?: React.Ref<CodeIndexSettingsActions>
 }
 
 interface LocalCodeIndexSettings {
@@ -97,86 +105,109 @@ export const createValidationSchema = (provider: EmbedderProvider, t: any) => {
 
 	switch (provider) {
 		case "openai":
-			return baseSchema.extend({
-				codeIndexOpenAiKey: z.string().min(1, t("settings:codeIndex.validation.openaiApiKeyRequired")),
-				codebaseIndexEmbedderModelId: z
-					.string()
-					.min(1, t("settings:codeIndex.validation.modelSelectionRequired")),
-			}).or(disabledSchema)
+			return baseSchema
+				.extend({
+					codeIndexOpenAiKey: z.string().min(1, t("settings:codeIndex.validation.openaiApiKeyRequired")),
+					codebaseIndexEmbedderModelId: z
+						.string()
+						.min(1, t("settings:codeIndex.validation.modelSelectionRequired")),
+				})
+				.or(disabledSchema)
 
 		case "ollama":
-			return baseSchema.extend({
-				codebaseIndexEmbedderBaseUrl: z
-					.string()
-					.min(1, t("settings:codeIndex.validation.ollamaBaseUrlRequired"))
-					.url(t("settings:codeIndex.validation.invalidOllamaUrl")),
-				codebaseIndexEmbedderModelId: z.string().min(1, t("settings:codeIndex.validation.modelIdRequired")),
-				codebaseIndexEmbedderModelDimension: z
-					.number()
-					.min(1, t("settings:codeIndex.validation.modelDimensionRequired"))
-					.optional(),
-			}).or(disabledSchema)
+			return baseSchema
+				.extend({
+					codebaseIndexEmbedderBaseUrl: z
+						.string()
+						.min(1, t("settings:codeIndex.validation.ollamaBaseUrlRequired"))
+						.url(t("settings:codeIndex.validation.invalidOllamaUrl")),
+					codebaseIndexEmbedderModelId: z.string().min(1, t("settings:codeIndex.validation.modelIdRequired")),
+					codebaseIndexEmbedderModelDimension: z
+						.number()
+						.min(1, t("settings:codeIndex.validation.modelDimensionRequired"))
+						.optional(),
+				})
+				.or(disabledSchema)
 
 		case "openai-compatible":
-			return baseSchema.extend({
-				codebaseIndexOpenAiCompatibleBaseUrl: z
-					.string()
-					.min(1, t("settings:codeIndex.validation.baseUrlRequired"))
-					.url(t("settings:codeIndex.validation.invalidBaseUrl")),
-				codebaseIndexOpenAiCompatibleApiKey: z
-					.string()
-					.min(1, t("settings:codeIndex.validation.apiKeyRequired")),
-				codebaseIndexEmbedderModelId: z.string().min(1, t("settings:codeIndex.validation.modelIdRequired")),
-				codebaseIndexEmbedderModelDimension: z
-					.number()
-					.min(1, t("settings:codeIndex.validation.modelDimensionRequired")),
-			}).or(disabledSchema)
+			return baseSchema
+				.extend({
+					codebaseIndexOpenAiCompatibleBaseUrl: z
+						.string()
+						.min(1, t("settings:codeIndex.validation.baseUrlRequired"))
+						.url(t("settings:codeIndex.validation.invalidBaseUrl")),
+					codebaseIndexOpenAiCompatibleApiKey: z
+						.string()
+						.min(1, t("settings:codeIndex.validation.apiKeyRequired")),
+					codebaseIndexEmbedderModelId: z.string().min(1, t("settings:codeIndex.validation.modelIdRequired")),
+					codebaseIndexEmbedderModelDimension: z
+						.number()
+						.min(1, t("settings:codeIndex.validation.modelDimensionRequired")),
+				})
+				.or(disabledSchema)
 
 		case "gemini":
-			return baseSchema.extend({
-				codebaseIndexGeminiApiKey: z.string().min(1, t("settings:codeIndex.validation.geminiApiKeyRequired")),
-				codebaseIndexEmbedderModelId: z
-					.string()
-					.min(1, t("settings:codeIndex.validation.modelSelectionRequired")),
-			}).or(disabledSchema)
+			return baseSchema
+				.extend({
+					codebaseIndexGeminiApiKey: z
+						.string()
+						.min(1, t("settings:codeIndex.validation.geminiApiKeyRequired")),
+					codebaseIndexEmbedderModelId: z
+						.string()
+						.min(1, t("settings:codeIndex.validation.modelSelectionRequired")),
+				})
+				.or(disabledSchema)
 
 		case "mistral":
-			return baseSchema.extend({
-				codebaseIndexMistralApiKey: z.string().min(1, t("settings:codeIndex.validation.mistralApiKeyRequired")),
-				codebaseIndexEmbedderModelId: z
-					.string()
-					.min(1, t("settings:codeIndex.validation.modelSelectionRequired")),
-			}).or(disabledSchema)
+			return baseSchema
+				.extend({
+					codebaseIndexMistralApiKey: z
+						.string()
+						.min(1, t("settings:codeIndex.validation.mistralApiKeyRequired")),
+					codebaseIndexEmbedderModelId: z
+						.string()
+						.min(1, t("settings:codeIndex.validation.modelSelectionRequired")),
+				})
+				.or(disabledSchema)
 
 		case "vercel-ai-gateway":
-			return baseSchema.extend({
-				codebaseIndexVercelAiGatewayApiKey: z
-					.string()
-					.min(1, t("settings:codeIndex.validation.vercelAiGatewayApiKeyRequired")),
-				codebaseIndexEmbedderModelId: z
-					.string()
-					.min(1, t("settings:codeIndex.validation.modelSelectionRequired")),
-			}).or(disabledSchema)
+			return baseSchema
+				.extend({
+					codebaseIndexVercelAiGatewayApiKey: z
+						.string()
+						.min(1, t("settings:codeIndex.validation.vercelAiGatewayApiKeyRequired")),
+					codebaseIndexEmbedderModelId: z
+						.string()
+						.min(1, t("settings:codeIndex.validation.modelSelectionRequired")),
+				})
+				.or(disabledSchema)
 
 		case "bedrock":
-			return baseSchema.extend({
-				codebaseIndexBedrockRegion: z.string().min(1, t("settings:codeIndex.validation.bedrockRegionRequired")),
-				codebaseIndexBedrockProfile: z.string().optional(),
-				codebaseIndexEmbedderModelId: z
-					.string()
-					.min(1, t("settings:codeIndex.validation.modelSelectionRequired")),
-			}).or(disabledSchema)
+			return baseSchema
+				.extend({
+					codebaseIndexBedrockRegion: z
+						.string()
+						.min(1, t("settings:codeIndex.validation.bedrockRegionRequired")),
+					codebaseIndexBedrockProfile: z.string().optional(),
+					codebaseIndexEmbedderModelId: z
+						.string()
+						.min(1, t("settings:codeIndex.validation.modelSelectionRequired")),
+				})
+				.or(disabledSchema)
 
 		case "openrouter":
-			return baseSchema.extend({
-				codebaseIndexOpenRouterApiKey: z
-					.string()
-					.min(1, t("settings:codeIndex.validation.openRouterApiKeyRequired")),
-				codebaseIndexEmbedderModelId: z
-					.string()
-					.min(1, t("settings:codeIndex.validation.modelSelectionRequired")),
-			}).or(disabledSchema)
+			return baseSchema
+				.extend({
+					codebaseIndexOpenRouterApiKey: z
+						.string()
+						.min(1, t("settings:codeIndex.validation.openRouterApiKeyRequired")),
+					codebaseIndexEmbedderModelId: z
+						.string()
+						.min(1, t("settings:codeIndex.validation.modelSelectionRequired")),
+				})
+				.or(disabledSchema)
 
+		case "native":
 		case "semble":
 			// Semble requires no API keys, Qdrant URL, or model selection
 			return z.object({
@@ -191,22 +222,36 @@ export const createValidationSchema = (provider: EmbedderProvider, t: any) => {
 export const CodeIndexPopover: React.FC<CodeIndexPopoverProps> = ({
 	children,
 	indexingStatus: externalIndexingStatus,
+	inline = false,
+	onDirtyChange,
+	settingsRef,
 }) => {
 	const SECRET_PLACEHOLDER = "••••••••••••••••"
 	const { t } = useAppTranslation()
-	const { codebaseIndexConfig, codebaseIndexModels, cwd, apiConfiguration, platform, arch } = useExtensionState()
-	const [open, setOpen] = useState(false)
+	const {
+		codebaseIndexConfig,
+		codebaseIndexModels,
+		codeIndexWorkspacePath: cwd,
+		apiConfiguration,
+	} = useExtensionState()
+	const [open, setOpen] = useState(inline)
 	const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = useState(false)
 	const [isSetupSettingsOpen, setIsSetupSettingsOpen] = useState(false)
 
 	const [indexingStatus, setIndexingStatus] = useState<IndexingStatus>(externalIndexingStatus)
 
 	const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
+	const pendingSave = useRef<
+		| {
+				requestId: string
+				settings: LocalCodeIndexSettings
+				resolve: (success: boolean) => void
+				promise: Promise<boolean>
+		  }
+		| undefined
+	>(undefined)
+	useEffect(() => () => pendingSave.current?.resolve(false), [])
 	const [saveError, setSaveError] = useState<string | null>(null)
-
-	// Check if semble is supported on the current platform
-	const SEMBLE_SUPPORTED_PLATFORMS = ["linux-x64", "linux-arm64", "darwin-arm64", "win32-x64"]
-	const isSembleSupported = platform && arch ? SEMBLE_SUPPORTED_PLATFORMS.includes(`${platform}-${arch}`) : false
 
 	// Form validation state
 	const [formErrors, setFormErrors] = useState<Record<string, string>>({})
@@ -217,9 +262,9 @@ export const CodeIndexPopover: React.FC<CodeIndexPopoverProps> = ({
 
 	// Default settings template
 	const getDefaultSettings = (): LocalCodeIndexSettings => ({
-		codebaseIndexEnabled: true,
+		codebaseIndexEnabled: false,
 		codebaseIndexQdrantUrl: "",
-		codebaseIndexEmbedderProvider: "openai",
+		codebaseIndexEmbedderProvider: "native",
 		codebaseIndexEmbedderBaseUrl: "",
 		codebaseIndexEmbedderModelId: "",
 		codebaseIndexEmbedderModelDimension: undefined,
@@ -244,45 +289,50 @@ export const CodeIndexPopover: React.FC<CodeIndexPopoverProps> = ({
 	// Current settings state - tracks user changes
 	const [currentSettings, setCurrentSettings] = useState<LocalCodeIndexSettings>(getDefaultSettings())
 
+	// Mirror of hasUnsavedChanges for effects declared before the memo itself.
+	const hasUnsavedChangesRef = useRef(false)
+
 	// Update indexing status from parent
 	useEffect(() => {
 		setIndexingStatus(externalIndexingStatus)
 	}, [externalIndexingStatus])
 
-	// Initialize settings from global state
+	// State refreshes after saving must preserve edits and secret placeholders.
 	useEffect(() => {
-		if (codebaseIndexConfig) {
-			const settings = {
-				codebaseIndexEnabled: codebaseIndexConfig.codebaseIndexEnabled ?? true,
-				codebaseIndexQdrantUrl: codebaseIndexConfig.codebaseIndexQdrantUrl || "",
-				codebaseIndexEmbedderProvider: codebaseIndexConfig.codebaseIndexEmbedderProvider || "openai",
-				codebaseIndexEmbedderBaseUrl: codebaseIndexConfig.codebaseIndexEmbedderBaseUrl || "",
-				codebaseIndexEmbedderModelId: codebaseIndexConfig.codebaseIndexEmbedderModelId || "",
-				codebaseIndexEmbedderModelDimension:
-					codebaseIndexConfig.codebaseIndexEmbedderModelDimension || undefined,
-				codebaseIndexSearchMaxResults:
-					codebaseIndexConfig.codebaseIndexSearchMaxResults ?? CODEBASE_INDEX_DEFAULTS.DEFAULT_SEARCH_RESULTS,
-				codebaseIndexSearchMinScore:
-					codebaseIndexConfig.codebaseIndexSearchMinScore ?? CODEBASE_INDEX_DEFAULTS.DEFAULT_SEARCH_MIN_SCORE,
-				codebaseIndexBedrockRegion: codebaseIndexConfig.codebaseIndexBedrockRegion || "",
-				codebaseIndexBedrockProfile: codebaseIndexConfig.codebaseIndexBedrockProfile || "",
-				codeIndexOpenAiKey: "",
-				codeIndexQdrantApiKey: "",
-				codebaseIndexOpenAiCompatibleBaseUrl: codebaseIndexConfig.codebaseIndexOpenAiCompatibleBaseUrl || "",
-				codebaseIndexOpenAiCompatibleApiKey: "",
-				codebaseIndexGeminiApiKey: "",
-				codebaseIndexMistralApiKey: "",
-				codebaseIndexVercelAiGatewayApiKey: "",
-				codebaseIndexOpenRouterApiKey: "",
-				codebaseIndexOpenRouterSpecificProvider:
-					codebaseIndexConfig.codebaseIndexOpenRouterSpecificProvider || "",
-			}
-			setInitialSettings(settings)
-			setCurrentSettings(settings)
-
-			// Request secret status to check if secrets exist
-			vscode.postMessage({ type: "requestCodeIndexSecretStatus" })
+		if (!codebaseIndexConfig || hasUnsavedChangesRef.current) {
+			return
 		}
+		const settings = {
+			codebaseIndexEnabled: codebaseIndexConfig.codebaseIndexEnabled ?? false,
+			codebaseIndexQdrantUrl: codebaseIndexConfig.codebaseIndexQdrantUrl || "",
+			codebaseIndexEmbedderProvider:
+				codebaseIndexConfig.codebaseIndexEmbedderProvider === "semble"
+					? "native"
+					: codebaseIndexConfig.codebaseIndexEmbedderProvider || "native",
+			codebaseIndexEmbedderBaseUrl: codebaseIndexConfig.codebaseIndexEmbedderBaseUrl || "",
+			codebaseIndexEmbedderModelId: codebaseIndexConfig.codebaseIndexEmbedderModelId || "",
+			codebaseIndexEmbedderModelDimension: codebaseIndexConfig.codebaseIndexEmbedderModelDimension || undefined,
+			codebaseIndexSearchMaxResults:
+				codebaseIndexConfig.codebaseIndexSearchMaxResults ?? CODEBASE_INDEX_DEFAULTS.DEFAULT_SEARCH_RESULTS,
+			codebaseIndexSearchMinScore:
+				codebaseIndexConfig.codebaseIndexSearchMinScore ?? CODEBASE_INDEX_DEFAULTS.DEFAULT_SEARCH_MIN_SCORE,
+			codebaseIndexBedrockRegion: codebaseIndexConfig.codebaseIndexBedrockRegion || "",
+			codebaseIndexBedrockProfile: codebaseIndexConfig.codebaseIndexBedrockProfile || "",
+			codeIndexOpenAiKey: "",
+			codeIndexQdrantApiKey: "",
+			codebaseIndexOpenAiCompatibleBaseUrl: codebaseIndexConfig.codebaseIndexOpenAiCompatibleBaseUrl || "",
+			codebaseIndexOpenAiCompatibleApiKey: "",
+			codebaseIndexGeminiApiKey: "",
+			codebaseIndexMistralApiKey: "",
+			codebaseIndexVercelAiGatewayApiKey: "",
+			codebaseIndexOpenRouterApiKey: "",
+			codebaseIndexOpenRouterSpecificProvider: codebaseIndexConfig.codebaseIndexOpenRouterSpecificProvider || "",
+		}
+		setInitialSettings(settings)
+		setCurrentSettings(settings)
+
+		// Request secret status to check if secrets exist
+		vscode.postMessage({ type: "requestCodeIndexSecretStatus" })
 	}, [codebaseIndexConfig])
 
 	// Request initial indexing status
@@ -313,7 +363,7 @@ export const CodeIndexPopover: React.FC<CodeIndexPopoverProps> = ({
 	useEffect(() => {
 		const handleMessage = (event: MessageEvent<any>) => {
 			if (event.data.type === "indexingStatusUpdate") {
-				if (!event.data.values.workspacePath || event.data.values.workspacePath === cwd) {
+				if (event.data.values.workspacePath === cwd) {
 					setIndexingStatus({
 						systemStatus: event.data.values.systemStatus,
 						message: event.data.values.message || "",
@@ -323,14 +373,13 @@ export const CodeIndexPopover: React.FC<CodeIndexPopoverProps> = ({
 					})
 				}
 			} else if (event.data.type === "codeIndexSettingsSaved") {
+				if (!pendingSave.current || event.data.requestId !== pendingSave.current.requestId) return
 				if (event.data.success) {
 					setSaveStatus("saved")
 					// Update initial settings to match current settings after successful save
 					// This ensures hasUnsavedChanges becomes false
-					const savedSettings = { ...currentSettingsRef.current }
+					const savedSettings = pendingSave.current.settings
 					setInitialSettings(savedSettings)
-					// Also update current settings to maintain consistency
-					setCurrentSettings(savedSettings)
 					// Request secret status to ensure we have the latest state
 					// This is important to maintain placeholder display after save
 
@@ -341,6 +390,11 @@ export const CodeIndexPopover: React.FC<CodeIndexPopoverProps> = ({
 					setSaveStatus("error")
 					setSaveError(event.data.error || t("settings:codeIndex.saveError"))
 				}
+				pendingSave.current?.resolve(
+					event.data.success &&
+						JSON.stringify(currentSettingsRef.current) === JSON.stringify(pendingSave.current.settings),
+				)
+				pendingSave.current = undefined
 			}
 		}
 
@@ -443,6 +497,14 @@ export const CodeIndexPopover: React.FC<CodeIndexPopoverProps> = ({
 		return false
 	}, [currentSettings, initialSettings])
 
+	// Render-pass mirror: effects below (and the seed guard) read this instead of
+	// the memo so declaration order never matters.
+	hasUnsavedChangesRef.current = hasUnsavedChanges
+	useEffect(() => {
+		onDirtyChange?.(hasUnsavedChanges)
+	}, [hasUnsavedChanges, onDirtyChange])
+	useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
+
 	const updateSetting = (key: keyof LocalCodeIndexSettings, value: any) => {
 		setCurrentSettings((prev) => ({ ...prev, [key]: value }))
 		// Clear validation error for this field when user starts typing
@@ -488,12 +550,15 @@ export const CodeIndexPopover: React.FC<CodeIndexPopoverProps> = ({
 		} catch (error) {
 			if (error instanceof z.ZodError) {
 				const errors: Record<string, string> = {}
-				error.errors.forEach((err) => {
+				error.issues.forEach((err) => {
 					if (err.path[0]) {
 						errors[err.path[0] as string] = err.message
 					}
 				})
 				setFormErrors(errors)
+				setIsSetupSettingsOpen(true)
+				setSaveStatus("error")
+				setSaveError(error.issues.map((issue) => issue.message).join("; "))
 			}
 			return false
 		}
@@ -533,12 +598,32 @@ export const CodeIndexPopover: React.FC<CodeIndexPopoverProps> = ({
 	}, [checkUnsavedChanges])
 
 	// Use the shared ESC key handler hook - respects unsaved changes logic
-	useEscapeKey(open, handlePopoverClose)
+	useEscapeKey(open && !inline, handlePopoverClose)
 
 	const handleSaveSettings = () => {
+		if (pendingSave.current) return pendingSave.current.promise
 		// Validate settings before saving
 		if (!validateSettings()) {
-			return
+			return Promise.resolve(false)
+		}
+		let resolveSave!: (success: boolean) => void
+		const promise = new Promise<boolean>((resolve) => {
+			resolveSave = resolve
+		})
+		const timeout = setTimeout(() => {
+			pendingSave.current?.resolve(false)
+			pendingSave.current = undefined
+			setSaveStatus("error")
+			setSaveError(t("settings:codeIndex.saveError"))
+		}, 15_000)
+		pendingSave.current = {
+			requestId: crypto.randomUUID(),
+			settings: { ...currentSettings },
+			resolve: (success) => {
+				clearTimeout(timeout)
+				resolveSave(success)
+			},
+			promise,
 		}
 
 		setSaveStatus("saving")
@@ -567,9 +652,20 @@ export const CodeIndexPopover: React.FC<CodeIndexPopoverProps> = ({
 		// Save settings to backend
 		vscode.postMessage({
 			type: "saveCodeIndexSettingsAtomic",
+			requestId: pendingSave.current.requestId,
 			codeIndexSettings: settingsToSave,
 		})
+		return promise
 	}
+
+	useImperativeHandle(settingsRef, () => ({
+		save: handleSaveSettings,
+		discard: () => {
+			setCurrentSettings(initialSettings)
+			setFormErrors({})
+			setSaveError(null)
+		},
+	}))
 
 	const progressPercentage = useMemo(
 		() =>
@@ -603,6 +699,7 @@ export const CodeIndexPopover: React.FC<CodeIndexPopoverProps> = ({
 	)
 
 	const portalContainer = useRooPortal("roo-portal")
+	const Content = inline ? "section" : PopoverContent
 
 	return (
 		<>
@@ -617,15 +714,19 @@ export const CodeIndexPopover: React.FC<CodeIndexPopoverProps> = ({
 					}
 				}}>
 				{children}
-				<PopoverContent
-					className="w-[calc(100vw-32px)] max-w-[450px] max-h-[80vh] overflow-y-auto p-0"
-					align="end"
-					alignOffset={0}
-					side="bottom"
-					sideOffset={5}
-					collisionPadding={16}
-					avoidCollisions={true}
-					container={portalContainer}>
+				<Content
+					{...(inline
+						? { className: "w-full min-w-0" }
+						: {
+								className: "w-[calc(100vw-32px)] max-w-[450px] max-h-[80vh] overflow-y-auto p-0",
+								align: "end" as const,
+								alignOffset: 0,
+								side: "bottom" as const,
+								sideOffset: 5,
+								collisionPadding: 16,
+								avoidCollisions: true,
+								container: portalContainer,
+							})}>
 					<div className="p-3 border-b border-vscode-dropdown-border cursor-default">
 						<div className="flex flex-row items-center gap-1 p-0 mt-0 mb-1 w-full">
 							<h4 className="m-0 pb-2 flex-1">{t("settings:codeIndex.title")}</h4>
@@ -745,6 +846,9 @@ export const CodeIndexPopover: React.FC<CodeIndexPopoverProps> = ({
 												<SelectValue />
 											</SelectTrigger>
 											<SelectContent>
+												<SelectItem value="native">
+													{t("settings:codeIndex.nativeProvider")}
+												</SelectItem>
 												<SelectItem value="openai">
 													{t("settings:codeIndex.openaiProvider")}
 												</SelectItem>
@@ -769,11 +873,6 @@ export const CodeIndexPopover: React.FC<CodeIndexPopoverProps> = ({
 												<SelectItem value="openrouter">
 													{t("settings:codeIndex.openRouterProvider")}
 												</SelectItem>
-												{isSembleSupported && (
-													<SelectItem value="semble">
-														{t("settings:codeIndex.sembleProvider")}
-													</SelectItem>
-												)}
 											</SelectContent>
 										</Select>
 									</div>
@@ -1444,7 +1543,7 @@ export const CodeIndexPopover: React.FC<CodeIndexPopoverProps> = ({
 									)}
 
 									{/* Qdrant Settings — hidden for semble */}
-									{currentSettings.codebaseIndexEmbedderProvider !== "semble" && (
+									{!["semble", "native"].includes(currentSettings.codebaseIndexEmbedderProvider) && (
 										<>
 											<div className="space-y-2">
 												<label className="text-sm font-medium">
@@ -1675,7 +1774,7 @@ export const CodeIndexPopover: React.FC<CodeIndexPopoverProps> = ({
 										indexingStatus.systemStatus === "Standby") && (
 										<Button
 											onClick={() => vscode.postMessage({ type: "startIndexing" })}
-										disabled={!cwd || saveStatus === "saving" || hasUnsavedChanges}>
+											disabled={!cwd || saveStatus === "saving" || hasUnsavedChanges}>
 											{t("settings:codeIndex.startIndexingButton")}
 										</Button>
 									)}
@@ -1699,7 +1798,7 @@ export const CodeIndexPopover: React.FC<CodeIndexPopoverProps> = ({
 										indexingStatus.systemStatus === "Error") && (
 										<AlertDialog>
 											<AlertDialogTrigger asChild>
-											<Button variant="secondary" disabled={!cwd}>
+												<Button variant="secondary" disabled={!cwd}>
 													{t("settings:codeIndex.clearIndexDataButton")}
 												</Button>
 											</AlertDialogTrigger>
@@ -1727,7 +1826,7 @@ export const CodeIndexPopover: React.FC<CodeIndexPopoverProps> = ({
 							</div>
 
 							<Button
-								onClick={handleSaveSettings}
+								onClick={() => void handleSaveSettings()}
 								disabled={!hasUnsavedChanges || saveStatus === "saving"}>
 								{saveStatus === "saving"
 									? t("settings:codeIndex.saving")
@@ -1738,13 +1837,13 @@ export const CodeIndexPopover: React.FC<CodeIndexPopoverProps> = ({
 						{/* Save Status Messages */}
 						{saveStatus === "error" && (
 							<div className="mt-2">
-								<span className="text-sm text-vscode-errorForeground block">
+								<span role="alert" className="text-sm text-vscode-errorForeground block">
 									{saveError || t("settings:codeIndex.saveError")}
 								</span>
 							</div>
 						)}
 					</div>
-				</PopoverContent>
+				</Content>
 			</Popover>
 
 			{/* Discard Changes Dialog */}

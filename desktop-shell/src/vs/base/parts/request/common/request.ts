@@ -55,6 +55,8 @@ export interface IRequestOptions {
 	 * Use "NO_FETCH_TELEMETRY" to opt out of request telemetry.
 	 */
 	callSite: string;
+	/** Redact signed URLs and response headers from request diagnostics. */
+	sensitive?: boolean;
 }
 
 export interface IRequestContext {

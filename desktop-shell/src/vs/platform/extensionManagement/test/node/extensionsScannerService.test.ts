@@ -124,6 +124,59 @@ suite('NativeExtensionsScanerService Test', () => {
 		assert.deepStrictEqual(actual[0].manifest, manifest);
 	});
 
+	test('initializing the default profile preserves a concurrently created manifest', async () => {
+		const warnings: unknown[][] = [];
+		instantiationService.stub(ILogService, new class extends NullLogService {
+			override warn(...args: unknown[]): void { warnings.push(args); }
+		});
+		const files = instantiationService.get(IFileService);
+		const profile = instantiationService.get(IUserDataProfilesService).defaultProfile.extensionsResource;
+		const concurrentManifest = JSON.stringify([{
+			identifier: { id: 'pub.concurrent' }, version: '1.0.0',
+			location: joinPath(ROOT, 'extensions', 'concurrent').toJSON(), relativeLocation: 'concurrent'
+		}]);
+		const createFile = files.createFile.bind(files);
+		files.createFile = async (...args: Parameters<IFileService['createFile']>) => {
+			await files.writeFile(profile, VSBuffer.fromString(concurrentManifest));
+			return createFile(...args);
+		};
+		const scanner = disposables.add(instantiationService.createInstance(ExtensionsScannerService));
+		await scanner.initializeDefaultProfileExtensions();
+		assert.strictEqual((await files.readFile(profile)).value.toString(), concurrentManifest);
+		assert.deepStrictEqual(warnings, []);
+	});
+
+	test('initializing the default profile reports an invalid concurrent manifest without overwriting it', async () => {
+		const errors: unknown[][] = [];
+		instantiationService.stub(ILogService, new class extends NullLogService {
+			override error(...args: unknown[]): void { errors.push(args); }
+		});
+		const files = instantiationService.get(IFileService);
+		const profile = instantiationService.get(IUserDataProfilesService).defaultProfile.extensionsResource;
+		const invalidManifest = '{"invalid":"profile must be an array"}';
+		const createFile = files.createFile.bind(files);
+		files.createFile = async (...args: Parameters<IFileService['createFile']>) => {
+			await files.writeFile(profile, VSBuffer.fromString(invalidManifest));
+			return createFile(...args);
+		};
+		const scanner = disposables.add(instantiationService.createInstance(ExtensionsScannerService));
+		await scanner.initializeDefaultProfileExtensions();
+		assert.strictEqual((await files.readFile(profile)).value.toString(), invalidManifest);
+		assert.strictEqual(errors.length, 1);
+	});
+
+	test('independent product release version preserves third-party VS Code engine compatibility', async () => {
+		instantiationService.stub(IProductService, { version: '2.0.0', vscodeApiVersion: '1.132.4', builtInExtensionsEnabledWithAutoUpdates: [] });
+		for (const [name, engine] of [['supported', '^1.100.0'], ['languageclient', '^1.91.0'], ['future', '^1.133.0'], ['wrongmajor', '^2.0.0']]) {
+			await aUserExtension(anExtensionManifest({ name, publisher: 'pub', engines: { vscode: engine } }));
+		}
+		const scanner = disposables.add(instantiationService.createInstance(ExtensionsScannerService));
+		const extensions = await scanner.scanAllUserExtensions();
+		assert.deepStrictEqual(Object.fromEntries(extensions.map(extension => [extension.manifest.name, extension.isValid])), {
+			future: false, languageclient: true, supported: true, wrongmajor: false
+		});
+	});
+
 	test('scan existing extension', async () => {
 		const manifest: Partial<IExtensionManifest> = anExtensionManifest({ 'name': 'name', 'publisher': 'pub' });
 		const extensionLocation = await aUserExtension(manifest);

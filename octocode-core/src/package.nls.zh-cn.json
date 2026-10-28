@@ -67,7 +67,8 @@
 	"settings.workspace.rootResolution.activeEditor.description": "使用包含活动编辑器的工作区文件夹；回退到第一个工作区文件夹。（默认——保留旧行为。）",
 	"settings.workspace.rootResolution.firstFolder.description": "始终使用第一个工作区文件夹（workspaceFolders[0]）。具有确定性——与当前聚焦的文件无关。",
 	"command.checkForUpdate.title": "检查 OctoCode 更新",
-	"configuration.update.manifestUrl.description": "更新清单地址，可使用 HTTPS、本机 HTTP 或本地 file URL。留空则不检查更新。",
+	"command.recoverDesktopUpdate.title": "使用完整安装包恢复 OctoCode",
+	"configuration.update.manifestUrl.description": "默认通过 GitHub 登录访问 OctoCode 私有发布。也可配置 HTTPS、本机 HTTP 或本地 file 更新清单。留空禁用；手动检查时才请求登录。",
 	"configuration.update.mode.description": "何时检查更新。",
 	"configuration.update.mode.manual": "仅在你手动执行检查命令时。",
 	"configuration.update.mode.start": "每次打开窗口时检查一次，也可手动执行。"

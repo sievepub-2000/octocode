@@ -937,6 +937,9 @@ describe.each([[RepoPerTaskCheckpointService, "RepoPerTaskCheckpointService"]])(
 
 				// beforeAll strips PREFIX, so it is always undefined here; set it to exercise isolation.
 				process.env.PREFIX = path.join(tmpDir, "git-prefix")
+				process.env.GIT_TRACE = "1"
+				process.env.GIT_EDITOR = "untrusted-editor"
+				process.env.GIT_PAGER = "untrusted-pager"
 
 				try {
 					const testService = await klass.create({
@@ -965,6 +968,9 @@ describe.each([[RepoPerTaskCheckpointService, "RepoPerTaskCheckpointService"]])(
 				} finally {
 					// beforeAll guarantees PREFIX was undefined at test start, so always delete it.
 					delete process.env.PREFIX
+					delete process.env.GIT_TRACE
+					delete process.env.GIT_EDITOR
+					delete process.env.GIT_PAGER
 
 					await removeTree(testShadowDir)
 					await removeTree(testWorkspaceDir)

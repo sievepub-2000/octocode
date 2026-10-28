@@ -345,6 +345,10 @@
 	"dismiss": "閉じる",
 	"dismissAndDontShowAgain": "閉じて、今後表示しない",
 	"extensions": {
+		"pagination": "コンポーネントのページ",
+		"pageNumber": "{{number}} ページ",
+		"previousPage": "前へ",
+		"nextPage": "次へ",
 		"market": "マーケット",
 		"systemToolsHint": "システムツール · 全ワークスペースで使用可能",
 		"environments": "Runtimes",

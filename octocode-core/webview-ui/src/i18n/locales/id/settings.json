@@ -28,6 +28,7 @@
 		"discardButton": "Buang perubahan"
 	},
 	"sections": {
+		"memoryKnowledge": "Memori dan pengetahuan",
 		"providers": "Provider",
 		"modes": "Mode",
 		"mcp": "Server MCP",
@@ -170,6 +171,12 @@
 		"description": "Konfigurasi support prompt yang digunakan untuk aksi cepat seperti meningkatkan prompt, menjelaskan kode, dan memperbaiki masalah. Prompt ini membantu OctoCode memberikan bantuan yang lebih baik untuk tugas pengembangan umum."
 	},
 	"codeIndex": {
+		"indexReadyLabel": "Indeks siap",
+		"nativeProvider": "Indeks kode lokal (simbol dan pencarian leksikal, luring)",
+		"memoryKnowledgeDescription": "Memori Harness tetap terkait dengan percakapannya. Kelola dan telusuri pengetahuan kode proyek yang dipilih di sini; pengindeksan lokal tidak memerlukan kunci model atau basis data eksternal.",
+		"searchQuery": "Cari pengetahuan kode proyek",
+		"searchButton": "Cari di indeks",
+		"noSearchResults": "Tidak ada kode terindeks yang cocok.",
 		"title": "Pengindeksan Codebase",
 		"enableLabel": "Aktifkan Pengindeksan Codebase",
 		"enableDescription": "Aktifkan pengindeksan kode untuk pencarian dan pemahaman konteks yang lebih baik",

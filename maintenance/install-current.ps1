@@ -1,13 +1,13 @@
 param(
  [ValidateSet('Snapshot','Uninstall','Install','Upgrade')][string]$Step='Upgrade',
  [string]$ProjectRoot='D:\gpt-workspace\octocode',
- [string]$InstallRoot='D:\Program Files\OctoCode',
+ [string]$InstallRoot='E:\Program Files\octocode',
  [switch]$VerifyOnly
 )
 $ErrorActionPreference='Stop'
 $project=[IO.Path]::GetFullPath($ProjectRoot).TrimEnd('\')
 $install=[IO.Path]::GetFullPath($InstallRoot).TrimEnd('\')
-$runtime=Join-Path $project 'runtime'
+$runtime=if($install -ieq 'E:\Program Files\octocode'){$install}else{Join-Path $project 'runtime'}
 $baseline=Join-Path $project 'verification\upgrade-preservation\preserved-current.json'
 function Normalize-Target($Target) {
  $value=[string]@($Target)[0]
@@ -25,7 +25,9 @@ function Runtime-Roots {
  foreach($name in @('data','workspace','environments')){
   $target=Join-Path $runtime $name
   $entry=Get-Item -LiteralPath (Join-Path $install $name) -Force
-  if($entry.LinkType -ne 'Junction' -or (Normalize-Target $entry.Target) -ine $target){throw "Incorrect authoritative runtime junction: $name"}
+  if($runtime -ieq $install){
+   if($entry.Attributes -band [IO.FileAttributes]::ReparsePoint){throw "Formal E installation requires physical storage: $name"}
+  }elseif($entry.LinkType -ne 'Junction' -or (Normalize-Target $entry.Target) -ine $target){throw "Incorrect authoritative runtime junction: $name"}
   if((Get-Item -LiteralPath $target -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Runtime target must be physical'}
   $roots[$name]=$target
  }
@@ -55,6 +57,9 @@ function Current-Preservation {
   $files += [pscustomobject][ordered]@{key='user-data/'+$relative;kind='optional-directory';value=(Test-Path -LiteralPath $path -PathType Container)}
   if(Test-Path -LiteralPath $path -PathType Container){$files+=@(Record-Tree $path ('user-data/'+$relative))}
  }
+ $shared=Join-Path $roots.data 'shared-data'
+ $files += [pscustomobject][ordered]@{key='shared-data';kind='optional-directory';value=(Test-Path -LiteralPath $shared -PathType Container)}
+ if(Test-Path -LiteralPath $shared -PathType Container){$files+=@(Record-Tree $shared 'shared-data')}
  $files+=@(Record-Tree $roots.workspace 'workspace')
  $tools=Join-Path $roots.environments 'tools'
  foreach($relative in @('skills','hooks')){
@@ -63,14 +68,15 @@ function Current-Preservation {
  }
  $mcp=Join-Path $tools 'mcp\mcp_settings.json'
  $files += [pscustomobject][ordered]@{key='system-tools/mcp/mcp_settings.json';kind='optional-file';value=$(if(Test-Path -LiteralPath $mcp -PathType Leaf){(Get-FileHash -LiteralPath $mcp).Hash}else{$null})}
- [pscustomobject][ordered]@{schemaVersion=2;install=$install;runtime=$runtime;files=@($files | Sort-Object key)}
+ [pscustomobject][ordered]@{schemaVersion=3;install=$install;runtime=$runtime;files=@($files | Sort-Object key)}
 }
 function Assert-Preservation($expected) {
- if($expected.schemaVersion -ne 2 -or $expected.install -ine $install -or $expected.runtime -ine $runtime){throw 'Preservation baseline belongs to another layout or obsolete schema'}
+ if($expected.schemaVersion -ne 3 -or $expected.install -ine $install -or $expected.runtime -ine $runtime){throw 'Preservation baseline belongs to another layout or obsolete schema'}
  if($expected.files -isnot [array] -or !$expected.files.Count){throw 'Preservation baseline requires a nonempty files array'}
  $required=@{
   'user-data/Local State'='optional-file';'user-data/Preferences'='optional-file';'user-data/Secure Preferences'='optional-file'
   'user-data/User'='optional-directory';'user-data/profiles'='optional-directory';'system-tools/mcp/mcp_settings.json'='optional-file'
+  'shared-data'='optional-directory'
  }
  $keys=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
  foreach($file in $expected.files){
@@ -78,7 +84,7 @@ function Assert-Preservation($expected) {
   if($file.key -isnot [string] -or [string]::IsNullOrWhiteSpace($file.key) -or $file.kind -isnot [string] -or !$keys.Add($file.key)){throw 'Preservation baseline record identity is invalid or duplicated'}
   if($required.ContainsKey($file.key)){
    if($file.kind -cne $required[$file.key]){throw 'Preservation baseline optional record kind is invalid'}
-  }elseif($file.key -notmatch '\A(?:user-data/(?:User|profiles)|workspace|system-tools/(?:skills|hooks))/.+\z' -or $file.kind -notin @('file','directory','link')){throw 'Preservation baseline record identity is outside recorded roots'}
+  }elseif($file.key -notmatch '\A(?:user-data/(?:User|profiles)|shared-data|workspace|system-tools/(?:skills|hooks))/.+\z' -or $file.kind -notin @('file','directory','link')){throw 'Preservation baseline record identity is outside recorded roots'}
   if($file.key.Contains('\') -or @($file.key.Split('/') | Where-Object {$_ -in @('','.','..')}).Count){throw 'Preservation baseline record key is not canonical'}
   switch($file.kind){
    'file' {if($file.value -isnot [string] -or $file.value -notmatch '\A[a-fA-F0-9]{64}\z'){throw 'Preservation baseline file record requires SHA256'}}

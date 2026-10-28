@@ -8,7 +8,6 @@ import _debounce from 'debounce';
 import { filter as _filter, rename } from './gulp/facade.ts';
 import path from 'path';
 import fs from 'fs';
-import _rimraf from 'rimraf';
 import VinylFile from 'vinyl';
 import through from 'through';
 import sm from 'source-map';
@@ -288,25 +287,7 @@ export function rewriteSourceMappingURL(sourceMappingURLBase: string): NodeJS.Re
 }
 
 export function rimraf(dir: string): () => Promise<void> {
-	const result = () => new Promise<void>((c, e) => {
-		let retries = 0;
-
-		const retry = () => {
-			_rimraf(dir, { maxBusyTries: 1 }, (err: any) => {
-				if (!err) {
-					return c();
-				}
-
-				if ((err.code === 'ENOTEMPTY' || err.code === 'EBUSY' || err.code === 'EPERM') && ++retries < 5) {
-					return setTimeout(() => retry(), 10);
-				}
-
-				return e(err);
-			});
-		};
-
-		retry();
-	});
+	const result = () => fs.promises.rm(dir, { recursive: true, force: true, maxRetries: 4, retryDelay: 10 });
 
 	result.taskName = `clean-${path.basename(dir).toLowerCase()}`;
 	return result;

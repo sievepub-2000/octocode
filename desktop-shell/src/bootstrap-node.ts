@@ -126,6 +126,71 @@ function enableASARSupport(): void {
 
 enableASARSupport();
 
+// Electron's embedded Node still bundles vulnerable fetch/EventSource implementations.
+require('undici').install();
+
+// Re-review these version-bound mitigations when Electron updates its embedded Node.
+if (process.versions['electron'] && process.versions.node === '24.22.0') {
+	const dns: typeof import('node:dns') = require('node:dns');
+	const tls: typeof import('node:tls') = require('node:tls');
+	const net: typeof import('node:net') = require('node:net');
+	const http: typeof import('node:http') = require('node:http');
+	const { domainToASCII }: typeof import('node:url') = require('node:url');
+
+	const originalCheckServerIdentity = tls.checkServerIdentity;
+	tls.checkServerIdentity = (hostname, cert) => {
+		if (!net.isIP(hostname.replace(/\.$/, '')) && net.isIP(domainToASCII(hostname).replace(/\.$/, ''))) {
+			const reason = 'Host is a non-canonical IP address';
+			return Object.assign(new Error(`Hostname/IP does not match certificate's altnames: ${reason}`), {
+				code: 'ERR_TLS_CERT_ALTNAME_INVALID', reason, host: hostname, cert
+			});
+		}
+		return originalCheckServerIdentity(hostname, cert);
+	};
+
+	const rejectNull = (value: unknown, name: string) => {
+		if (typeof value === 'string' && value.includes('\0')) {
+			throw Object.assign(new TypeError(`The argument '${name}' must be a string without null bytes.`), { code: 'ERR_INVALID_ARG_VALUE' });
+		}
+	};
+	type ResolverMethod = (this: object, value: unknown, ...args: unknown[]) => unknown;
+	for (const resolver of [dns, dns.Resolver.prototype, dns.promises, dns.promises.Resolver.prototype]) {
+		const methods = resolver as unknown as Record<string, ResolverMethod>;
+		for (const method of ['resolve', 'resolve4', 'resolve6', 'resolveAny', 'resolveCaa', 'resolveCname', 'resolveMx', 'resolveNaptr', 'resolveNs', 'resolvePtr', 'resolveSoa', 'resolveSrv', 'resolveTlsa', 'resolveTxt', 'reverse']) {
+			const original = methods[method];
+			methods[method] = function (value, ...args) {
+				rejectNull(value, 'name');
+				return original.call(this, value, ...args);
+			};
+		}
+		if (typeof methods.setLocalAddress === 'function') {
+			const original = methods.setLocalAddress;
+			methods.setLocalAddress = function (ipv4, ipv6) {
+				rejectNull(ipv4, 'ipv4');
+				rejectNull(ipv6, 'ipv6');
+				return original.call(this, ipv4, ipv6);
+			};
+		}
+	}
+
+	// The native pending-read guard is absent: never release a potentially poisoned socket for reuse.
+	const originalEmit = http.Agent.prototype.emit;
+	http.Agent.prototype.emit = function (event: string | symbol, ...args: unknown[]) {
+		// Fresh sockets also emit free before their first queued request; only retire used sockets.
+		const socket = args[0] as import('node:net').Socket & { _httpMessage?: import('node:http').ClientRequest & { protocol?: string } };
+		if (event === 'free' && socket instanceof net.Socket && socket._httpMessage) {
+			// Proxy agents need the original target scheme when reopening a queued socket outside https's call stack.
+			const options = args[1] as { protocol?: string } | undefined;
+			if (options && !options.protocol) {
+				options.protocol = socket._httpMessage.protocol;
+			}
+			socket.destroy();
+		}
+		return originalEmit.call(this, event, ...args);
+	};
+	require('node:module').syncBuiltinESMExports();
+}
+
 /**
  * Add support for redirecting the loading of node modules
  *

@@ -22,6 +22,14 @@
     "webpack-cli": "^5.1.4"
   },
   "dependencies": {
-    "postcss": "^8.5.12"
+    "postcss": "^8.5.26"
+  },
+  "overrides": {
+    "fast-uri": "3.1.9",
+    "source-map-js": "^1.2.2",
+    "postcss-selector-parser": "^7.1.6",
+    "baseline-browser-mapping": "^2.11.0",
+    "nanoid": "^5.1.16",
+    "browserslist": "^4.28.7"
   }
 }

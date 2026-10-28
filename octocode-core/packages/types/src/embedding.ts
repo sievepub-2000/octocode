@@ -1,4 +1,5 @@
 export type EmbedderProvider =
+	| "native"
 	| "openai"
 	| "ollama"
 	| "openai-compatible"

@@ -28,6 +28,7 @@
 		"discardButton": "Odrzuć zmiany"
 	},
 	"sections": {
+		"memoryKnowledge": "Pamięć i wiedza",
 		"providers": "Dostawcy",
 		"modes": "Tryby",
 		"mcp": "Serwery MCP",
@@ -170,6 +171,12 @@
 		"description": "Skonfiguruj podpowiedzi wsparcia używane do szybkich działań, takich jak ulepszanie podpowiedzi, wyjaśnianie kodu i rozwiązywanie problemów. Te podpowiedzi pomagają OctoCode zapewnić lepsze wsparcie dla typowych zadań programistycznych."
 	},
 	"codeIndex": {
+		"indexReadyLabel": "Indeks gotowy",
+		"nativeProvider": "Lokalny indeks kodu (symbole i wyszukiwanie leksykalne, offline)",
+		"memoryKnowledgeDescription": "Pamięć Harness pozostaje powiązana z daną rozmową. Tutaj możesz zarządzać wiedzą o kodzie wybranego projektu i ją przeszukiwać; lokalne indeksowanie nie wymaga klucza modelu ani zewnętrznej bazy danych.",
+		"searchQuery": "Przeszukaj wiedzę o kodzie projektu",
+		"searchButton": "Przeszukaj indeks",
+		"noSearchResults": "Brak pasującego zindeksowanego kodu.",
 		"title": "Indeksowanie kodu",
 		"enableLabel": "Włącz indeksowanie kodu",
 		"enableDescription": "Włącz indeksowanie kodu, aby poprawić wyszukiwanie i zrozumienie kontekstu",

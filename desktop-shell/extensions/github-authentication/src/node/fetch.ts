@@ -125,7 +125,8 @@ async function fetchWithFallbacks(availableFetchers: readonly Fetcher[], url: st
 
 async function tryFetch(fetcher: Fetcher, url: string, options: FetchOptions, logService: Log): Promise<{ ok: boolean; response: FetchResponse } | { ok: false; err: any }> {
 	try {
-		logService.debug(`FetcherService: trying fetcher ${fetcher.name} for ${url}`);
+		const diagnosticUrl = new URL(url);
+		logService.debug(`FetcherService: trying fetcher ${fetcher.name} for ${diagnosticUrl.origin}${diagnosticUrl.pathname}`);
 		const response = await fetcher.fetch(url, options);
 		if (!response.ok) {
 			logService.info(`FetcherService: ${fetcher.name} failed with status: ${response.status} ${response.statusText}`);
@@ -140,8 +141,10 @@ async function tryFetch(fetcher: Fetcher, url: string, options: FetchOptions, lo
 			const json = JSON.parse(text); // Verify JSON
 			logService.debug(`FetcherService: ${fetcher.name} succeeded (JSON)`);
 			return { ok: true, response: new FetchResponseImpl(response.status, response.statusText, response.headers, async () => text, async () => json, async () => Readable.from([text])) };
-		} catch (err) {
-			logService.info(`FetcherService: ${fetcher.name} failed to parse JSON: ${err.message}`);
+		} catch {
+			// JSON parse errors can quote the OAuth response, including credentials.
+			const err = new Error('GitHub returned an invalid JSON response');
+			logService.info(`FetcherService: ${fetcher.name} failed to parse JSON`);
 			return { ok: false, err, response: new FetchResponseImpl(response.status, response.statusText, response.headers, async () => text, async () => { throw err; }, async () => Readable.from([text])) };
 		}
 	} catch (err) {

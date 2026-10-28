@@ -1,6 +1,6 @@
 # Current release maintenance
 
-Updated: 2026-09-21, Asia/Shanghai.
+Updated: 2026-10-25, Asia/Shanghai.
 
 The production shape is native Windows OctoCode plus one zillafan-owned macOS
 oMLX App. No Docker production environment is introduced.
@@ -12,10 +12,17 @@ freshly built binary. `work/octo-env.ps1` is a tracked build input; other
 
 `verification/backup-current.py` snapshots SQLite via the backup API, restores
 into an isolated directory, and verifies DPAPI/AES-GCM credential recovery.
+Its authoritative input is `E:\Program Files\octocode\data\user-data`;
+protected backups and restore reports stay under the installation's `backups`.
 Keep its output private. It intentionally never prints credentials.
 `verification/wiki-operations.py` imports only reviewed, non-secret operational facts.
 
-The macOS scripts in `omlx/` run under zillafan. `omlx-current.patch` records
+The active native Dev deployment and its version-bound M3 Ultra memory fix are
+documented in [`omlx/NATIVE-DEV.md`](omlx/NATIVE-DEV.md). Its startup wrapper
+validates upstream and override hashes. Review compatibility before replacing
+the signed App; the historical updater below must not drive this deployment.
+
+The historical macOS scripts in `omlx/` run under zillafan. `omlx-current.patch` records
 the four minimal overrides against signed oMLX 0.7.0.dev4; the App bundle is
 not modified. Apply the patch to a copy of the vendor modules with no fuzz,
 then record both vendor and patched SHA-256 values in the override manifest.
@@ -28,7 +35,7 @@ review. Do not disable this compatibility gate. The currently installed Dev
 is already latest; tests cover compatibility rejection and filesystem
 rollback with platform commands isolated, not a nonexistent newer release.
 
-The user LaunchAgent installed by `enable-dev-updater.py` checks every six
+For that historical deployment only, the user LaunchAgent installed by `enable-dev-updater.py` checks every six
 hours. Read `dev-update-status.json` and its logs for failures. MTP/settings
 read-back and a real tool call gate successful replacement. Old App copies
 are removed only after verification. Physical FileVault cold-start and Apple

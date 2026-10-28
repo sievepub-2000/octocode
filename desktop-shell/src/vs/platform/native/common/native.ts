@@ -343,7 +343,8 @@ export interface ICommonNativeHostService {
 	relaunch(options?: { addArgs?: string[]; removeArgs?: string[] }): Promise<void>;
 	reload(options?: { disableExtensions?: boolean }): Promise<void>;
 	closeWindow(options?: INativeHostOptions): Promise<void>;
-	quit(): Promise<void>;
+	/** Resolves true when application quit was vetoed or only a development window closed. */
+	quit(): Promise<boolean>;
 	exit(code: number): Promise<void>;
 
 	// Development

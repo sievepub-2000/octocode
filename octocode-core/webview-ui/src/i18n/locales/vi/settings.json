@@ -28,6 +28,7 @@
 		"discardButton": "Hủy thay đổi"
 	},
 	"sections": {
+		"memoryKnowledge": "Bộ nhớ và kiến thức",
 		"providers": "Nhà cung cấp",
 		"modes": "Chế độ",
 		"mcp": "Máy chủ MCP",
@@ -170,6 +171,12 @@
 		"description": "Cấu hình các lời nhắc hỗ trợ được sử dụng cho các hành động nhanh như cải thiện lời nhắc, giải thích mã và khắc phục sự cố. Những lời nhắc này giúp OctoCode cung cấp hỗ trợ tốt hơn cho các tác vụ phát triển phổ biến."
 	},
 	"codeIndex": {
+		"indexReadyLabel": "Chỉ mục sẵn sàng",
+		"nativeProvider": "Chỉ mục mã cục bộ (ký hiệu và tìm kiếm từ vựng, ngoại tuyến)",
+		"memoryKnowledgeDescription": "Bộ nhớ Harness gắn với cuộc trò chuyện tương ứng. Quản lý và tìm kiếm kiến thức mã của dự án đã chọn tại đây; lập chỉ mục cục bộ không cần khóa mô hình hoặc cơ sở dữ liệu bên ngoài.",
+		"searchQuery": "Tìm kiếm kiến thức mã của dự án",
+		"searchButton": "Tìm trong chỉ mục",
+		"noSearchResults": "Không có mã đã lập chỉ mục phù hợp.",
 		"title": "Lập chỉ mục mã nguồn",
 		"enableLabel": "Bật lập chỉ mục mã nguồn",
 		"enableDescription": "Bật lập chỉ mục mã để cải thiện tìm kiếm và sự hiểu biết về ngữ cảnh",

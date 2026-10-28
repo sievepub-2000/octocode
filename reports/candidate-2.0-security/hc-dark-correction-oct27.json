@@ -1,0 +1,39 @@
+{
+  "status": "source and component verification passed; rebuilt installer pending",
+  "coreCommit": "75cb56714fc5de5c19d669ed088e701ebbd06556",
+  "desktopCommit": "baa2c7fedf9983045e88f984523f3b362b4445b3",
+  "themeTests": 52,
+  "webviewTestFiles": 156,
+  "webviewTests": 1636,
+  "edgeVisualTests": 9,
+  "testedWidths": [
+    1200,
+    700,
+    390
+  ],
+  "historicalPaletteAllValuesMatched": true,
+  "otherThreeThemeFilesUnchanged": true,
+  "highContrastDark": {
+    "raised": "#272438",
+    "background": "#1c1a2b",
+    "accent": "#D4554F"
+  },
+  "dark": {
+    "background": "#000000",
+    "accent": "#9b6b50"
+  },
+  "vsixSha256": "995ef76678505170a4e5426c20e01c581b4c991f375a2dfc480faf6bdaf64825",
+  "actualInstalledUiRetest": "pending",
+  "coldStartMaps": 4,
+  "glmReview": {
+    "runId": "6eefc7ec-2566-482b-9330-45958ea4b42e",
+    "status": "completed",
+    "assessment": "glm-theme-review-assessment-oct27.md"
+  },
+  "electronCacheRegression": {
+    "status": "PASS",
+    "cachedArtifactSha256": "98efbd2d1c7bd44150c0aa800cd9ac5fefcefd2d44fd94958a95d6744d86c6de",
+    "networkCalls": 0,
+    "malformedInputsRejected": 3
+  }
+}

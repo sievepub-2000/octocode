@@ -28,6 +28,7 @@
 		"discardButton": "Discard changes"
 	},
 	"sections": {
+		"memoryKnowledge": "Memory and knowledge",
 		"providers": "Providers",
 		"modes": "Modes",
 		"mcp": "MCP Servers",
@@ -267,8 +268,14 @@
 		"description": "Configure support prompts that are used for quick actions like enhancing prompts, explaining code, and fixing issues. These prompts help OctoCode provide better assistance for common development tasks."
 	},
 	"codeIndex": {
+		"indexReadyLabel": "Index ready",
+		"nativeProvider": "Local code index (symbols and lexical search, offline)",
+		"memoryKnowledgeDescription": "Harness memory stays with its conversation. Manage and search the selected project's code knowledge here; local indexing needs no model key or external database.",
+		"searchQuery": "Search project code knowledge",
+		"searchButton": "Search index",
+		"noSearchResults": "No matching indexed code.",
 		"title": "Codebase Indexing",
-		"description": "Configure codebase indexing settings to enable semantic search of your project. <0>Learn more</0>",
+		"description": "Index the selected project for local symbol and text search, or configure an embedding provider for semantic search. <0>Learn more</0>",
 		"statusTitle": "Status",
 		"enableLabel": "Enable Codebase Indexing",
 		"enableDescription": "Enable code indexing for improved search and context understanding",
@@ -1089,6 +1096,7 @@
 		"maxThinkingTokens": "Max Thinking Tokens"
 	},
 	"validation": {
+		"apiProvider": "Select an API provider and save the configuration before starting or continuing a task.",
 		"apiKey": "You must provide a valid API key.",
 		"awsRegion": "You must choose a region to use with Amazon Bedrock.",
 		"googleCloud": "You must provide a valid Google Cloud Project ID and Region.",

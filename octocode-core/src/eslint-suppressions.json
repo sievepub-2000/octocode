@@ -626,7 +626,7 @@
 	},
 	"core/webview/__tests__/ClineProvider.spec.ts": {
 		"@typescript-eslint/no-explicit-any": {
-			"count": 107
+			"count": 106
 		}
 	},
 	"core/webview/__tests__/diagnosticsHandler.spec.ts": {
@@ -811,7 +811,7 @@
 	},
 	"services/code-index/__tests__/service-factory.spec.ts": {
 		"@typescript-eslint/no-explicit-any": {
-			"count": 43
+			"count": 42
 		}
 	},
 	"services/code-index/embedders/__tests__/bedrock.spec.ts": {

@@ -3,6 +3,7 @@
 import type { Mock } from "vitest"
 
 import * as path from "path"
+import * as os from "os"
 import * as fs from "fs/promises"
 
 import * as yaml from "yaml"
@@ -26,6 +27,7 @@ vi.mock("vscode", () => ({
 	},
 	window: {
 		showErrorMessage: vi.fn(),
+		showWarningMessage: vi.fn(),
 	},
 }))
 
@@ -652,7 +654,18 @@ describe("CustomModesManager", () => {
 
 			await manager.getCustomModesFilePath()
 
-			expect(fs.writeFile).toHaveBeenCalledWith(settingsPath, expect.stringMatching(/^customModes: \[\]/))
+			expect(fs.writeFile).toHaveBeenCalledWith(settingsPath, expect.stringMatching(/^customModes: \[\]/), {
+				flag: "wx",
+			})
+		})
+
+		it("preserves a settings file created by a concurrent writer", async () => {
+			vi.mocked(fileExistsAtPath).mockResolvedValue(false)
+			vi.mocked(fs.writeFile).mockRejectedValueOnce(
+				Object.assign(new Error("already created"), { code: "EEXIST" }),
+			)
+			await expect(manager.getCustomModesFilePath()).resolves.toBe(mockSettingsPath)
+			expect(fs.writeFile).toHaveBeenCalledExactlyOnceWith(mockSettingsPath, expect.any(String), { flag: "wx" })
 		})
 
 		it("watches file for changes", async () => {
@@ -710,6 +723,65 @@ describe("CustomModesManager", () => {
 	})
 
 	describe("deleteCustomMode", () => {
+		it.each(["project", "global"] as const)(
+			"deletes only the explicit %s role and its rules when both scopes share a slug",
+			async (source) => {
+				const slug = "same-role"
+				const files = new Map([
+					[
+						mockSettingsPath,
+						yaml.stringify({
+							customModes: [{ slug, name: "Global role", roleDefinition: "global", groups: ["read"] }],
+						}),
+					],
+					[
+						mockRoomodes,
+						yaml.stringify({
+							customModes: [{ slug, name: "Project role", roleDefinition: "project", groups: ["read"] }],
+						}),
+					],
+				])
+				const projectRules = path.join(mockWorkspacePath, ".roo", `rules-${slug}`)
+				const globalRules = path.join(os.homedir(), ".roo", `rules-${slug}`)
+				vi.mocked(fileExistsAtPath).mockImplementation(
+					async (file) => files.has(String(file)) || [projectRules, globalRules].includes(String(file)),
+				)
+				vi.mocked(fs.readFile).mockImplementation(async (file) => files.get(String(file)) ?? "")
+				vi.mocked(fs.writeFile).mockImplementation(async (file, content) => {
+					files.set(String(file), String(content))
+				})
+				const untouchedPath = source === "project" ? mockSettingsPath : mockRoomodes
+				const original = files.get(untouchedPath)
+				await manager.deleteCustomMode(slug, true, source)
+				expect(files.get(untouchedPath)).toBe(original)
+				expect(
+					yaml.parse(files.get(source === "project" ? mockRoomodes : mockSettingsPath)!).customModes,
+				).toEqual([])
+				expect(fs.rm).toHaveBeenCalledWith(source === "project" ? projectRules : globalRules, {
+					recursive: true,
+					force: true,
+				})
+				expect(fs.rm).not.toHaveBeenCalledWith(
+					source === "project" ? globalRules : projectRules,
+					expect.anything(),
+				)
+			},
+		)
+
+		it("rejects a scoped uninstall when the role exists only in the other scope", async () => {
+			vi.mocked(fs.readFile).mockImplementation(async (file) =>
+				yaml.stringify({
+					customModes:
+						String(file) === mockSettingsPath
+							? [{ slug: "global-only", name: "Global", roleDefinition: "global", groups: ["read"] }]
+							: [],
+				}),
+			)
+			await expect(manager.deleteCustomMode("global-only", true, "project")).rejects.toThrow()
+			expect(fs.writeFile).not.toHaveBeenCalled()
+			expect(fs.rm).not.toHaveBeenCalled()
+		})
+
 		it("deletes mode from settings file", async () => {
 			const existingMode = {
 				slug: "mode-to-delete",
@@ -753,14 +825,55 @@ describe("CustomModesManager", () => {
 			expect(mockOnUpdate).toHaveBeenCalled()
 		})
 
-		it("handles errors gracefully", async () => {
+		it("reports failure and rejects instead of claiming an absent role was uninstalled", async () => {
 			const mockShowError = vi.fn()
 			;(vscode.window.showErrorMessage as Mock) = mockShowError
 			;(fs.writeFile as Mock).mockRejectedValue(new Error("Write error"))
 
-			await manager.deleteCustomMode("non-existent-mode")
+			await expect(manager.deleteCustomMode("non-existent-mode")).rejects.toThrow()
 
 			expect(mockShowError).toHaveBeenCalledWith("customModes.errors.deleteFailed")
+		})
+
+		it("rejects when rules cleanup fails", async () => {
+			vi.mocked(fileExistsAtPath).mockResolvedValue(true)
+			vi.mocked(fs.readFile).mockResolvedValue(
+				yaml.stringify({
+					customModes: [{ slug: "locked-role", name: "Locked", roleDefinition: "role", groups: ["read"] }],
+				}),
+			)
+			vi.mocked(fs.rm).mockRejectedValue(new Error("locked rules"))
+			await expect(manager.deleteCustomMode("locked-role", true, "global")).rejects.toThrow("locked rules")
+			expect(vscode.window.showWarningMessage).toHaveBeenCalled()
+		})
+
+		it("waits for a queued write, rejects its own failure and still drains subsequent writes", async () => {
+			let release!: () => void
+			const blocked = new Promise<void>((resolve) => {
+				release = resolve
+			})
+			const first = manager["queueWrite"](() => blocked)
+			const second = manager["queueWrite"](async () => {
+				throw new Error("queued failure")
+			})
+			const rejects = expect(second).rejects.toThrow("queued failure")
+			let settled = false
+			void second.then(
+				() => {
+					settled = true
+				},
+				() => {
+					settled = true
+				},
+			)
+			await Promise.resolve()
+			expect(settled).toBe(false)
+			release()
+			await first
+			await rejects
+			const third = vi.fn().mockResolvedValue(undefined)
+			await manager["queueWrite"](third)
+			expect(third).toHaveBeenCalledOnce()
 		})
 	})
 

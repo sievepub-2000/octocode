@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest"
-import { normalizeToolSchema } from "../json-schema"
+import { normalizeToolSchema, ToolInputSchema } from "../json-schema"
+
+it("applies tool schema defaults recursively through property records", () => {
+	expect(ToolInputSchema.parse({ type: "object", properties: { nested: { type: "object" } } })).toEqual({
+		type: "object",
+		properties: { nested: { type: "object", additionalProperties: false } },
+		additionalProperties: false,
+	})
+})
 
 describe("normalizeToolSchema", () => {
 	it("should convert type array to anyOf for nullable string", () => {

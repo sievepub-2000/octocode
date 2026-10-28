@@ -19,19 +19,13 @@ use zip::{self, ZipArchive};
 /// Returns whether all files in the archive start with the same path segment.
 /// If so, it's an indication we should skip that segment when extracting.
 fn should_skip_first_segment(archive: &mut ZipArchive<File>) -> bool {
-	let first_name = {
-		let file = archive
-			.by_index_raw(0)
-			.expect("expected not to have an empty archive");
-
-		let path = file
-			.enclosed_name()
-			.expect("expected to have path")
-			.iter()
-			.next()
-			.expect("expected to have non-empty name");
-
-		path.to_owned()
+	let Some(first_name) = archive
+		.by_index_raw(0)
+		.ok()
+		.and_then(|file| file.enclosed_name())
+		.and_then(|name| name.iter().next().map(|segment| segment.to_owned()))
+	else {
+		return false;
 	};
 
 	for i in 1..archive.len() {
@@ -74,9 +68,7 @@ where
 				// their single segment has been stripped. Only directory entries
 				// are skipped; non-directory entries with an empty relative path
 				// fall through to `safe_extract_join`, which rejects them.
-				if relative.as_os_str().is_empty()
-					&& (file.is_dir() || file.name().ends_with('/'))
-				{
+				if relative.as_os_str().is_empty() && file.is_dir() {
 					continue;
 				}
 				safe_extract_join(&canonical_root, &relative)?
@@ -84,7 +76,7 @@ where
 			None => continue,
 		};
 
-		if file.is_dir() || file.name().ends_with('/') {
+		if file.is_dir() {
 			fs::create_dir_all(&outpath)
 				.map_err(|e| wrap(e, format!("could not create dir for {}", outpath.display())))?;
 			ensure_canonical_within_root(&canonical_root, &outpath)?;
@@ -135,7 +127,8 @@ where
 				format!(
 					"unable to open file to write {} (from {:?})",
 					outpath.display(),
-					file.enclosed_name().map(|p| p.to_string_lossy()),
+					file.enclosed_name()
+						.map(|p| p.to_string_lossy().into_owned()),
 				),
 			)
 		})?;
@@ -152,11 +145,11 @@ where
 }
 
 #[cfg(unix)]
-fn apply_permissions(file: &ZipFile, outpath: &Path) -> Result<(), WrappedError> {
+fn apply_permissions(file: &ZipFile<'_, File>, outpath: &Path) -> Result<(), WrappedError> {
 	use std::os::unix::fs::PermissionsExt;
 
 	if let Some(mode) = file.unix_mode() {
-		fs::set_permissions(outpath, fs::Permissions::from_mode(mode)).map_err(|e| {
+		fs::set_permissions(outpath, fs::Permissions::from_mode(mode & 0o777)).map_err(|e| {
 			wrap(
 				e,
 				format!("error setting permissions on {}", outpath.display()),
@@ -168,6 +161,50 @@ fn apply_permissions(file: &ZipFile, outpath: &Path) -> Result<(), WrappedError>
 }
 
 #[cfg(windows)]
-fn apply_permissions(_file: &ZipFile, _outpath: &Path) -> Result<(), WrappedError> {
+fn apply_permissions(_file: &ZipFile<'_, File>, _outpath: &Path) -> Result<(), WrappedError> {
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use std::io::Write;
+	use zip::{write::SimpleFileOptions, ZipWriter};
+
+	#[test]
+	fn extracts_zip9_deflate_and_accepts_empty_archives() {
+		let temporary = tempfile::tempdir().unwrap();
+		for (name, entries) in [("normal", true), ("empty", false)] {
+			let archive_path = temporary.path().join(format!("{name}.zip"));
+			let mut writer = ZipWriter::new(File::create(&archive_path).unwrap());
+			if entries {
+				let options = SimpleFileOptions::default()
+					.compression_method(zip::CompressionMethod::Deflated);
+				writer.start_file("root/first.txt", options).unwrap();
+				writer.write_all(b"first fixture").unwrap();
+				writer.start_file("root/second.txt", options).unwrap();
+				writer.write_all(b"second fixture").unwrap();
+			}
+			writer.finish().unwrap();
+			let destination = temporary.path().join(name);
+			unzip_file(
+				File::open(archive_path).unwrap(),
+				&destination,
+				crate::util::io::SilentCopyProgress(),
+			)
+			.unwrap();
+			if entries {
+				assert_eq!(
+					fs::read(destination.join("first.txt")).unwrap(),
+					b"first fixture"
+				);
+				assert_eq!(
+					fs::read(destination.join("second.txt")).unwrap(),
+					b"second fixture"
+				);
+			} else {
+				assert_eq!(fs::read_dir(destination).unwrap().count(), 0);
+			}
+		}
+	}
 }

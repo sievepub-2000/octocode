@@ -86,13 +86,16 @@ foreach ($entry in $checks.GetEnumerator()) {
 	if ($exitCode -ne 0) { throw "$($entry.Key) self-test failed" }
 	$results[$entry.Key] = [string]($output | Select-Object -First 1)
 }
-if ($results.node -ne 'v24.20.0') { throw "Node 24.20.0 is required, found: $($results.node)" }
-if ($results.npm -ne '12.0.2') { throw "npm 12.0.2 is required, found: $($results.npm)" }
+if ($results.node -ne 'v26.12.1') { throw "Node 26.12.1 is required, found: $($results.node)" }
+if ($results.npm -ne '12.2.1') { throw "npm 12.2.1 is required, found: $($results.npm)" }
 if ($results.pnpm -ne '11.25.0') { throw "pnpm 11.25.0 is required, found: $($results.pnpm)" }
 if ($results.python -ne 'Python 3.14.7') { throw "Python 3.14.7 is required, found: $($results.python)" }
 if ($results.Contains('uv') -and $results.uv -notmatch '^uv 0\.12\.5(?:\s|$)') { throw "uv 0.12.5 is required, found: $($results.uv)" }
 if ($results.Contains('rust') -and $results.rust -notmatch '^rustc 1\.98\.0(?:\s|$)') { throw "Rust 1.98.0 is required, found: $($results.rust)" }
-if ($results.Contains('protoc') -and $results.protoc -ne 'libprotoc 36.1') { throw "protoc 36.1 is required, found: $($results.protoc)" }
+if ($results.Contains('protoc') -and $results.protoc -ne 'libprotoc 36.2') { throw "protoc 36.2 is required, found: $($results.protoc)" }
+& (Join-Path $environmentRoot 'python\python.exe') (Join-Path $environmentRoot 'scripts\test_runtime_python_security.py')
+if ($LASTEXITCODE -ne 0) { throw 'Installed Python security regression failed' }
+$results.pythonSecurity = 'PASS: pinned dependency versions and adversarial JWT/protobuf checks'
 $toolchainRoot = Join-Path $environmentRoot 'rust\rustup\toolchains'
 $toolchains = @(Get-ChildItem -LiteralPath $toolchainRoot -Directory -ErrorAction SilentlyContinue)
 if ($results.Contains('rust') -and ($toolchains.Count -ne 1 -or $toolchains[0].Name -notmatch '^1\.98\.0-')) {
@@ -125,7 +128,8 @@ if (-not (Test-Path -LiteralPath $mcpSelfTest -PathType Leaf)) { throw "MCP self
 $results.mcpSmoke = @(& $mcpSelfTest -AppRoot $AppRoot -SettingsPath $mcpSettings)
 
 $builtins = Join-Path $AppRoot 'resources\app\extensions'
-$accountAdapters = @('github', 'github-authentication', 'microsoft-authentication') |
+# GitHub authentication is required by the signed private release updater.
+$accountAdapters = @('github', 'microsoft-authentication') |
 	Where-Object { Test-Path -LiteralPath (Join-Path $builtins $_) }
 if ($accountAdapters) { throw "Account-backed adapters remain: $($accountAdapters -join ', ')" }
 

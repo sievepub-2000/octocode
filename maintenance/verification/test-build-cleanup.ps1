@@ -140,7 +140,7 @@ foreach($fixture in @($probe,$outside)){
 $fixture=Join-Path ([IO.Path]::GetTempPath()) ('acceptance-check-'+[guid]::NewGuid().ToString('N'))
 try {
     New-Item -ItemType Directory -Path $fixture | Out-Null
-    $acceptance=(Get-Content -LiteralPath (Join-Path $sourceRoot 'final-acceptance.ps1') -Raw).Replace('D:\Program Files\OctoCode',$fixture).Replace('D:\gpt-workspace\octocode',$fixture)
+    $acceptance=(Get-Content -LiteralPath (Join-Path $sourceRoot 'final-acceptance.ps1') -Raw).Replace('E:\Program Files\octocode',$fixture).Replace('D:\gpt-workspace\octocode',$fixture)
     $output=@(& {
         function Get-CimInstance { @() }
         & ([scriptblock]::Create($acceptance))

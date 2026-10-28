@@ -49,7 +49,11 @@ export class CustomModesManager {
 
 	private disposables: vscode.Disposable[] = []
 	private isWriting = false
-	private writeQueue: Array<() => Promise<void>> = []
+	private writeQueue: Array<{
+		operation: () => Promise<void>
+		resolve: () => void
+		reject: (error: unknown) => void
+	}> = []
 	private cachedModes: ModeConfig[] | null = null
 	private cachedAt: number = 0
 
@@ -63,11 +67,10 @@ export class CustomModesManager {
 	}
 
 	private async queueWrite(operation: () => Promise<void>): Promise<void> {
-		this.writeQueue.push(operation)
-
-		if (!this.isWriting) {
-			await this.processWriteQueue()
-		}
+		return new Promise<void>((resolve, reject) => {
+			this.writeQueue.push({ operation, resolve, reject })
+			void this.processWriteQueue()
+		})
 	}
 
 	private async processWriteQueue(): Promise<void> {
@@ -79,10 +82,14 @@ export class CustomModesManager {
 
 		try {
 			while (this.writeQueue.length > 0) {
-				const operation = this.writeQueue.shift()
-
-				if (operation) {
-					await operation()
+				const pending = this.writeQueue.shift()
+				if (pending) {
+					try {
+						await pending.operation()
+						pending.resolve()
+					} catch (error) {
+						pending.reject(error)
+					}
 				}
 			}
 		} finally {
@@ -252,7 +259,13 @@ export class CustomModesManager {
 		const fileExists = await fileExistsAtPath(filePath)
 
 		if (!fileExists) {
-			await this.queueWrite(() => fs.writeFile(filePath, yaml.stringify({ customModes: [] }, { lineWidth: 0 })))
+			// This getter is also called from queued writes. Exclusive creation
+			// avoids re-entering that queue and cannot overwrite another writer.
+			try {
+				await fs.writeFile(filePath, yaml.stringify({ customModes: [] }, { lineWidth: 0 }), { flag: "wx" })
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+			}
 		}
 
 		return filePath
@@ -406,11 +419,11 @@ export class CustomModesManager {
 			// Validate the mode configuration before saving
 			const validationResult = modeConfigSchema.safeParse(config)
 			if (!validationResult.success) {
-				const errorMessages = validationResult.error.errors
+				const errorMessages = validationResult.error.issues
 					.map((err) => `${err.path.join(".")}: ${err.message}`)
 					.join(", ")
 				const errorMessage = `Invalid mode configuration: ${errorMessages}`
-				logger.error("Mode validation failed", { slug, errors: validationResult.error.errors })
+				logger.error("Mode validation failed", { slug, errors: validationResult.error.issues })
 				vscode.window.showErrorMessage(t("common:customModes.errors.updateFailed", { error: errorMessage }))
 				throw new Error(errorMessage)
 			}
@@ -508,13 +521,15 @@ export class CustomModesManager {
 		await this.onUpdate()
 	}
 
-	public async deleteCustomMode(slug: string, fromMarketplace = false): Promise<void> {
+	public async deleteCustomMode(slug: string, fromMarketplace = false, source?: "global" | "project"): Promise<void> {
 		try {
+			if (source !== undefined && source !== "global" && source !== "project")
+				throw new Error("Invalid mode scope")
 			const settingsPath = await this.getCustomModesFilePath()
 			const roomodesPath = await this.getWorkspaceRoomodes()
 
-			const settingsModes = await this.loadModesFromFile(settingsPath)
-			const roomodesModes = roomodesPath ? await this.loadModesFromFile(roomodesPath) : []
+			const settingsModes = source !== "project" ? await this.loadModesFromFile(settingsPath) : []
+			const roomodesModes = source !== "global" && roomodesPath ? await this.loadModesFromFile(roomodesPath) : []
 
 			// Find the mode in either file
 			const projectMode = roomodesModes.find((m) => m.slug === slug)
@@ -523,9 +538,6 @@ export class CustomModesManager {
 			if (!projectMode && !globalMode) {
 				throw new Error(t("common:customModes.errors.modeNotFound"))
 			}
-
-			// Determine which mode to use for rules folder path calculation
-			const modeToDelete = projectMode || globalMode
 
 			await this.queueWrite(async () => {
 				// Delete from project first if it exists there
@@ -539,9 +551,8 @@ export class CustomModesManager {
 				}
 
 				// Delete associated rules folder
-				if (modeToDelete) {
-					await this.deleteRulesFolder(slug, modeToDelete, fromMarketplace)
-				}
+				if (projectMode) await this.deleteRulesFolder(slug, projectMode, fromMarketplace)
+				if (globalMode) await this.deleteRulesFolder(slug, globalMode, fromMarketplace)
 
 				// Clear cache when modes are deleted
 				this.clearCache()
@@ -550,6 +561,7 @@ export class CustomModesManager {
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error)
 			vscode.window.showErrorMessage(t("common:customModes.errors.deleteFailed", { error: errorMessage }))
+			throw error
 		}
 	}
 
@@ -591,13 +603,14 @@ export class CustomModesManager {
 						? "common:marketplace.mode.rulesCleanupFailed"
 						: "common:customModes.errors.rulesCleanupFailed"
 					vscode.window.showWarningMessage(t(messageKey, { rulesFolderPath }))
-					// Continue even if folder deletion fails
+					throw error
 				}
 			}
 		} catch (error) {
 			logger.error(`Error deleting rules folder for mode ${slug}`, {
 				error: error instanceof Error ? error.message : String(error),
 			})
+			throw error
 		}
 	}
 
@@ -963,11 +976,11 @@ export class CustomModesManager {
 				const validationResult = modeConfigSchema.safeParse(modeConfig)
 				if (!validationResult.success) {
 					logger.error(`Invalid mode configuration for ${modeConfig.slug}`, {
-						errors: validationResult.error.errors,
+						errors: validationResult.error.issues,
 					})
 					return {
 						success: false,
-						error: `Invalid mode configuration for ${modeConfig.slug}: ${validationResult.error.errors.map((e) => e.message).join(", ")}`,
+						error: `Invalid mode configuration for ${modeConfig.slug}: ${validationResult.error.issues.map((e) => e.message).join(", ")}`,
 					}
 				}
 

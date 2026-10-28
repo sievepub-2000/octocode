@@ -7,6 +7,77 @@ vi.mock("react-i18next", async (importOriginal) => ({
 	useTranslation: () => ({ t: (key: string) => key }),
 }))
 
+describe("RuntimeTranscript message times", () => {
+	it("centers stable local times above reasoning, execution, and each answer, excluding user turns", () => {
+		const start = new Date(2026, 9, 18, 12, 59, 7).getTime()
+		const event = (kind: string, text: string, created_at: number) => ({
+			task_id: "task",
+			session_id: "session",
+			kind,
+			payload: { data: text },
+			created_at,
+		})
+		const events = [
+			event("thought", "planning", start),
+			event("thought", " carefully", start + 60_000),
+			event("tool_call", "read source", start + 120_000),
+			event("text", "first answer", start + 180_000),
+			event("user.message", "try again", start + 240_000),
+			event("text", "revised answer", start + 300_000),
+		]
+		const props = {
+			prompt: "initial input",
+			events,
+			running: true,
+			phase: "thinking" as const,
+			onSelectOption: vi.fn(),
+		}
+		const { container, rerender, unmount } = render(<RuntimeTranscript {...props} />)
+		const labels = [
+			"--2026-10-18 12:59:07--",
+			"--2026-10-18 13:01:07--",
+			"--2026-10-18 13:02:07--",
+			"--2026-10-18 13:04:07--",
+		]
+		expect(Array.from(container.querySelectorAll("time"), (item) => item.textContent)).toEqual(labels)
+		for (const time of container.querySelectorAll("time")) {
+			expect(time).toHaveClass("block", "w-full", "text-center")
+			expect(time.dateTime).toBeTruthy()
+		}
+		expect(
+			screen.getByText(labels[0]).compareDocumentPosition(screen.getByText("planning carefully")) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy()
+		// More streamed text keeps the start of this answer, rather than its latest token's time.
+		rerender(<RuntimeTranscript {...props} events={[...events, event("text", " extended", start + 360_000)]} />)
+		expect(Array.from(container.querySelectorAll("time"), (item) => item.textContent)).toEqual(labels)
+		unmount()
+		const reopened = render(<RuntimeTranscript {...props} running={false} />)
+		expect(Array.from(reopened.container.querySelectorAll("time"), (item) => item.textContent)).toEqual(labels)
+	})
+
+	it("does not invent current times for missing or invalid historical timestamps", () => {
+		const events = [undefined, NaN, Infinity, 9e20].map((created_at, index) => ({
+			task_id: `task-${index}`,
+			session_id: "session",
+			kind: "text",
+			payload: { data: `old answer ${index}` },
+			created_at,
+		}))
+		const { container } = render(
+			<RuntimeTranscript
+				prompt="old input"
+				events={events}
+				running={false}
+				phase="thinking"
+				onSelectOption={vi.fn()}
+			/>,
+		)
+		expect(container.querySelector("time")).toBeNull()
+		expect(screen.getByText("old answer 0")).toBeVisible()
+	})
+})
+
 describe("RuntimeTranscript waiting state", () => {
 	it("renders images for the initial prompt and later user turns", () => {
 		const image = "data:image/png;base64,aGVsbG8="

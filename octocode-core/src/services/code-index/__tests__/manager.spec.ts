@@ -2,6 +2,9 @@ import { CodeIndexManager } from "../manager"
 import { CodeIndexServiceFactory } from "../service-factory"
 import type { MockedClass } from "vitest"
 import * as path from "path"
+import { ContextProxy } from "../../../core/config/ContextProxy"
+import { NativeCodeIndexProvider } from "../native-provider"
+import { SembleProvider } from "../semble"
 
 // Helper: create a mock vscode.Uri from an fsPath
 function mockUri(fsPath: string, scheme = "file") {
@@ -167,6 +170,30 @@ describe("CodeIndexManager - handleSettingsChange regression", () => {
 	})
 
 	describe("handleSettingsChange", () => {
+		it.each([true, false])("initializes legacy semble through native only when enabled=%s", async (enabled) => {
+			mockContext.secrets.get = vi.fn().mockResolvedValue(undefined)
+			const proxy = new ContextProxy(mockContext)
+			await proxy.setValue("codebaseIndexConfig", {
+				codebaseIndexEnabled: enabled,
+				codebaseIndexEmbedderProvider: "semble",
+			})
+			const nativeInit = vi.spyOn(NativeCodeIndexProvider.prototype, "initialize").mockResolvedValue(undefined)
+			const nativeEnsure = vi.spyOn(NativeCodeIndexProvider.prototype, "ensureIndex").mockResolvedValue(undefined)
+			const oldInit = vi.spyOn(SembleProvider.prototype, "initialize").mockResolvedValue(undefined)
+			try {
+				await manager.initialize(proxy)
+				expect(nativeInit).toHaveBeenCalledTimes(enabled ? 1 : 0)
+				expect(nativeEnsure).toHaveBeenCalledTimes(enabled ? 1 : 0)
+				expect(oldInit).not.toHaveBeenCalled()
+				expect(manager.isFeatureEnabled).toBe(enabled)
+				expect(proxy.getGlobalState("codebaseIndexConfig")?.codebaseIndexEmbedderProvider).toBe("semble")
+			} finally {
+				nativeInit.mockRestore()
+				nativeEnsure.mockRestore()
+				oldInit.mockRestore()
+			}
+		})
+
 		it("should not throw when called on uninitialized manager (regression test)", async () => {
 			// This is the core regression test: handleSettingsChange() should not throw
 			// when called before the manager is initialized (during first-time configuration)
@@ -769,6 +796,13 @@ describe("CodeIndexManager - handleSettingsChange regression", () => {
 	})
 
 	describe("stopIndexing", () => {
+		it("refuses search when this project is disabled even if the global feature is enabled", async () => {
+			vi.spyOn(manager, "isFeatureEnabled", "get").mockReturnValue(true)
+			await manager.setWorkspaceEnabled(false)
+			expect(manager.state).toBe("Standby")
+			await expect(manager.searchIndex("private project symbol")).resolves.toEqual([])
+		})
+
 		it("should delegate to orchestrator.stopIndexing()", () => {
 			const mockOrchestrator = {
 				stopIndexing: vi.fn(),

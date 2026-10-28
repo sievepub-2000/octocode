@@ -18,7 +18,7 @@ suite('DomActivityTracker', () => {
 	const store = ensureNoDisposablesAreLeakedInTestSuite();
 
 	setup(() => {
-		clock = sinon.useFakeTimers();
+		clock = sinon.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
 		insta = store.add(new TestInstantiationService());
 		uas = store.add(new UserActivityService(insta));
 		store.add(new DomActivityTracker(uas));

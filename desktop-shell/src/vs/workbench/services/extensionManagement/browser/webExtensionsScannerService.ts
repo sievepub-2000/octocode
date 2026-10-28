@@ -36,7 +36,7 @@ import { IExtensionStorageService } from '../../../../platform/extensionManageme
 import { isNonEmptyArray } from '../../../../base/common/arrays.js';
 import { ILifecycleService, LifecyclePhase } from '../../lifecycle/common/lifecycle.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
-import { IProductService } from '../../../../platform/product/common/productService.js';
+import { IProductService, getVscodeApiVersion } from '../../../../platform/product/common/productService.js';
 import { validateExtensionManifest } from '../../../../platform/extensions/common/extensionValidator.js';
 import Severity from '../../../../base/common/severity.js';
 import { IStringDictionary } from '../../../../base/common/collections.js';
@@ -767,7 +767,7 @@ export class WebExtensionsScannerService extends Disposable implements IWebExten
 
 		const uuid = (<IGalleryMetadata | undefined>webExtension.metadata)?.id;
 
-		validations.push(...validateExtensionManifest(this.productService.version, this.productService.date, webExtension.location, manifest, false));
+		validations.push(...validateExtensionManifest(getVscodeApiVersion(this.productService), this.productService.date, webExtension.location, manifest, false));
 		let isValid = true;
 		for (const [severity, message] of validations) {
 			if (severity === Severity.Error) {

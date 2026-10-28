@@ -80,11 +80,11 @@ import product from '../../platform/product/common/product.js';
 			if (confirmBeforeClose === 'always' || (confirmBeforeClose === 'keyboardOnly' && ModifierKeyEmitter.getInstance().isModifierPressed)) {
 				const confirmed = await NativeWindow.confirmOnShutdown(accessor, ShutdownReason.QUIT);
 				if (!confirmed) {
-					return; // quit prevented by user
+					return true; // quit prevented by user
 				}
 			}
 
-			nativeHostService.quit();
+			return nativeHostService.quit();
 		},
 		when: undefined,
 		mac: { primary: KeyMod.CtrlCmd | KeyCode.KeyQ },

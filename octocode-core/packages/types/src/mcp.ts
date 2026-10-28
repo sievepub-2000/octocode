@@ -1,4 +1,4 @@
-import { z } from "zod"
+import { z } from "zod/v4"
 
 /**
  * Maximum number of MCP tools that can be enabled before showing a warning.

@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import es from 'event-stream';
-import glob from 'glob';
+import { globSync } from 'glob';
 import vfs from 'vinyl-fs';
 import { stylelintFilter } from './filters.ts';
 import { findRootAnchoredHas } from './lib/stylelint/validateHasSelectors.ts';
@@ -145,7 +145,7 @@ function stylelint(sources: string[] = Array.from(stylelintFilter), explicit = f
 		? `Stylelint: checking ${resolvedSources.length} CSS file${resolvedSources.length === 1 ? '' : 's'} matched by ${sources.length} requested path${sources.length === 1 ? '' : 's'}.`
 		: 'Stylelint: checking all CSS files under src.');
 	return vfs
-		.src(resolvedSources, { base: '.', follow: true, allowEmpty: !explicit })
+		.src(resolvedSources, { base: '.', resolveSymlinks: true, allowEmpty: !explicit })
 		.pipe(gulpstylelint((message, isError) => {
 			if (isError) {
 				console.error(message);
@@ -209,7 +209,7 @@ export function resolveStylelintSources(argv: readonly string[]): { sources: str
 export function resolveStylelintMatches(sources: readonly string[]): string[] {
 	const matches = new Set<string>();
 	for (const source of sources) {
-		const sourceMatches = glob.sync(source, { follow: true, nodir: true });
+		const sourceMatches = globSync(source, { follow: true, nodir: true, windowsPathsNoEscape: true }).sort();
 		if (sourceMatches.length === 0) {
 			throw new Error(`No CSS files matched the requested path: ${source}`);
 		}

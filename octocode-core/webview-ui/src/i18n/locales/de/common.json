@@ -345,6 +345,10 @@
 	"dismiss": "Schließen",
 	"dismissAndDontShowAgain": "Schließen und nicht erneut anzeigen",
 	"extensions": {
+		"pagination": "Komponentenseiten",
+		"pageNumber": "Seite {{number}}",
+		"previousPage": "Zurück",
+		"nextPage": "Weiter",
 		"market": "Marktplatz",
 		"systemToolsHint": "Systemwerkzeuge · in allen Arbeitsbereichen verfügbar",
 		"environments": "Runtimes",

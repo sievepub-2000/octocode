@@ -7,7 +7,7 @@ import * as cp from 'child_process';
 import * as fs from 'fs';
 import { gulp } from './lib/gulp/facade.ts';
 import * as path from 'path';
-import rcedit from 'rcedit';
+import { rcedit } from 'rcedit';
 import vfs from 'vinyl-fs';
 import pkg from '../package.json' with { type: 'json' };
 import product from '../product.json' with { type: 'json' };
@@ -146,10 +146,10 @@ function copyInnoUpdater(arch: string) {
 	};
 }
 
-function updateIcon(executablePath: string): task.CallbackTask {
-	return cb => {
+function updateIcon(executablePath: string): task.PromiseTask {
+	return async () => {
 		const icon = path.join(repoPath, 'resources', 'win32', 'code.ico');
-		rcedit(executablePath, { icon }, cb);
+		await rcedit(executablePath, { icon });
 	};
 }
 

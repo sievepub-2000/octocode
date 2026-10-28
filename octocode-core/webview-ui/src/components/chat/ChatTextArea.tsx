@@ -141,6 +141,8 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 			filePaths,
 			openedTabs,
 			currentApiConfigName,
+			sessionApiConfigName,
+			sessionApiConfiguration,
 			listApiConfigMeta,
 			customModes,
 			customModePrompts,
@@ -152,27 +154,33 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 			lockApiConfigAcrossModes,
 			apiConfiguration,
 		} = useExtensionState()
-		const { id: selectedModelId, info: selectedModelInfo } = useSelectedModel(apiConfiguration)
+		// The conversation shows the model it actually runs on: its own override
+		// when the session has one, the global pick otherwise. The settings
+		// screen keeps reading the global profile untouched.
+		const chatApiConfigName = sessionApiConfigName ?? currentApiConfigName
+		const chatApiConfiguration = sessionApiConfiguration ?? apiConfiguration
+		const { id: selectedModelId, info: selectedModelInfo } = useSelectedModel(chatApiConfiguration)
 		const handleThinkingChange = useCallback(
 			(thinking: Pick<ProviderSettings, "reasoningEffort" | "enableReasoningEffort" | "reasoningStyle">) => {
-				if (!currentApiConfigName || !apiConfiguration) return
+				if (!chatApiConfigName || !chatApiConfiguration) return
 				vscode.postMessage({
 					type: "upsertApiConfiguration",
-					text: currentApiConfigName,
-					apiConfiguration: { ...apiConfiguration, ...thinking },
+					text: chatApiConfigName,
+					apiConfiguration: { ...chatApiConfiguration, ...thinking },
+					activate: !sessionApiConfigName,
 				})
 			},
-			[apiConfiguration, currentApiConfigName],
+			[chatApiConfiguration, chatApiConfigName, sessionApiConfigName],
 		)
 
-		// Find the ID and display text for the currently selected API configuration.
+		// Find the ID and display text for the configuration this conversation runs on.
 		const { currentConfigId, displayName } = useMemo(() => {
-			const currentConfig = listApiConfigMeta?.find((config) => config.name === currentApiConfigName)
+			const currentConfig = listApiConfigMeta?.find((config) => config.name === chatApiConfigName)
 			return {
 				currentConfigId: currentConfig?.id || "",
-				displayName: currentApiConfigName || "", // Use the name directly for display.
+				displayName: chatApiConfigName || "", // Use the name directly for display.
 			}
-		}, [listApiConfigMeta, currentApiConfigName])
+		}, [listApiConfigMeta, chatApiConfigName])
 
 		const [gitCommits, setGitCommits] = useState<any[]>([])
 		const [showDropdown, setShowDropdown] = useState(false)
@@ -1449,7 +1457,7 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 									onToggleLockApiConfig={handleToggleLockApiConfig}
 								/>
 								<ThinkingTierPicker
-									apiConfiguration={apiConfiguration}
+									apiConfiguration={chatApiConfiguration}
 									modelId={selectedModelId}
 									modelInfo={selectedModelInfo}
 									disabled={selectApiConfigDisabled}

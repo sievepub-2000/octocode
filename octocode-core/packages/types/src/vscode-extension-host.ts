@@ -1,4 +1,4 @@
-import { z } from "zod"
+import { z } from "zod/v4"
 
 import type { GlobalSettings, RooCodeSettings } from "./global-settings.js"
 import type { ProviderName, ProviderSettings, ProviderSettingsEntry } from "./provider-settings.js"
@@ -82,6 +82,7 @@ export interface ExtensionMessage {
 		| "condenseTaskContextResponse"
 		| "singleRouterModelFetchResponse"
 		| "indexingStatusUpdate"
+		| "codeIndexSearchResult"
 		| "updateStatus"
 		| "indexCleared"
 		| "codebaseIndexConfig"
@@ -127,6 +128,10 @@ export interface ExtensionMessage {
 	text?: string
 	/** For fileContent: { path, content, error? } */
 	fileContent?: { path: string; content: string | null; error?: string }
+	codeIndexSearch?: {
+		workspacePath?: string
+		matches: { filePath: string; startLine: number; endLine: number; text: string }[]
+	}
 	payload?: any // eslint-disable-line @typescript-eslint/no-explicit-any
 	checkpointWarning?: {
 		type: "WAIT_TIMEOUT" | "INIT_TIMEOUT"
@@ -348,6 +353,9 @@ export type ExtensionState = Pick<
 	lockApiConfigAcrossModes?: boolean
 	version: string
 	apiConfiguration: ProviderSettings
+	/** Profile name the active conversation itself runs on, when it has one. */
+	sessionApiConfigName?: string
+	sessionApiConfiguration?: ProviderSettings
 	uriScheme?: string
 	shouldShowAnnouncement: boolean
 
@@ -373,6 +381,7 @@ export type ExtensionState = Pick<
 	toolRequirements?: Record<string, boolean> // Map of tool names to their requirements (e.g. {"apply_diff": true})
 
 	cwd?: string // Current working directory
+	codeIndexWorkspacePath?: string
 	telemetrySetting: TelemetrySetting
 	telemetryKey?: string
 	machineId?: string
@@ -618,6 +627,7 @@ export interface WebviewMessage {
 		| "switchOrganization"
 		| "condenseTaskContextRequest"
 		| "requestIndexingStatus"
+		| "searchCodeIndex"
 		| "requestUpdateStatus"
 		| "applyUpdate"
 		| "startIndexing"
@@ -706,12 +716,15 @@ export interface WebviewMessage {
 	projectId?: string
 	sourceTask?: RuntimeTask
 	editedMessageContent?: string
+	/** Absolute paths of document attachments to copy into the session directory. */
+	attachmentPaths?: string[]
 	tab?: "settings" | "history" | "mcp" | "modes" | "chat" | "marketplace" | "cloud"
 	disabled?: boolean
 	context?: string
 	dataUri?: string
 	askResponse?: ClineAskResponse
 	apiConfiguration?: ProviderSettings
+	activate?: boolean
 	images?: string[]
 	bool?: boolean
 	value?: number
@@ -774,6 +787,7 @@ export interface WebviewMessage {
 		codebaseIndexEnabled: boolean
 		codebaseIndexQdrantUrl: string
 		codebaseIndexEmbedderProvider:
+			| "native"
 			| "openai"
 			| "ollama"
 			| "openai-compatible"

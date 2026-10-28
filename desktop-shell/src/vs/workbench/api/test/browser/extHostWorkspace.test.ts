@@ -27,6 +27,10 @@ import { nullExtensionDescription as extensionDescriptor } from '../../../servic
 import { IURITransformerService } from '../../common/extHostUriTransformerService.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { ExcludeSettingOptions } from '../../../services/search/common/searchExtTypes.js';
+import { ExtHostConfigProvider } from '../../common/extHostConfiguration.js';
+import { ConfigurationModel } from '../../../../platform/configuration/common/configurationModels.js';
+import { ConfigurationScope } from '../../../../platform/configuration/common/configurationRegistry.js';
+import { MainThreadConfigurationShape } from '../../common/extHost.protocol.js';
 
 function createExtHostWorkspace(mainContext: IMainContext, data: IWorkspaceData, logService: ILogService): ExtHostWorkspace {
 	mainContext.set(MainContext.MainThreadTelemetry, new class extends mock<MainThreadTelemetryShape>() {
@@ -44,6 +48,25 @@ function createExtHostWorkspace(mainContext: IMainContext, data: IWorkspaceData,
 }
 
 suite('ExtHostWorkspace', function () {
+	test('native findFiles reads resource-scoped ignore settings with an explicit global scope', async () => {
+		const warnings: unknown[][] = [];
+		const log = new class extends NullLogService { override warn(...args: unknown[]): void { warnings.push(args); } }();
+		const rpc = new TestRPCProtocol();
+		rpc.set(MainContext.MainThreadWorkspace, new class extends mock<MainThreadWorkspace>() {
+			override $startFileSearch(): Promise<URI[] | null> { return Promise.resolve([]); }
+		});
+		const workspace = createExtHostWorkspace(rpc, { id: 'ignore-settings', name: 'Test', folders: [aWorkspaceFolderData(URI.file('/project'), 0)] }, log);
+		const empty = () => ConfigurationModel.createEmptyModel(log);
+		const provider = new ExtHostConfigProvider(new (mock<MainThreadConfigurationShape>())(), workspace, {
+			defaults: new ConfigurationModel({ search: { useIgnoreFiles: false } }, ['search.useIgnoreFiles'], [], undefined, log),
+			policy: empty(), application: empty(), userLocal: empty(), userRemote: empty(), workspace: empty(), folders: [],
+			configurationScopes: [['search.useIgnoreFiles', ConfigurationScope.RESOURCE]]
+		}, log);
+		workspace.$setConfigProvider(provider);
+		await workspace.findFiles2(['**'], {}, new ExtensionIdentifier('test'));
+		assert.strictEqual(workspace['_userIgnoreFilesSetting'](), false);
+		assert.deepStrictEqual(warnings, []);
+	});
 
 	ensureNoDisposablesAreLeakedInTestSuite();
 

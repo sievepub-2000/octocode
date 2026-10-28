@@ -28,6 +28,7 @@
 		"discardButton": "Ignorer les modifications"
 	},
 	"sections": {
+		"memoryKnowledge": "Mémoire et connaissances",
 		"providers": "Fournisseurs",
 		"modes": "Modes",
 		"mcp": "Serveurs MCP",
@@ -170,6 +171,12 @@
 		"description": "Configurez les invites de support utilisées pour les actions rapides comme l'amélioration des invites, l'explication du code et la résolution des problèmes. Ces invites aident OctoCode à fournir une meilleure assistance pour les tâches de développement courantes."
 	},
 	"codeIndex": {
+		"indexReadyLabel": "Index prêt",
+		"nativeProvider": "Index de code local (symboles et recherche lexicale, hors ligne)",
+		"memoryKnowledgeDescription": "La mémoire de Harness reste liée à sa conversation. Gérez et recherchez ici les connaissances du code du projet sélectionné ; l'indexation locale ne nécessite ni clé de modèle ni base de données externe.",
+		"searchQuery": "Rechercher dans les connaissances du code du projet",
+		"searchButton": "Rechercher dans l'index",
+		"noSearchResults": "Aucun code indexé correspondant.",
 		"title": "Indexation de la base de code",
 		"description": "Configurez les paramètres d'indexation de la base de code pour activer la recherche sémantique dans votre projet. <0>En savoir plus</0>",
 		"statusTitle": "Statut",

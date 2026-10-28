@@ -5,6 +5,8 @@ import { vscode } from "@src/utils/vscode"
 
 import { IndexingStatusBadge } from "../IndexingStatusBadge"
 
+const workspace = vi.hoisted(() => ({ path: undefined as string | undefined }))
+
 vi.mock("@/i18n/setup", () => ({
 	__esModule: true,
 	default: {
@@ -61,6 +63,7 @@ vi.mock("@/context/ExtensionStateContext", () => ({
 		version: "1.0.0",
 		shouldShowAnnouncement: false,
 		language: "en",
+		codeIndexWorkspacePath: workspace.path,
 	}),
 	ExtensionStateContextProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
@@ -99,6 +102,33 @@ describe("IndexingStatusBadge", () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks()
+		workspace.path = undefined
+	})
+
+	it("resets status when switching projects and ignores late status from another project", () => {
+		workspace.path = "/project-a"
+		const view = renderComponent()
+		const status = (workspacePath?: string) =>
+			act(() =>
+				window.dispatchEvent(
+					new MessageEvent("message", {
+						data: {
+							type: "indexingStatusUpdate",
+							values: { workspacePath, systemStatus: "Indexed", processedItems: 1, totalItems: 1 },
+						},
+					}),
+				),
+			)
+		status("/project-a")
+		expect(screen.getByRole("button")).toHaveAttribute("aria-label", "Indexed")
+		workspace.path = "/project-b"
+		view.rerender(<IndexingStatusBadge />)
+		expect(screen.getByRole("button")).toHaveAttribute("aria-label", "Index ready")
+		status("/project-a")
+		status()
+		expect(screen.getByRole("button")).toHaveAttribute("aria-label", "Index ready")
+		status("/project-b")
+		expect(screen.getByRole("button")).toHaveAttribute("aria-label", "Indexed")
 	})
 
 	it("renders the status dot", () => {

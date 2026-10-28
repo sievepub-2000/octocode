@@ -1,6 +1,14 @@
 import "@testing-library/jest-dom"
 import "@testing-library/jest-dom/vitest"
 
+// The AI SDK's Poe provider imports Node's web streams; the vmThreads pool's
+// vm context does not expose them, so mirror the globals into the context.
+for (const [key, value] of Object.entries(require("node:stream/web") as Record<string, unknown>)) {
+	if (!Reflect.has(globalThis, key)) {
+		Reflect.set(globalThis, key, value)
+	}
+}
+
 // Mock the VSCode webview-ui-toolkit to avoid dual React instance issues caused
 // by FAST Foundation web component registration. Registered here (rather than via
 // a resolve.alias in vitest.config.ts) so the global config stays clean.

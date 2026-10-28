@@ -19,7 +19,7 @@ suite('UserActivityService', () => {
 	const ds = ensureNoDisposablesAreLeakedInTestSuite();
 
 	setup(() => {
-		clock = sinon.useFakeTimers();
+		clock = sinon.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
 		userActivityService = ds.add(new UserActivityService(ds.add(new TestInstantiationService())));
 	});
 

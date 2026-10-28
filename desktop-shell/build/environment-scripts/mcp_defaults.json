@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "code-review-graph": {
+      "command": "${env:OCTOCODE_PYTHON_BASE}",
+      "args": ["-m", "code_review_graph", "serve", "--repo", "${env:OCTOCODE_WORKSPACE}"],
+      "env": {"PYTHONPATH": "${env:OCTOCODE_ENVIRONMENTS}/tools/mcp/code-review-graph"},
+      "alwaysAllow": [],
+      "disabled": false
+    },
+    "llm-wiki": {
+      "command": "${env:OCTOCODE_NODE}",
+      "args": ["${env:OCTOCODE_ENVIRONMENTS}/tools/mcp/llmwiki/node_modules/@llmwiki/core/dist/mcp/bin.js", "${env:OCTOCODE_WORKSPACE}/.wiki"],
+      "alwaysAllow": [],
+      "disabled": false
+    },
+    "scrapling": {
+      "command": "${env:OCTOCODE_PYTHON_BASE}",
+      "args": ["${env:OCTOCODE_ENVIRONMENTS}/tools/mcp/scrapling/server.py"],
+      "alwaysAllow": [],
+      "disabled": false
+    }
+  }
+}

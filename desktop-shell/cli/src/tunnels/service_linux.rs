@@ -10,7 +10,7 @@ use std::{
 	process::Command,
 };
 
-use zbus::{dbus_proxy, zvariant, Connection};
+use zbus::{proxy, wire, Connection};
 
 use crate::{
 	constants::{APPLICATION_NAME, PRODUCT_NAME_LONG},
@@ -224,14 +224,14 @@ fn write_systemd_service_file(
 /// gdbus introspect --system --dest org.freedesktop.systemd1 --object-path /org/freedesktop/systemd1
 ///
 /// See docs here: https://www.freedesktop.org/software/systemd/man/org.freedesktop.systemd1.html
-#[dbus_proxy(
+#[proxy(
 	interface = "org.freedesktop.systemd1.Manager",
 	gen_blocking = false,
 	default_service = "org.freedesktop.systemd1",
 	default_path = "/org/freedesktop/systemd1"
 )]
 trait SystemdManagerDbus {
-	#[dbus_proxy(name = "EnableUnitFiles")]
+	#[zbus(name = "EnableUnitFiles")]
 	fn enable_unit_files(
 		&self,
 		files: Vec<String>,
@@ -254,12 +254,12 @@ trait SystemdManagerDbus {
 		runtime: bool,
 	) -> zbus::Result<Vec<(String, String, String)>>;
 
-	#[dbus_proxy(name = "StartUnit")]
-	fn start_unit(&self, name: String, mode: String) -> zbus::Result<zvariant::OwnedObjectPath>;
+	#[zbus(name = "StartUnit")]
+	fn start_unit(&self, name: String, mode: String) -> zbus::Result<wire::OwnedObjectPath>;
 
-	#[dbus_proxy(name = "StopUnit")]
-	fn stop_unit(&self, name: String, mode: String) -> zbus::Result<zvariant::OwnedObjectPath>;
+	#[zbus(name = "StopUnit")]
+	fn stop_unit(&self, name: String, mode: String) -> zbus::Result<wire::OwnedObjectPath>;
 
-	#[dbus_proxy(name = "Reload")]
+	#[zbus(name = "Reload")]
 	fn reload(&self) -> zbus::Result<()>;
 }

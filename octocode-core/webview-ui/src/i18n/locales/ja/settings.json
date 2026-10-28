@@ -28,6 +28,7 @@
 		"discardButton": "変更を破棄"
 	},
 	"sections": {
+		"memoryKnowledge": "メモリとナレッジ",
 		"providers": "プロバイダー",
 		"modes": "モード",
 		"mcp": "MCPサーバー",
@@ -170,6 +171,12 @@
 		"description": "プロンプトの強化、コードの説明、問題の修正などの迅速なアクションに使用されるサポートプロンプトを設定します。これらのプロンプトは、OctoCodeが一般的な開発タスクでより良いサポートを提供するのに役立ちます。"
 	},
 	"codeIndex": {
+		"indexReadyLabel": "インデックス準備完了",
+		"nativeProvider": "ローカルコードインデックス（シンボルと字句検索、オフライン）",
+		"memoryKnowledgeDescription": "Harness のメモリは各会話に保持されます。選択したプロジェクトのコードナレッジをここで管理・検索できます。ローカルインデックスにはモデルのキーや外部データベースは不要です。",
+		"searchQuery": "プロジェクトのコードナレッジを検索",
+		"searchButton": "インデックスを検索",
+		"noSearchResults": "一致するインデックス済みコードはありません。",
 		"title": "コードベースのインデックス作成",
 		"enableLabel": "コードベースのインデックス作成を有効化",
 		"enableDescription": "コードのインデックス作成を有効にして、検索とコンテキストの理解を向上させます",

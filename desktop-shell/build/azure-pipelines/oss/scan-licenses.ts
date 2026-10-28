@@ -66,7 +66,7 @@ function findLicenseFile(pkgDir: string): string | undefined {
 	try {
 		const files = fs.readdirSync(pkgDir);
 		const licenseFile = files.find(f =>
-			/^license(\.md|\.txt|\.mit|\.bsd|\.apache)?$/i.test(f) ||
+			/^license(?:[-_.](?:mit|bsd|apache(?:-2\.0)?))?(\.md|\.txt)?$/i.test(f) ||
 			/^licence(\.md|\.txt)?$/i.test(f)
 		);
 		return licenseFile ? path.join(pkgDir, licenseFile) : undefined;
@@ -93,8 +93,8 @@ function githubRawLicenseCandidates(repositoryUrl: string, commitHash: string): 
 	const repo = m[2];
 	const fileNames = [
 		'LICENSE', 'LICENSE.md', 'LICENSE.txt', 'license', 'license.md', 'license.txt',
-		'LICENSE-MIT', 'LICENSE.MIT', 'LICENSE-APACHE', 'COPYING', 'LICENCE', 'LICENCE.md',
-		'LICENSE.markdown'
+		'LICENSE-MIT', 'LICENSE.MIT', 'license-mit', 'LICENSE-APACHE', 'license-apache-2.0', 'COPYING', 'LICENCE', 'LICENCE.md',
+		'LICENSE.markdown', 'COPYRIGHT-RUST.txt'
 	];
 	return fileNames.map(f => `https://raw.githubusercontent.com/${owner}/${repo}/${commitHash}/${f}`);
 }
@@ -374,8 +374,8 @@ function isRealLicenseBody(text: string): boolean {
 
 /** Common `LICENSE-<X>` filename stems for well-known SPDX ids. */
 const SPDX_LICENSE_FILENAMES: { [id: string]: string[] } = {
-	'MIT': ['LICENSE-MIT', 'LICENSE-MIT.txt', 'LICENSE-MIT.md'],
-	'APACHE-2.0': ['LICENSE-APACHE', 'LICENSE-APACHE.txt', 'LICENSE-APACHE.md'],
+	'MIT': ['LICENSE-MIT', 'LICENSE-MIT.txt', 'LICENSE-MIT.md', 'license-mit'],
+	'APACHE-2.0': ['LICENSE-APACHE', 'LICENSE-APACHE.txt', 'LICENSE-APACHE.md', 'license-apache-2.0'],
 	'ZLIB': ['LICENSE-ZLIB', 'LICENSE-ZLIB.txt'],
 	'UNLICENSE': ['UNLICENSE', 'UNLICENSE.txt', 'LICENSE-UNLICENSE'],
 	'BSD-3-CLAUSE': ['LICENSE-BSD', 'LICENSE-BSD3', 'LICENSE-BSD-3-Clause'],
@@ -1277,7 +1277,7 @@ async function main(): Promise<void> {
 			continue;
 		}
 		const registrations = (data.registrations || data.Registrations || []) as Array<{
-			component?: { git?: { name?: string; repositoryUrl?: string; commitHash?: string }; npm?: { name?: string }; other?: { name?: string; downloadUrl?: string } };
+			component?: { git?: { name?: string; repositoryUrl?: string; commitHash?: string }; npm?: { name?: string; version?: string }; other?: { name?: string; downloadUrl?: string } };
 			licenseDetail?: unknown;
 			license?: unknown;
 			version?: string;
@@ -1370,6 +1370,7 @@ async function main(): Promise<void> {
 			}
 
 			cgManifestNoDetail++;
+			noLicenseSeen.set(key, { name, version: comp.npm?.version || reg.version || '' });
 			console.warn(`  NO LICENSE DETAIL: ${name} (${relPath})`);
 		}
 	}
@@ -2129,6 +2130,9 @@ async function main(): Promise<void> {
 	// Write the presence index as a sibling file. A package counts as
 	// "present but unlicensed" only if it was never resolved with a license
 	// anywhere (filter out anything that later landed in `entries`).
+	for (const item of unresolved) {
+		noLicenseSeen.set(item.name.toLowerCase(), { name: item.name, version: item.version });
+	}
 	const presencePath = args['presence'] || (outputPath + '.presence.json');
 	const presence = [...noLicenseSeen.entries()]
 		.filter(([k]) => !entries.has(k))

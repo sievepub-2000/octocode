@@ -12,9 +12,18 @@
 //! cargo run -p xai-grok-sandbox --example sandbox_smoke_test -- read-only
 //! ```
 
+#[cfg(unix)]
 use std::path::Path;
+#[cfg(unix)]
 use xai_grok_sandbox::{ProfileName, SandboxManager};
 
+#[cfg(not(unix))]
+fn main() {
+    eprintln!("Kernel sandbox smoke tests require macOS Seatbelt or Linux Landlock.");
+    std::process::exit(2);
+}
+
+#[cfg(unix)]
 fn main() {
     // Parse profile from args (default: workspace).
     let profile_name = std::env::args()
@@ -121,6 +130,7 @@ fn main() {
     println!("\n✅ Smoke test complete");
 }
 
+#[cfg(unix)]
 fn test_read(label: &str, path: &Path) {
     if path.is_file() {
         match std::fs::read(path) {
@@ -150,6 +160,7 @@ fn test_read(label: &str, path: &Path) {
     }
 }
 
+#[cfg(unix)]
 fn test_write(label: &str, path: &Path) {
     match std::fs::write(path, b"sandbox-test") {
         Ok(()) => {

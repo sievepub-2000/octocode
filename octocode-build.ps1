@@ -1,6 +1,8 @@
 # OctoCode product build — the single authoritative pipeline.
 #
-# Every shipped binary is produced here, from this tree, in this order:
+# Host/harness are produced here. The native CLI is a verified prior input from
+# maintenance/build-native-cli.ps1 (CLI tree, lock, version and executable hashes).
+# The remaining product stages run from this tree in this order:
 #
 #   1. harness  — octo-harness      -> src\bin\win32-x64\octocode-harness.exe
 #   2. host     — octocode-core    -> src\bin\win32-x64\octocode-host.exe
@@ -22,6 +24,7 @@ $ErrorActionPreference = 'Stop'
 if (!$env:CARGO_BUILD_JOBS) { $env:CARGO_BUILD_JOBS = [string][Math]::Max(1, [Math]::Min(4, [Environment]::ProcessorCount - 1)) }
 . "$PSScriptRoot\work\octo-env.ps1"
 . "$PSScriptRoot\build-log-policy.ps1"
+. "$PSScriptRoot\build-product-safety.ps1"
 
 $core = "$PSScriptRoot\octocode-core"
 $extensionVersion = (& (Join-Path $env:OCTO_ENV_ROOT 'node\node.exe') -p 'require(process.argv[1]).version' (Join-Path $core 'src\package.json')).Trim()
@@ -30,6 +33,12 @@ $harnessRoot = "$PSScriptRoot\octo-harness"
 $binaries = Join-Path $core 'src\bin\win32-x64'
 $logs = Join-Path $core 'work\verification'
 New-Item -ItemType Directory -Force -Path $logs | Out-Null
+$windowsLinkerConfig = Join-Path $PSScriptRoot 'work\windows-linker.toml'
+$windowsHarnessLinkerConfig = Join-Path $PSScriptRoot 'work\windows-harness-linker.toml'
+if (($Stage -contains 'harness' -or $Stage -contains 'host') -and
+    ($env:RUSTFLAGS -or $env:CARGO_ENCODED_RUSTFLAGS)) {
+    throw 'Release Rust builds require repository target flags; unset RUSTFLAGS and CARGO_ENCODED_RUSTFLAGS before building'
+}
 
 # The settings page previews the harness base prompt from a copy inside the
 # extension; the harness template is the only source.
@@ -66,22 +75,30 @@ function Assert-SameBinary([string]$Built, [string]$Packaged, [string]$What) {
 if ($Stage -contains 'harness') {
     Invoke-Stage 'harness (release)' $harnessRoot {
         $log = Join-Path $logs 'harness-release.log'
-        cmd /c "cargo build -p xai-grok-pager-bin --release --bin octocode-harness > `"$log`" 2>&1"
+        cmd /c "cargo build --config `"$windowsHarnessLinkerConfig`" -p xai-grok-pager-bin --release --locked --bin octocode-harness > `"$log`" 2>&1"
         if ($LASTEXITCODE -ne 0) { Get-Content -LiteralPath $log -Tail 60; throw 'Harness release build failed' }
+        Assert-CleanBuildLog -Log $log
         $built = Join-Path $harnessRoot 'target\release\octocode-harness.exe'
         if (-not (Test-Path -LiteralPath $built)) { throw "Harness build produced no binary: $built" }
         $reported = (& $built --version) -join ''
         if ($reported -notmatch '^octocode-harness ') { throw "Harness does not self-identify: $reported" }
         Write-Host "    $reported"
         Copy-Item -LiteralPath $built -Destination (Join-Path $binaries 'octocode-harness.exe') -Force
+        $indexLog = Join-Path $logs 'code-graph-release.log'
+        cmd /c "cargo build --config `"$windowsHarnessLinkerConfig`" -p xai-codebase-graph --release --locked --bin code-graph > `"$indexLog`" 2>&1"
+        if ($LASTEXITCODE -ne 0) { Get-Content -LiteralPath $indexLog -Tail 60; throw 'Code graph release build failed' }
+        Assert-CleanBuildLog -Log $indexLog
+        Copy-Item -LiteralPath (Join-Path $harnessRoot 'target\release\code-graph.exe') `
+            -Destination (Join-Path $binaries 'code-graph.exe') -Force
     }
 }
 
 if ($Stage -contains 'host') {
     Invoke-Stage 'host (release)' $core {
         $log = Join-Path $logs 'host-release.log'
-        cmd /c "cargo build -p octocode-host --release > `"$log`" 2>&1"
+        cmd /c "cargo build --config `"$windowsLinkerConfig`" -p octocode-host --release --locked > `"$log`" 2>&1"
         if ($LASTEXITCODE -ne 0) { Get-Content -LiteralPath $log -Tail 60; throw 'Host release build failed' }
+        Assert-CleanBuildLog -Log $log
         Copy-Item -LiteralPath (Join-Path $core 'target\release\octocode-host.exe') `
             -Destination (Join-Path $binaries 'octocode-host.exe') -Force
     }
@@ -91,8 +108,10 @@ if ($Stage -contains 'extension') {
     Invoke-Stage 'extension (check-types, lint, build, vsix)' $core {
         foreach ($task in @('check-types', 'lint', 'build', 'vsix')) {
             $log = Join-Path $logs "$task.log"
-            cmd /c "pnpm $task > `"$log`" 2>&1"
+            # Dependency installation is an explicit gate; running a release task must not purge modules.
+            cmd /c "pnpm --config.verify-deps-before-run=false $task > `"$log`" 2>&1"
             if ($LASTEXITCODE -ne 0) { Get-Content -LiteralPath $log -Tail 80; throw "Extension task failed: $task" }
+            Assert-CleanBuildLog -Log $log
         }
         $vsix = Join-Path $core "bin\octocode-$extensionVersion.vsix"
         if (-not (Test-Path -LiteralPath $vsix)) { throw "VSIX missing: $vsix" }
@@ -102,10 +121,11 @@ if ($Stage -contains 'extension') {
 
 if ($Stage -contains 'desktop') {
     Invoke-Stage 'desktop product' $PSScriptRoot {
+        & (Join-Path $PSScriptRoot 'maintenance\build-native-cli.ps1')
+        $null = Get-NativeCliBuildInput -DesktopRoot (Join-Path $PSScriptRoot 'desktop-shell')
+        . "$PSScriptRoot\work\octo-env.ps1" -DesktopNative
         & "$PSScriptRoot\build-desktop-product.remote.ps1"
-        $extensionRoot = "$PSScriptRoot\VSCode-win32-x64\data\extensions\octocode.octocode-$extensionVersion\bin\win32-x64"
-        Assert-SameBinary (Join-Path $binaries 'octocode-host.exe') (Join-Path $extensionRoot 'octocode-host.exe') 'host'
-        Assert-SameBinary (Join-Path $binaries 'octocode-harness.exe') (Join-Path $extensionRoot 'octocode-harness.exe') 'harness'
+        Assert-InstallerBuildInputs -ProductRoot "$PSScriptRoot\VSCode-win32-x64" -DesktopRoot "$PSScriptRoot\desktop-shell" -CoreRoot $core -ManifestPath (Join-Path (Split-Path $PSScriptRoot -Parent) 'releases\release-manifest.json') -ScopeDirectory $PSScriptRoot
     }
 }
 

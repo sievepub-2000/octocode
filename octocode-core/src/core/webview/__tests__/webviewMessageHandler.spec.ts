@@ -234,6 +234,42 @@ describe("webviewMessageHandler - runtime history", () => {
 		vi.clearAllMocks()
 	})
 
+	it("restores original imported message times and leaves undated imported content undated", async () => {
+		mockAllInstances.mockReturnValue([mockClineProvider])
+		mockRuntimeCall.mockReset()
+		mockRuntimeCall
+			.mockResolvedValueOnce({ id: "legacy", title: "original question", status: "finished" })
+			.mockResolvedValueOnce({ after: 0, skipped_turns: 0 })
+			.mockResolvedValueOnce([{ role: "user", content: "original question" }])
+			.mockResolvedValueOnce({
+				rows: [
+					[1, "legacy.turn", { task_id: "old", user_index: 0 }, 100],
+					[2, "legacy.record", { ts: 200, text: "original answer" }, 100],
+					[3, "text", { text: "original answer" }, 100],
+					[4, "legacy.record", { text: "undated answer" }, 100],
+					[5, "text", { text: "undated answer" }, 100],
+					[6, "text", { data: "native answer" }, 300],
+				],
+				next: 6,
+				has_more: false,
+			})
+			.mockResolvedValueOnce({ working_directory: "D:/legacy" })
+		await webviewMessageHandler(mockClineProvider, { type: "openRuntimeSession", text: "legacy" })
+		const loaded = vi
+			.mocked(mockClineProvider.postMessageToWebview)
+			.mock.calls.map(([message]) => message)
+			.find((message) => message.type === "runtimeSessionLoaded")
+		expect(loaded?.payload).toEqual(
+			expect.objectContaining({
+				events: expect.arrayContaining([
+					expect.objectContaining({ kind: "text", payload: { text: "original answer" }, created_at: 200 }),
+					{ task_id: "old", session_id: "legacy", kind: "text", payload: { text: "undated answer" } },
+					expect.objectContaining({ kind: "text", payload: { data: "native answer" }, created_at: 300 }),
+				]),
+			}),
+		)
+	})
+
 	it("loads and broadcasts a selected runtime session transcript", async () => {
 		mockAllInstances.mockReturnValue([mockClineProvider])
 		mockRuntimeCall
@@ -251,9 +287,9 @@ describe("webviewMessageHandler - runtime history", () => {
 			.mockResolvedValueOnce({
 				rows: [
 					[1, "harness.prepared", { harness: "octocode", task_id: "task-1" }],
-					[2, "text", { data: "History answer" }],
+					[2, "text", { data: "History answer" }, 1792299540000],
 					[3, "harness.continued", { harness: "octocode", task_id: "task-2" }],
-					[4, "text", { data: "Follow-up answer" }],
+					[4, "text", { data: "Follow-up answer" }, 1792299600000],
 				],
 				next: 4,
 				has_more: false,
@@ -271,7 +307,10 @@ describe("webviewMessageHandler - runtime history", () => {
 			["session.get", { id: "session-1" }],
 			["event.history_start", { session_id: "session-1", turns: 3 }],
 			["message.list", { session_id: "session-1" }],
-			["event.page", { session_id: "session-1", after: 0, limit: 2000, presentation: true }],
+			[
+				"event.page",
+				{ session_id: "session-1", after: 0, limit: 2000, presentation: true, include_timestamps: true },
+			],
 			["session.working_directory", { id: "session-1" }],
 		])
 		expect(mockClineProvider.postMessageToWebview).toHaveBeenCalledWith({
@@ -300,6 +339,7 @@ describe("webviewMessageHandler - runtime history", () => {
 						session_id: "session-1",
 						kind: "text",
 						payload: { data: "History answer" },
+						created_at: 1792299540000,
 					},
 					{
 						task_id: "task-2",
@@ -318,6 +358,7 @@ describe("webviewMessageHandler - runtime history", () => {
 						session_id: "session-1",
 						kind: "text",
 						payload: { data: "Follow-up answer" },
+						created_at: 1792299600000,
 					},
 				],
 			},
@@ -583,6 +624,7 @@ describe("webviewMessageHandler - unified OctoCode task route", () => {
 			{},
 			"project-1",
 			expect.any(Function),
+			undefined,
 		)
 		const firstRequest = vi.mocked(mockClineProvider.startRuntimeTask).mock.calls.at(-1)![5] as () => boolean
 		expect(firstRequest()).toBe(true)

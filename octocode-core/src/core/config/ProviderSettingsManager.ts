@@ -1,5 +1,5 @@
 import { ExtensionContext } from "vscode"
-import { z, ZodError } from "zod"
+import { z, ZodError } from "zod/v4"
 import deepEqual from "fast-deep-equal"
 
 import {
@@ -445,8 +445,9 @@ export class ProviderSettingsManager {
 				// For retired providers, preserve full profile fields (including legacy
 				// provider-specific keys) to avoid data loss — passthrough() keeps
 				// unknown keys that strict parse() would strip.
-				const filteredConfig =
-					typeof normalizedConfig.apiProvider === "string" && isRetiredProvider(normalizedConfig.apiProvider)
+				const filteredConfig = !normalizedConfig.apiProvider
+					? providerSettingsWithIdSchema.parse(normalizedConfig)
+					: isRetiredProvider(normalizedConfig.apiProvider)
 						? providerSettingsWithIdSchema.passthrough().parse(normalizedConfig)
 						: discriminatedProviderSettingsWithIdSchema.parse(normalizedConfig)
 				providerProfiles.apiConfigs[name] = { ...filteredConfig, id }

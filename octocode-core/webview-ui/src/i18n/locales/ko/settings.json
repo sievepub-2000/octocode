@@ -28,6 +28,7 @@
 		"discardButton": "변경 사항 버리기"
 	},
 	"sections": {
+		"memoryKnowledge": "메모리 및 지식",
 		"providers": "공급자",
 		"modes": "모드",
 		"mcp": "MCP 서버",
@@ -170,6 +171,12 @@
 		"description": "프롬프트 향상, 코드 설명, 문제 해결과 같은 빠른 작업에 사용되는 지원 프롬프트를 구성합니다. 이러한 프롬프트는 OctoCode가 일반적인 개발 작업에 대해 더 나은 지원을 제공하는 데 도움이 됩니다."
 	},
 	"codeIndex": {
+		"indexReadyLabel": "인덱스 준비 완료",
+		"nativeProvider": "로컬 코드 인덱스 (심볼 및 어휘 검색, 오프라인)",
+		"memoryKnowledgeDescription": "Harness 메모리는 해당 대화에 유지됩니다. 여기에서 선택한 프로젝트의 코드 지식을 관리하고 검색하세요. 로컬 인덱싱에는 모델 키나 외부 데이터베이스가 필요하지 않습니다.",
+		"searchQuery": "프로젝트 코드 지식 검색",
+		"searchButton": "인덱스 검색",
+		"noSearchResults": "일치하는 인덱싱된 코드가 없습니다.",
 		"title": "코드베이스 인덱싱",
 		"enableLabel": "코드베이스 인덱싱 활성화",
 		"enableDescription": "향상된 검색 및 컨텍스트 이해를 위해 코드 인덱싱 활성화",

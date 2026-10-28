@@ -73,7 +73,8 @@ function createSanitizedGit(baseDir: string): SimpleGit {
 	const removedKeys: string[] = []
 
 	for (const [key, value] of Object.entries(process.env)) {
-		if (BLOCKED_ENV_KEYS_LOWER.has(key.toLowerCase())) {
+		const lower = key.toLowerCase()
+		if (BLOCKED_ENV_KEYS_LOWER.has(lower) || (lower.startsWith("git_") && lower !== "git_terminal_prompt")) {
 			removedKeys.push(key)
 			continue
 		}
@@ -98,6 +99,8 @@ function createSanitizedGit(baseDir: string): SimpleGit {
 		// allowUnsafeTemplateDir opts out of simple-git ≥3.36's blockUnsafeOperationsPlugin
 		// so the --template arg is not rejected before reaching git.
 		unsafe: { allowUnsafeTemplateDir: true },
+		// Checkpoints only use local Git; inherited Git configuration is unnecessary.
+		allowEnvironment: ["git_terminal_prompt"],
 	}
 
 	// Create git instance and set the sanitized environment

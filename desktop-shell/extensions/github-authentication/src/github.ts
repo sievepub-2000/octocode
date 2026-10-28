@@ -33,6 +33,7 @@ export enum AuthProviderType {
 }
 
 interface GitHubAuthenticationProviderOptions extends vscode.AuthenticationProviderSessionOptions {
+	readonly useToken?: boolean;
 	/**
 	 * This is specific to GitHub and is used to determine which social sign-in provider to use.
 	 * If not provided, the default (GitHub) is used which shows all options.
@@ -53,6 +54,9 @@ function isGitHubAuthenticationProviderOptions(object: any): object is GitHubAut
 	}
 	if (object.provider !== undefined && !isSocialSignInProvider(object.provider)) {
 		throw new Error(`Provider is invalid: ${object.provider}`);
+	}
+	if (object.useToken !== undefined && typeof object.useToken !== 'boolean') {
+		throw new Error('Token flow selection must be a boolean');
 	}
 	if (object.extraAuthorizeParameters !== undefined) {
 		if (!object.extraAuthorizeParameters || typeof object.extraAuthorizeParameters !== 'object') {
@@ -169,6 +173,9 @@ export class GitHubAuthenticationProvider implements vscode.AuthenticationProvid
 			// fire telemetry after a second to allow the workbench to focus on loading
 			setTimeout(() => sessions.forEach(s => this.afterSessionLoad(s)), 1000);
 			return sessions;
+		}).catch(() => {
+			this._logger.error('Initializing GitHub sessions from secure storage failed');
+			return [];
 		});
 
 		const supportedAuthorizationServers = ghesUri
@@ -185,7 +192,9 @@ export class GitHubAuthenticationProvider implements vscode.AuthenticationProvid
 					supportedAuthorizationServers
 				}
 			),
-			this.context.secrets.onDidChange(() => this.checkForUpdates())
+			this.context.secrets.onDidChange(() => {
+				void this.checkForUpdates().catch(() => this._logger.error('Refreshing GitHub sessions from secure storage failed'));
+			})
 		);
 	}
 
@@ -223,8 +232,8 @@ export class GitHubAuthenticationProvider implements vscode.AuthenticationProvid
 
 	private async checkForUpdates() {
 		const previousSessions = await this._sessionsPromise;
-		this._sessionsPromise = this.readSessions();
-		const storedSessions = await this._sessionsPromise;
+		const storedSessions = await this.readSessions();
+		this._sessionsPromise = Promise.resolve(storedSessions);
 
 		const added: vscode.AuthenticationSession[] = [];
 		const removed: vscode.AuthenticationSession[] = [];
@@ -268,8 +277,8 @@ export class GitHubAuthenticationProvider implements vscode.AuthenticationProvid
 				await this._keychain.deleteToken();
 				throw e;
 			}
-		} catch (e) {
-			this._logger.error(`Error reading token: ${e}`);
+		} catch {
+			this._logger.error('Reading GitHub sessions from secure storage failed');
 			return [];
 		}
 
@@ -330,7 +339,11 @@ export class GitHubAuthenticationProvider implements vscode.AuthenticationProvid
 
 		this._logger.info(`Got ${verifiedSessions.length} verified sessions.`);
 		if (seenNumberAccountId || verifiedSessions.length !== sessionData.length) {
-			await this.storeSessions(verifiedSessions);
+			try {
+				await this.storeSessions(verifiedSessions);
+			} catch {
+				this._logger.error('Persisting migrated GitHub sessions failed; stored data was retained');
+			}
 		}
 
 		return verifiedSessions;
@@ -338,8 +351,8 @@ export class GitHubAuthenticationProvider implements vscode.AuthenticationProvid
 
 	private async storeSessions(sessions: vscode.AuthenticationSession[]): Promise<void> {
 		this._logger.info(`Storing ${sessions.length} sessions...`);
-		this._sessionsPromise = Promise.resolve(sessions);
 		await this._keychain.setToken(JSON.stringify(sessions));
+		this._sessionsPromise = Promise.resolve(sessions);
 		this._logger.info(`Stored ${sessions.length} sessions!`);
 	}
 
@@ -363,16 +376,16 @@ export class GitHubAuthenticationProvider implements vscode.AuthenticationProvid
 			if (options && !isGitHubAuthenticationProviderOptions(options)) {
 				throw new Error('Invalid options');
 			}
-			const sessions = await this._sessionsPromise;
+			const sessions = [...await this._sessionsPromise];
 			const loginWith = options?.account?.label;
 			const signInProvider = options?.provider;
 			this._logger.info(`Logging in with${signInProvider ? ` ${signInProvider}, ` : ''} '${loginWith ? loginWith : 'any'}' account...`);
 			const scopeString = sortedScopes.join(' ');
-			const token = await this._githubServer.login(scopeString, signInProvider, options?.extraAuthorizeParameters, loginWith);
-			const session = await this.tokenToSession(token, scopes);
+			const token = await this._githubServer.login(scopeString, signInProvider, options?.extraAuthorizeParameters, loginWith, options?.useToken);
+			const session = await this.tokenToSession(token, scopes, options?.useToken === true);
 			this.afterSessionLoad(session);
 
-			const sessionIndex = sessions.findIndex(s => s.account.id === session.account.id && arrayEquals([...s.scopes].sort(), sortedScopes));
+			const sessionIndex = sessions.findIndex(s => s.account.id === session.account.id && s.id.startsWith('octocode-pat:') === session.id.startsWith('octocode-pat:') && arrayEquals([...s.scopes].sort(), sortedScopes));
 			const removed = new Array<vscode.AuthenticationSession>();
 			if (sessionIndex > -1) {
 				removed.push(...sessions.splice(sessionIndex, 1, session));
@@ -407,10 +420,10 @@ export class GitHubAuthenticationProvider implements vscode.AuthenticationProvid
 		}
 	}
 
-	private async tokenToSession(token: string, scopes: string[]): Promise<vscode.AuthenticationSession> {
+	private async tokenToSession(token: string, scopes: string[], useToken = false): Promise<vscode.AuthenticationSession> {
 		const userInfo = await this._githubServer.getUserInfo(token);
 		return {
-			id: crypto.getRandomValues(new Uint32Array(2)).reduce((prev, curr) => prev += curr.toString(16), ''),
+			id: (useToken ? 'octocode-pat:' : '') + crypto.getRandomValues(new Uint32Array(2)).reduce((prev, curr) => prev += curr.toString(16), ''),
 			accessToken: token,
 			account: { label: userInfo.accountName, id: userInfo.id },
 			scopes
@@ -426,7 +439,7 @@ export class GitHubAuthenticationProvider implements vscode.AuthenticationProvid
 
 			this._logger.info(`Logging out of ${id}`);
 
-			const sessions = await this._sessionsPromise;
+			const sessions = [...await this._sessionsPromise];
 			const sessionIndex = sessions.findIndex(session => session.id === id);
 			if (sessionIndex > -1) {
 				const session = sessions[sessionIndex];

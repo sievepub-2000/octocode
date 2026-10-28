@@ -359,16 +359,13 @@ describe("CodeIndexServiceFactory", () => {
 			expect(() => factory.createEmbedder()).toThrow("serviceFactory.invalidEmbedderType")
 		})
 
-		it("should throw when provider is semble (semble handles its own embedding)", () => {
-			const testConfig = {
-				embedderProvider: "semble",
-			}
-			mockConfigManager.getConfig.mockReturnValue(testConfig as any)
-
-			expect(() => factory.createEmbedder()).toThrow(
-				"Semble provider handles its own embedding. Do not call createEmbedder() for semble",
-			)
-		})
+		it.each(["native", "semble"] as const)(
+			"does not create embedding vectors for local provider %s",
+			(provider) => {
+				mockConfigManager.getConfig.mockReturnValue({ embedderProvider: provider })
+				expect(() => factory.createEmbedder()).toThrow(`${provider} uses its local provider directly`)
+			},
+		)
 	})
 
 	describe("createVectorStore", () => {

@@ -1,4 +1,4 @@
-import { z } from "zod"
+import { z } from "zod/v4"
 
 import { codebaseIndexConfigSchema, codebaseIndexModelsSchema } from "./codebase-index.js"
 import { experimentsSchema } from "./experiment.js"

@@ -2269,17 +2269,50 @@ pub(crate) async fn spawn_session_actor(
 /// Stored separately from `SessionHandle` (which derives `Clone`) because `JoinHandle` is not `Clone`.
 pub struct SessionThread {
     join_handle: std::thread::JoinHandle<()>,
+    actor_completed: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
 impl SessionThread {
     /// Check if the session thread has exited (panicked or finished).
     pub fn is_finished(&self) -> bool {
         self.join_handle.is_finished()
     }
+    /// Call only after is_finished: joining then distinguishes clean teardown from panic.
+    pub(crate) fn join(self) -> Result<(), String> {
+        self.join_handle
+            .join()
+            .map_err(|_| "session actor thread panicked".to_owned())?;
+        if self
+            .actor_completed
+            .is_some_and(|completed| !completed.load(std::sync::atomic::Ordering::Acquire))
+        {
+            return Err("session actor stopped before completing teardown".to_owned());
+        }
+        Ok(())
+    }
+    /// A missing completion means the LocalSet actor panicked or was aborted before teardown.
+    /// Return an error rather than introducing a panic in panic=abort production builds.
+    pub(crate) async fn wait_for_actor_exit(
+        done: tokio::sync::oneshot::Receiver<()>,
+    ) -> Result<(), String> {
+        done.await
+            .map_err(|_| "session actor stopped before completing teardown".to_owned())
+    }
     /// Construct from a raw `JoinHandle`. Used in tests.
     #[cfg(test)]
     pub fn from_handle(handle: std::thread::JoinHandle<()>) -> Self {
         Self {
             join_handle: handle,
+            actor_completed: None,
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn from_actor_handle(
+        handle: std::thread::JoinHandle<()>,
+        completed: Arc<std::sync::atomic::AtomicBool>,
+    ) -> Self {
+        Self {
+            join_handle: handle,
+            actor_completed: Some(completed),
         }
     }
 }
@@ -2427,6 +2460,8 @@ pub(crate) async fn spawn_session_on_thread(
     >();
     let sid = session_info.id.0.to_string();
     let thread_name = format!("ses-{}", &sid[..sid.len().min(8)]);
+    let actor_completed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let thread_completed = Arc::clone(&actor_completed);
     const SESSION_THREAD_STACK_SIZE: usize = 8 * 1024 * 1024;
     let join_handle = std::thread::Builder::new()
         .name(thread_name)
@@ -2602,7 +2637,8 @@ pub(crate) async fn spawn_session_on_thread(
                     permission_events_rx,
                     system_prompt,
                 }));
-                let _ = session_done_rx.await;
+                let exit = SessionThread::wait_for_actor_exit(session_done_rx).await;
+                thread_completed.store(exit.is_ok(), std::sync::atomic::Ordering::Release);
             };
             local.block_on(&rt, actor_main);
             rt.block_on(xai_grok_telemetry::session_ctx::drain_at_session_exit());
@@ -2632,7 +2668,10 @@ pub(crate) async fn spawn_session_on_thread(
         init.handle,
         init.permission_events_rx,
         init.system_prompt,
-        SessionThread { join_handle },
+        SessionThread {
+            join_handle,
+            actor_completed: Some(actor_completed),
+        },
     ))
 }
 /// Production [`crate::session::mcp_restart::RestartActions`] impl.

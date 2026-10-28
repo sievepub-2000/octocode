@@ -17,6 +17,11 @@
 !resources/funasr/*.txt
 !resources/harness/system-prompt.md
 !resources/python/*.whl
+!resources/notices/**
+!resources/skills-market/LICENSE
+!resources/skills-market/LICENSE-CONTENT
+!resources/skills-market/PROVENANCE.md
+!webview-ui/build/ThirdPartyNotices.txt*
 !services/knowledge-mcp/pyproject.toml
 !services/knowledge-mcp/requirements.lock.txt
 !services/knowledge-mcp/uv.lock

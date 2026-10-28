@@ -6,7 +6,7 @@
 import es from 'event-stream';
 import fs from 'fs';
 import cp from 'child_process';
-import glob from 'glob';
+import { globSync } from 'glob';
 import { gulp, filter, rename, buffer, vinylZip, jsonEditor } from './gulp/facade.ts';
 import path from 'path';
 import crypto from 'crypto';
@@ -185,7 +185,7 @@ function fromLocalEsbuild(extensionPath: string, esbuildConfigFileName: string):
 	}).then(fileNames => {
 		if (packagedDependencies.length > 0) {
 			const packagedDependencyFileNames = packagedDependencies.flatMap(dependency =>
-				glob.sync(path.join(extensionPath, 'node_modules', dependency, '**'), { nodir: true, dot: true })
+				globSync(path.join(extensionPath, 'node_modules', dependency, '**'), { nodir: true, dot: true, windowsPathsNoEscape: true }).sort()
 					.map(filePath => path.relative(extensionPath, filePath))
 					.filter(filePath => {
 						// Exclude non-.node files from build directories to avoid timestamp-sensitive
@@ -416,7 +416,7 @@ export function packageAllLocalExtensionsStream(forWeb: boolean, disableMangle: 
 function doPackageLocalExtensionsStream(forWeb: boolean, disableMangle: boolean, native: boolean): Stream {
 	const nativeExtensionsSet = new Set(nativeExtensions);
 	const localExtensionsDescriptions = (
-		(glob.sync('extensions/*/package.json') as string[])
+		globSync('extensions/*/package.json').sort()
 			.map(manifestPath => {
 				const absoluteManifestPath = path.join(root, manifestPath);
 				const extensionPath = path.dirname(path.join(root, manifestPath));

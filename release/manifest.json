@@ -1,14 +1,15 @@
 {
-  "tag": "v1.132.4",
-  "publishedDate": "2026-10-14",
+  "status": "2.0.1 final candidate; fresh-start and official online acceptance pending",
+  "tag": "v2.0.1",
+  "builtDate": "2026-10-28",
   "platform": "win32-x64",
-  "shellVersion": "1.132.4",
-  "extensionVersion": "0.1.10",
+  "shellVersion": "2.0.1",
+  "extensionVersion": "0.1.14",
   "installer": {
-    "file": "OctoCodeSetup-1.132.4.exe",
-    "bytes": 1045435971,
-    "sha256": "53607C4B929B3F65D38331C2D1625372DB6B4D45894BA8D80BB205723E3511F6",
-    "url": "https://github.com/sievepub-2000/octocode/releases/download/v1.132.4/OctoCodeSetup-1.132.4.exe"
+    "file": "OctoCodeSetup.exe",
+    "bytes": 778105956,
+    "sha256": "aa2133729104f37a6047628fc73ab44869889f253cca9a6bc08ebfa44e0e5138",
+    "url": "https://github.com/sievepub-2000/octocode/releases/download/v2.0.1/OctoCodeSetup.exe"
   },
-  "acceptanceReport": "reports/release-acceptance-0.1.10-20261013.md"
+  "acceptanceReport": "reports/v2.0.1-acceptance.md"
 }

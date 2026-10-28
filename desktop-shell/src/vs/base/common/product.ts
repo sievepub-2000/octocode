@@ -79,6 +79,8 @@ export interface IDictationRuntimeProductConfig {
 
 export interface IProductConfiguration {
 	readonly version: string;
+	/** Version of the VS Code API implemented by products with independent release versions. */
+	readonly vscodeApiVersion?: string;
 	readonly date?: string;
 	readonly quality?: string;
 	readonly commit?: string;

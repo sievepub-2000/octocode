@@ -28,6 +28,7 @@
 		"discardButton": "Scarta modifiche"
 	},
 	"sections": {
+		"memoryKnowledge": "Memoria e conoscenza",
 		"providers": "Fornitori",
 		"modes": "Modalità",
 		"mcp": "Server MCP",
@@ -170,6 +171,12 @@
 		"description": "Configura i prompt di supporto utilizzati per azioni rapide come il miglioramento dei prompt, la spiegazione del codice e la risoluzione dei problemi. Questi prompt aiutano OctoCode a fornire una migliore assistenza per le attività di sviluppo comuni."
 	},
 	"codeIndex": {
+		"indexReadyLabel": "Indice pronto",
+		"nativeProvider": "Indice del codice locale (simboli e ricerca lessicale, offline)",
+		"memoryKnowledgeDescription": "La memoria di Harness resta associata alla sua conversazione. Gestisci e cerca qui le conoscenze sul codice del progetto selezionato; l'indicizzazione locale non richiede chiavi del modello né database esterni.",
+		"searchQuery": "Cerca nelle conoscenze sul codice del progetto",
+		"searchButton": "Cerca nell'indice",
+		"noSearchResults": "Nessun codice indicizzato corrispondente.",
 		"title": "Indicizzazione del codice",
 		"enableLabel": "Abilita indicizzazione del codice",
 		"enableDescription": "Abilita l'indicizzazione del codice per una ricerca e una comprensione del contesto migliorate",

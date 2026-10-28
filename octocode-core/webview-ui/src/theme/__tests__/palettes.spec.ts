@@ -63,13 +63,12 @@ describe("theme palettes", () => {
 			expect(solarizedLight.success).toBe("#859900") // green
 		})
 
-		it("keeps midnight purple genuinely purple rather than neutral grey", () => {
-			// Blue above red above green is what makes it read purple-navy; a neutral
-			// dark would have all three roughly equal.
-			const [r, g, b] = [1, 3, 5].map((i) => parseInt(midnightPurple.bg.slice(i, i + 2), 16))
-			expect(b).toBeGreaterThan(r)
-			expect(r).toBeGreaterThan(g)
-			expect(b - g).toBeGreaterThanOrEqual(10)
+		it("uses the supplied black, charcoal and copper reference for the dark theme", () => {
+			expect(midnightPurple.bg).toBe("#000000")
+			expect(midnightPurple.bgElevated).toBe("#0e0e10")
+			expect(midnightPurple.accent).toBe("#9b6b50")
+			expect(contrast(midnightPurple.accent, midnightPurple.bg)).toBeGreaterThanOrEqual(4.5)
+			expect(contrast(midnightPurple.accentFg, midnightPurple.accent)).toBeGreaterThanOrEqual(4.5)
 		})
 
 		it("keeps the two themes on opposite sides of the light/dark divide", () => {

@@ -1,4 +1,4 @@
-import { z } from "zod"
+import { z } from "zod/v4"
 
 import { reasoningEffortSettingSchema, verbosityLevelsSchema } from "../model.js"
 import type { ProviderIdentifier } from "../provider-identifiers.js"
@@ -57,7 +57,7 @@ export type ProviderDefinition = {
 	apiProvider: ProviderIdentifier
 	settingsShape: z.ZodRawShape
 	modelIdKey?: string
-	schema: z.ZodDiscriminatedUnionOption<typeof API_PROVIDER_FIELD>
+	schema: z.ZodObject<z.ZodRawShape & { [API_PROVIDER_FIELD]: z.ZodType }>
 	getModelId: ProviderModelIdAccessor
 }
 

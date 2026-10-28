@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import * as child_process from 'child_process';
 import * as os from 'os';
 import { isUpToDate, forceInstallMessage } from './installStateHash.ts';
+import { configureNodeGypEnvironment, prepareLibuvWindowsHeader, prepareNodeGypPython } from './nativeToolchainPatch.ts';
 
 if (!process.env['VSCODE_SKIP_NODE_VERSION_CHECK']) {
 	// Get the running Node.js version
@@ -46,8 +47,9 @@ const npmUserAgent = process.env.npm_config_user_agent;
 const npmVersionMatch = npmUserAgent?.match(/npm\/(\d+)\.(\d+)\.(\d+)/);
 if (npmVersionMatch) {
 	const npmMajor = parseInt(npmVersionMatch[1]);
-	if (npmMajor >= 12) {
-		console.error(`\x1b[1;31m*** Please use npm version < 12.0.0. Currently using v${npmUserAgent}.\x1b[0;0m`);
+	const npmMinor = parseInt(npmVersionMatch[2]);
+	if (npmMajor !== 12 || npmMinor < 2) {
+		console.error(`\x1b[1;31m*** Please use npm 12.2.0 or newer within major 12. Currently using v${npmUserAgent}.\x1b[0;0m`);
 		throw new Error();
 	}
 }
@@ -121,25 +123,33 @@ function installHeaders() {
 		cwd: path.join(import.meta.dirname, 'gyp'),
 		stdio: 'inherit'
 	});
+	if (process.platform === 'win32') {
+		prepareNodeGypPython(path.join(import.meta.dirname, 'gyp', 'node_modules', 'node-gyp'));
+		prepareNodeGypPython(path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'node_modules', 'node-gyp'));
+	}
 
 	// The node gyp package got installed using the above npm command using the gyp/package.json
 	// file checked into our repository. So from that point it is safe to construct the path
 	// to that executable
-	const node_gyp = process.platform === 'win32'
-		? path.join(import.meta.dirname, 'gyp', 'node_modules', '.bin', 'node-gyp.cmd')
-		: path.join(import.meta.dirname, 'gyp', 'node_modules', '.bin', 'node-gyp');
+	const node_gyp = path.join(import.meta.dirname, 'gyp', 'node_modules', 'node-gyp', 'bin', 'node-gyp.js');
 
 	const local = getHeaderInfo(path.join(import.meta.dirname, '..', '..', 'package.json'));
 	const remote = getHeaderInfo(path.join(import.meta.dirname, '..', '..', 'remote', 'package.json'));
+	const build = getHeaderInfo(path.join(import.meta.dirname, '..', 'package.json'));
+	const headerEnv = { ...process.env };
+	configureNodeGypEnvironment(headerEnv, {});
 
 	if (local !== undefined) {
 		// Both disturl and target come from a file checked into our repository
-		child_process.execFileSync(node_gyp, ['install', '--dist-url', local.disturl, local.target], { shell: true });
+		child_process.execFileSync(process.execPath, [node_gyp, 'install', '--dist-url', local.disturl, local.target], { stdio: 'inherit', env: headerEnv });
 	}
 
 	if (remote !== undefined) {
 		// Both disturl and target come from a file checked into our repository
-		child_process.execFileSync(node_gyp, ['install', '--dist-url', remote.disturl, remote.target], { shell: true });
+		child_process.execFileSync(process.execPath, [node_gyp, 'install', '--dist-url', remote.disturl, remote.target], { stdio: 'inherit', env: headerEnv });
+	}
+	if (build !== undefined) {
+		child_process.execFileSync(process.execPath, [node_gyp, 'install', '--dist-url', build.disturl, build.target], { stdio: 'inherit', env: headerEnv });
 	}
 
 	// Overlay any custom headers shipped in build/npm/gyp/custom-headers on top of
@@ -150,6 +160,18 @@ function installHeaders() {
 		const localHeaderPath = getLocalHeaderPath(local.target);
 		if (localHeaderPath && fs.existsSync(localHeaderPath)) {
 			copyCustomHeaders(path.join(import.meta.dirname, 'gyp', 'custom-headers'), localHeaderPath);
+			if (process.platform === 'win32') {
+				prepareLibuvWindowsHeader(localHeaderPath);
+			}
+		}
+	}
+	if (process.platform === 'win32') {
+		for (const info of [remote, build]) {
+			if (info !== undefined) {
+				const headersPath = getLocalHeaderPath(info.target);
+				if (!headersPath) { throw new Error(`Missing Windows headers for ${info.target}`); }
+				prepareLibuvWindowsHeader(headersPath);
+			}
 		}
 	}
 }

@@ -11,7 +11,7 @@ import { getDefaultModelId, getModelDimension, getModelScoreThreshold } from "..
  */
 export class CodeIndexConfigManager {
 	private codebaseIndexEnabled: boolean = false
-	private embedderProvider: EmbedderProvider = "openai"
+	private embedderProvider: EmbedderProvider = "native"
 	private modelId?: string
 	private modelDimension?: number
 	private openAiOptions?: ApiHandlerOptions
@@ -45,25 +45,12 @@ export class CodeIndexConfigManager {
 	 */
 	private _loadAndSetConfiguration(): void {
 		// Load configuration from storage
-		/*
-		 * Indexing stays off until there is a backend it can actually reach.
-		 *
-		 * Every option needs something this machine does not have. Qdrant is a server
-		 * the product does not run and may not call. The OpenAI-style embedders are
-		 * hosted services. Semble looked like the local answer — it carries its own
-		 * vector storage and needs no embedding model — but its release assets are
-		 * gone: `OctoCode-Org/sembleexec` returns 404, so the binary can never be
-		 * fetched. Enabling it by default only produced a permanent download error in
-		 * the rail.
-		 *
-		 * Off is therefore the honest default: a switch that does nothing is worse
-		 * than a switch that is plainly not on. The provider list is unchanged, so
-		 * anyone who has a backend can still point at it.
-		 */
+		// Local symbol indexing needs no model, API key, download or Qdrant.
+		// Keep explicit remote providers and the saved enabled switch intact.
 		const codebaseIndexConfig = this.contextProxy?.getGlobalState("codebaseIndexConfig") ?? {
 			codebaseIndexEnabled: false,
 			codebaseIndexQdrantUrl: "http://localhost:6333",
-			codebaseIndexEmbedderProvider: "openai",
+			codebaseIndexEmbedderProvider: "native",
 			codebaseIndexEmbedderBaseUrl: "",
 			codebaseIndexEmbedderModelId: "",
 			codebaseIndexSearchMinScore: undefined,
@@ -121,7 +108,9 @@ export class CodeIndexConfigManager {
 		this.openAiOptions = { openAiNativeApiKey: openAiKey }
 
 		// Set embedder provider with support for openai-compatible
-		if (codebaseIndexEmbedderProvider === "ollama") {
+		if (codebaseIndexEmbedderProvider === "native" || codebaseIndexEmbedderProvider === undefined) {
+			this.embedderProvider = "native"
+		} else if (codebaseIndexEmbedderProvider === "ollama") {
 			this.embedderProvider = "ollama"
 		} else if (codebaseIndexEmbedderProvider === "openai-compatible") {
 			this.embedderProvider = "openai-compatible"
@@ -136,7 +125,9 @@ export class CodeIndexConfigManager {
 		} else if (codebaseIndexEmbedderProvider === "openrouter") {
 			this.embedderProvider = "openrouter"
 		} else if (codebaseIndexEmbedderProvider === "semble") {
-			this.embedderProvider = "semble"
+			// Retired release assets cannot be downloaded. Read old settings through
+			// the bundled local provider without changing the user's enabled switch.
+			this.embedderProvider = "native"
 		} else {
 			this.embedderProvider = "openai"
 		}
@@ -248,7 +239,7 @@ export class CodeIndexConfigManager {
 	 * Checks if the service is properly configured based on the embedder type.
 	 */
 	public isConfigured(): boolean {
-		if (this.embedderProvider === "semble") {
+		if (this.embedderProvider === "native" || this.embedderProvider === "semble") {
 			// Semble requires no API keys or Qdrant — it's always configured
 			return true
 		}

@@ -21,8 +21,14 @@ import { ProjectToolCopies } from "../environments/ProjectToolCopies"
 // Re-export for convenience
 export type { SkillMetadata, SkillContent }
 
+// gray-matter can leave a terminal CR on Windows frontmatter.
 const skillMatterOptions = {
-	engines: { yaml: { parse: (input: string) => parseYaml(input), stringify: (data: object) => stringifyYaml(data) } },
+	engines: {
+		yaml: {
+			parse: (input: string) => parseYaml(input.replace(/\r\n?/g, "\n")),
+			stringify: (data: object) => stringifyYaml(data),
+		},
+	},
 }
 
 export class SkillsManager {

@@ -67,7 +67,8 @@
 	"settings.workspace.rootResolution.activeEditor.description": "Use the workspace folder containing the active editor; fall back to the first workspace folder. (Default — preserves legacy behavior.)",
 	"settings.workspace.rootResolution.firstFolder.description": "Always use the first workspace folder (workspaceFolders[0]). Deterministic — independent of which file is currently focused.",
 	"command.checkForUpdate.title": "Check for OctoCode Updates",
-	"configuration.update.manifestUrl.description": "HTTPS, loopback HTTP, or local file URL of the release manifest. Empty disables update checks.",
+	"command.recoverDesktopUpdate.title": "Recover OctoCode with Full Installer",
+	"configuration.update.manifestUrl.description": "Defaults to OctoCode private releases using your GitHub login. Custom HTTPS, loopback HTTP, and local file manifests are supported. Empty disables checks; only a manual check can request sign-in.",
 	"configuration.update.mode.description": "When to look for updates.",
 	"configuration.update.mode.manual": "Only when you run the check command.",
 	"configuration.update.mode.start": "Once each time the window opens, and on demand."

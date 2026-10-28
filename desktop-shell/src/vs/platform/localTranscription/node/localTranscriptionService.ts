@@ -9,6 +9,7 @@ import { CancellationTokenSource } from '../../../base/common/cancellation.js';
 import { VSBuffer } from '../../../base/common/buffer.js';
 import { dirname, join } from '../../../base/common/path.js';
 import { ensureFoundryLocalRuntime } from './foundryLocalRuntime.js';
+import { FoundryLocalAudioSession } from './foundryLocalAudioSession.js';
 import {
 	ILocalTranscriptionModelStatus,
 	ILocalTranscriptionResult,
@@ -18,11 +19,6 @@ import {
 	LocalTranscriptionModelState,
 } from '../common/localTranscription.js';
 import { importFoundryLocalModel } from './foundryLocalModelImport.js';
-
-/** PCM audio format the renderer captures and streams: mono 16 kHz signed 16-bit. */
-const SAMPLE_RATE = 16000;
-const CHANNELS = 1;
-const BITS_PER_SAMPLE = 16;
 
 /** Application name reported to Foundry Local for logs/telemetry and its data dir. */
 const FOUNDRY_APP_NAME = 'vscode-dictation';
@@ -39,7 +35,7 @@ function runtimeCacheDir(modelCacheDir: string): string {
 
 /**
  * Foundry Local JS SDK. It is an ESM package that loads a native addon
- * (`foundry_local_napi.node`) plus the Foundry Local Core / onnxruntime /
+ * (`foundry_local_node.node` and `foundry_local_preload.node`) plus Foundry / ONNX Runtime /
  * onnxruntime-genai shared libraries. Import it lazily so forking the utility
  * process stays cheap; the model itself is only downloaded/loaded when dictation
  * first runs.
@@ -47,8 +43,6 @@ function runtimeCacheDir(modelCacheDir: string): string {
 type FoundryLocal = typeof import('foundry-local-sdk');
 type FoundryLocalManager = import('foundry-local-sdk').FoundryLocalManager;
 type IModel = import('foundry-local-sdk').IModel;
-type LiveAudioTranscriptionSession = import('foundry-local-sdk').LiveAudioTranscriptionSession;
-type LiveAudioTranscriptionResponse = import('foundry-local-sdk').LiveAudioTranscriptionResponse;
 
 /**
  * Map a raw model download/load error message to a fixed, low-cardinality code
@@ -89,22 +83,14 @@ function transcriptSeparator(current: string, next: string): '' | ' ' {
 }
 
 /**
- * Append a non-final (interim) transcript chunk to the current partial text.
- * Foundry Local emits interim results for the in-progress segment as *deltas* —
- * each carries only the newly recognized text (with its own leading/trailing
- * spacing), NOT the cumulative partial so far — so they must be concatenated
- * verbatim rather than replaced. Replacing would drop earlier partial words
- * (e.g. interim "hello" then " world" must yield "hello world", not "world").
- * Mirrors the GitHub Copilot app's `appendVoiceTranscriptChunk`.
+ * SDK 2.1 speechSegment PARTIAL text is the cumulative current hypothesis.
+ * Replace the prior revision; concatenation repeats already recognized words.
  */
 function appendTranscriptChunk(current: string, next: string): string {
 	if (!next.trim()) {
 		return current;
 	}
-	if (!current) {
-		return next.trimStart();
-	}
-	return `${current}${next}`;
+	return next.trimStart();
 }
 
 interface IFinalSegment {
@@ -207,7 +193,7 @@ export class LocalTranscriptionService extends Disposable implements ILocalTrans
 	private _runtimeDownload: { urlTemplate: string; version: string } | undefined;
 
 	/** The active streaming session, once `start()` has opened it. */
-	private _session: LiveAudioTranscriptionSession | undefined;
+	private _session: FoundryLocalAudioSession | undefined;
 	/** Resolves when the background stream consumer for `_session` has drained. */
 	private _consumePromise: Promise<void> | undefined;
 	/** In-flight model download/load + session open for the active recording. */
@@ -383,17 +369,7 @@ export class LocalTranscriptionService extends Disposable implements ILocalTrans
 				return; // superseded by a newer session
 			}
 
-			const audioClient = model.createAudioClient();
-			if (language) {
-				audioClient.settings.language = language;
-			}
-			const session = audioClient.createLiveTranscriptionSession();
-			session.settings.sampleRate = SAMPLE_RATE;
-			session.settings.channels = CHANNELS;
-			session.settings.bitsPerSample = BITS_PER_SAMPLE;
-			if (language) {
-				session.settings.language = language;
-			}
+			const session = new FoundryLocalAudioSession(this._sdk!, model, language);
 			await session.start();
 
 			if (generation !== this._generation) {
@@ -442,7 +418,7 @@ export class LocalTranscriptionService extends Disposable implements ILocalTrans
 	 * particular append fails (for callers that must surface it); the internal
 	 * chain continues regardless so ordering is preserved for later chunks.
 	 */
-	private _enqueueAppend(session: LiveAudioTranscriptionSession, generation: number, chunk: Uint8Array): Promise<void> {
+	private _enqueueAppend(session: FoundryLocalAudioSession, generation: number, chunk: Uint8Array): Promise<void> {
 		const result = this._appendChain.then(() => {
 			if (generation !== this._generation || this._session !== session) {
 				return; // superseded/reset; drop stale append
@@ -471,6 +447,7 @@ export class LocalTranscriptionService extends Disposable implements ILocalTrans
 		this._modelPrepareCts = cts;
 		this._modelPromise = (async () => {
 			try {
+				let nativeLibraryDir: string | undefined;
 				// The model cache state is unknown until the catalog is queried.
 				this._setStatus({ state: LocalTranscriptionModelState.Loading });
 
@@ -486,6 +463,7 @@ export class LocalTranscriptionService extends Disposable implements ILocalTrans
 				if (this._runtimeDownload) {
 					const nativeDir = await ensureFoundryLocalRuntime(runtimeCacheDir(cacheDir), this._runtimeDownload, cts.token);
 					process.env.VSCODE_FOUNDRY_LOCAL_NATIVE_DIR = nativeDir;
+					nativeLibraryDir = join(nativeDir, 'prebuilds', `${process.platform}-${process.arch}`);
 				}
 
 				if (!this._sdk) {
@@ -500,6 +478,7 @@ export class LocalTranscriptionService extends Disposable implements ILocalTrans
 						appName: FOUNDRY_APP_NAME,
 						modelCacheDir: cacheDir,
 						logLevel: 'warn',
+						libraryPath: nativeLibraryDir,
 					});
 				}
 
@@ -553,27 +532,33 @@ export class LocalTranscriptionService extends Disposable implements ILocalTrans
 
 	/**
 	 * Drain the session's result stream, maintaining a cumulative transcript.
-	 * Foundry emits per-segment results flagged `is_final`; a finalized segment is
+	 * Foundry emits speech segments with partial/final kinds; a finalized segment is
 	 * recorded (and replaced if later refined) in the accumulator, while a
 	 * non-final result is the interim tail of the segment currently being spoken.
 	 * Each update fires the full cumulative transcript so the renderer can shimmer
 	 * the interim tail and solidify finalized text.
 	 */
-	private async _consume(session: LiveAudioTranscriptionSession, generation: number): Promise<void> {
+	private async _consume(session: FoundryLocalAudioSession, generation: number): Promise<void> {
 		try {
 			for await (const result of session.getStream()) {
 				if (generation !== this._generation) {
 					break;
 				}
-				const text = this._resultText(result);
-				if (result.is_final) {
-					this._accumulator.addFinal(text, result.start_time ?? null, result.end_time ?? null);
+				if (result.type === 'speechResult') {
+					// The terminal response is the canonical whole-session output.
+					// Replacing the live segments avoids duplicating that aggregate.
+					this._accumulator.reset();
+					this._accumulator.addFinal(result.text, null, null);
+					this._partialText = '';
+				} else if (result.kind === 'final' || result.kind === 'none') {
+					this._accumulator.addFinal(result.text,
+						result.startTimeMs === undefined ? null : result.startTimeMs / 1000,
+						result.endTimeMs === undefined ? null : result.endTimeMs / 1000);
 					this._partialText = '';
 				} else {
-					// Interim results are deltas of the in-progress segment; append
-					// them (preserving their own spacing) rather than replacing, so
-					// earlier partial words are not lost.
-					this._partialText = appendTranscriptChunk(this._partialText, text);
+					this._partialText = result.utteranceStart
+						? result.text.trimStart()
+						: appendTranscriptChunk(this._partialText, result.text);
 				}
 				if (this._sessionActive) {
 					this._onDidTranscribe.fire({ text: this._cumulativeText(), isFinal: false, finalizedText: this._accumulator.getText() });
@@ -584,10 +569,12 @@ export class LocalTranscriptionService extends Disposable implements ILocalTrans
 			// while recording (not during our own teardown), record it and surface
 			// an error status so the renderer tears the session down and informs the
 			// user; stop() also rethrows it rather than reporting a false success.
-			if (generation === this._generation && this._sessionActive) {
+			if (generation === this._generation) {
 				const error = err instanceof Error ? err : new Error(String(err));
 				this._runtimeError = error;
-				this._setStatus({ state: LocalTranscriptionModelState.Error, error: error.message, errorCode: 'runtime' });
+				if (this._sessionActive) {
+					this._setStatus({ state: LocalTranscriptionModelState.Error, error: error.message, errorCode: 'runtime' });
+				}
 			}
 		}
 	}
@@ -603,14 +590,6 @@ export class LocalTranscriptionService extends Disposable implements ILocalTrans
 			return partial;
 		}
 		return `${finalized}${transcriptSeparator(finalized, partial)}${partial}`;
-	}
-
-	private _resultText(result: LiveAudioTranscriptionResponse): string {
-		const part = result.content?.[0];
-		// Return the raw text (not trimmed): interim deltas carry significant
-		// leading/trailing spacing used to concatenate them. `addFinal` trims
-		// finalized segments itself.
-		return part?.text ?? part?.transcript ?? '';
 	}
 
 	async pushAudio(chunk: VSBuffer): Promise<void> {
@@ -676,8 +655,8 @@ export class LocalTranscriptionService extends Disposable implements ILocalTrans
 			// `stop()` drains any buffered audio, emits final results into the
 			// stream, then completes it — so the consumer loop ends after this.
 			await session.stop();
-		} catch {
-			// Best-effort: fall through to whatever transcript we accumulated.
+		} catch (error) {
+			this._runtimeError = error instanceof Error ? error : new Error(String(error));
 		}
 		if (this._consumePromise) {
 			try {

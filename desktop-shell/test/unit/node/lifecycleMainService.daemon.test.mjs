@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
-import { stripTypeScriptTypes } from 'node:module';
+import { createRequire } from 'node:module';
 import { win32 as path } from 'node:path';
 import { test } from 'node:test';
 import vm from 'node:vm';
@@ -17,12 +17,30 @@ const sourceURL = new URL('../../../src/vs/platform/lifecycle/electron-main/life
 const source = readFileSync(sourceURL, 'utf8').replace(/^import .*;\r?$/gm, '')
 	.replace(/@(ILogService|IStateService|IEnvironmentMainService|IProductService) /g, '')
 	.replace(/^export /gm, '');
-const script = stripTypeScriptTypes(source, { mode: 'transform' }) + '\nLifecycleMainService;';
+const ts = createRequire(import.meta.url)('typescript');
+const script = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText + '\nLifecycleMainService;';
 const root = 'D:\\Program Files\\OctoCode';
 const store = path.join(root, 'data', 'user-data', 'User', 'globalStorage', 'octocode.octocode', 'harness-runtime');
 const health = (extra = {}) => ({ ok: true, pid: 42, store, problems: [], ...extra });
 const response = (body, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
 const refused = () => new TypeError('fetch failed', { cause: { code: 'ECONNREFUSED' } });
+
+test('cold-start health probing allows a delayed definitive connection refusal', async () => {
+	let first = true;
+	const f = fixture({ token: false, fetch: async (_url, { signal }) => {
+		if (first) {
+			first = false;
+			await new Promise((resolve, reject) => {
+				const timer = setTimeout(resolve, 1100);
+				signal.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason); }, { once: true });
+			});
+		}
+		throw refused();
+	} });
+	await f.service.ensureDaemon();
+	assert.ok(f.calls.includes('start'));
+	assert.deepEqual(f.errors, []);
+});
 
 function fixture({ token = true, fetch = async () => { throw refused(); } } = {}) {
 	const errors = [], infos = [], calls = [];
@@ -39,6 +57,7 @@ function fixture({ token = true, fetch = async () => { throw refused(); } } = {}
 	const service = Object.create(Service.prototype);
 	Object.assign(service, {
 		productService: { nameShort: 'OctoCode' }, daemonStopping: false, daemonPreserveForRestart: false,
+		environmentMainService: {},
 		logService: { error: value => errors.push(String(value)), info: value => infos.push(value) },
 		startDaemon: () => calls.push('start')
 	});
@@ -53,6 +72,61 @@ for (const token of [false, true]) {
 		assert.deepEqual(f.errors, []);
 	});
 }
+
+test('extension test windows never attach to the production daemon', async () => {
+	const f = fixture();
+	f.service.environmentMainService.extensionTestsLocationURI = { scheme: 'file' };
+	await f.service.ensureDaemon();
+	assert.deepEqual(f.calls, []);
+	assert.deepEqual(f.errors, []);
+});
+
+function trayFixture() {
+	const f = fixture();
+	class Tray extends EventEmitter {
+		setToolTip() {}
+		setContextMenu(menu) { this.menu = menu; }
+		destroy() { this.removeAllListeners(); }
+	}
+	f.context.electron.Tray = Tray;
+	f.context.electron.Menu = { buildFromTemplate: items => items };
+	f.context.electron.nativeImage = { createFromPath: () => ({ isEmpty: () => false }) };
+	f.service._register = value => value;
+	f.service.trayWindows = new Set();
+	f.service.ensureTray();
+	return f;
+}
+
+for (const action of ['click', 'open']) {
+	test(`tray ${action} restores an alive window when its last window was destroyed`, () => {
+		const f = trayFixture();
+		const calls = [];
+		const alive = { isDestroyed: () => false, isMinimized: () => true, restore: () => calls.push('restore'), show: () => calls.push('show'), focus: () => calls.push('focus') };
+		f.service.trayWindows.add(alive);
+		f.service.trayWindow = { isDestroyed: () => true };
+		if (action === 'click') f.service.tray.emit('click');
+		else f.service.tray.menu[0].click();
+		assert.deepEqual(calls, ['restore', 'show', 'focus']);
+		assert.equal(f.service.trayWindow, alive);
+		assert.deepEqual(f.errors, []);
+		f.service.tray.destroy();
+	});
+}
+
+test('tray Open restarts once when no usable window remains', async () => {
+	const f = trayFixture();
+	let finish;
+	let starts = 0;
+	f.service.relaunch = () => { starts++; return new Promise(resolve => { finish = resolve; }); };
+	f.service.tray.emit('click');
+	f.service.tray.menu[0].click();
+	assert.equal(starts, 1);
+	finish();
+	await f.service.trayOpening;
+	assert.equal(f.service.trayOpening, undefined);
+	assert.deepEqual(f.errors, []);
+	f.service.tray.destroy();
+});
 
 test('reattaches a degraded live daemon with authentication and preserves its token', async () => {
 	const f = fixture({ fetch: async url => response(url.endsWith('/health') ? health({ ok: false, problems: ['stale heartbeat'] }) : {}) });

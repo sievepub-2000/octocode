@@ -26,6 +26,8 @@ import { IsWebContext } from '../../../../platform/contextkey/common/contextkeys
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IProductService } from '../../../../platform/product/common/productService.js';
 import { URI } from '../../../../base/common/uri.js';
+import { getGitHubReleaseFeed } from '../../../../platform/update/common/githubUpdate.js';
+import { IAuthenticationService } from '../../../services/authentication/common/authentication.js';
 
 const workbench = Registry.as<IWorkbenchContributionsRegistry>(WorkbenchExtensions.Workbench);
 
@@ -35,6 +37,31 @@ workbench.registerWorkbenchContribution(SwitchProductQualityContribution, Lifecy
 workbench.registerWorkbenchContribution(DefaultAccountUpdateContribution, LifecyclePhase.Eventually);
 workbench.registerWorkbenchContribution(UpdateTitleBarContribution, LifecyclePhase.Restored);
 workbench.registerWorkbenchContribution(PostUpdateWidgetContribution, LifecyclePhase.Restored);
+
+if (getGitHubReleaseFeed(product.updateUrl)) {
+	registerAction2(class extends Action2 {
+		constructor() {
+			super({ id: 'update.useGitHubToken', title: localize2('update.github.tokenAction', 'Use GitHub Token for Updates'), category: Categories.Preferences, f1: true });
+		}
+		async run(accessor: ServicesAccessor): Promise<void> {
+			const authenticationService = accessor.get(IAuthenticationService);
+			const updateService = accessor.get(IUpdateService);
+			await authenticationService.createSession('github', ['repo'], { activateImmediate: true, useToken: true });
+			await updateService.checkForUpdates(true);
+		}
+	});
+	registerAction2(class extends Action2 {
+		constructor() {
+			super({ id: 'update.signInGitHub', title: localize2('update.github.signInAction', 'Sign in to GitHub for Updates'), category: Categories.Preferences, f1: true });
+		}
+		async run(accessor: ServicesAccessor): Promise<void> {
+			const authenticationService = accessor.get(IAuthenticationService);
+			const updateService = accessor.get(IUpdateService);
+			await authenticationService.createSession('github', ['repo'], { activateImmediate: true });
+			await updateService.checkForUpdates(true);
+		}
+	});
+}
 
 // Release notes
 

@@ -247,6 +247,8 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 	private windowCounter = 0;
 	private tray: electron.Tray | undefined;
 	private trayWindow: electron.BrowserWindow | undefined;
+	private readonly trayWindows = new Set<electron.BrowserWindow>();
+	private trayOpening: Promise<void> | undefined;
 	private daemon: ChildProcess | undefined;
 	private daemonEnsurePromise: Promise<void> | undefined;
 	private daemonTokenPath: string | undefined;
@@ -286,7 +288,7 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 	}
 
 	private async checkResourcePressure(): Promise<void> {
-		if (!isWindows || this.productService.nameShort !== 'OctoCode' || this.resourceRestarting || this.daemonStopping) return;
+		if (!isWindows || this.productService.nameShort !== 'OctoCode' || this.environmentMainService.extensionTestsLocationURI || this.resourceRestarting || this.daemonStopping) return;
 		const root = join(electron.app.getAppPath(), '..', '..');
 		const statePath = join(root, 'data', 'user-data', 'User', 'globalStorage', 'octocode.octocode', 'harness-runtime', 'daemon', 'supervision.json');
 		try {
@@ -318,7 +320,7 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 	}
 
 	private async doEnsureDaemon(): Promise<void> {
-		if (!isWindows || this.productService.nameShort !== 'OctoCode' || this.daemonStopping || this.daemon) {
+		if (!isWindows || this.productService.nameShort !== 'OctoCode' || this.environmentMainService.extensionTestsLocationURI || this.daemonStopping || this.daemon) {
 			return;
 		}
 		const root = join(electron.app.getAppPath(), '..', '..');
@@ -330,7 +332,8 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 			for (let attempt = 0; attempt < attempts && !this.daemonStopping; attempt++) {
 				let response: Response;
 				try {
-					response = await fetch('http://127.0.0.1:8765/health', { signal: AbortSignal.timeout(1000) });
+					// First-launch module loading can exhaust a one-second deadline before socket I/O runs.
+					response = await fetch('http://127.0.0.1:8765/health', { signal: AbortSignal.timeout(10_000) });
 				} catch (error) {
 					lastError = error;
 					// A stale token is normal after an interrupted shutdown. Only a refused
@@ -378,7 +381,7 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 	}
 
 	private startDaemon(): void {
-		if (!isWindows || this.productService.nameShort !== 'OctoCode' || this.daemonStopping) {
+		if (!isWindows || this.productService.nameShort !== 'OctoCode' || this.environmentMainService.extensionTestsLocationURI || this.daemonStopping) {
 			return;
 		}
 		const root = join(electron.app.getAppPath(), '..', '..');
@@ -674,9 +677,16 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 		}
 		const tray = this.tray = new electron.Tray(icon);
 		const showWindow = () => {
-			if (this.trayWindow && !this.trayWindow.isDestroyed()) {
-				this.trayWindow.show();
-				this.trayWindow.focus();
+			const window = this.trayWindow && !this.trayWindow.isDestroyed()
+				? this.trayWindow : [...this.trayWindows].find(window => !window.isDestroyed());
+			if (window) {
+				this.trayWindow = window;
+				if (window.isMinimized()) { window.restore(); }
+				window.show();
+				window.focus();
+			} else if (!this._quitRequested && !this.trayOpening) {
+				this.trayOpening = this.relaunch().catch(error => this.logService.error(`Unable to reopen OctoCode: ${error}`))
+					.finally(() => { this.trayOpening = undefined; });
 			}
 		};
 		tray.setToolTip('octocode');
@@ -699,7 +709,8 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 
 		// Window Before Closing: Main -> Renderer
 		const win = assertReturnsDefined(window.win);
-		if (isWindows && this.productService.nameShort === 'OctoCode') {
+		if (isWindows && this.productService.nameShort === 'OctoCode' && !this.environmentMainService.extensionTestsLocationURI) {
+			this.trayWindows.add(win);
 			this.trayWindow = win;
 			this.ensureTray();
 		}
@@ -739,6 +750,8 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 		}));
 		windowListeners.add(Event.fromNodeEventEmitter<electron.Event>(win, 'closed')(() => {
 			this.trace(`Lifecycle#window.on('closed') - window ID ${window.id}`);
+			this.trayWindows.delete(win);
+			if (this.trayWindow === win) { this.trayWindow = undefined; }
 
 			// update window count
 			this.windowCounter--;

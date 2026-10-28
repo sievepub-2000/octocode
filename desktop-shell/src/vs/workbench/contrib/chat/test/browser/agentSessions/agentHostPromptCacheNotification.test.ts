@@ -24,7 +24,7 @@ suite('AgentHostPromptCacheNotification', () => {
 	});
 
 	test('shows an experiment-gated notification for the expired session resource', async () => {
-		const clock = sinon.useFakeTimers({ now: new Date('2026-07-24T12:00:00.000Z') });
+		const clock = sinon.useFakeTimers({ now: new Date('2026-07-24T12:00:00.000Z'), toFake: ['Date'] });
 		const notificationService = new TestNotificationService();
 		const storageService = store.add(new InMemoryStorageService());
 		const contribution = store.add(new AgentHostPromptCacheNotification(
@@ -58,7 +58,7 @@ suite('AgentHostPromptCacheNotification', () => {
 	});
 
 	test('does not show before expiration', async () => {
-		const clock = sinon.useFakeTimers({ now: new Date('2026-07-24T12:00:00.000Z') });
+		const clock = sinon.useFakeTimers({ now: new Date('2026-07-24T12:00:00.000Z'), toFake: ['Date'] });
 		const notificationService = new TestNotificationService();
 		const contribution = store.add(new AgentHostPromptCacheNotification(
 			notificationService,
@@ -78,7 +78,7 @@ suite('AgentHostPromptCacheNotification', () => {
 	});
 
 	test('shows at the expiration boundary', async () => {
-		const clock = sinon.useFakeTimers({ now: new Date('2026-07-24T12:00:00.000Z') });
+		const clock = sinon.useFakeTimers({ now: new Date('2026-07-24T12:00:00.000Z'), toFake: ['Date'] });
 		const notificationService = new TestNotificationService();
 		const contribution = store.add(new AgentHostPromptCacheNotification(
 			notificationService,
@@ -99,7 +99,7 @@ suite('AgentHostPromptCacheNotification', () => {
 	});
 
 	test('preserves dismissal until the cache expiration changes', async () => {
-		const clock = sinon.useFakeTimers({ now: new Date('2026-07-24T12:00:00.000Z') });
+		const clock = sinon.useFakeTimers({ now: new Date('2026-07-24T12:00:00.000Z'), toFake: ['Date'] });
 		const notificationService = new TestNotificationService();
 		const contribution = store.add(new AgentHostPromptCacheNotification(
 			notificationService,

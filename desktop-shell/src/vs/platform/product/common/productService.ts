@@ -15,3 +15,7 @@ export interface IProductService extends Readonly<IProductConfiguration> {
 }
 
 export const productSchemaId = 'vscode://schemas/vscode-product';
+
+export function getVscodeApiVersion(product: Pick<IProductConfiguration, 'version' | 'vscodeApiVersion'>): string {
+	return product.vscodeApiVersion ?? product.version;
+}

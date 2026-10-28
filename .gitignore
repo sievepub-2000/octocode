@@ -1,4 +1,4 @@
-# Version orchestration, maintenance and reports; the three source trees have their own repositories.
+# The published repository tracks all three source components together.
 /*
 !/.gitignore
 !/.gitattributes
@@ -10,7 +10,12 @@
 !/work/
 /work/*
 !/work/octo-env.ps1
+!/work/windows-linker.toml
+!/work/windows-harness-linker.toml
 !/maintenance/
+!/octocode-core/
+!/desktop-shell/
+!/octo-harness/
 __pycache__/
 !/docs/
 /docs/*
@@ -18,3 +23,5 @@ __pycache__/
 /docs/releases/*
 !/docs/releases/0.1.8.md
 !/docs/releases/0.1.9.md
+!/docs/superpowers/
+!/docs/HARNESS2.md

@@ -159,11 +159,15 @@ export class QuickDiffModel extends Disposable {
 		}
 
 		this._register(this._model.onDidChangeEncoding(() => {
+			const modifiedModel = this._model.textEditorModel;
+			if (this._disposed || this._model.isDisposed() || !modifiedModel || modifiedModel.isDisposed()) {
+				return;
+			}
 			this._diffDelayer.cancel();
 			this._quickDiffs = [];
 			this._originalEditorModels.clear();
 			this._quickDiffsPromise = undefined;
-			this.setChanges([], [], new Map(), this._model.textEditorModel.getVersionId());
+			this.setChanges([], [], new Map(), modifiedModel.getVersionId());
 			this.triggerDiff();
 		}));
 
@@ -205,9 +209,10 @@ export class QuickDiffModel extends Disposable {
 
 	public getDiffEditorModel(originalUri: URI): IDiffEditorModel | undefined {
 		const editorModel = this._originalEditorModels.get(originalUri);
-		return editorModel ?
+		const modifiedModel = this._model.textEditorModel;
+		return editorModel && !editorModel.isDisposed() && !this._disposed && !this._model.isDisposed() && modifiedModel && !modifiedModel.isDisposed() ?
 			{
-				modified: this._model.textEditorModel,
+				modified: modifiedModel,
 				original: editorModel.textEditorModel
 			} : undefined;
 	}
@@ -232,11 +237,11 @@ export class QuickDiffModel extends Disposable {
 
 		this._diffDelayer
 			.trigger(async () => {
-				const result: { allChanges: QuickDiffChange[]; changes: QuickDiffChange[]; mapChanges: Map<string, number[]>; versionId: number } | null = await this.diff();
+				const result = await this.diff();
 
 				const editorModels = Array.from(this._originalEditorModels.values());
-				if (!result || this._disposed || this._model.isDisposed() || editorModels.some(editorModel => editorModel.isDisposed())) {
-					return; // disposed
+				if (!result || !this.isCurrentModel(result.modifiedModel, result.versionId) || editorModels.some(editorModel => editorModel.isDisposed())) {
+					return; // disposed or superseded
 				}
 
 				this.setChanges(result.allChanges, result.changes, result.mapChanges, result.versionId);
@@ -253,21 +258,33 @@ export class QuickDiffModel extends Disposable {
 		this._onDidChange.fire({ changes, diff });
 	}
 
-	private diff(): Promise<{ allChanges: QuickDiffChange[]; changes: QuickDiffChange[]; mapChanges: Map<string, number[]>; versionId: number } | null> {
+	private isCurrentModel(modifiedModel: ITextModel, versionId: number): boolean {
+		return !this._disposed && !this._model.isDisposed() && !modifiedModel.isDisposed()
+			&& this._model.textEditorModel === modifiedModel && modifiedModel.getVersionId() === versionId;
+	}
+
+	private diff(): Promise<{ allChanges: QuickDiffChange[]; changes: QuickDiffChange[]; mapChanges: Map<string, number[]>; modifiedModel: ITextModel; versionId: number } | null> {
 		const location = this.environmentService.isSessionsWindow ? ProgressLocation.Window : ProgressLocation.Scm;
 		return this.progressService.withProgress({ location, delay: 250 }, async () => {
-			const versionId = this._model.textEditorModel.getVersionId();
+			// A queued progress callback can start after the file model has been disposed.
+			const modifiedModel = this._model.textEditorModel;
+			if (this._disposed || this._model.isDisposed() || !modifiedModel || modifiedModel.isDisposed()) {
+				return null;
+			}
+			const versionId = modifiedModel.getVersionId();
 			const originalURIs = await this.getQuickDiffsPromise();
-			if (this._disposed || this._model.isDisposed() || (originalURIs.length === 0)) {
-				// Disposed
-				return Promise.resolve({ allChanges: [], changes: [], mapChanges: new Map(), versionId });
+			if (!this.isCurrentModel(modifiedModel, versionId)) {
+				return null;
+			}
+			if (originalURIs.length === 0) {
+				return { allChanges: [], changes: [], mapChanges: new Map(), modifiedModel, versionId };
 			}
 
 			const quickDiffs = originalURIs
 				.filter(quickDiff => this.editorWorkerService.canComputeDirtyDiff(quickDiff.originalResource, this._model.resource));
 			if (quickDiffs.length === 0) {
 				// All files are too large
-				return Promise.resolve({ allChanges: [], changes: [], mapChanges: new Map(), versionId });
+				return { allChanges: [], changes: [], mapChanges: new Map(), modifiedModel, versionId };
 			}
 
 			const quickDiffPrimary = quickDiffs.find(quickDiff => quickDiff.kind === 'primary');
@@ -282,6 +299,9 @@ export class QuickDiffModel extends Disposable {
 
 			for (const quickDiff of quickDiffs) {
 				const diff = await this._diff(quickDiff.originalResource, this._model.resource, ignoreTrimWhitespace);
+				if (!this.isCurrentModel(modifiedModel, versionId)) {
+					return null;
+				}
 				if (diff.changes && diff.changes2 && diff.changes.length === diff.changes2.length) {
 					for (let index = 0; index < diff.changes.length; index++) {
 						const change2 = diff.changes2[index];
@@ -341,7 +361,7 @@ export class QuickDiffModel extends Disposable {
 				map.get(providerId)!.push(i);
 			}
 
-			return { allChanges: allDiffsSorted, changes: diffsSorted, mapChanges: map, versionId };
+			return { allChanges: allDiffsSorted, changes: diffsSorted, mapChanges: map, modifiedModel, versionId };
 		});
 	}
 

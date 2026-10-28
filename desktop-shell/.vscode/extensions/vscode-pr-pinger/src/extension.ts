@@ -60,7 +60,7 @@ export function activate(context: vscode.ExtensionContext) {
 		const tooLongAgo = Date.now() - 1000 * 60 * 60 * 24 * 4;
 		let data: Query;
 		try {
-			data = await graphql(query, { headers: { authorization: `Bearer ${currentSession.accessToken}` } });
+			data = await graphql<Query>(query, { headers: { authorization: `Bearer ${currentSession.accessToken}` } });
 		} catch {
 			console.error('PR Pinger could not fetch pull requests');
 			return;
@@ -98,7 +98,7 @@ export function activate(context: vscode.ExtensionContext) {
 		// refresh every 20 seconds
 		const checkHandle = setInterval(async function () {
 			try {
-				const data: Check = await graphql(check, {
+				const data = await graphql<Check>(check, {
 					pr: pr.number,
 					headers: { authorization: `Bearer ${currentSession.accessToken}` },
 				});

@@ -345,6 +345,10 @@
 	"dismiss": "Tutup",
 	"dismissAndDontShowAgain": "Tutup dan jangan tampilkan lagi",
 	"extensions": {
+		"pagination": "Halaman komponen",
+		"pageNumber": "Halaman {{number}}",
+		"previousPage": "Sebelumnya",
+		"nextPage": "Berikutnya",
 		"market": "Pasar",
 		"systemToolsHint": "Alat sistem · tersedia di semua ruang kerja",
 		"environments": "Runtimes",

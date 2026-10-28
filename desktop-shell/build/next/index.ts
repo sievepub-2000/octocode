@@ -6,9 +6,8 @@
 import * as esbuild from 'esbuild';
 import * as fs from 'fs';
 import * as path from 'path';
-import { promisify } from 'util';
 
-import glob from 'glob';
+import { glob as globAsync } from 'glob';
 import gulpWatch from '../lib/watch/index.ts';
 import { nlsPlugin, createNLSCollector, finalizeNLS, postProcessNLS } from './nls-plugin.ts';
 import { convertPrivateFields, adjustSourceMap, type ConvertPrivateFieldsResult } from './private-to-property.ts';
@@ -19,7 +18,6 @@ import packageJson from '../../package.json' with { type: 'json' };
 import { useEsbuildTranspile } from '../buildConfig.ts';
 import { isWebExtension, type IScannedBuiltinExtension } from '../lib/extensions.ts';
 
-const globAsync = promisify(glob);
 
 // ============================================================================
 // Configuration
@@ -545,7 +543,7 @@ async function copyAllNonTsFiles(outDir: string, excludeTests: boolean): Promise
 		ignore: excludeTests ? ['**/test/**'] : [],
 	});
 
-	const allFiles = [...new Set([...files, ...dtsFiles])];
+	const allFiles = [...new Set([...files.sort(), ...dtsFiles.sort()])];
 
 	await Promise.all(allFiles.map(file => {
 		const srcPath = path.join(REPO_ROOT, SRC_DIR, file);
@@ -574,7 +572,7 @@ async function copyResources(outDir: string, target: BuildTarget): Promise<void>
 			ignore: ignorePatterns,
 		});
 
-		for (const file of files) {
+		for (const file of files.sort()) {
 			const srcPath = path.join(REPO_ROOT, SRC_DIR, file);
 			const destPath = path.join(REPO_ROOT, outDir, file);
 
@@ -742,6 +740,7 @@ async function transpile(outDir: string, excludeTests: boolean): Promise<void> {
 	});
 
 	console.log(`[transpile] Found ${files.length} files`);
+	files.sort();
 
 	// Transpile all files in parallel using esbuild.transform (fastest approach)
 	await Promise.all(files.map(file => {

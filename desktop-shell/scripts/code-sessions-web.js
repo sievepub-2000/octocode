@@ -47,7 +47,27 @@ async function main() {
 	}
 
 	const server = http.createServer((req, res) => {
-		const url = new URL(req.url, `http://${HOST}:${PORT}`);
+		let url;
+		let requestOrigin;
+		try {
+			const hostUrl = new URL(`http://${req.headers.host}`);
+			if (!['localhost', '127.0.0.1', '[::1]', HOST].includes(hostUrl.hostname) || Number(hostUrl.port || 80) !== PORT) {
+				res.writeHead(403);
+				res.end('Forbidden host');
+				return;
+			}
+			requestOrigin = hostUrl.origin;
+			url = new URL(req.url, requestOrigin);
+		} catch {
+			res.writeHead(400);
+			res.end('Invalid URL');
+			return;
+		}
+		if (req.headers.origin && req.headers.origin !== requestOrigin) {
+			res.writeHead(403);
+			res.end('Forbidden origin');
+			return;
+		}
 
 		// Serve the sessions workbench HTML at the root
 		if (url.pathname === '/' || url.pathname === '/index.html') {
@@ -75,7 +95,6 @@ async function main() {
 
 			res.writeHead(200, {
 				'Content-Type': contentType,
-				'Access-Control-Allow-Origin': '*',
 			});
 			fs.createReadStream(filePath).pipe(res);
 			return;

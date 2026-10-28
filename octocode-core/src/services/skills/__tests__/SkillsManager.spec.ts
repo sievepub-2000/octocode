@@ -1,4 +1,6 @@
 import * as path from "path"
+import { readdirSync, readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 
 // Use vi.hoisted to ensure mocks are available during hoisting
 const {
@@ -119,6 +121,7 @@ import { ClineProvider } from "../../../core/webview/ClineProvider"
 describe("SkillsManager", () => {
 	let skillsManager: SkillsManager
 	let mockProvider: Partial<ClineProvider>
+	const envBackup: Record<string, string | undefined> = {}
 
 	// Pre-computed paths for tests
 	const globalSkillsDir = p(GLOBAL_ROO_DIR, "skills")
@@ -136,6 +139,14 @@ describe("SkillsManager", () => {
 		vi.clearAllMocks()
 		mockHomedir.mockReturnValue(HOME_DIR)
 
+		// This machine runs with OCTOCODE_ENVIRONMENTS set, which redirects
+		// skill discovery and installs to the shared system tool directory.
+		// The suite verifies the portable home/project paths, so the variable
+		// is cleared for every test (the one test that needs it sets it
+		// explicitly and restores it itself).
+		envBackup.OCTOCODE_ENVIRONMENTS = process.env.OCTOCODE_ENVIRONMENTS
+		delete process.env.OCTOCODE_ENVIRONMENTS
+
 		// Create mock provider
 		mockProvider = {
 			cwd: PROJECT_DIR,
@@ -148,10 +159,42 @@ describe("SkillsManager", () => {
 	})
 
 	afterEach(async () => {
+		if (envBackup.OCTOCODE_ENVIRONMENTS !== undefined)
+			process.env.OCTOCODE_ENVIRONMENTS = envBackup.OCTOCODE_ENVIRONMENTS
+		else delete process.env.OCTOCODE_ENVIRONMENTS
 		await skillsManager.dispose()
 	})
 
 	describe("discoverSkills", () => {
+		it.each(["\n", "\r\n"])("loads every bundled skill with %j line endings", async (newline) => {
+			const catalog = fileURLToPath(new URL("../../../assets/default-skills/", import.meta.url))
+			const names = readdirSync(catalog, { withFileTypes: true })
+				.filter((entry) => entry.isDirectory())
+				.map((entry) => entry.name)
+			const files = new Map(
+				names.map((name) => [
+					p(globalSkillsDir, name, "SKILL.md"),
+					readFileSync(p(catalog, name, "SKILL.md"), "utf8")
+						.replace(/\r\n?/g, "\n")
+						.replace(/\n/g, newline),
+				]),
+			)
+			mockDirectoryExists.mockImplementation(async (directory: string) => directory === globalSkillsDir)
+			mockReaddir.mockImplementation(async (directory: string) => (directory === globalSkillsDir ? names : []))
+			mockRealpath.mockImplementation(async (directory: string) => directory)
+			mockStat.mockResolvedValue({ isDirectory: () => true })
+			mockFileExists.mockImplementation(async (file: string) => files.has(file))
+			mockReadFile.mockImplementation(async (file: string) => files.get(file))
+			await skillsManager.discoverSkills()
+			expect(names).toHaveLength(24)
+			expect(
+				skillsManager
+					.getAllSkills()
+					.map((skill) => skill.name)
+					.sort(),
+			).toEqual([...names].sort())
+		})
+
 		it("uses the same system tool source after switching workspaces", async () => {
 			const previous = process.env.OCTOCODE_ENVIRONMENTS
 			const environments = p(HOME_DIR, "OctoCode", "environments")

@@ -1,4 +1,4 @@
-import { z } from "zod"
+import { z } from "zod/v4"
 
 import { rooCodeSettingsSchema } from "./global-settings.js"
 
@@ -114,7 +114,7 @@ export type RooCliQueueItem = z.infer<typeof rooCliQueueItemSchema>
 
 export const rooCliToolUseSchema = z.object({
 	name: z.string(),
-	input: z.record(z.unknown()).optional(),
+	input: z.record(z.string(), z.unknown()).optional(),
 })
 
 export type RooCliToolUse = z.infer<typeof rooCliToolUseSchema>

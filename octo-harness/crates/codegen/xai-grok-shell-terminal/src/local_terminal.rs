@@ -105,6 +105,10 @@ impl AsyncTerminalRunner for LocalTerminalRunner {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
+        if let Some(key) = crate::conflicting_color_env(&request.env) {
+            cmd.env_remove(key);
+        }
+
         // Detach from the controlling terminal so child processes (e.g. GPG pinentry) cannot open /dev/tty and corrupt the TUI.
         // (This also makes the child its own session/group leader, which the ProcessGroup attach below relies on.)
         xai_grok_tools::util::detach_command(&mut cmd);
@@ -215,6 +219,21 @@ mod tests {
             output_byte_limit: DEFAULT_OUTPUT_BYTE_LIMIT,
             stream: false,
             output_file: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn node_color_settings_do_not_emit_conflicting_environment_warnings() {
+        for mut env in [crate::color_env(), crate::no_color_env()] {
+            // A client opt-out must also win over a force-color override.
+            env.insert("NO_COLOR".into(), "1".into());
+            let mut request = make_request(
+                "node -e \"require('node:tty').WriteStream.prototype.getColorDepth(); process.stdout.write('ready')\"",
+            );
+            request.env = env;
+            let result = LocalTerminalRunner.run(request).await.unwrap();
+            assert_eq!(result.exit_code, Some(0));
+            assert_eq!(result.combined_output.trim(), "ready");
         }
     }
 

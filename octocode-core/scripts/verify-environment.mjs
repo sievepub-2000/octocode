@@ -44,8 +44,8 @@ const checks = [
 		"pnpm",
 		packageVersion(
 			[
-				join(userNpmBin, "node_modules", "pnpm", "package.json"),
 				join(nodeBin, "node_modules", "pnpm", "package.json"),
+				join(userNpmBin, "node_modules", "pnpm", "package.json"),
 			],
 		),
 		expected.pnpm,
@@ -54,7 +54,7 @@ const checks = [
 	["cargo", run(["cargo", join(cargoBin, "cargo.exe")], ["--version"]).split(" ")[1], expected.cargo],
 	[
 		"python",
-		run(process.platform === "win32" ? ["py", "python", "C:\\Python314\\python.exe"] : ["python3.14"], ["--version"]).split(" ")[1],
+		run(process.platform === "win32" ? ["python", "py", "C:\\Python314\\python.exe"] : ["python3.14"], ["--version"]).split(" ")[1],
 		expected.python,
 	],
 	["uv", run(["uv"], ["--version"]).split(" ")[1], expected.uv],

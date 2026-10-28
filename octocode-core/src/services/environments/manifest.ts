@@ -23,7 +23,7 @@ export type EnvironmentSource =
 	/** Resolve the download URL at install time from a vendor API/index. */
 	| { kind: "resolver"; resolver: string }
 	/** A pinned archive. `sha256` is required — never install an unverified archive. */
-	| { kind: "archive"; url: string; sha256: string; archive: "zip" | "tar.gz" | "tar.xz" }
+	| { kind: "archive"; url: string; sha256: string; archive: "zip" | "tar.gz" | "tar.xz"; version?: string }
 	/** Provisioned by an OS-level command rather than an archive (e.g. WSL distributions). */
 	| { kind: "system"; command: string }
 
@@ -218,11 +218,20 @@ export const environmentManifest: readonly EnvironmentDescriptor[] = [
 		label: "Protocol Buffers",
 		tier: "toolchain",
 		approxSizeMb: 13,
-		shipped: false,
+		shipped: process.platform === "win32",
 		detect: { win32: "bin/protoc.exe", posix: "bin/protoc" },
 		pathEntries: { win32: ["bin"], posix: ["bin"] },
 		triggers: ["protoc"],
-		source: { kind: "resolver", resolver: "protobuf" },
+		source:
+			process.platform === "win32"
+				? {
+						kind: "archive",
+						version: "36.2",
+						url: "https://github.com/protocolbuffers/protobuf/releases/download/v36.2/protoc-36.2-win64.zip",
+						sha256: "f0c128dc0d8492eceece83bb459a4c0e316764b929ffbf1aa416357fd644edd3",
+						archive: "zip",
+					}
+				: { kind: "resolver", resolver: "protobuf" },
 		purpose: "Compiling .proto definitions.",
 	},
 	{

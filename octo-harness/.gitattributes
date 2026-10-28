@@ -1,0 +1,4 @@
+# Lock-bound license evidence must survive Windows checkouts byte-for-byte.
+.gitattributes text eol=lf
+Cargo.lock text eol=lf
+THIRD-PARTY-NOTICES text eol=lf

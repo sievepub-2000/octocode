@@ -1,9 +1,9 @@
 # OctoCode 系统工具目录
 
-更新时间：2026-09-23（Asia/Shanghai）
+更新时间：2026-10-25（Asia/Shanghai）
 
 本文件位于安装目录的 `environments/TOOLS.md`，统一说明 `tools` 下的系统工具。
-默认安装位置为 `D:\Program Files\OctoCode`；自定义安装位置时所有路径跟随安装目录。
+默认安装位置为 `E:\Program Files\octocode`；自定义安装位置时所有路径跟随安装目录。
 
 | 类型 | 相对 environments 的目录 | Agent 使用方式 |
 | --- | --- | --- |
@@ -16,6 +16,13 @@ OctoCode 安装的 Skills、MCP、Hooks 和插件均为系统级工具，供所�
 Node、Python 等基础解释器仍由 environments 中的公共运行环境提供。
 VS Code 编辑器插件使用产品级 `data/extensions`，其工作区状态使用独立的项目数据，不与 Agent Hooks 混用。
 
+Google Harness² 通过 `bin/octocode-harness2.cmd` 或
+`environments/scripts/octocode_harness2.py` 调用现有本地任务 API，使用当前选择的模型。
+它提供任务级提案、验证与组合，采用只读工具；不会替换 Rust 执行引擎或开启写入权限。
+运行证据与显式采纳的提示保存在各项目 `.octocode/harness2`，不跨项目共享。
+详细用法及 Windows 接入范围见仓库 `docs/HARNESS2.md`。
+
 安装、启用、禁用、卸载通过 OctoCode 组件市场完成；卸载 MCP 先停止连接再移除注册和其专有文件，不删除公共解释器。
 升级保留已安装的用户工具及配置。系统卸载解除安装目录链接；项目 runtime 中保留的数据需按明确的清理选项另行删除。
+预置 MCP 的程序和依赖包通过版本、身份和文件校验后暂存替换；失败时回滚程序。MCP 配置、用户 Skills、Hooks 和知识数据继续保留。未知文件或改动过的受管理程序发生冲突时，升级会保留原文件并报错。
 不要向本说明文件写入密钥。需要认证的 MCP 应使用产品的凭据管理。

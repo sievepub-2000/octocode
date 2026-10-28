@@ -1,6 +1,15 @@
 demo.gif -text
+.gitattributes text eol=lf
+src/activate/*.ts text eol=lf
+src/activate/__tests__/*.ts text eol=lf
 assets/docs/demo.gif -text
 src/assets/docs/demo.gif -text
+
+# Preserve the exact upstream license bodies copied by the verified notice stage.
+src/resources/notices/*.txt -whitespace
+
+# Unified diff context requires single-space lines and stable patch hashes.
+patches/*.patch text eol=lf -whitespace
 
 # Test snapshot files - mark as linguist-generated to exclude from GitHub language statistics
 *.snap linguist-generated=true
@@ -23,3 +32,12 @@ src/i18n/locales/en/** linguist-generated=false
 webview-ui/src/i18n/locales/en/** linguist-generated=false
 
 # This approach uses gitattributes' last-match-wins rule to exclude English while including all other locales
+
+# Lock-bound license evidence must survive Windows checkouts byte-for-byte.
+.gitattributes text eol=lf
+Cargo.lock text eol=lf
+src/resources/notices/octocode-host.txt text eol=lf
+src/resources/notices/octocode-host.txt.json text eol=lf
+src/resources/notices/octocode-harness.txt text eol=lf
+patches/vitest@4.1.12.patch text eol=lf
+scripts/test-vitest-console-patch.mjs text eol=lf

@@ -10,10 +10,11 @@ import { mkdir, readFile, unlink } from 'fs/promises';
 import { release, tmpdir } from 'os';
 import { Delayer, ProcessTimeRunOnceScheduler, timeout } from '../../../base/common/async.js';
 import { VSBuffer } from '../../../base/common/buffer.js';
-import { CancellationTokenSource } from '../../../base/common/cancellation.js';
+import { CancellationToken, CancellationTokenSource } from '../../../base/common/cancellation.js';
 import { memoize } from '../../../base/common/decorators.js';
 import { isCancellationError } from '../../../base/common/errors.js';
 import { hash } from '../../../base/common/hash.js';
+import { gt } from '../../../base/common/semver/semver.js';
 import * as path from '../../../base/common/path.js';
 import { basename } from '../../../base/common/path.js';
 import { transform } from '../../../base/common/stream.js';
@@ -36,6 +37,8 @@ import { AvailableForDownload, DisablementReason, IUpdate, State, StateType, Upd
 import { AbstractUpdateService, createUpdateURL, getUpdateRequestHeaders, IUpdateURLOptions, UpdateErrorClassification } from './abstractUpdateService.js';
 import { getWin32UpdateType } from './win32UpdateType.js';
 import { validateWindowsUpdate, verifyWindowsUpdatePackage } from './win32UpdatePackage.js';
+import { getGitHubReleaseFeed, GitHubUpdateError } from '../common/githubUpdate.js';
+import { gitHubTokenHeaders, requestGitHubAsset, requestGitHubUpdate, verifyGitHubUpdateProof } from './githubUpdate.js';
 
 interface IAvailableUpdate {
 	packagePath: string;
@@ -63,6 +66,7 @@ export class Win32UpdateService extends AbstractUpdateService implements IRelaun
 	private checkCancellationTokenSource: CancellationTokenSource | undefined;
 	/** Settles when the in-flight check/download chain has fully unwound; used by the cancel path. */
 	private checkPromise: Promise<unknown> | undefined;
+	private gitHubToken: string | undefined;
 
 	private readonly readyMutexName: string;
 	private readonly updatingMutexName: string;
@@ -207,7 +211,7 @@ export class Win32UpdateService extends AbstractUpdateService implements IRelaun
 		});
 	}
 
-	protected buildUpdateFeedUrl(quality: string, commit: string, options?: IUpdateURLOptions): string | undefined {
+	private getUpdatePlatform(): string {
 		let platform = `win32-${process.arch}`;
 
 		if (getUpdateType() === UpdateType.Archive) {
@@ -216,11 +220,48 @@ export class Win32UpdateService extends AbstractUpdateService implements IRelaun
 			platform += '-user';
 		}
 
-		return createUpdateURL(this.productService.updateUrl!, platform, quality, commit, options);
+		return platform;
+	}
+
+	protected buildUpdateFeedUrl(quality: string, commit: string, options?: IUpdateURLOptions): string | undefined {
+		return getGitHubReleaseFeed(this.productService.updateUrl)?.url ?? createUpdateURL(this.productService.updateUrl!, this.getUpdatePlatform(), quality, commit, options);
+	}
+
+	async setGitHubToken(token: string | undefined): Promise<void> {
+		if (token !== undefined) {
+			gitHubTokenHeaders(token);
+		}
+		if (token !== this.gitHubToken) {
+			this.gitHubToken = token;
+			this.checkCancellationTokenSource?.cancel();
+			if (this.state.type === StateType.CheckingForUpdates || this.state.type === StateType.Downloading) {
+				this.setState(State.Idle(getUpdateType()));
+			}
+		}
+	}
+
+	override async isLatestVersion(commit?: string, token: CancellationToken = CancellationToken.None): Promise<boolean | undefined> {
+		const feed = getGitHubReleaseFeed(this.productService.updateUrl);
+		if (!feed) {
+			return super.isLatestVersion(commit, token);
+		}
+		if (!this.quality || this.configurationService.getValue<string>('update.mode') === 'none') {
+			return undefined;
+		}
+		try {
+			const update = await requestGitHubUpdate(this.requestService, feed, this.gitHubToken, this.productService.version, this.getUpdatePlatform(), token);
+			return !update || update.version === commit;
+		} catch {
+			return undefined;
+		}
 	}
 
 	protected doCheckForUpdates(explicit: boolean, pendingCommit?: string): void {
 		if (!this.quality) {
+			return;
+		}
+		if (!explicit && !this.gitHubToken && getGitHubReleaseFeed(this.productService.updateUrl)) {
+			this.logService.info('update#checkForUpdates: waiting for GitHub update sign-in');
 			return;
 		}
 
@@ -239,8 +280,11 @@ export class Win32UpdateService extends AbstractUpdateService implements IRelaun
 		const token = cts.token;
 
 		const headers = getUpdateRequestHeaders(this.productService.version);
-		const promise = this.requestService.request({ url, headers, callSite: 'updateService.win32.checkForUpdates' }, token)
-			.then<IUpdate | null>(asJson)
+		const gitHubFeed = getGitHubReleaseFeed(this.productService.updateUrl);
+		const metadata = gitHubFeed
+			? requestGitHubUpdate(this.requestService, gitHubFeed, this.gitHubToken, this.productService.version, this.getUpdatePlatform(), token)
+			: this.requestService.request({ url, headers, callSite: 'updateService.win32.checkForUpdates' }, token).then<IUpdate | null>(asJson);
+		const promise = metadata
 			.then(update => {
 				const updateType = getUpdateType();
 
@@ -248,7 +292,7 @@ export class Win32UpdateService extends AbstractUpdateService implements IRelaun
 					return Promise.resolve(null);
 				}
 
-				if (!update || !update.url || !update.version || !update.productVersion) {
+				if (!update || !update.url || !update.version || !update.productVersion || update.version === pendingCommit) {
 					// If we were checking for an overwrite update and found nothing newer,
 					// restore the Ready state with the pending update
 					if (this.state.type === StateType.Overwriting) {
@@ -275,6 +319,7 @@ export class Win32UpdateService extends AbstractUpdateService implements IRelaun
 
 				const startTime = Date.now();
 				validateWindowsUpdate(update);
+				const downloadUrl = update.url;
 				this.setState(State.Downloading(update, explicit, this._overwrite, 0, undefined, startTime));
 
 				return this.cleanup(update.version).then(() => {
@@ -282,7 +327,7 @@ export class Win32UpdateService extends AbstractUpdateService implements IRelaun
 						return pfs.Promises.exists(updatePackagePath).then(async exists => {
 							if (exists) {
 								try {
-									await verifyWindowsUpdatePackage(updatePackagePath, update);
+									await this.verifyUpdatePackage(updatePackagePath, update);
 									return updatePackagePath;
 								} catch {
 									await unlink(updatePackagePath);
@@ -291,7 +336,10 @@ export class Win32UpdateService extends AbstractUpdateService implements IRelaun
 
 							const downloadPath = `${updatePackagePath}.tmp`;
 
-							return this.requestService.request({ url: update.url, callSite: 'updateService.win32.downloadUpdate' }, token)
+							const download = gitHubFeed
+								? requestGitHubAsset(this.requestService, gitHubFeed, downloadUrl, this.gitHubToken, token)
+								: this.requestService.request({ url: downloadUrl, callSite: 'updateService.win32.downloadUpdate' }, token);
+							return download
 								.then(context => {
 									// Get total size from Content-Length header
 									const contentLengthHeader = context.res.headers['content-length'];
@@ -318,7 +366,7 @@ export class Win32UpdateService extends AbstractUpdateService implements IRelaun
 									return this.fileService.writeFile(URI.file(downloadPath), progressStream)
 										.finally(() => progressDelayer.dispose());
 								})
-								.then(() => verifyWindowsUpdatePackage(downloadPath, update))
+								.then(() => this.verifyUpdatePackage(downloadPath, update))
 								.then(() => pfs.Promises.rename(downloadPath, updatePackagePath, false /* no retry */))
 								.then(() => updatePackagePath);
 						});
@@ -344,6 +392,11 @@ export class Win32UpdateService extends AbstractUpdateService implements IRelaun
 				// The chain was cancelled because updates are being disabled; leave state to the disable flow.
 				if (token.isCancellationRequested || isCancellationError(err)) {
 					return;
+				}
+				if (gitHubFeed && !(err instanceof GitHubUpdateError)) {
+					// Transport/stream errors can contain signed CDN URLs. Keep those
+					// out of both telemetry and the ordinary update error log.
+					err = new GitHubUpdateError('GitHub update failed. Check repository access, network connectivity and installer integrity, then try again.');
 				}
 
 				this.telemetryService.publicLog2<{ messageHash: string }, UpdateErrorClassification>('update:error', { messageHash: String(hash(String(err))) });
@@ -376,6 +429,10 @@ export class Win32UpdateService extends AbstractUpdateService implements IRelaun
 	}
 
 	protected override async doDownloadUpdate(state: AvailableForDownload): Promise<void> {
+		if (getGitHubReleaseFeed(this.productService.updateUrl)) {
+			this.doCheckForUpdates(true);
+			return;
+		}
 		if (state.update.url) {
 			this.nativeHostMainService.openExternal(undefined, state.update.url);
 		}
@@ -385,6 +442,42 @@ export class Win32UpdateService extends AbstractUpdateService implements IRelaun
 	private async getUpdatePackagePath(version: string): Promise<string> {
 		const cachePath = await this.cachePath;
 		return path.join(cachePath, `CodeSetup-${this.productService.quality}-${version}.exe`);
+	}
+
+	private async verifyUpdatePackage(packagePath: string, update: IUpdate): Promise<void> {
+		const feed = getGitHubReleaseFeed(this.productService.updateUrl);
+		if (feed) {
+			verifyGitHubUpdateProof(update, feed, this.getUpdatePlatform());
+			if (gt(this.productService.version, update.productVersion!)) {
+				throw new GitHubUpdateError('A cached installer must not downgrade the current product');
+			}
+		}
+		await verifyWindowsUpdatePackage(packagePath, update);
+	}
+
+	private async validateAvailableUpdate(update: IUpdate, explicit = true): Promise<boolean> {
+		if (!getGitHubReleaseFeed(this.productService.updateUrl)) {
+			return true;
+		}
+		try {
+			if (!this.availableUpdate) {
+				return false;
+			}
+			await this.verifyUpdatePackage(this.availableUpdate.packagePath, update);
+			return true;
+		} catch {
+			this.availableUpdate = undefined;
+			this.logService.error('update#verifyUpdatePackage: signature or integrity verification failed');
+			this.setState(State.Idle(getUpdateType(), explicit ? 'The update installer failed signature or integrity verification. Try again or use Backup Update.' : undefined));
+			return false;
+		}
+	}
+
+	override async quitAndInstall(): Promise<void> {
+		if (this.state.type === StateType.Ready && !await this.validateAvailableUpdate(this.state.update)) {
+			return;
+		}
+		return super.quitAndInstall();
 	}
 
 	private async cleanup(exceptVersion: string | null = null): Promise<void> {
@@ -408,6 +501,9 @@ export class Win32UpdateService extends AbstractUpdateService implements IRelaun
 
 		const update = this.state.update;
 		const explicit = this.state.explicit;
+		if (!await this.validateAvailableUpdate(update, explicit)) {
+			return;
+		}
 		this.setState(State.Updating(update, explicit));
 
 		const cachePath = await this.cachePath;
@@ -669,6 +765,14 @@ export class Win32UpdateService extends AbstractUpdateService implements IRelaun
 
 		const fastUpdatesEnabled = this.configurationService.getValue('update.enableWindowsBackgroundUpdates');
 		const update: IUpdate = await this.loadUpdateMetadata() ?? { version: commit ?? 'unknown', productVersion: 'unknown' };
+		if (getGitHubReleaseFeed(this.productService.updateUrl)) {
+			try {
+				await this.verifyUpdatePackage(packagePath, update);
+			} catch {
+				this.setState(State.Idle(getUpdateType(), 'The cached installer failed signature or integrity verification. Try again or use Backup Update.'));
+				return;
+			}
+		}
 
 		this.setState(State.Downloading(update, true, false));
 		this.availableUpdate = { packagePath };

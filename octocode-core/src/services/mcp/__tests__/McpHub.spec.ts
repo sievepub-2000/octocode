@@ -212,6 +212,37 @@ describe("McpHub", () => {
 	})
 
 	describe("Discriminated union type handling", () => {
+		it("removes a project server without touching a same-name shared package", async () => {
+			const previous = process.env.OCTOCODE_ENVIRONMENTS
+			process.env.OCTOCODE_ENVIRONMENTS = "D:/isolated-mcp-delete-fixture"
+			try {
+				mcpHub.connections = [
+					{
+						type: "disconnected",
+						client: null,
+						transport: null,
+						server: { name: "test-server", config: "{}", source: "project", status: "disconnected" },
+					},
+				]
+				vi.spyOn(
+					mcpHub as unknown as { getProjectMcpPath(): Promise<string | null> },
+					"getProjectMcpPath",
+				).mockResolvedValue("/owned/project-mcp.json")
+				vi.spyOn(mcpHub, "updateServerConnections").mockResolvedValue(undefined)
+				vi.mocked(fs.readFile).mockClear()
+				await mcpHub.deleteServer("test-server", "project")
+				expect(fs.readFile).toHaveBeenCalledTimes(1)
+				expect(fs.readFile).toHaveBeenCalledWith("/owned/project-mcp.json", "utf-8")
+				expect(safeWriteJson).toHaveBeenCalledWith(
+					"/owned/project-mcp.json",
+					{ mcpServers: {} },
+					{ prettyPrint: true },
+				)
+			} finally {
+				if (previous === undefined) delete process.env.OCTOCODE_ENVIRONMENTS
+				else process.env.OCTOCODE_ENVIRONMENTS = previous
+			}
+		})
 		it("keeps a server visible during provisioning and after an installation failure", async () => {
 			let fail: (error: Error) => void = () => {}
 			const installation = new Promise<never>((_, reject) => {

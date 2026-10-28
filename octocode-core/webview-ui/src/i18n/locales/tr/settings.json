@@ -28,6 +28,7 @@
 		"discardButton": "Değişiklikleri At"
 	},
 	"sections": {
+		"memoryKnowledge": "Bellek ve bilgi",
 		"providers": "Sağlayıcılar",
 		"modes": "Modlar",
 		"mcp": "MCP Sunucuları",
@@ -170,6 +171,12 @@
 		"description": "Prompt geliştirme, kod açıklama ve sorun çözme gibi hızlı eylemler için kullanılan destek promptlarını yapılandırın. Bu promptlar, OctoCode'nun yaygın geliştirme görevleri için daha iyi destek sağlamasına yardımcı olur."
 	},
 	"codeIndex": {
+		"indexReadyLabel": "Dizin hazır",
+		"nativeProvider": "Yerel kod dizini (semboller ve sözcüksel arama, çevrimdışı)",
+		"memoryKnowledgeDescription": "Harness belleği kendi konuşmasına bağlı kalır. Seçili projenin kod bilgisini burada yönetin ve arayın; yerel dizinleme model anahtarı veya harici veritabanı gerektirmez.",
+		"searchQuery": "Projenin kod bilgisinde ara",
+		"searchButton": "Dizinde ara",
+		"noSearchResults": "Eşleşen dizinlenmiş kod bulunamadı.",
 		"title": "Kod Tabanı İndeksleme",
 		"enableLabel": "Kod Tabanı İndekslemeyi Etkinleştir",
 		"enableDescription": "Geliştirilmiş arama ve bağlam anlayışı için kod indekslemeyi etkinleştirin",

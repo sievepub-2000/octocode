@@ -59,17 +59,17 @@ const solarizedLightAnsi: AnsiColors = {
 	brightWhite: "#fdf6e3",
 }
 
-/** Terminal ANSI for the midnight purple theme. */
+/** Terminal ANSI retains semantic colours on the charcoal ground. */
 const midnightPurpleAnsi: AnsiColors = {
-	black: "#1c1a2b",
+	black: "#0e0e10",
 	red: "#f0757f",
 	green: "#5cc79a",
 	yellow: "#e0b354",
 	blue: "#7aa7f0",
 	magenta: "#c39cf0",
 	cyan: "#7fd4c1",
-	white: "#d6d3e3",
-	brightBlack: "#6e6885",
+	white: "#e5e5e5",
+	brightBlack: "#737373",
 	brightRed: "#ff9aa2",
 	brightGreen: "#82ddb4",
 	brightYellow: "#f0cb7d",
@@ -105,8 +105,9 @@ function mix(base: string, overlay: string, alpha: number): string {
  * Returned as a plain map so it can be asserted in tests and applied either to
  * `document.documentElement` or serialised into a stylesheet.
  */
-export function buildThemeVariables(themeId: ThemeId): Record<string, string> {
-	const { palette: p, kind } = themes[themeId]
+export function buildThemeVariables(themeId: ThemeId, p: Palette = themes[themeId].palette): Record<string, string> {
+	const { kind } = themes[themeId]
+	const textAccent = kind === "dark" ? mix(p.accent, p.fgStrong, 0.45) : p.accent
 	const ansi = ansiByTheme[themeId]
 
 	// Hover/selection tints are derived rather than hand-picked so they stay
@@ -204,8 +205,8 @@ export function buildThemeVariables(themeId: ThemeId): Record<string, string> {
 		"--vscode-progressBar-background": p.accent,
 
 		// --- text / links / code ---
-		"--vscode-textLink-foreground": p.accent,
-		"--vscode-textLink-activeForeground": mix(p.accent, p.fgStrong, 0.25),
+		"--vscode-textLink-foreground": textAccent,
+		"--vscode-textLink-activeForeground": mix(textAccent, p.fgStrong, 0.25),
 		"--vscode-textCodeBlock-background": p.bgSunken,
 		"--vscode-textPreformat-background": p.bgSunken,
 		"--vscode-textPreformat-foreground": p.syntax.string,

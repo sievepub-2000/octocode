@@ -3,10 +3,11 @@ import * as path from "node:path"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 import { createHash } from "node:crypto"
-import { z } from "zod"
+import { z } from "zod/v4"
 import { parse as parseYaml } from "yaml"
-import type { ExtensionEntry, MarketplaceItem } from "@roo-code/types"
+import type { ExtensionEntry, ExtensionResult, MarketplaceItem } from "@roo-code/types"
 import { getSystemToolDirectory } from "../environments/tools"
+import skillsSnapshot from "../../resources/skills-market/catalog.json"
 
 const run = promisify(execFile)
 const registry = "https://registry.modelcontextprotocol.io/v0.1/servers"
@@ -35,21 +36,77 @@ const serverSchema = z.object({
 	description: z.string(),
 	version: z.string(),
 	packages: z.array(packageSchema).optional(),
+	remotes: z
+		.array(
+			z.object({
+				type: z.string(),
+				url: z.string().url(),
+				headers: z.array(argument.extend({ isSecret: z.boolean().optional() })).optional(),
+			}),
+		)
+		.optional(),
 })
-const skillsSchema = z.object({ skills: z.array(z.object({ id: z.string(), name: z.string(), source: z.string() })) })
+const skillsSchema = z
+	.array(
+		z.object({
+			id: z.string().max(64),
+			path: z.string().max(300),
+			name: z.string().max(64),
+			description: z.string().min(1).max(1024),
+			category: z.string().max(100),
+		}),
+	)
+	.min(1)
+	.max(10000)
+	.transform((items) =>
+		items.filter(
+			(item) =>
+				item.name === item.id &&
+				/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(item.id) &&
+				item.path.startsWith("skills/") &&
+				item.path.split("/").at(-1) === item.id &&
+				item.path.split("/").every((part) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(part)),
+		),
+	)
+	.refine((items) => items.length > 0 && new Set(items.map((item) => item.id)).size === items.length)
+let skillsCatalog: Promise<{ items: z.infer<typeof skillsSchema>; source: string }> | undefined
 
-async function download(url: string): Promise<Buffer> {
+async function loadSkillsCatalog() {
+	const fallback = {
+		items: skillsSchema.parse(skillsSnapshot.entries),
+		source: `GitHub · 随包快照 ${skillsSnapshot.retrievedAt}`,
+	}
+	const live = (skillsCatalog ??= read(
+		`https://raw.githubusercontent.com/${skillsSnapshot.repository}/main/skills_index.json`,
+		90_000,
+	)
+		.then((raw) => ({ items: skillsSchema.parse(JSON.parse(raw)), source: "GitHub · Agentic Awesome Skills" }))
+		.catch(() => fallback))
+	let timer: ReturnType<typeof setTimeout> | undefined
+	try {
+		return await Promise.race([
+			live,
+			new Promise<typeof fallback>((resolve) => {
+				timer = setTimeout(() => resolve(fallback), 500)
+			}),
+		])
+	} finally {
+		clearTimeout(timer)
+	}
+}
+
+async function download(url: string, timeout = 20_000): Promise<Buffer> {
 	const allowed = new Set([
-		"skills.sh",
 		"registry.modelcontextprotocol.io",
 		"api.github.com",
 		"raw.githubusercontent.com",
+		"registry.npmjs.org",
 	])
 	const parsed = new URL(url)
 	if (parsed.protocol !== "https:" || !allowed.has(parsed.hostname)) throw new Error("Untrusted marketplace URL")
 	const response = await fetch(url, {
 		redirect: "error",
-		signal: AbortSignal.timeout(20_000),
+		signal: AbortSignal.timeout(timeout),
 		headers: { "User-Agent": "OctoCode", Accept: "application/json" },
 	})
 	if (!response.ok) throw new Error(`Marketplace request failed: HTTP ${response.status} (${parsed.hostname})`)
@@ -71,8 +128,8 @@ async function download(url: string): Promise<Buffer> {
 	return Buffer.concat(chunks)
 }
 
-async function read(url: string): Promise<string> {
-	return (await download(url)).toString("utf8")
+async function read(url: string, timeout?: number): Promise<string> {
+	return (await download(url, timeout)).toString("utf8")
 }
 
 function entry(
@@ -105,37 +162,110 @@ function npmPackage(server: z.infer<typeof serverSchema>) {
 	)
 }
 
+function remoteEndpoint(server: z.infer<typeof serverSchema>) {
+	return server.remotes?.find(
+		(remote) => ["streamable-http", "sse"].includes(remote.type) && new URL(remote.url).protocol === "https:",
+	)
+}
+
 export async function searchCommunity(kind: "skill" | "mcp", query: string): Promise<ExtensionEntry[]> {
+	return (await searchCommunityPage(kind, query)).entries
+}
+
+export async function searchCommunityPage(
+	kind: "skill" | "mcp",
+	query: string,
+	cursor?: string,
+): Promise<ExtensionResult> {
 	if (kind === "skill") {
-		if (!query.trim()) return []
-		const result = skillsSchema.parse(
-			JSON.parse(await read(`https://skills.sh/api/search?q=${encodeURIComponent(query)}&limit=30`)),
+		const offset = cursor ? Number(cursor) : 0
+		if (!Number.isSafeInteger(offset) || offset < 0 || offset > 10000) throw new Error("Invalid skill market page")
+		const catalog = await loadSkillsCatalog()
+		const search = query.trim().toLowerCase()
+		const items = catalog.items.filter((skill) =>
+			`${skill.name} ${skill.description} ${skill.category}`.toLowerCase().includes(search),
 		)
-		return result.skills.map((skill) =>
-			entry(
-				kind,
-				`${skill.source}/${skill.id.split("/").at(-1)}`,
-				skill.name,
-				skill.source,
-				"skills.sh · GitHub",
-			),
-		)
+		return {
+			entries: items
+				.slice(offset, offset + 20)
+				.map((skill) =>
+					entry(
+						kind,
+						`${skillsSnapshot.repository}/${skill.id}`,
+						skill.name,
+						skill.description,
+						`${catalog.source} · ${skill.category}`,
+					),
+				),
+			...(offset + 20 < items.length ? { nextCursor: String(offset + 20) } : {}),
+		}
 	}
 	const result = z
-		.object({ servers: z.array(z.object({ server: serverSchema })) })
-		.parse(JSON.parse(await read(`${registry}?search=${encodeURIComponent(query)}&limit=30&version=latest`)))
-	return result.servers.map(({ server }) =>
-		entry(
-			kind,
-			server.name,
-			server.name,
-			server.description,
-			npmPackage(server)
-				? `${server.version} · npm`
-				: "当前原生部署不支持此分发方式（远程服务、Docker 或其他包格式）",
-			!!npmPackage(server),
+		.object({
+			servers: z.array(z.object({ server: serverSchema })),
+			metadata: z.object({ nextCursor: z.string().optional() }).optional(),
+		})
+		.parse(
+			JSON.parse(
+				await read(
+					`${registry}?search=${encodeURIComponent(query)}&limit=30&version=latest${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+				),
+			),
+		)
+	return {
+		entries: result.servers.map(({ server }) =>
+			entry(
+				kind,
+				server.name,
+				server.name,
+				server.description,
+				npmPackage(server)
+					? `${server.version} · npm`
+					: remoteEndpoint(server)
+						? `${server.version} · ${remoteEndpoint(server)!.type}`
+						: "此组件仅提供 Docker 或尚不支持的包格式",
+				!!npmPackage(server) || !!remoteEndpoint(server),
+			),
 		),
-	)
+		nextCursor: result.metadata?.nextCursor,
+	}
+}
+
+export async function searchMcpPackages(query: string, cursor?: string): Promise<ExtensionResult> {
+	const offset = cursor ? Number(cursor) : 0
+	if (!Number.isSafeInteger(offset) || offset < 0 || offset > 100000) throw new Error("Invalid MCP market page")
+	const result = z
+		.object({
+			total: z.number(),
+			objects: z.array(
+				z.object({
+					package: z.object({ name: z.string(), description: z.string().optional(), version: z.string() }),
+					score: z.object({ final: z.number() }),
+				}),
+			),
+		})
+		.parse(
+			JSON.parse(
+				await read(
+					`https://registry.npmjs.org/-/v1/search?text=${encodeURIComponent(query.trim() || "keywords:mcp-server")}&size=20&from=${offset}&quality=0&popularity=1&maintenance=0`,
+				),
+			),
+		)
+	return {
+		entries: result.objects
+			.filter((item) => npmName.test(item.package.name))
+			.map((item) => ({
+				...entry(
+					"mcp",
+					`npm:${item.package.name}`,
+					item.package.name,
+					item.package.description ?? "",
+					`${item.package.version} · npm`,
+				),
+				rank: item.score.final,
+			})),
+		...(offset + 20 < result.total ? { nextCursor: String(offset + 20) } : {}),
+	}
 }
 
 export async function installCommunitySkill(id: string): Promise<void> {
@@ -151,6 +281,12 @@ export async function installCommunitySkill(id: string): Promise<void> {
 		const revision = z
 			.object({ sha: z.string().regex(/^[a-f0-9]{40}$/) })
 			.parse(JSON.parse(await read(`https://api.github.com/repos/${owner}/${repository}/commits/HEAD`))).sha
+		const isAas = `${owner}/${repository}` === skillsSnapshot.repository
+		const catalogPath = isAas
+			? (await loadSkillsCatalog()).items.find((skill) => skill.id === name)?.path
+			: undefined
+		if (isAas && !catalogPath) throw new Error("Skill is missing from the validated GitHub catalog")
+		const treeRef = catalogPath ? encodeURIComponent(`${revision}:${catalogPath}`) : revision
 		const tree = z
 			.object({
 				truncated: z.boolean(),
@@ -160,12 +296,14 @@ export async function installCommunitySkill(id: string): Promise<void> {
 			})
 			.parse(
 				JSON.parse(
-					await read(`https://api.github.com/repos/${owner}/${repository}/git/trees/${revision}?recursive=1`),
+					await read(`https://api.github.com/repos/${owner}/${repository}/git/trees/${treeRef}?recursive=1`),
 				),
 			)
 		if (tree.truncated) throw new Error("Repository tree is incomplete; cannot safely identify this skill")
-		let candidates = tree.tree.filter(
-			(item) => item.path === `${name}/SKILL.md` || item.path.endsWith(`/${name}/SKILL.md`),
+		let candidates = tree.tree.filter((item) =>
+			catalogPath
+				? item.path === "SKILL.md"
+				: item.path === `${name}/SKILL.md` || item.path.endsWith(`/${name}/SKILL.md`),
 		)
 		if (!candidates.length) candidates = tree.tree.filter((item) => item.path === "SKILL.md")
 		if (candidates.length !== 1) throw new Error("The skill directory is missing or ambiguous in the repository")
@@ -196,14 +334,22 @@ export async function installCommunitySkill(id: string): Promise<void> {
 			await fs.writeFile(
 				destination,
 				await download(
-					`https://raw.githubusercontent.com/${owner}/${repository}/${revision}/${file.path.split("/").map(encodeURIComponent).join("/")}`,
+					`https://raw.githubusercontent.com/${owner}/${repository}/${revision}/${catalogPath ? catalogPath + "/" : ""}${file.path.split("/").map(encodeURIComponent).join("/")}`,
 				),
 			)
 			if (file.mode === "100755" && process.platform !== "win32") await fs.chmod(destination, 0o755)
 		}
+		if (catalogPath) {
+			for (const license of ["LICENSE", "LICENSE-CONTENT"]) {
+				await fs.writeFile(
+					path.join(stage, `.octocode-${license}`),
+					await read(`https://raw.githubusercontent.com/${owner}/${repository}/${revision}/${license}`),
+				)
+			}
+		}
 		await fs.writeFile(
 			path.join(stage, ".octocode-source.json"),
-			JSON.stringify({ repository: `${owner}/${repository}`, revision, id }),
+			JSON.stringify({ repository: `${owner}/${repository}`, revision, id, path: catalogPath }),
 		)
 		const document = await fs.readFile(path.join(stage, "SKILL.md"), "utf8")
 		const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(document)
@@ -225,12 +371,58 @@ export async function installCommunitySkill(id: string): Promise<void> {
 	}
 }
 
-export async function prepareCommunityMcp(id: string): Promise<{ item: MarketplaceItem; directory: string }> {
-	if (!/^[a-zA-Z0-9._/-]{1,250}$/.test(id) || id.includes("..")) throw new Error("Invalid MCP registry id")
-	const result = z
-		.object({ server: serverSchema })
-		.parse(JSON.parse(await read(`${registry}/${encodeURIComponent(id)}/versions/latest`)))
+export async function prepareCommunityMcp(id: string): Promise<{ item: MarketplaceItem; directory?: string }> {
+	const npmId = id.startsWith("npm:") ? id.slice(4) : undefined
+	if (npmId ? !npmName.test(npmId) : !/^[a-zA-Z0-9._/-]{1,250}$/.test(id) || id.includes(".."))
+		throw new Error("Invalid MCP registry id")
+	const metadata = npmId
+		? z
+				.object({ name: z.string(), version: z.string(), description: z.string().optional() })
+				.parse(JSON.parse(await read(`https://registry.npmjs.org/${encodeURIComponent(npmId)}/latest`)))
+		: undefined
+	if (metadata && metadata.name !== npmId) throw new Error("MCP package identity does not match its registry entry")
+	const result = metadata
+		? {
+				server: serverSchema.parse({
+					name: id,
+					description: metadata.description ?? "",
+					version: metadata.version,
+					packages: [
+						{
+							registryType: "npm",
+							identifier: metadata.name,
+							version: metadata.version,
+							transport: { type: "stdio" },
+						},
+					],
+				}),
+			}
+		: z
+				.object({ server: serverSchema })
+				.parse(JSON.parse(await read(`${registry}/${encodeURIComponent(id)}/versions/latest`)))
 	const pkg = npmPackage(result.server)
+	const remote = remoteEndpoint(result.server)
+	if (!pkg && remote) {
+		const headers: Record<string, string> = {}
+		let disabled = false
+		for (const header of remote.headers ?? []) {
+			if (!header.name || !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(header.name))
+				throw new Error("Invalid MCP header name")
+			const value = header.value ?? header.default
+			if (value && !header.isSecret && !/[{}\r\n]/.test(value)) headers[header.name] = value
+			else if (header.isRequired) disabled = true
+		}
+		return {
+			item: {
+				type: "mcp",
+				id,
+				name: result.server.title ?? id,
+				description: result.server.description,
+				url: "https://registry.modelcontextprotocol.io",
+				content: JSON.stringify({ type: remote.type, url: remote.url, headers, disabled }),
+			},
+		}
+	}
 	if (!pkg || !npmName.test(pkg.identifier) || !pkg.version || !/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(pkg.version))
 		throw new Error("This server has no supported, pinned native npm package")
 	const root = getSystemToolDirectory("mcp")

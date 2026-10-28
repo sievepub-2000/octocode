@@ -345,6 +345,10 @@
 	"dismiss": "Kapat",
 	"dismissAndDontShowAgain": "Kapat ve bir daha gösterme",
 	"extensions": {
+		"pagination": "Bileşen sayfaları",
+		"pageNumber": "Sayfa {{number}}",
+		"previousPage": "Önceki",
+		"nextPage": "Sonraki",
 		"market": "Pazar",
 		"systemToolsHint": "Sistem araçları · tüm çalışma alanlarında kullanılabilir",
 		"environments": "Çalışma ortamları",

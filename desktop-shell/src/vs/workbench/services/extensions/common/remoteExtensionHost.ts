@@ -14,7 +14,7 @@ import { PersistentProtocol } from '../../../../base/parts/ipc/common/ipc.net.js
 import { IExtensionHostDebugService } from '../../../../platform/debug/common/extensionHostDebug.js';
 import { ILabelService } from '../../../../platform/label/common/label.js';
 import { ILogService, ILoggerService } from '../../../../platform/log/common/log.js';
-import { IProductService } from '../../../../platform/product/common/productService.js';
+import { IProductService, getVscodeApiVersion } from '../../../../platform/product/common/productService.js';
 import { IWorkbenchAssignmentService } from '../../assignment/common/assignmentService.js';
 import { IConnectionOptions, IRemoteExtensionHostStartParams, connectRemoteAgentExtensionHost } from '../../../../platform/remote/common/remoteAgentConnection.js';
 import { IRemoteAuthorityResolverService, IRemoteConnectionData } from '../../../../platform/remote/common/remoteAuthorityResolver.js';
@@ -212,7 +212,7 @@ export class RemoteExtensionHost extends Disposable implements IExtensionHost {
 		const enabledApiProposalsFallback = await resolveEnabledApiProposalsFallbackExperiment(this._workbenchAssignmentService, this._productService.quality);
 		return {
 			commit: this._productService.commit,
-			version: this._productService.version,
+			version: getVscodeApiVersion(this._productService),
 			quality: this._productService.quality,
 			date: this._productService.date,
 			parentPid: remoteInitData.pid,

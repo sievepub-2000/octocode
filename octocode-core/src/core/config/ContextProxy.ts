@@ -1,5 +1,5 @@
 import * as vscode from "vscode"
-import { ZodError } from "zod"
+import { ZodError } from "zod/v4"
 
 import {
 	PROVIDER_SETTINGS_KEYS,
@@ -359,9 +359,7 @@ export class ContextProxy {
 	}
 
 	private getAllSecretState(): SecretState {
-		return Object.fromEntries([
-			...SECRET_STATE_KEYS.map((key) => [key, this.getSecret(key as SecretStateKey)]),
-		])
+		return Object.fromEntries([...SECRET_STATE_KEYS.map((key) => [key, this.getSecret(key as SecretStateKey)])])
 	}
 
 	/**

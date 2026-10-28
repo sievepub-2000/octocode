@@ -1,0 +1,29 @@
+{
+  "name": "kerberos",
+  "version": "7.0.0",
+  "tarball": "https://registry.npmjs.org/kerberos/-/kerberos-7.0.0.tgz",
+  "integrity": "sha512-Q8yUNeCM5fSXkURaa05WugXFsH6c57hDHDmsupMFCPaQEPym9FGwFp/2XSTcMuLldtEeBOsQ/9VGQ55lfHTT3Q==",
+  "archiveSha256": "b3065aa5da1948b40b51eee14aa2e87220c71bd393152a976397db4179edb8ec",
+  "originalFiles": {
+    "binding.gyp": "b827c6f8a277c3e88c20165e8e19b96675508de9fd569fb288adcd6cce0118a1",
+    "HISTORY.md": "16714ffd27edcb8d5688d39f64a1f01318aa64a09b99725b3cb1d2825d6ac74f",
+    "index.d.ts": "8a2f93abc5c40f14ce4daf4b5c2a40a209acc8bde7edbb3157b72d4194f6046e",
+    "lib/index.js": "1313165a2091d4c00a148c2f5cdb4213d962e7e3b8952249c2cf70b175ecd09e",
+    "lib/util.js": "03fdded90b017b6b533f0077acaebdd0499b98ffb563ac3f6bcf2d8ad50321ec",
+    "LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "package.json": "4238fdbaaab5e4ac337fcb57700249fd428e92d7d25913ef5c39190001aa3ad7",
+    "README.md": "04f1bf52d4fc818362927d9e9f9cd2573ca6504ebec00e830be0db1a9ba6ce45",
+    "src/kerberos_common.h": "c981eedd484b8b4c1892451ef4d3ea1a5e55e4744f367b0ee15990bd6f076d3d",
+    "src/kerberos_worker.h": "4aa0900d5a6681f3622f3d929cfeb0ed205c4d2049b3a5da2af957f389d24e23",
+    "src/kerberos.cc": "8bb507446da2bbe180ed026194de21fbfcecb007423dad141113d935d64ce916",
+    "src/kerberos.h": "6450417fe30a40c90ac269f8439789eb7cc6f14ff5259f21de98353792384cc1",
+    "src/unix/base64.cc": "61d3113da793bac5912e3a0bde1c584b29f8792891ea9069b7daf766c030ad14",
+    "src/unix/base64.h": "7c0227ab4bd48dbe3a7af79f12917c8de07273b16ac4fe5d1528aaa9a6498301",
+    "src/unix/kerberos_gss.cc": "bcd7c328af6a8d403418c56178453684bf9d82fdeadb840ec083d3cdeb22f423",
+    "src/unix/kerberos_gss.h": "acda27c1de662ac56de9083c312ad504920bf80727cc062f1de5c1e1a36da09f",
+    "src/unix/kerberos_unix.cc": "328c94ae08f5fba0b608a5f3164089cb69e783d80e17f88d5f083a76338ff481",
+    "src/win32/kerberos_sspi.cc": "680001888919b2c7f7c70bad282515fc253b53bfb2e47e38728190232e4b12c8",
+    "src/win32/kerberos_sspi.h": "b5f03793eb3091c158e2469d509d2b33d5ca6c63766b43d98aaa9b508aac503c",
+    "src/win32/kerberos_win32.cc": "8ef757b80760ded86c69e0a18c7730cbf9c5eafd16a60410a31e1b8420d5f8f3"
+  }
+}

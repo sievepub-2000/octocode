@@ -122,7 +122,7 @@ try {
             New-Item -ItemType Junction -Path (Join-Path $install $name) -Target $target | Out-Null
         }
         $minimal=Copy-Baseline (Current-Preservation)
-        Check ($minimal.files.Count -eq 6) 'Empty user trees still generate six optional records'
+        Check ($minimal.files.Count -eq 7) 'Empty user trees still generate seven optional records including shared storage'
         Assert-Preservation $minimal
         Check $true 'Normal minimal baseline with absent optional values accepted'
         $user=Join-Path $runtime 'data\user-data\User'
@@ -182,14 +182,15 @@ try {
         foreach($directory in @($bin,(Join-Path $fixture 'workspace'),(Join-Path $fixture 'releases'),(Join-Path $fixture 'resources\app\extensions'),(Join-Path $fixture 'environments'),$logs,(Split-Path $config -Parent))){New-Item -ItemType Directory -Path $directory -Force | Out-Null}
         Copy-Item -LiteralPath $ProbeExe -Destination (Join-Path $bin 'octocode-harness.exe')
         [IO.File]::WriteAllText((Join-Path $bin 'octocode-host.exe'),'owned existence marker')
+        [IO.File]::WriteAllText((Join-Path $bin 'code-graph.exe'),'owned index existence marker')
         [IO.File]::WriteAllText((Join-Path $fixture 'OctoCode.exe'),'owned existence marker')
         [IO.File]::WriteAllText((Join-Path $fixture 'releases\release-manifest.json'),'{"version":"0.1.0"}')
         New-Item -ItemType Junction -Path (Join-Path $fixture 'environments\node') -Target (Split-Path $NodeExe -Parent) | Out-Null
         [IO.File]::WriteAllText((Join-Path $logs 'main.log'),'clean-owned-log')
         [IO.File]::WriteAllText($config,'# owned presence-only fixture, no model endpoint')
         $text=[IO.File]::ReadAllText((Join-Path $SourceRoot 'final-acceptance.ps1'))
-        $text=$text.Replace('D:\Program Files\OctoCode','__OWNED_INSTALL__').Replace('D:\gpt-workspace\octocode','__OWNED_PROJECT__')
-        if($text.Contains('D:\Program Files\OctoCode') -or $text.Contains('D:\gpt-workspace\octocode')){throw 'Production path remained before rebinding'}
+        $text=$text.Replace('E:\Program Files\octocode','__OWNED_INSTALL__').Replace('D:\gpt-workspace\octocode','__OWNED_PROJECT__')
+        if($text.Contains('E:\Program Files\octocode') -or $text.Contains('D:\gpt-workspace\octocode')){throw 'Production path remained before rebinding'}
         $text=$text.Replace('__OWNED_INSTALL__',$fixture).Replace('__OWNED_PROJECT__',$fixture)
         function Read-Acceptance {
             $output=@(& {function Get-CimInstance {@()}; & ([scriptblock]::Create($text))} 2>&1)

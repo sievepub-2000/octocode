@@ -47,7 +47,7 @@ suite('Workbench - Terminal Typeahead', () => {
 
 		test('creates sane data', () => {
 			const stubs = createPredictionStubs(5);
-			const clock = useFakeTimers();
+			const clock = useFakeTimers({ toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
 			try {
 				for (const s of stubs) { add.fire(s); }
 

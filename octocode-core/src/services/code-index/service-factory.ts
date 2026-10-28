@@ -45,14 +45,12 @@ export class CodeIndexServiceFactory {
 
 		const provider = config.embedderProvider as EmbedderProvider
 
-		if (provider === "semble") {
+		if (provider === "native" || provider === "semble") {
 			// Semble is a self-contained search binary that doesn't produce embedding
 			// vectors. The manager branches before reaching this factory (see
 			// _recreateServices). This guard prevents accidental misuse if the factory
 			// is ever called directly with a semble config.
-			throw new Error(
-				"Semble provider handles its own embedding. Do not call createEmbedder() for semble — use SembleProvider instead.",
-			)
+			throw new Error(`${provider} uses its local provider directly and does not create embedding vectors.`)
 		}
 
 		if (provider === "openai") {

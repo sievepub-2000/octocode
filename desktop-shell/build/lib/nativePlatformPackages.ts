@@ -34,3 +34,8 @@ export function getRipgrepExcludeFilter(platform: string, arch: string): string[
 	const target = `${nodePlatform}-${nodeArch}`;
 	return ['**', ...ripgrepUniversalPlatforms.filter(p => p !== target).map(p => `!**/node_modules/@vscode/ripgrep-universal/bin/${p}/**`)];
 }
+
+export function getNodePtyExcludeFilter(platform: string, arch: string): string[] {
+	const { nodePlatform, nodeArch } = toNodePlatformArch(platform, arch);
+	return ['**', `!**/node_modules/node-pty/prebuilds/!(${nodePlatform}-${nodeArch})/**`];
+}

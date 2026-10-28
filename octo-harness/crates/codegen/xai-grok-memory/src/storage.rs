@@ -656,7 +656,7 @@ pub(crate) fn session_workspace_root(cwd: &Path) -> PathBuf {
 pub(crate) fn extract_repo_identity(cwd: &Path) -> Option<String> {
     let repo = git2::Repository::discover(cwd).ok()?;
     let remote = repo.find_remote("origin").ok()?;
-    let url = remote.url()?;
+    let url = remote.url().ok()?;
     normalize_remote_url(url)
 }
 

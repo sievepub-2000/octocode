@@ -155,7 +155,6 @@ pub fn no_color_env() -> std::collections::HashMap<String, String> {
         // Override TERM to dumb: prevents cursor movement, color codes
         ("TERM".to_string(), "dumb".to_string()),
         // Disable forced color in tools that check these
-        ("FORCE_COLOR".to_string(), "0".to_string()),
         ("CLICOLOR_FORCE".to_string(), "0".to_string()),
         ("CLICOLOR".to_string(), "0".to_string()),
         // Cargo: disable color and progress bar
@@ -173,6 +172,21 @@ pub fn no_color_env() -> std::collections::HashMap<String, String> {
         // Maven
         ("MAVEN_OPTS".to_string(), "-Dstyle.color=never".to_string()),
     ])
+}
+
+/// Node warns even for FORCE_COLOR=0 when NO_COLOR is present.
+pub(crate) fn conflicting_color_env(
+    env: &std::collections::HashMap<String, String>,
+) -> Option<&'static str> {
+    if env.contains_key("NO_COLOR")
+        || (!env.contains_key("FORCE_COLOR") && std::env::var_os("NO_COLOR").is_some())
+    {
+        Some("FORCE_COLOR")
+    } else if env.contains_key("FORCE_COLOR") {
+        Some("NO_COLOR")
+    } else {
+        None
+    }
 }
 
 /// `stream: true` uses StreamingLocalTerminalRunner (updates, killable).

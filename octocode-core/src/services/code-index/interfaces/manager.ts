@@ -76,6 +76,7 @@ export interface ICodeIndexManager {
 
 export type IndexingState = "Standby" | "Indexing" | "Indexed" | "Error" | "Stopping"
 export type EmbedderProvider =
+	| "native"
 	| "openai"
 	| "ollama"
 	| "openai-compatible"

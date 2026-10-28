@@ -49,6 +49,8 @@ export class TerminalRegistry {
 			const startDisposable = vscode.window.onDidStartTerminalShellExecution?.(
 				async (e: vscode.TerminalShellExecutionStartEvent) => {
 					const terminal = this.getTerminalByVSCETerminal(e.terminal)
+					// VS Code also emits events for manual terminals owned by other integrations.
+					if (!terminal) return
 
 					console.info("[onDidStartTerminalShellExecution]", {
 						command: e.execution?.commandLine?.value,
@@ -91,11 +93,6 @@ export class TerminalRegistry {
 						if (terminal.process) {
 							terminal.busy = true
 						}
-					} else {
-						console.error(
-							"[onDidStartTerminalShellExecution] Shell execution started, but not from a Roo-registered terminal:",
-							e,
-						)
 					}
 				},
 			)
@@ -107,6 +104,7 @@ export class TerminalRegistry {
 			const endDisposable = vscode.window.onDidEndTerminalShellExecution?.(
 				async (e: vscode.TerminalShellExecutionEndEvent) => {
 					const terminal = this.getTerminalByVSCETerminal(e.terminal)
+					if (!terminal) return
 					const process = terminal?.process
 					const exitDetails = TerminalProcess.interpretExitCode(e.exitCode)
 
@@ -115,15 +113,6 @@ export class TerminalRegistry {
 						terminalId: terminal?.id,
 						...exitDetails,
 					})
-
-					if (!terminal) {
-						console.error(
-							"[onDidEndTerminalShellExecution] Shell execution ended, but not from a Roo-registered terminal:",
-							e,
-						)
-
-						return
-					}
 
 					if (terminal instanceof Terminal && terminal.activeShellExecution === e.execution) {
 						terminal.activeShellExecution = undefined

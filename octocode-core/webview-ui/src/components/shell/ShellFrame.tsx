@@ -1,20 +1,16 @@
 import { memo, useMemo, type ReactNode } from "react"
 import {
 	ArrowUpCircle,
-	Database,
 	Glasses,
 	Globe,
-	GraduationCap,
 	LayoutPanelLeft,
 	MessageSquare,
-	Server,
 	Settings,
 	Store,
 	TerminalSquare,
 	UserRound,
 } from "lucide-react"
 
-import { IndexingStatusBadge } from "@src/components/chat/IndexingStatusBadge"
 import { useExtensionState } from "@src/context/ExtensionStateContext"
 import { useAppTranslation } from "@src/i18n/TranslationContext"
 import TaskNavigationView from "@src/components/history/TaskNavigationView"
@@ -31,11 +27,7 @@ export type ShellTab = "chat" | "settings" | "marketplace"
 interface ShellFrameProps {
 	tab: ShellTab
 	/**
-	 * Settings section the main column is showing, when it is showing settings.
-	 *
-	 * The rail needs it to mark the right entry: four of its entries open the same
-	 * `settings` tab and differ only by section, so `tab` alone cannot say which one
-	 * is current.
+	 * Settings section used to select the appearance or language shortcut.
 	 */
 	section?: string
 	onSelect: (tab: ShellTab, section?: string) => void
@@ -68,7 +60,7 @@ const PANE_ENTRIES: readonly string[] = ["preview", "terminal"]
  * list because they are what you go and configure, not what you do while a task
  * runs.
  */
-const SETTINGS_SECTION_ENTRIES: readonly string[] = ["ui", "language", "skills", "mcp"]
+const SETTINGS_SECTION_ENTRIES: readonly string[] = ["ui", "language"]
 
 /**
  * Wraps the app in the product's own chrome — but only where that makes sense.
@@ -80,10 +72,9 @@ const SETTINGS_SECTION_ENTRIES: readonly string[] = ["ui", "language", "skills",
  * inside one of its own columns.
  *
  * The rail is in two halves, divided by a hairline. Above it are the errands:
- * appearance, language, skills, MCP and the marketplace — the four that mirror
- * what the host's tree views used to open target sections of settings, which is
- * where those managers actually render. Below it is the work: the task column
- * and the two host panes.
+ * appearance, language and the component marketplace. Below it is the task
+ * column and the two host panes. Component management lives in the marketplace;
+ * indexing lives in settings.
  *
  * Conversation history is in neither half. It lives permanently in the side
  * column, because it is something you navigate *while* working rather than a
@@ -103,10 +94,7 @@ export const ShellFrame = memo(function ShellFrame({ tab, section, onSelect, chi
 			/*
 			 * Above the hairline: what you go and configure.
 			 *
-			 * Appearance, language, skills and MCP each render as a section of
-			 * settings, so the entry opens that section rather than a tab of its own.
-			 * They sit together with the marketplace because they are all the same kind
-			 * of errand — set the product up, then go back to work.
+			 * Appearance and language open their existing settings sections.
 			 */
 			{ id: "ui", label: t("settings:sections.ui", { defaultValue: "Interface" }), icon: <Glasses size={20} /> },
 			{
@@ -114,12 +102,6 @@ export const ShellFrame = memo(function ShellFrame({ tab, section, onSelect, chi
 				label: t("settings:sections.language", { defaultValue: "Language" }),
 				icon: <Globe size={20} />,
 			},
-			{
-				id: "skills",
-				label: t("settings:sections.skills", { defaultValue: "Skills" }),
-				icon: <GraduationCap size={20} />,
-			},
-			{ id: "mcp", label: t("settings:sections.mcp", { defaultValue: "MCP" }), icon: <Server size={20} /> },
 			{
 				id: "marketplace",
 				label: t("common:ui.marketplace"),
@@ -149,27 +131,6 @@ export const ShellFrame = memo(function ShellFrame({ tab, section, onSelect, chi
 				icon: <TerminalSquare size={20} />,
 			},
 			/*
-			 * Code indexing, alongside the other services you configure once.
-			 *
-			 * It used to sit in the composer's footer beside the send button, which put
-			 * a workspace-wide service among the controls for the message being typed.
-			 * Its status and settings both live inside the badge, so the rail entry is
-			 * the badge itself rather than a link to somewhere else.
-			 */
-			{
-				id: "codeIndex",
-				label: t("settings:codeIndex.title", { defaultValue: "Code Index" }),
-				icon: <Database size={20} />,
-				footer: true,
-				render: <IndexingStatusBadge />,
-			},
-			{
-				id: "settings",
-				label: t("settings:common.title", { defaultValue: "Settings" }),
-				icon: <Settings size={20} />,
-				footer: true,
-			},
-			/*
 			 * The update entry, beside settings because that is where it leads.
 			 *
 			 * The host already draws this as a status-bar item, but the shell hides
@@ -184,6 +145,12 @@ export const ShellFrame = memo(function ShellFrame({ tab, section, onSelect, chi
 				icon: <ArrowUpCircle size={20} />,
 				footer: true,
 				render: <UpdateRailBadge />,
+			},
+			{
+				id: "settings",
+				label: t("settings:common.title", { defaultValue: "Settings" }),
+				icon: <Settings size={20} />,
+				footer: true,
 			},
 			/*
 			 * The account entry, where the host's accounts badge used to sit.

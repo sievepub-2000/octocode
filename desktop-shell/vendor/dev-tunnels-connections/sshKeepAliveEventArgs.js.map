@@ -1,0 +1,1 @@
+{"version":3,"file":"sshKeepAliveEventArgs.js","sourceRoot":"","sources":["../../../src/connections/sshKeepAliveEventArgs.ts"],"names":[],"mappings":";AAAA,uCAAuC;AACvC,kCAAkC;;;AAElC;;GAEG;AACH,MAAa,qBAAqB;IAM9B,YAAmB,KAAa;QAC5B,IAAI,CAAC,KAAK,GAAG,KAAK,CAAC;IACvB,CAAC;CACJ;AATD,sDASC"}

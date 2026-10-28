@@ -30,6 +30,12 @@ use crate::session::{SessionCommand, SessionHandle, ShutdownKind};
 /// How often [`AgentActivity::flush_all_sessions`] re-polls actors that have not yet exited.
 const FLUSH_POLL: Duration = Duration::from_millis(50);
 
+/// How often the mvp-agent shutdown join loop (`MvpAgentOps::flush_all_sessions`) re-polls
+/// session threads for exit. Shorter than [`FLUSH_POLL`] because this loop only waits for
+/// threads already exiting after the cancel token fired, and tighter polling shortens the
+/// observed shutdown tail without burning the join budget.
+pub(crate) const SHUTDOWN_POLL: Duration = Duration::from_millis(10);
+
 /// Default bound on a process-exit session flush ([`AgentActivity::flush_all_sessions`]).
 /// Leader auto-update shutdown and the in-process agent's `/exit` / headless-quit path both use it.
 /// One wedged actor therefore delays exit by the same amount everywhere; sessions are normally idle and the flush completes in milliseconds.
@@ -37,6 +43,14 @@ const FLUSH_POLL: Duration = Duration::from_millis(50);
 /// Known gap: a `SessionEnd` hook configured with a longer `timeout` than this is still cut off at the grace.
 /// Aligning the two needs the hook registry's configured timeouts at flush time, which this layer does not see.
 pub const SESSION_FLUSH_GRACE: Duration = Duration::from_secs(10);
+
+/// Extra slack for joining session OS threads **after** the mailbox flush: the
+/// flush deadline covers mailboxes closing (SessionEnd hooks, memory save), but
+/// the thread's final telemetry drain (`drain_at_session_exit`) only starts once
+/// the mailbox is closed. Budgeting join from the same instant can expire it
+/// before any join happens, turning a successful flush into a false shutdown
+/// failure. Mirrors `AGENT_JOIN_SLACK` in xai-grok-pager's `AgentShutdownGuard`.
+pub const AGENT_JOIN_SLACK: Duration = Duration::from_secs(2);
 
 /// Per-session slice of state shared with the session actor (the same `Arc`s the actor mutates; see the matching `SessionHandle` fields).
 struct SessionActivityEntry {

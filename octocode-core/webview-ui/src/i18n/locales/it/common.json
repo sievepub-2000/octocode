@@ -345,6 +345,10 @@
 	"dismiss": "Ignora",
 	"dismissAndDontShowAgain": "Ignora e non mostrare più",
 	"extensions": {
+		"pagination": "Pagine dei componenti",
+		"pageNumber": "Pagina {{number}}",
+		"previousPage": "Precedente",
+		"nextPage": "Successiva",
 		"market": "Marketplace",
 		"systemToolsHint": "Strumenti di sistema · disponibili in tutti gli spazi di lavoro",
 		"environments": "Runtimes",

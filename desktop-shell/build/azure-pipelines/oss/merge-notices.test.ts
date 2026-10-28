@@ -21,6 +21,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { computeUnaccounted } from './merge-notices.js';
+import { isPackageHeader, parseNoticeFile } from './parse-notices.js';
+import fs from 'fs';
+import path from 'path';
 
 interface NoticeEntry {
 	name: string;
@@ -134,6 +137,31 @@ console.log('computeUnaccounted -- sorted by name then version:');
 	check('first is alpha@1.0.0', out[0].name === 'alpha' && out[0].version === '1.0.0');
 	check('second is alpha@2.0.0', out[1].name === 'alpha' && out[1].version === '2.0.0');
 	check('last is zeta', out[2].name === 'zeta');
+}
+
+// Scanner headers may have a real license body without a declared SPDX label.
+// Preserve their names/versions rather than dropping mixed-case names or
+// treating a version as part of the package name.
+{
+	const directory = fs.mkdtempSync(path.join(process.cwd(), 'notice-parser-test-'));
+	try {
+		const file = path.join(directory, 'notices.txt');
+		const separator = '---------------------------------------------------------';
+		fs.writeFileSync(file, [
+			separator, 'r-efi 5.3.0', '', 'Permission to use this software.',
+			separator, 'PSReadLine 2.4.4-beta4', '', 'Permission to use this software.',
+			separator, 'HTML 5.1 W3C Working Draft 08 October 2015 - W3C Document License', '', 'Permission to use this document.',
+			separator, 'END OF TERMS AND CONDITIONS', '', separator
+		].join('\n'));
+		const entries = parseNoticeFile(file);
+		check('version without SPDX stays separate from package name', entries[0].name === 'r-efi' && entries[0].version === '5.3.0');
+		check('mixed-case versioned package is retained without SPDX', entries[1].name === 'PSReadLine' && entries[1].version === '2.4.4-beta4');
+		check('dated version preserves the document name', entries[2].name === 'HTML 5.1 W3C Working Draft' && entries[2].version === '08 October 2015');
+		check('license prose is still rejected', entries.length === 3 && !isPackageHeader('END OF TERMS AND CONDITIONS'));
+		check('decorative separator preserves the following legal text', entries[2].licenseText!.includes('END OF TERMS AND CONDITIONS'));
+	} finally {
+		fs.rmSync(directory, { recursive: true });
+	}
 }
 
 // -- summary ------------------------------------------------------------------

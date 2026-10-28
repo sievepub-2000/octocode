@@ -1,7 +1,7 @@
 import * as fs from "fs/promises"
 import * as path from "path"
 import * as yaml from "yaml"
-import { z } from "zod"
+import { z } from "zod/v4"
 
 import {
 	type MarketplaceItem,

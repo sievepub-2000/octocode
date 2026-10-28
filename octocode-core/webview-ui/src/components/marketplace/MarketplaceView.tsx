@@ -18,7 +18,7 @@ interface MarketplaceViewProps {
 }
 export function MarketplaceView({ stateManager, onDone, targetTab = "mcp" }: MarketplaceViewProps) {
 	const { t } = useAppTranslation()
-	const [catalog, setCatalog] = useState(targetTab)
+	const [catalog, setCatalog] = useState(targetTab === "mode" ? "skills" : targetTab)
 	const [state, manager] = useStateManager(stateManager)
 	const [hasReceivedInitialState, setHasReceivedInitialState] = useState(false)
 	const extensionState = useContext(ExtensionStateContext)
@@ -45,11 +45,10 @@ export function MarketplaceView({ stateManager, onDone, targetTab = "mcp" }: Mar
 	}, [state.allItems, hasReceivedInitialState])
 
 	useEffect(() => {
-		setCatalog(targetTab)
+		setCatalog(targetTab === "mode" ? "skills" : targetTab)
 	}, [targetTab, manager])
 	useEffect(() => {
-		if (catalog === "mcp" || catalog === "mode")
-			manager.transition({ type: "SET_ACTIVE_TAB", payload: { tab: catalog } })
+		if (catalog === "mcp") manager.transition({ type: "SET_ACTIVE_TAB", payload: { tab: catalog } })
 	}, [catalog, manager])
 
 	// Ensure marketplace state manager processes messages when component mounts
@@ -122,7 +121,6 @@ export function MarketplaceView({ stateManager, onDone, targetTab = "mcp" }: Mar
 								["extensions", t("common:ui.extensions")],
 								["skills", t("common:ui.skills")],
 								["mcp", t("common:ui.mcpServices")],
-								["mode", t("common:ui.agentModes")],
 								["environments", t("common:extensions.environments")],
 							] as const
 						).map(([id, label]) => (
@@ -147,7 +145,7 @@ export function MarketplaceView({ stateManager, onDone, targetTab = "mcp" }: Mar
 							hint={t("common:extensions.systemToolsHint")}
 						/>
 					) : catalog === "environments" ? (
-						<ExtensionList kind="environment" hint={t("common:extensions.environmentsHint")} />
+						<ExtensionList kind="environment" searchable hint={t("common:extensions.environmentsHint")} />
 					) : catalog === "extensions" ? (
 						<ExtensionList
 							key="extensions"

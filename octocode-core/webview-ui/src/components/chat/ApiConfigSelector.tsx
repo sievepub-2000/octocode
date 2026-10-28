@@ -7,6 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger, StandardTooltip } from "@/comp
 import { useAppTranslation } from "@/i18n/TranslationContext"
 import { vscode } from "@/utils/vscode"
 import { Button } from "@/components/ui"
+import { getProviderLabel } from "@roo-code/types"
 
 import { IconButton } from "./IconButton"
 
@@ -17,7 +18,7 @@ interface ApiConfigSelectorProps {
 	title: string
 	onChange: (value: string) => void
 	triggerClassName?: string
-	listApiConfigMeta: Array<{ id: string; name: string; modelId?: string }>
+	listApiConfigMeta: Array<{ id: string; name: string; apiProvider?: string; modelId?: string }>
 	pinnedApiConfigs?: Record<string, boolean>
 	togglePinnedApiConfig: (id: string) => void
 	lockApiConfigAcrossModes: boolean
@@ -85,8 +86,12 @@ export const ApiConfigSelector = ({
 	)
 
 	const renderConfigItem = useCallback(
-		(config: { id: string; name: string; modelId?: string }, isPinned: boolean) => {
+		(config: { id: string; name: string; apiProvider?: string; modelId?: string }, isPinned: boolean) => {
 			const isCurrentConfig = config.id === value
+			// Show the vendor (provider) label next to the profile name; the
+			// stored modelId can be stale or a slug fragment, and the vendor is
+			// what identifies where the profile actually routes.
+			const providerLabel = getProviderLabel(config.apiProvider)
 
 			return (
 				<div
@@ -100,14 +105,12 @@ export const ApiConfigSelector = ({
 					)}>
 					<div className="flex-1 min-w-0 flex items-center gap-1 overflow-hidden">
 						<span className="flex-shrink-0">{config.name}</span>
-						{config.modelId && (
-							<>
-								<span
-									className="text-vscode-descriptionForeground opacity-70 min-w-0 overflow-hidden"
-									style={{ direction: "rtl", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-									{config.modelId}
-								</span>
-							</>
+						{providerLabel && (
+							<span
+								className="text-vscode-descriptionForeground opacity-70 min-w-0 overflow-hidden"
+								style={{ direction: "rtl", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+								{providerLabel}
+							</span>
 						)}
 					</div>
 					<div className="flex items-center gap-1">

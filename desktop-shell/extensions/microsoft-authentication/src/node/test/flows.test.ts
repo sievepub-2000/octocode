@@ -199,7 +199,7 @@ suite('MSAL flow trigger', () => {
 		});
 
 		assert.strictEqual(cachedPca.interactiveRequests[0]?.resource, RESOURCE);
-		assert.strictEqual(cachedPca.interactiveRequests[0]?.responseMode, 'form_post');
+		assert.strictEqual('responseMode' in cachedPca.interactiveRequests[0], false);
 	});
 
 	test('protocol handler flow forwards resource to acquireTokenInteractive', async () => {

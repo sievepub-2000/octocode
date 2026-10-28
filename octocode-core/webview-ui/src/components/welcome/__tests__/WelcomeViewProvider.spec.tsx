@@ -28,12 +28,12 @@ vi.mock("@src/components/ui", () => ({
 }))
 
 vi.mock("../../settings/ApiOptions", () => ({
-	default: ({ apiConfiguration }: any) => (
+	default: ({ apiConfiguration, errorMessage }: any) => (
 		<div
 			data-testid="api-options"
 			data-provider={apiConfiguration.apiProvider}
 			data-model={apiConfiguration.openRouterModelId}>
-			API Options Component
+			API Options Component {errorMessage}
 		</div>
 	),
 }))
@@ -247,6 +247,15 @@ describe("WelcomeViewProvider", () => {
 			text: "default",
 			apiConfiguration,
 		})
+	})
+
+	it("rejects an empty API key when Finish is clicked", () => {
+		renderWelcomeViewProvider()
+		fireEvent.click(screen.getByTestId("button-primary"))
+		expect(screen.getByTestId("api-options")).not.toHaveTextContent("settings:validation.apiKey")
+		fireEvent.click(screen.getByText(/welcome:providerSignup.finish/))
+		expect(screen.getByTestId("api-options")).toHaveTextContent("settings:validation.apiKey")
+		expect(vscode.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: "upsertApiConfiguration" }))
 	})
 
 	it("returns to landing from provider setup", () => {

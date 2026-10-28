@@ -1,0 +1,54 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+// Public test credentials for localhost-proxy-test, valid until 2126; never use outside tests.
+export const certPEM = `-----BEGIN CERTIFICATE-----
+MIIDQjCCAiqgAwIBAgIUYuaR6GlIErBCcS7WmfokthO5pWcwDQYJKoZIhvcNAQEL
+BQAwHzEdMBsGA1UEAwwUbG9jYWxob3N0LXByb3h5LXRlc3QwIBcNMjYxMDEzMTYy
+MzA0WhgPMjEyNjA5MTkxNjIzMDRaMB8xHTAbBgNVBAMMFGxvY2FsaG9zdC1wcm94
+eS10ZXN0MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuzcaPCSUqZYO
+hJJh5lazW/zgfAxGpCSay9VSehmYmgvWGLCC0kW1GKKvjMWfw5ft5lE3kkTk21a6
+SuibbiYFGEv+du0eOzVIMaFdPj1LKYidNhLj7MFghsnvseuvYEhDR1YNVgKTGaHc
+D0oZX5Z3kIw7jw3znufK5GBgNGEng1NOp1TZG08B53ZrdMpD/DOKXsFTWdv92grq
+dEc14aHzQ4B48vaGJH4/cJTHkuHGiZipmttJSmgGlaBFgk3d39EfUlhV30YkVAY3
+Ngq840Dwl1KwQD0LaQF9mWNO0UFS10YiWJvAVPs9ROQJHEEE2OkicBE3Sy+orY2e
+A554+GtauQIDAQABo3QwcjAdBgNVHQ4EFgQUDH35hMupHHahze/BJ+U/3msIJMsw
+HwYDVR0jBBgwFoAUDH35hMupHHahze/BJ+U/3msIJMswDwYDVR0TAQH/BAUwAwEB
+/zAfBgNVHREEGDAWghRsb2NhbGhvc3QtcHJveHktdGVzdDANBgkqhkiG9w0BAQsF
+AAOCAQEAAGUZU1s4mD7u6a0Dh/3pEc8jrmg8rozGeTD8Posz9dkO+Vqca0TR+4v3
+VNqWq4pn6rdebh1VeZRKWIgpV8i9/OmOU0ldHpcXNWzrX05OwnQmQ/fbpaNXujij
+JEiBQ9XnXf4LoBSVEwitJJ3V5jEfKxn7bw2OEcAB3lb+CvYtZ3mrJFlJ/lkx1hGU
+6e92x2Z7xfJ5W3dc5exnzepiCeHGsd6N4G5ZPwX5YLB1O1547xkmivgvIouHbEqU
+eWRolpeLV94X9h+wmKW77kcoSglN7WRiicha40ZAb7v9P0C/xIBipJTpGNCsqVTl
+2/Gr4OextYATTG2b2Fep/300OSBURQ==
+-----END CERTIFICATE-----`;
+export const privateKeyPEM = `-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7Nxo8JJSplg6E
+kmHmVrNb/OB8DEakJJrL1VJ6GZiaC9YYsILSRbUYoq+MxZ/Dl+3mUTeSROTbVrpK
+6JtuJgUYS/527R47NUgxoV0+PUspiJ02EuPswWCGye+x669gSENHVg1WApMZodwP
+ShlflneQjDuPDfOe58rkYGA0YSeDU06nVNkbTwHndmt0ykP8M4pewVNZ2/3aCup0
+RzXhofNDgHjy9oYkfj9wlMeS4caJmKma20lKaAaVoEWCTd3f0R9SWFXfRiRUBjc2
+CrzjQPCXUrBAPQtpAX2ZY07RQVLXRiJYm8BU+z1E5AkcQQTY6SJwETdLL6itjZ4D
+nnj4a1q5AgMBAAECggEAM1KBwKcOkgbu5+zxJaHy/W6vY5JB81GNlf9e4tYNfX1t
+LcuFsXsmkCBZG7A5gfcuYos1PsXgLzjxTQPDSEjn8Kc0lQmf1f9fUSu5UgyfhD1N
+S7uV/BtvCMRnD1Fa/HwS5YVzlnaSON6kYxSfLBMlp9ypnyfl91P3zO+WsAVKPbeq
+Lkb++j91J/kTb4QJ5v55Iqgbyt1pTyrXupYujSGK/2HqPeokvNl4RDNXgInBeAu3
+63+1sC1/26CJd58VTZuH0whhzr7Nn9555dqBPkI0BHfT0OonAhy981GhZW8DRf2T
+PDrPJ/NZz2u2i3tnxymZbf5OTaOa193SQWtzAtzY+QKBgQDw2b3KE2Im7xT1xHGZ
+uSjkLO4P440rCaKJ3rj+Gzybc4WHsbe9CgcN7WZ/kzXz40chzgx7cAgTJTBmSkKC
+p9bUHhOGRwej3oCsO+0IaiZqnBLmKea+iGBwjrSDmf7vOm2/3bLrrjEiZtM3d7Ug
+JXVXIx5zcf7EbIS6FKCykP6GuwKBgQDG/bT2yinLDD2eCLLQPEDvwtXSbJKlm4qP
+/CaNrbcLtXa+h8Xi9zXUuguo+uTgVOkVtD9iRg2Ijfvs5VWjXc/BAg1IyCQbbFC1
+3LqD7fugltoaf7IYJuGDXZ5lqU24qm1FTPg6flfb2MWVfo8YgLStIHARVgPFoDzt
+LYVOgd+fGwKBgFFKrOxProlFmOV68HzaKhsZryBdxYAJOHsgWYAq4UH2s9MhAMsl
+X0wsHLRik4tF4vRd/4iKP692ledwmRJQZAokPKLNxp5gsz1u3IpCicTh+N8GtYMJ
+tMNI51Sj3ZARQInJ4mH54UujORc3qEK5YemPSO/eQgc6OXI1FCgxGDeRAoGAcmiM
+ExhIzyVKiAIYTQFXlIJAzar+5Zh4IjCnOe4Wv/SlQQZvD/9yQ8xzx8P4s8IeAQyR
+JL+CKHD510pD4pmdSSsU2DO6DspH3Uf7NL8vXTVeUL36d0hjgFPjLjAZL4NNL/sA
+/SCHAy+u6jTJsRzOxHtR86WwpX9riDIT4v9owuECgYEAvbhc8WmhfEfGcW/4XeF8
+4SpncXQqUnvhcQ6QBBxLmMkMY9g2Xiv8u5PbB8FVc00iML0X2X8hlvHjWnXQWvaD
+91v1qjgxzqmdu327zjgXwFGbML25uo2FT0X/XY78OZ141NWocWi/kmvFE5V10Dlb
+EyF378VPwffeKjQATAEoryA=
+-----END PRIVATE KEY-----`;

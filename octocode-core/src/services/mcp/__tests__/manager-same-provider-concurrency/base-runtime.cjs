@@ -24,6 +24,10 @@ function owned(file) {
   assert.ok(resolved.startsWith(ownedRoot + path.sep), 'All fixture files must be owned');
   return resolved;
 }
+// Match the production writer's atomic replacement so source readers never observe truncated fixture JSON.
+function writeOwnedJson(file,data) {
+  const temporary=owned(file+'.next');fs.writeFileSync(temporary,JSON.stringify(data,null,2));fs.renameSync(temporary,owned(file));
+}
 function loadTs(sourcePath, localRequire, record, out) {
   const source = fs.readFileSync(sourcePath, 'utf8');
   const result = ts.transpileModule(source, {fileName: sourcePath,
@@ -128,7 +132,7 @@ async function setup(sourcePath, runDir, name) {
     '@modelcontextprotocol/sdk/client/streamableHttp.js':{StreamableHTTPClientTransport:class {constructor(){throw new Error('Network forbidden');}}},
     'reconnecting-eventsource':class {},'chokidar':{watch(){throw new Error('Unexpected physical watcher');}},
     'delay':milliseconds=>new Promise(resolve=>setTimeout(resolve,milliseconds)),
-    'fast-deep-equal':req('fast-deep-equal'),'zod':req('zod'),
+    'fast-deep-equal':req('fast-deep-equal'),'zod/v4':req('zod/v4'),
     'undici':{Agent:class {},fetch:()=>{throw new Error('Network forbidden');}},
     '../../i18n':{t:key=>key},'../../core/webview/ClineProvider':{ClineProvider:{getAllInstances:()=>[]}},
     '../../shared/globalFileNames':{GlobalFileNames:{mcpSettings:'mcp.json'}},
@@ -141,7 +145,7 @@ async function setup(sourcePath, runDir, name) {
       if(injectionHooks.length) await injectionHooks.shift()(config);
       return structuredClone(config);
     }},
-    '../../utils/safeWriteJson':{safeWriteJson:async(file,data)=>fs.writeFileSync(owned(file),JSON.stringify(data,null,2))},
+    '../../utils/safeWriteJson':{safeWriteJson:async(file,data)=>writeOwnedJson(file,data)},
     '../../utils/mcp-name':loadTs(path.join(core,'src/utils/mcp-name.ts'),()=>{throw new Error('Unexpected name import');},record),
     '../environments':{getSharedEnvironmentProvisioner:()=>({ensureForExecutable:async()=>{
       record('provision-noop'); if(provisionHooks.length) await provisionHooks.shift()();
@@ -149,6 +153,9 @@ async function setup(sourcePath, runDir, name) {
     '../environments/tools':{getSystemToolDirectory:()=>undefined},
     '../environments/ProjectToolCopies':{ProjectToolCopies:class {async dispose(){record('project-copy-dispose-noop');}}},
   };
+  modules['./server-config']=loadTs(path.join(core,'src/services/mcp/server-config.ts'),id=>{
+    assert.ok(['vscode','zod/v4'].includes(id),'Unexpected server-config import');return modules[id];
+  },record,path.join(dir,'actual-transpiled-server-config.cjs'));
   const loaded=loadTs(sourcePath,id=>{
     if (!(id in modules)) throw new Error('Unapproved Source import: '+id);
     return modules[id];
@@ -159,7 +166,7 @@ async function setup(sourcePath, runDir, name) {
   McpHub.prototype.setupWorkspaceFoldersWatcher=()=>{};
   const configs={global:{},project:{}};
   const settings={global:path.join(dir,'global.json'),project:path.join(dir,'project.json')};
-  function save() {for(const source of ['global','project']) fs.writeFileSync(settings[source],JSON.stringify({mcpServers:configs[source]},null,2));}
+  function save() {for(const source of ['global','project']) writeOwnedJson(settings[source],{mcpServers:configs[source]});}
   save();
   McpHub.prototype.getMcpSettingsFilePath=async()=>settings.global;
   McpHub.prototype.getProjectMcpPath=async()=>settings.project;

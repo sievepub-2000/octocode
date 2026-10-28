@@ -10,9 +10,12 @@ import { createDecorator } from '../../instantiation/common/instantiation.js';
 export interface IUpdate {
 	version: string; // Build commit ID
 	productVersion?: string; // Product version like 1.2.3
+	vscodeApiVersion?: string; // API compatibility version for independently versioned products
 	timestamp?: number;
 	url?: string;
 	sha256hash?: string;
+	size?: number;
+	releaseProof?: { manifest: string; signature: string };
 }
 
 /**
@@ -124,4 +127,6 @@ export interface IUpdateService {
 	isLatestVersion(): Promise<boolean | undefined>;
 	_applySpecificUpdate(packagePath: string): Promise<void>;
 	setInternalOrg(internalOrg: string | undefined): Promise<void>;
+	/** Renderer authentication bridge; credentials remain in memory only. */
+	setGitHubToken?(token: string | undefined): Promise<void>;
 }

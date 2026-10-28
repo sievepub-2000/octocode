@@ -121,6 +121,13 @@ struct PackageJson {
 
 fn apply_build_environment_variables() {
 	let repo_dir = env::current_dir().unwrap().join("..");
+	println!("cargo:rerun-if-changed=src");
+	println!("cargo:rerun-if-changed=build.rs");
+	for name in ["package.json", "product.json", "product.overrides.json"] {
+		println!("cargo:rerun-if-changed={}", repo_dir.join(name).display());
+	}
+	println!("cargo:rerun-if-env-changed=VSCODE_CLI_PRODUCT_JSON");
+	println!("cargo:rerun-if-env-changed=VSCODE_CLI_COMMIT");
 	let package_json = read_json_from_path::<PackageJson>(&repo_dir.join("package.json"));
 	println!(
 		"cargo:rustc-env=VSCODE_CLI_VERSION={}",

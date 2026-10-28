@@ -1115,18 +1115,19 @@ export class NativeHostMainService extends Disposable implements INativeHostMain
 		return window?.win?.close();
 	}
 
-	async quit(windowId: number | undefined): Promise<void> {
+	async quit(windowId: number | undefined): Promise<boolean> {
 
 		// If the user selected to exit from an extension development host window, do not quit, but just
 		// close the window unless this is the last window that is opened.
 		const window = this.windowsMainService.getLastActiveWindow();
 		if (window?.isExtensionDevelopmentHost && this.windowsMainService.getWindowCount() > 1 && window.win) {
 			window.win.close();
+			return true;
 		}
 
 		// Otherwise: normal quit
 		else {
-			this.lifecycleMainService.quit();
+			return this.lifecycleMainService.quit();
 		}
 	}
 

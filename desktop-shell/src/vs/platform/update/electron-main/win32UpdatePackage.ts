@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { checksum } from '../../../base/node/crypto.js';
+import { stat } from 'fs/promises';
 import { IUpdate } from '../common/update.js';
 
 export function validateWindowsUpdate(update: IUpdate): void {
@@ -16,9 +17,15 @@ export function validateWindowsUpdate(update: IUpdate): void {
 	if (!update.url || new URL(update.url).protocol !== 'https:') {
 		throw new Error('Windows updates require an HTTPS download URL');
 	}
+	if (update.size !== undefined && (!Number.isSafeInteger(update.size) || update.size <= 0)) {
+		throw new Error('Invalid Windows update size');
+	}
 }
 
 export async function verifyWindowsUpdatePackage(packagePath: string, update: IUpdate): Promise<void> {
 	validateWindowsUpdate(update);
+	if (update.size !== undefined && (await stat(packagePath)).size !== update.size) {
+		throw new Error('Windows update package size does not match its signed metadata');
+	}
 	await checksum(packagePath, update.sha256hash!.toLowerCase());
 }

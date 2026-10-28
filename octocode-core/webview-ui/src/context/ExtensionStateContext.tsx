@@ -197,6 +197,8 @@ const createInitialExtensionState = (): ExtensionState => ({
 	mcpEnabled: true,
 	taskSyncEnabled: false,
 	currentApiConfigName: "default",
+	sessionApiConfigName: undefined,
+	sessionApiConfiguration: undefined,
 	listApiConfigMeta: [],
 	mode: defaultModeSlug,
 	customModePrompts: defaultPrompts,

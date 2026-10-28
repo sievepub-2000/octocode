@@ -18,10 +18,22 @@ import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js'
 import { IEditorGroupsService, GroupsOrder } from '../../../services/editor/common/editorGroupsService.js';
 import { IWorkbenchLayoutService, OCTOCODE_SHELL_ENABLED, Parts } from '../../../services/layout/browser/layoutService.js';
 import { TerminalEditorInput } from '../../terminal/browser/terminalEditorInput.js';
+import { ITerminalService } from '../../terminal/browser/terminal.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { Schemas } from '../../../../base/common/network.js';
 
 import './media/octoCodeShell.css';
+
+CommandsRegistry.registerCommand('workbench.action.octocode.writeRuntimeTerminal', async (accessor, name: unknown, data: unknown) => {
+	if (typeof name !== 'string' || !name || typeof data !== 'string') { return; }
+	const terminals = accessor.get(ITerminalService);
+	const instance = terminals.instances.find(instance => instance.title === name);
+	if (!instance) { return; }
+	const xterm = await instance.xtermReadyPromise;
+	if (!terminals.instances.includes(instance)) { return; }
+	// Output belongs to this terminal's display, never its PowerShell input stream.
+	xterm?.raw.write(data);
+});
 
 CommandsRegistry.registerCommand('workbench.action.octocode.placeRuntimeTerminal', (accessor, name: unknown) => {
 	if (typeof name !== 'string' || !name) { return; }

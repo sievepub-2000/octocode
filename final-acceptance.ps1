@@ -6,7 +6,7 @@
 # `resources\app\extensions\octocode` + `%APPDATA%\OctoCode` layout, so it
 # reported success against files that no longer exist.
 $ErrorActionPreference = 'Continue'
-$install = 'D:\Program Files\OctoCode'
+$install = 'E:\Program Files\octocode'
 $data = Join-Path $install 'data'
 $manifestPath = 'D:\gpt-workspace\octocode\releases\release-manifest.json'
 $manifest = if (Test-Path -LiteralPath $manifestPath) { Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json } else { $null }
@@ -31,6 +31,7 @@ Require-Path (Join-Path $install 'OctoCode.exe') 'product executable' | Out-Null
 Require-Path $extension 'installed extension' | Out-Null
 Require-Path (Join-Path $binaries 'octocode-host.exe') 'Rust host' | Out-Null
 Require-Path (Join-Path $binaries 'octocode-harness.exe') 'unified harness' | Out-Null
+Require-Path (Join-Path $binaries 'code-graph.exe') 'native project index' | Out-Null
 $nodeAvailable = Require-Path $node 'bundled Node runtime'
 Require-Path (Join-Path $install 'workspace') 'default workspace' | Out-Null
 

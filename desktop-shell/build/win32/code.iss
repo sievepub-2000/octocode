@@ -54,7 +54,7 @@ SignTool=esrp
 DefaultDirName={userpf}\{#DirName}
 PrivilegesRequired=lowest
 #else
-DefaultDirName=D:\Program Files\OctoCode
+DefaultDirName=E:\Program Files\octocode
 PrivilegesRequired=admin
 #endif
 
@@ -107,7 +107,7 @@ Name: "{app}"; AfterInstall: DisableAppDirInheritance
 Name: "{app}\workspace"; Flags: uninsneveruninstall; AfterInstall: ProtectPrivateDirectory('workspace')
 Name: "{app}\data"; Flags: uninsneveruninstall; AfterInstall: ProtectPrivateDirectory('data')
 Name: "{app}\data\tmp"; Flags: uninsneveruninstall
-Name: "{app}\environments"
+Name: "{app}\environments"; AfterInstall: ProtectPrivateDirectory('environments')
 Name: "{app}\environments\scripts"
 Name: "{app}\environments\tools\skills"; Flags: uninsneveruninstall
 Name: "{app}\environments\tools\mcp"; Flags: uninsneveruninstall
@@ -116,9 +116,13 @@ Name: "{app}\test"
 
 [Files]
 Source: "{#RepoDir}\build\win32\octocode-storage-layout.ps1"; DestDir: "{tmp}"; Flags: dontcopy
-Source: "*"; Excludes: "\CodeSignSummary*.md,\tools,\tools\*,\environments\tools,\environments\tools\*,\environments\rust\cargo\git,\environments\rust\cargo\git\*,\environments\rust\cargo\registry,\environments\rust\cargo\registry\*,\environments\rust\rustup\toolchains\stable-x86_64-pc-windows-msvc,\environments\rust\rustup\toolchains\stable-x86_64-pc-windows-msvc\*,\resources\app\extensions\github,\resources\app\extensions\github\*,\resources\app\extensions\github-authentication,\resources\app\extensions\github-authentication\*,\resources\app\extensions\microsoft-authentication,\resources\app\extensions\microsoft-authentication\*,\policies,\policies\*,\appx,\appx\*,\data\user-data,\data\user-data\*,\workspace,\workspace\*,\data\extensions\extensions.json,\{#ProductJsonRelativePath},\{#ExeBasename}.exe,\{#ExeBasename}.VisualElementsManifest.xml,\bin,\bin\*"; DestDir: "{code:GetDestDir}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "environments\tools\*"; DestDir: "{app}\environments\tools"; Flags: onlyifdoesntexist uninsneveruninstall recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "{#RepoDir}\build\win32\octocode-validate-tools.ps1"; DestDir: "{tmp}"; Flags: dontcopy
+Source: "*"; Excludes: "\CodeSignSummary*.md,\tools,\tools\*,\environments\tools,\environments\tools\*,\environments\rust\cargo\git,\environments\rust\cargo\git\*,\environments\rust\cargo\registry,\environments\rust\cargo\registry\*,\environments\rust\rustup\toolchains\stable-x86_64-pc-windows-msvc,\environments\rust\rustup\toolchains\stable-x86_64-pc-windows-msvc\*,\resources\app\extensions\github,\resources\app\extensions\github\*,\resources\app\extensions\microsoft-authentication,\resources\app\extensions\microsoft-authentication\*,\policies,\policies\*,\appx,\appx\*,\data\user-data,\data\user-data\*,\workspace,\workspace\*,\data\extensions\extensions.json,\{#ProductJsonRelativePath},\{#ExeBasename}.exe,\{#ExeBasename}.VisualElementsManifest.xml,\bin,\bin\*"; DestDir: "{code:GetDestDir}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Programs are installed transactionally from installer\system-tools.zip.
+; MCP settings are seeded by the verified updater only when absent; user tools
+; and configuration are never overlaid by an installer-wide recursive copy.
 ; Seed defaults once; upgrades and uninstall must preserve user settings and state.
+Source: "environments\tools\skills\*"; DestDir: "{app}\environments\tools\skills"; Flags: onlyifdoesntexist uninsneveruninstall recursesubdirs createallsubdirs
 Source: "data\user-data\*"; DestDir: "{app}\data\user-data"; Flags: onlyifdoesntexist uninsneveruninstall recursesubdirs createallsubdirs skipifsourcedoesntexist
 Source: "data\extensions\extensions.json"; DestDir: "{app}\data\extensions"; Flags: onlyifdoesntexist uninsneveruninstall
 Source: "workspace\*"; DestDir: "{app}\workspace"; Flags: onlyifdoesntexist uninsneveruninstall recursesubdirs createallsubdirs skipifsourcedoesntexist
@@ -130,6 +134,7 @@ Source: "bin\{#TunnelApplicationName}.exe"; DestDir: "{code:GetDestDir}\bin"; De
 Source: "bin\{#ApplicationName}.cmd"; DestDir: "{code:GetDestDir}\bin"; DestName: "{code:GetBinDirApplicationCmdFilename}"; Flags: ignoreversion
 Source: "bin\{#ApplicationName}"; DestDir: "{code:GetDestDir}\bin"; DestName: "{code:GetBinDirApplicationFilename}"; Flags: ignoreversion
 Source: "bin\octocode-agent.cmd"; DestDir: "{code:GetDestDir}\bin"; Flags: ignoreversion
+Source: "bin\octocode-harness2.cmd"; DestDir: "{code:GetDestDir}\bin"; Flags: ignoreversion
 Source: "{#ProductJsonPath}"; DestDir: "{code:GetDestDir}\{#VersionedResourcesFolder}\resources\app"; Flags: ignoreversion
 #ifdef AppxPackageName
 Source: "appx\{#AppxPackage}"; DestDir: "{code:GetDestDir}\{#VersionedResourcesFolder}\appx"; BeforeInstall: RemoveAppxPackage; Flags: ignoreversion; Check: ShouldUseWindows11ContextMenu
@@ -1334,6 +1339,16 @@ Root: {#EnvironmentRootKey}; Subkey: "Software\Microsoft\Windows\CurrentVersion\
 Root: {#EnvironmentRootKey}; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#ApplicationName}.exe"; ValueType: none; ValueName: "Path"; Flags: deletevalue
 
 [Code]
+var
+  EnvironmentInitializationFailed: Boolean;
+
+function GetCustomSetupExitCode(): Integer;
+begin
+  Result := 0;
+  if EnvironmentInitializationFailed then
+    Result := 10;
+end;
+
 function IsBackgroundUpdate(): Boolean;
 begin
   Result := ExpandConstant('{param:update|false}') <> 'false';
@@ -1504,6 +1519,17 @@ begin
       Result := 'Unable to prepare OctoCode project storage.'
     else if LayoutExitCode <> 0 then
       Result := 'OctoCode project storage validation failed. Existing directories were not overwritten.';
+  end;
+  if Result = '' then
+  begin
+    ExtractTemporaryFile('octocode-validate-tools.ps1');
+    LayoutParameters := '-NoLogo -NoProfile -ExecutionPolicy Bypass -File ' +
+      AddQuotes(ExpandConstant('{tmp}\octocode-validate-tools.ps1')) +
+      ' -AppRoot ' + AddQuotes(ExpandConstant('{app}'));
+    if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), LayoutParameters, '', SW_HIDE, ewWaitUntilTerminated, LayoutExitCode) then
+      Result := 'Unable to validate bundled tool storage.'
+    else if LayoutExitCode <> 0 then
+      Result := 'Bundled tool storage contains an unapproved link. Existing files were preserved.';
   end;
 end;
 
@@ -1806,6 +1832,7 @@ var
   ResultCode: Integer;
   Parameters: string;
 begin
+  EnvironmentInitializationFailed := True;
   Parameters := '-NoLogo -NoProfile -ExecutionPolicy Bypass -File ' +
     AddQuotes(ExpandConstant('{app}\environments\scripts\' + ScriptName)) +
     ' -AppRoot ' + AddQuotes(ExpandConstant('{app}'));
@@ -1817,6 +1844,7 @@ begin
     RaiseException('Unable to start ' + ScriptName);
   if ResultCode <> 0 then
     RaiseException(Format('%s failed with exit code %d', [ScriptName, ResultCode]));
+  EnvironmentInitializationFailed := False;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -1826,7 +1854,8 @@ var
 begin
   if CurStep = ssPostInstall then
   begin
-    RunRequiredEnvironmentScript('initialize.ps1');
+    if IsNotBackgroundUpdate() then
+      RunRequiredEnvironmentScript('initialize.ps1');
     LogContextMenuInstallState();
 
 #ifdef AppxPackageName
@@ -1864,7 +1893,13 @@ begin
       if not SessionEndFileExists() and not CancelFileExists() then begin
         StopTunnelServiceIfNeeded();
         Log('Invoking inno_updater for background update');
-        Exec(ExpandConstant('{app}\{#VersionedResourcesFolder}\tools\inno_updater.exe'), ExpandConstant('"{app}\{#ExeBasename}.exe" ' + BoolToStr(LockFileExists()) + ' "{cm:UpdatingVisualStudioCode}"'), '', SW_SHOW, ewWaitUntilTerminated, UpdateResultCode);
+        if not Exec(ExpandConstant('{app}\{#VersionedResourcesFolder}\tools\inno_updater.exe'), ExpandConstant('"{app}\{#ExeBasename}.exe" ' + BoolToStr(LockFileExists()) + ' "{cm:UpdatingVisualStudioCode}"'), '', SW_SHOW, ewWaitUntilTerminated, UpdateResultCode) then
+          RaiseException('Unable to start the background updater');
+        if UpdateResultCode <> 0 then
+          RaiseException(Format('Background updater failed with exit code %d', [UpdateResultCode]));
+        // Non-versioned updates swap app\_ into place here. Initialize only
+        // after that swap, using the new Python, helpers, metadata and bundle.
+        RunRequiredEnvironmentScript('initialize.ps1');
         DeleteFile(ExpandConstant('{app}\updating_version'));
         Log('inno_updater completed successfully');
         #if "system" == InstallTarget

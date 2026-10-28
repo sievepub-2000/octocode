@@ -19,7 +19,7 @@ const REDIRECT_URL_STABLE = 'https://vscode.dev/redirect';
 const REDIRECT_URL_INSIDERS = 'https://insiders.vscode.dev/redirect';
 
 export interface IGitHubServer {
-	login(scopes: string, signInProvider?: GitHubSocialSignInProvider, extraAuthorizeParameters?: Record<string, string>, existingLogin?: string): Promise<string>;
+	login(scopes: string, signInProvider?: GitHubSocialSignInProvider, extraAuthorizeParameters?: Record<string, string>, existingLogin?: string, useToken?: boolean): Promise<string>;
 	logout(session: vscode.AuthenticationSession): Promise<void>;
 	getUserInfo(token: string): Promise<{ id: string; accountName: string }>;
 	sendAdditionalTelemetryInfo(session: vscode.AuthenticationSession): Promise<void>;
@@ -87,7 +87,7 @@ export class GitHubServer implements IGitHubServer {
 		return this._isNoCorsEnvironment;
 	}
 
-	public async login(scopes: string, signInProvider?: GitHubSocialSignInProvider, extraAuthorizeParameters?: Record<string, string>, existingLogin?: string): Promise<string> {
+	public async login(scopes: string, signInProvider?: GitHubSocialSignInProvider, extraAuthorizeParameters?: Record<string, string>, existingLogin?: string, useToken?: boolean): Promise<string> {
 		this._logger.info(`Logging in for the following scopes: ${scopes}`);
 
 		// Used for showing a friendlier message to the user when the explicitly cancel a flow.
@@ -122,7 +122,8 @@ export class GitHubServer implements IGitHubServer {
 			extensionHost: isNodeEnvironment
 				? this._extensionKind === vscode.ExtensionKind.UI ? ExtensionHost.Local : ExtensionHost.Remote
 				: ExtensionHost.WebWorker,
-			isSupportedClient: supportedClient
+			isSupportedClient: supportedClient,
+			useToken
 		});
 
 
@@ -132,6 +133,7 @@ export class GitHubServer implements IGitHubServer {
 					await promptToContinue(flow.label);
 				}
 				return await flow.trigger({
+					useToken,
 					scopes,
 					callbackUri,
 					nonce,
@@ -156,7 +158,7 @@ export class GitHubServer implements IGitHubServer {
 		this._logger.trace(`Deleting session (${session.id}) from server...`);
 
 		if (!Config.gitHubClientSecret) {
-			this._logger.warn('No client secret configured for GitHub authentication. The token has been deleted with best effort on this system, but we are unable to delete the token on server without the client secret.');
+			this._logger.info('Signed out locally. This public OAuth client cannot revoke the GitHub authorization; manage it in GitHub Settings > Applications.');
 			return;
 		}
 

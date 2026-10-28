@@ -45,7 +45,7 @@ suite('ContextView', () => {
 	});
 
 	test('hide() delays render disposal for close animations', () => {
-		const clock = sinon.useFakeTimers();
+		const clock = sinon.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
 		const container = $('.container');
 		container.classList.add('style-override', 'monaco-enable-motion');
 		const contextView = new ContextView(container, ContextViewDOMPosition.ABSOLUTE);

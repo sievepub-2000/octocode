@@ -197,7 +197,7 @@ suite('IPC, Socket Protocol', () => {
 		const protocol = ds.add(new Protocol(new NodeSocket(socket as Socket)));
 
 		const disposed = sinon.stub();
-		const timers = sinon.useFakeTimers();
+		const timers = sinon.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
 
 		ds.add(toDisposable(() => timers.restore()));
 		ds.add(protocol.onDidDispose(disposed));

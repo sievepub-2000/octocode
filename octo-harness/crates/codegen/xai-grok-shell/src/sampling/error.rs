@@ -217,6 +217,31 @@ pub(crate) fn terminal_error_data(
     data
 }
 
+/// A provider prefill allocation failure permits a later user-requested retry,
+/// without treating memory pressure as a logical context-window overflow.
+pub(crate) fn terminal_error_data_with_code(
+    message: String,
+    http_status: Option<u16>,
+    kind: SamplingErrorKind,
+    code: Option<&ApiErrorCode>,
+) -> serde_json::Value {
+    let mut data = terminal_error_data(message, http_status, kind);
+    if !code.is_some_and(|code| code.as_str() == "prefill_memory_exceeded") {
+        return data;
+    }
+    if data.is_string() {
+        data = serde_json::json!({"message": data});
+    }
+    if let Some(fields) = data.as_object_mut() {
+        fields.insert(
+            "error_code".into(),
+            serde_json::json!("prefill_memory_exceeded"),
+        );
+        fields.insert("recoverable".into(), serde_json::json!(true));
+    }
+    data
+}
+
 /// The raw `error_kind` marker string from `acp::Error.data`, unparsed, for readers with their own vocabulary.
 /// The pager maps an unknown kind to its `Other`, keeping it immune to text recovery.
 pub fn error_kind_str_from_error(err: &acp::Error) -> Option<&str> {
@@ -401,6 +426,25 @@ pub(crate) fn prompt_complete_fields(
 mod tests {
     use super::*;
     use reqwest::StatusCode;
+
+    #[test]
+    fn prefill_memory_terminal_data_keeps_provider_code_and_manual_recovery() {
+        let code = ApiErrorCode::parse("prefill_memory_exceeded");
+        let data = terminal_error_data_with_code(
+            "server memory unavailable".into(),
+            Some(400),
+            SamplingErrorKind::Api,
+            Some(&code),
+        );
+        assert_eq!(data["error_code"], "prefill_memory_exceeded");
+        assert_eq!(data["http_status"], 400);
+        assert_eq!(data["recoverable"], true);
+        assert_eq!(data["message"], "server memory unavailable");
+        assert_eq!(
+            terminal_error_data_with_code("legacy".into(), None, SamplingErrorKind::Api, None),
+            serde_json::json!("legacy")
+        );
+    }
 
     #[test]
     fn rewrite_service_names_is_ascii_case_insensitive() {

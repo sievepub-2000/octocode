@@ -11,8 +11,8 @@
  * at packaging time.
  *
  * This mirrors `build/agent-sdk/` but for the Foundry Local native runtime used
- * by on-device dictation: a prebuilt N-API addon (`foundry_local_napi.node`)
- * plus the Foundry Local Core / onnxruntime / onnxruntime-genai shared
+ * by on-device dictation: two prebuilt N-API addons (node and preload)
+ * plus the Foundry Local / onnxruntime / onnxruntime-genai shared
  * libraries. Rather than downloading those from npm + NuGet at runtime, each
  * platform build job produces its own tarball and uploads it to
  * `main.vscode-cdn.net`; the runtime downloads the single content-addressed
@@ -37,6 +37,17 @@ const ROOT_PACKAGE_JSON = path.join(THIS_DIR, '..', '..', 'package.json');
 
 /** The npm package whose native payload we republish to the CDN. */
 export const SDK_PACKAGE_NAME = 'foundry-local-sdk';
+
+/** SDK 2 exports only its entry point; package metadata is read by real path. */
+export function getSdkRoot(): string {
+	const entry = fileURLToPath(import.meta.resolve(SDK_PACKAGE_NAME));
+	const sdkRoot = path.resolve(path.dirname(entry), '..');
+	const metadata = JSON.parse(fs.readFileSync(path.join(sdkRoot, 'package.json'), 'utf8')) as { name?: string; version?: string };
+	if (metadata.name !== SDK_PACKAGE_NAME || metadata.version !== getRuntimeVersion()) {
+		throw new Error('The installed Foundry SDK does not match the pinned dictation runtime version.');
+	}
+	return sdkRoot;
+}
 
 /**
  * Path segment under the CDN URL and the conceptual id of the runtime. Kept as a

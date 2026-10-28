@@ -11,6 +11,11 @@ import type {
 import type { EnvironmentDescriptor } from "../environments/manifest"
 import { getSystemToolDirectory } from "../environments/tools"
 
+export type GallerySearchPage = {
+	extensions: { id: string; name: string; description?: string; downloads?: number }[]
+	nextCursor?: string
+}
+
 /**
  * The single facade over the managers that own each extension kind.
  *
@@ -38,13 +43,12 @@ export type ExtensionRegistryDependencies = {
 	}
 	modes?: {
 		getCustomModes(): Promise<ModeConfig[]>
-		deleteCustomMode(slug: string): Promise<void>
+		deleteCustomMode(slug: string, source?: "global" | "project"): Promise<void>
 	}
 	vscodeExtensions?: {
 		/** Installed, non-built-in VS Code extensions. */
 		installed(): { id: string; name: string; description?: string }[]
-		/** Marketplace (Open VSX) search; empty query returns nothing. */
-		search(query: string): Promise<{ id: string; name: string; description?: string; downloads?: number }[]>
+		search(query: string, cursor?: string): Promise<GallerySearchPage>
 		install(id: string): Promise<void>
 		uninstall(id: string): Promise<void>
 	}
@@ -56,6 +60,7 @@ export type ExtensionRegistryDependencies = {
 	}
 	community?: {
 		search(kind: "skill" | "mcp", query: string): Promise<ExtensionEntry[]>
+		searchPage?(kind: "skill" | "mcp", query: string, cursor?: string): Promise<ExtensionResult>
 		install(kind: "skill" | "mcp", id: string): Promise<void>
 	}
 }
@@ -72,6 +77,21 @@ export class ExtensionRegistry {
 	async handle(request: ExtensionRequest): Promise<ExtensionResult> {
 		try {
 			if (request.action !== "list") await this.apply(request)
+			if (request.kind === "extension") {
+				const page = await this.listVscodeExtensions(
+					request.page === "installed"
+						? undefined
+						: request.page === "market"
+							? (request.query ?? "")
+							: request.query,
+					request.cursor,
+				)
+				page.entries = page.entries.filter((entry) => request.page !== "installed" || entry.installed)
+				page.entries.sort(
+					(a, b) => Number(b.installed) - Number(a.installed) || (b.rank ?? -1) - (a.rank ?? -1),
+				)
+				return { ...page, requestId: request.requestId }
+			}
 			let entries = await this.list(
 				request.kind,
 				request.page === "installed"
@@ -85,9 +105,20 @@ export class ExtensionRegistry {
 				(request.kind === "skill" || request.kind === "mcp") &&
 				this.deps.community
 			) {
-				const found = await this.deps.community.search(request.kind, request.query ?? "")
-				const installed = new Set(entries.filter((entry) => entry.installed).map((entry) => entry.name))
-				entries = [...entries, ...found.filter((entry) => !installed.has(entry.name))]
+				const page = this.deps.community.searchPage
+					? await this.deps.community.searchPage(request.kind, request.query ?? "", request.cursor)
+					: { entries: await this.deps.community.search(request.kind, request.query ?? "") }
+				const installed = new Set(
+					entries.filter((entry) => entry.installed).flatMap((entry) => [entry.name, entry.id]),
+				)
+				entries = [
+					...entries,
+					...page.entries.filter(
+						(entry) => !installed.has(entry.name) && !installed.has(entry.id.replace(/^community:/, "")),
+					),
+				]
+				entries.sort((a, b) => Number(b.installed) - Number(a.installed) || (b.rank ?? -1) - (a.rank ?? -1))
+				return { entries, requestId: request.requestId, nextCursor: page.nextCursor }
 			}
 			if (request.page === "installed") entries = entries.filter((entry) => entry.installed)
 			return { entries, requestId: request.requestId }
@@ -103,7 +134,7 @@ export class ExtensionRegistry {
 	private async listKind(kind: ExtensionKind, query?: string): Promise<ExtensionEntry[]> {
 		switch (kind) {
 			case "extension":
-				return this.listVscodeExtensions(query)
+				return (await this.listVscodeExtensions(query)).entries
 			case "mcp":
 				return this.listMcp()
 			case "skill":
@@ -155,7 +186,11 @@ export class ExtensionRegistry {
 			scope: skill.source,
 			installed: true,
 			builtIn: bundled.has(skill.name),
-			actions: ["uninstall"],
+			actions: getSystemToolDirectory("skills") && skill.source === "project" ? [] : ["uninstall"],
+			detail:
+				getSystemToolDirectory("skills") && skill.source === "project"
+					? "Project skill: manage in its project directory"
+					: undefined,
 		}))
 		const present = new Set(skills.map((skill) => skill.name))
 		const missing = [...bundled]
@@ -169,7 +204,13 @@ export class ExtensionRegistry {
 				builtIn: true,
 				actions: ["install"],
 			}))
-		return [...installed, ...missing]
+		const roles = (await this.listModes()).map<ExtensionEntry>((role) => ({
+			...role,
+			kind: "skill",
+			id: `mode:${role.id}`,
+			detail: "Agent role",
+		}))
+		return [...installed, ...missing, ...roles]
 	}
 
 	private async listModes(): Promise<ExtensionEntry[]> {
@@ -225,40 +266,45 @@ export class ExtensionRegistry {
 		)
 	}
 
-	private async listVscodeExtensions(query?: string): Promise<ExtensionEntry[]> {
+	private async listVscodeExtensions(query?: string, cursor?: string): Promise<ExtensionResult> {
 		const source = this.deps.vscodeExtensions
-		if (!source) return []
+		if (!source) return { entries: [] }
 		const installed = source.installed()
 		const ids = new Set(installed.map((extension) => extension.id.toLowerCase()))
-		const found = query !== undefined ? await source.search(query.trim()) : []
-		return [
-			...installed.map<ExtensionEntry>((extension) => ({
-				kind: "extension",
-				id: extension.id,
-				name: extension.name,
-				description: extension.description,
-				scope: "global",
-				installed: true,
-				builtIn: false,
-				actions: ["uninstall"],
-			})),
-			...found
-				.filter((extension) => !ids.has(extension.id.toLowerCase()))
-				.map<ExtensionEntry>((extension) => ({
+		const page = query !== undefined ? await source.search(query.trim(), cursor) : undefined
+		const found = page?.extensions ?? []
+		return {
+			nextCursor: page?.nextCursor,
+			entries: [
+				...installed.map<ExtensionEntry>((extension) => ({
 					kind: "extension",
 					id: extension.id,
 					name: extension.name,
 					description: extension.description,
 					scope: "global",
-					installed: false,
+					installed: true,
 					builtIn: false,
-					actions: ["install"],
-					detail:
-						extension.downloads !== undefined
-							? `${extension.downloads.toLocaleString()} downloads`
-							: undefined,
+					actions: ["uninstall"],
 				})),
-		]
+				...found
+					.filter((extension) => !ids.has(extension.id.toLowerCase()))
+					.map<ExtensionEntry>((extension) => ({
+						kind: "extension",
+						id: extension.id,
+						name: extension.name,
+						description: extension.description,
+						rank: extension.downloads,
+						scope: "global",
+						installed: false,
+						builtIn: false,
+						actions: ["install"],
+						detail:
+							extension.downloads !== undefined
+								? `${extension.downloads.toLocaleString()} downloads`
+								: undefined,
+					})),
+			],
+		}
 	}
 
 	private async catalog(type: "mcp" | "mode"): Promise<MarketplaceItem[]> {
@@ -267,11 +313,19 @@ export class ExtensionRegistry {
 
 	private async apply(request: Exclude<ExtensionRequest, { action: "list" }>): Promise<void> {
 		const { action, kind, id, scope: requestedScope } = request
+		if (kind === "skill" && id.startsWith("mode:")) {
+			return this.apply({ ...request, kind: "mode", id: id.slice("mode:".length) })
+		}
 		const scope =
-			(kind === "skill" || kind === "mcp") && getSystemToolDirectory(kind === "skill" ? "skills" : "mcp")
+			requestedScope ??
+			((kind === "skill" || kind === "mcp") && getSystemToolDirectory(kind === "skill" ? "skills" : "mcp")
 				? "global"
-				: requestedScope
+				: undefined)
 		if (action === "install" && id.startsWith("community:") && (kind === "skill" || kind === "mcp")) {
+			if (requestedScope === "project")
+				throw new Error(
+					"Community components use the global system tools directory; project installation is unavailable.",
+				)
 			if (!this.deps.community) throw new Error("Community marketplace is unavailable")
 			return this.deps.community.install(kind, id.slice("community:".length))
 		}
@@ -293,12 +347,18 @@ export class ExtensionRegistry {
 				const skills = this.deps.skills
 				if (!skills) throw unsupported()
 				if (action === "install") {
+					if (requestedScope === "project" && getSystemToolDirectory("skills"))
+						throw new Error(
+							"Bundled skills use the global system tools directory; project installation is unavailable.",
+						)
 					if (!(await skills.bundledSkillNames()).includes(id))
 						throw new Error(`Unknown bundled skill: ${id}`)
 					await skills.installBundledSkills(id)
 					return
 				}
 				if (action !== "uninstall") throw unsupported()
+				if (requestedScope === "project" && getSystemToolDirectory("skills"))
+					throw new Error("Project skills must be managed in their project directory in shared tools mode.")
 				const [mode, name] = id.includes("/") ? id.split("/", 2) : [undefined, id]
 				const match = skills
 					.getAllSkills()
@@ -314,7 +374,7 @@ export class ExtensionRegistry {
 					return
 				}
 				if (action !== "uninstall" || !this.deps.modes) throw unsupported()
-				return this.deps.modes.deleteCustomMode(id)
+				return this.deps.modes.deleteCustomMode(id, scope)
 			}
 			case "extension": {
 				const source = this.deps.vscodeExtensions

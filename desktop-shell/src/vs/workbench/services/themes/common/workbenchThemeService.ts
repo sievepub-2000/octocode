@@ -86,7 +86,7 @@ export function migrateThemeSettingsId(settingsId: string): string {
  * cannot flash a palette the theme is about to replace. Re-run
  * `webview-ui/scripts/generate-vscode-themes.ts` after changing the palette.
  */
-export { COLOR_THEME_DARK_INITIAL_COLORS, COLOR_THEME_LIGHT_INITIAL_COLORS } from './octocodeInitialColors.js';
+export { COLOR_THEME_DARK_INITIAL_COLORS, COLOR_THEME_LIGHT_INITIAL_COLORS, COLOR_THEME_HC_DARK_INITIAL_COLORS, COLOR_THEME_HC_LIGHT_INITIAL_COLORS } from './octocodeInitialColors.js';
 
 export interface IWorkbenchTheme {
 	readonly id: string;

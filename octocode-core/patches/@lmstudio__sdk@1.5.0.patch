@@ -1,0 +1,754 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index e1c435d92db314c6b22303f91566c9b4d3053d93..ad63ac9b49ba6587062c4337400d8d4246d4bec6 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -1,10 +1,9 @@
+ 'use strict';
+ 
+-var zod = require('zod');
++var zod = require('zod/v4');
+ var process$1 = require('process');
+ var chalk = require('chalk');
+ var lmsIsomorphic = require('@lmstudio/lms-isomorphic');
+-var zodToJsonSchema = require('zod-to-json-schema');
+ 
+ function isSignalLike(value) {
+     return (typeof value === "object" &&
+@@ -5036,7 +5035,7 @@ function raceWithAbortSignal(promise, abortSignal) {
+ 
+ const allowableEnvVarKeys = ["HSA_OVERRIDE_GFX_VERSION"];
+ const allowableEnvVarKeysSchema = zod.z.enum(allowableEnvVarKeys);
+-const allowableEnvVarsSchema = zod.z.record(allowableEnvVarKeysSchema, zod.z.string());
++const allowableEnvVarsSchema = zod.z.partialRecord(allowableEnvVarKeysSchema, zod.z.string());
+ 
+ const kebabCaseRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+ const kebabCaseSchema = zod.z.string().regex(kebabCaseRegex);
+@@ -5170,7 +5169,7 @@ const chatMessagePartFileDataSchema = zod.z.object({
+ const functionToolCallRequestSchema = zod.z.object({
+     id: zod.z.string().optional(),
+     type: zod.z.literal("function"),
+-    arguments: zod.z.record(jsonSerializableSchema).optional(),
++    arguments: zod.z.record(zod.z.string(), jsonSerializableSchema).optional(),
+     name: zod.z.string(),
+ });
+ const toolCallRequestSchema = zod.z.discriminatedUnion("type", [
+@@ -5651,10 +5650,10 @@ const contentBlockStyleSchema = zod.z.discriminatedUnion("type", [
+ const llmToolParametersSchema = zod.z.discriminatedUnion("type", [
+     zod.z.object({
+         type: zod.z.literal("object"),
+-        properties: zod.z.record(jsonSerializableSchema),
++        properties: zod.z.record(zod.z.string(), jsonSerializableSchema),
+         required: zod.z.array(zod.z.string()).optional(),
+         additionalProperties: zod.z.boolean().optional(),
+-        $defs: zod.z.record(jsonSerializableSchema).optional(),
++        $defs: zod.z.record(zod.z.string(), jsonSerializableSchema).optional(),
+     }),
+     // add more parameter types here
+     // ...
+@@ -5956,7 +5955,7 @@ const processingUpdateContentBlockAppendToolRequestSchema = zod.z.object({
+     callId: zod.z.number().int(),
+     toolCallRequestId: zod.z.string().optional(),
+     name: zod.z.string(),
+-    parameters: zod.z.record(zod.z.unknown()),
++    parameters: zod.z.record(zod.z.string(), zod.z.unknown()),
+     pluginIdentifier: zod.z.string().optional(),
+ });
+ const processingUpdateContentBlockReplaceToolRequestSchema = zod.z.object({
+@@ -5965,7 +5964,7 @@ const processingUpdateContentBlockReplaceToolRequestSchema = zod.z.object({
+     callId: zod.z.number().int(),
+     toolCallRequestId: zod.z.string().optional(),
+     name: zod.z.string(),
+-    parameters: zod.z.record(zod.z.unknown()),
++    parameters: zod.z.record(zod.z.string(), zod.z.unknown()),
+     pluginIdentifier: zod.z.string().optional(),
+ });
+ const processingUpdateContentBlockReplaceTextSchema = zod.z.object({
+@@ -6099,7 +6098,7 @@ const processingRequestConfirmToolCallSchema = zod.z.object({
+     callId: zod.z.number().int(),
+     pluginIdentifier: zod.z.string().optional(),
+     name: zod.z.string(),
+-    parameters: zod.z.record(zod.z.any()),
++    parameters: zod.z.record(zod.z.string(), zod.z.any()),
+ });
+ const processingRequestTextInputSchema = zod.z.object({
+     type: zod.z.literal("textInput"),
+@@ -6114,7 +6113,7 @@ const processingRequestResponseConfirmToolCallSchema = zod.z.object({
+     result: zod.z.discriminatedUnion("type", [
+         zod.z.object({
+             type: zod.z.literal("allow"),
+-            toolArgsOverride: zod.z.record(zod.z.any()).optional(),
++            toolArgsOverride: zod.z.record(zod.z.string(), zod.z.any()).optional(),
+         }),
+         zod.z.object({
+             type: zod.z.literal("deny"),
+@@ -6758,7 +6757,7 @@ class Validator {
+      * @returns The pretty-printed error in a string
+      */
+     static prettyPrintZod(rootObjectName, error) {
+-        return error.errors
++        return error.issues
+             .map(e => {
+             if (e.path.length === 0) {
+                 return `- ${chalk.redBright(rootObjectName)}: ${e.message}`;
+@@ -11317,27 +11316,27 @@ class SimpleToolCallContext {
+ const functionToolSchema = toolBaseSchema.extend({
+     type: zod.z.literal("function"),
+     parametersSchema: zodSchemaSchema,
+-    checkParameters: zod.z.function(),
+-    implementation: zod.z.function(),
++    checkParameters: zod.z.custom(value => typeof value === "function", "Expected a function"),
++    implementation: zod.z.custom(value => typeof value === "function", "Expected a function"),
+ });
+ const rawFunctionToolSchema = toolBaseSchema.extend({
+     type: zod.z.literal("rawFunction"),
+     parametersSchema: zodSchemaSchema,
+-    checkParameters: zod.z.function(),
+-    implementation: zod.z.function(),
++    checkParameters: zod.z.custom(value => typeof value === "function", "Expected a function"),
++    implementation: zod.z.custom(value => typeof value === "function", "Expected a function"),
+ });
+ const unimplementedRawFunctionToolSchema = toolBaseSchema.extend({
+     type: zod.z.literal("unimplementedRawFunction"),
+     parametersJsonSchema: zodSchemaSchema,
+-    checkParameters: zod.z.function(),
+-    implementation: zod.z.function(),
++    checkParameters: zod.z.custom(value => typeof value === "function", "Expected a function"),
++    implementation: zod.z.custom(value => typeof value === "function", "Expected a function"),
+ });
+ const remoteToolSchema = toolBaseSchema.extend({
+     type: zod.z.literal("remoteTool"),
+     pluginIdentifier: zod.z.string(),
+     parametersJsonSchema: zodSchemaSchema,
+-    checkParameters: zod.z.function(),
+-    implementation: zod.z.function(),
++    checkParameters: zod.z.custom(value => typeof value === "function", "Expected a function"),
++    implementation: zod.z.custom(value => typeof value === "function", "Expected a function"),
+ });
+ zod.z.discriminatedUnion("type", [
+     functionToolSchema,
+@@ -11476,7 +11475,7 @@ function functionToolToLLMTool(tool) {
+         function: {
+             name: tool.name,
+             description: tool.description,
+-            parameters: zodToJsonSchema.zodToJsonSchema(tool.parametersSchema),
++            parameters: zod.z.toJSONSchema(tool.parametersSchema, { target: "draft-7", io: "input" }),
+         },
+     };
+ }
+@@ -14957,7 +14956,7 @@ class DiagnosticsNamespace {
+      */
+     unstable_streamLogs(listener) {
+         const stack = getCurrentStack(1);
+-        this.validator.validateMethodParamOrThrow("client.diagnostics", "unstable_streamLogs", "listener", zod.z.function(), listener, stack);
++        this.validator.validateMethodParamOrThrow("client.diagnostics", "unstable_streamLogs", "listener", zod.z.custom(value => typeof value === "function", "Expected a function"), listener, stack);
+         const channel = this.diagnosticsPort.createChannel("streamLogs", undefined, undefined, {
+             stack,
+         });
+@@ -14982,7 +14981,7 @@ function makeLoadModelOptsSchema(loadModelConfigSchema) {
+         signal: zod.z.instanceof(AbortSignal).optional(),
+         ttl: zod.z.number().optional(),
+         verbose: zod.z.union([zod.z.boolean(), logLevelSchema]).optional(),
+-        onProgress: zod.z.function().optional(),
++        onProgress: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
+     });
+ }
+ /**
+@@ -15469,19 +15468,19 @@ class EmbeddingNamespace extends ModelNamespace {
+ }
+ 
+ const parseDocumentOptsSchema = documentParsingOptsSchema.extend({
+-    onProgress: zod.z.function().optional(),
++    onProgress: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
+     signal: zod.z.instanceof(AbortSignal).optional(),
+ });
+ 
+ const retrievalCallbacksSchema = zod.z.object({
+-    onFileProcessList: zod.z.function().optional(),
+-    onFileProcessingStart: zod.z.function().optional(),
+-    onFileProcessingEnd: zod.z.function().optional(),
+-    onFileProcessingStepStart: zod.z.function().optional(),
+-    onFileProcessingStepProgress: zod.z.function().optional(),
+-    onFileProcessingStepEnd: zod.z.function().optional(),
+-    onSearchingStart: zod.z.function().optional(),
+-    onSearchingEnd: zod.z.function().optional(),
++    onFileProcessList: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onFileProcessingStart: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onFileProcessingEnd: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onFileProcessingStepStart: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onFileProcessingStepProgress: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onFileProcessingStepEnd: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onSearchingStart: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onSearchingEnd: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
+     verbose: zod.z.union([zod.z.boolean(), zod.z.string()]).optional(),
+ });
+ const retrievalOptsSchema = zod.z.object({
+@@ -16231,22 +16230,22 @@ class GuardToolCallController {
+     }
+ }
+ const llmActBaseOptsSchema = zod.z.object({
+-    onFirstToken: zod.z.function().optional(),
+-    onPredictionFragment: zod.z.function().optional(),
+-    onMessage: zod.z.function().optional(),
+-    onRoundStart: zod.z.function().optional(),
+-    onRoundEnd: zod.z.function().optional(),
+-    onPredictionCompleted: zod.z.function().optional(),
+-    onPromptProcessingProgress: zod.z.function().optional(),
+-    onToolCallRequestStart: zod.z.function().optional(),
+-    onToolCallRequestNameReceived: zod.z.function().optional(),
+-    onToolCallRequestArgumentFragmentGenerated: zod.z.function().optional(),
+-    onToolCallRequestEnd: zod.z.function().optional(),
+-    onToolCallRequestFinalized: zod.z.function().optional(),
+-    onToolCallRequestFailure: zod.z.function().optional(),
+-    onToolCallRequestDequeued: zod.z.function().optional(),
+-    guardToolCall: zod.z.function().optional(),
+-    handleInvalidToolRequest: zod.z.function().optional(),
++    onFirstToken: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onPredictionFragment: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onMessage: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onRoundStart: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onRoundEnd: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onPredictionCompleted: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onPromptProcessingProgress: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestStart: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestNameReceived: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestArgumentFragmentGenerated: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestEnd: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestFinalized: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestFailure: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestDequeued: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    guardToolCall: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    handleInvalidToolRequest: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
+     maxPredictionRounds: zod.z.number().int().min(1).optional(),
+     signal: zod.z.instanceof(AbortSignal).optional(),
+     allowParallelToolExecution: zod.z.boolean().optional(),
+@@ -16916,14 +16915,14 @@ class OngoingPrediction extends StreamablePromise {
+ }
+ 
+ const llmPredictionOptsSchema = llmPredictionConfigInputSchema.extend({
+-    onPromptProcessingProgress: zod.z.function().optional(),
+-    onFirstToken: zod.z.function().optional(),
+-    onPredictionFragment: zod.z.function().optional(),
+-    onToolCallRequestStart: zod.z.function().optional(),
+-    onToolCallRequestNameReceived: zod.z.function().optional(),
+-    onToolCallRequestArgumentFragmentGenerated: zod.z.function().optional(),
+-    onToolCallRequestEnd: zod.z.function().optional(),
+-    onToolCallRequestFailure: zod.z.function().optional(),
++    onPromptProcessingProgress: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onFirstToken: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onPredictionFragment: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestStart: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestNameReceived: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestArgumentFragmentGenerated: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestEnd: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestFailure: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
+     signal: zod.z.instanceof(AbortSignal).optional(),
+     preset: zod.z.string().optional(),
+ });
+@@ -16946,12 +16945,12 @@ function splitPredictionOpts(opts) {
+     ];
+ }
+ const llmRespondOptsSchema = llmPredictionOptsSchema.extend({
+-    onMessage: zod.z.function().optional(),
+-    onToolCallRequestStart: zod.z.function().optional(),
+-    onToolCallRequestNameReceived: zod.z.function().optional(),
+-    onToolCallRequestArgumentFragmentGenerated: zod.z.function().optional(),
+-    onToolCallRequestEnd: zod.z.function().optional(),
+-    onToolCallRequestFailure: zod.z.function().optional(),
++    onMessage: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestStart: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestNameReceived: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestArgumentFragmentGenerated: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestEnd: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestFailure: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
+ });
+ /**
+  * Split a llmRespondOpts into its parts.
+@@ -17134,7 +17133,7 @@ class LLMDynamicHandle extends DynamicHandle {
+         if (typeof config.structured?.parse === "function") {
+             structuredField = {
+                 type: "json",
+-                jsonSchema: zodToJsonSchema.zodToJsonSchema(config.structured),
++                jsonSchema: zod.z.toJSONSchema(config.structured, { target: "draft-7", io: "input" }),
+             };
+         }
+         else {
+@@ -17743,9 +17742,9 @@ class OngoingGeneratorPrediction extends StreamablePromise {
+ }
+ 
+ const llmGeneratorPredictionOptsSchema = zod.z.object({
+-    onFirstToken: zod.z.function().optional(),
+-    onPredictionFragment: zod.z.function().optional(),
+-    onMessage: zod.z.function().optional(),
++    onFirstToken: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onPredictionFragment: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onMessage: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
+     signal: zod.z.instanceof(AbortSignal).optional(),
+     pluginConfig: kvConfigSchema.optional(),
+     workingDirectory: zod.z.string().optional(),
+@@ -17966,7 +17965,7 @@ class LLMGeneratorHandle {
+     }
+ }
+ 
+-const generatorSchema = zod.z.function();
++const generatorSchema = zod.z.custom(value => typeof value === "function", "Expected a function");
+ 
+ /**
+  * The base class for all controllers.
+@@ -18937,7 +18936,7 @@ class PluginSelfRegistrationHost {
+      */
+     setPromptPreprocessor(promptPreprocessor) {
+         const stack = getCurrentStack(1);
+-        this.validator.validateMethodParamOrThrow("plugins", "registerPromptPreprocessor", "promptPreprocessor", zod.z.function(), promptPreprocessor, stack);
++        this.validator.validateMethodParamOrThrow("plugins", "registerPromptPreprocessor", "promptPreprocessor", zod.z.custom(value => typeof value === "function", "Expected a function"), promptPreprocessor, stack);
+         const logger = new SimpleLogger(`PromptPreprocessor`, this.rootLogger);
+         logger.info("Register with LM Studio");
+         const tasks = new Map();
+@@ -19026,7 +19025,7 @@ class PluginSelfRegistrationHost {
+      */
+     setPredictionLoopHandler(predictionLoopHandler) {
+         const stack = getCurrentStack(1);
+-        this.validator.validateMethodParamOrThrow("plugins", "setPredictionLoopHandler", "predictionLoopHandler", zod.z.function(), predictionLoopHandler, stack);
++        this.validator.validateMethodParamOrThrow("plugins", "setPredictionLoopHandler", "predictionLoopHandler", zod.z.custom(value => typeof value === "function", "Expected a function"), predictionLoopHandler, stack);
+         const logger = new SimpleLogger(`   PredictionLoopHandler`, this.rootLogger);
+         logger.info("Register with LM Studio");
+         const tasks = new Map();
+@@ -19115,7 +19114,7 @@ class PluginSelfRegistrationHost {
+      */
+     setToolsProvider(toolsProvider) {
+         const stack = getCurrentStack(1);
+-        this.validator.validateMethodParamOrThrow("plugins", "setToolsProvider", "toolsProvider", zod.z.function(), toolsProvider, stack);
++        this.validator.validateMethodParamOrThrow("plugins", "setToolsProvider", "toolsProvider", zod.z.custom(value => typeof value === "function", "Expected a function"), toolsProvider, stack);
+         const logger = new SimpleLogger(`Tools Prvdr.`, this.rootLogger);
+         logger.info("Register with LM Studio");
+         /**
+@@ -19856,8 +19855,8 @@ class PluginsNamespace {
+ }
+ 
+ const artifactDownloadPlannerDownloadOptsSchema = zod.z.object({
+-    onStartFinalizing: zod.z.function().optional(),
+-    onProgress: zod.z.function().optional(),
++    onStartFinalizing: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onProgress: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
+     signal: zod.z.instanceof(AbortSignal).optional(),
+ });
+ /**
+@@ -20023,8 +20022,8 @@ class ArtifactDownloadPlanner {
+ }
+ 
+ const downloadOptsSchema = zod.z.object({
+-    onProgress: zod.z.function().optional(),
+-    onStartFinalizing: zod.z.function().optional(),
++    onProgress: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onStartFinalizing: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
+     signal: zod.z.instanceof(AbortSignal).optional(),
+ });
+ /** @public */
+@@ -20139,8 +20138,8 @@ const downloadArtifactOptsSchema = zod.z.object({
+     name: zod.z.string(),
+     revisionNumber: zod.z.number(),
+     path: zod.z.string(),
+-    onProgress: zod.z.function().optional(),
+-    onStartFinalizing: zod.z.function().optional(),
++    onProgress: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onStartFinalizing: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
+     signal: zod.z.instanceof(AbortSignal).optional(),
+ });
+ const pushArtifactOptsSchema = zod.z.object({
+@@ -20149,10 +20148,10 @@ const pushArtifactOptsSchema = zod.z.object({
+     makePrivate: zod.z.boolean().optional(),
+     writeRevision: zod.z.boolean().optional(),
+     overrides: jsonSerializableSchema.optional(),
+-    onMessage: zod.z.function().optional(),
++    onMessage: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
+ });
+ const ensureAuthenticatedOptsSchema = zod.z.object({
+-    onAuthenticationUrl: zod.z.function(),
++    onAuthenticationUrl: zod.z.custom(value => typeof value === "function", "Expected a function"),
+ });
+ const loginWithPreAuthenticatedKeysOptsSchema = zod.z.object({
+     keyId: zod.z.string(),
+@@ -20165,7 +20164,7 @@ zod.z.object({
+ const createArtifactDownloadPlannerOptsSchema = zod.z.object({
+     owner: zod.z.string(),
+     name: zod.z.string(),
+-    onPlanUpdated: zod.z.function().optional(),
++    onPlanUpdated: zod.z.custom(value => typeof value === "function", "Expected a function").optional(),
+ });
+ /** @public */
+ class RepositoryNamespace {
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 7dedc3e10fda44d6ffd11c5a3d897efddc843b64..6d727189b50c53aabc5b26313f99547cc985db1d 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -1,8 +1,7 @@
+-import { z } from 'zod';
++import { z } from 'zod/v4';
+ import process$1 from 'process';
+ import chalk from 'chalk';
+ import { terminalSize, WebSocket, readFileAsBase64, generateRandomBase64 } from '@lmstudio/lms-isomorphic';
+-import { zodToJsonSchema } from 'zod-to-json-schema';
+ 
+ function isSignalLike(value) {
+     return (typeof value === "object" &&
+@@ -5034,7 +5033,7 @@ function raceWithAbortSignal(promise, abortSignal) {
+ 
+ const allowableEnvVarKeys = ["HSA_OVERRIDE_GFX_VERSION"];
+ const allowableEnvVarKeysSchema = z.enum(allowableEnvVarKeys);
+-const allowableEnvVarsSchema = z.record(allowableEnvVarKeysSchema, z.string());
++const allowableEnvVarsSchema = z.partialRecord(allowableEnvVarKeysSchema, z.string());
+ 
+ const kebabCaseRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+ const kebabCaseSchema = z.string().regex(kebabCaseRegex);
+@@ -5168,7 +5167,7 @@ const chatMessagePartFileDataSchema = z.object({
+ const functionToolCallRequestSchema = z.object({
+     id: z.string().optional(),
+     type: z.literal("function"),
+-    arguments: z.record(jsonSerializableSchema).optional(),
++    arguments: z.record(z.string(), jsonSerializableSchema).optional(),
+     name: z.string(),
+ });
+ const toolCallRequestSchema = z.discriminatedUnion("type", [
+@@ -5649,10 +5648,10 @@ const contentBlockStyleSchema = z.discriminatedUnion("type", [
+ const llmToolParametersSchema = z.discriminatedUnion("type", [
+     z.object({
+         type: z.literal("object"),
+-        properties: z.record(jsonSerializableSchema),
++        properties: z.record(z.string(), jsonSerializableSchema),
+         required: z.array(z.string()).optional(),
+         additionalProperties: z.boolean().optional(),
+-        $defs: z.record(jsonSerializableSchema).optional(),
++        $defs: z.record(z.string(), jsonSerializableSchema).optional(),
+     }),
+     // add more parameter types here
+     // ...
+@@ -5954,7 +5953,7 @@ const processingUpdateContentBlockAppendToolRequestSchema = z.object({
+     callId: z.number().int(),
+     toolCallRequestId: z.string().optional(),
+     name: z.string(),
+-    parameters: z.record(z.unknown()),
++    parameters: z.record(z.string(), z.unknown()),
+     pluginIdentifier: z.string().optional(),
+ });
+ const processingUpdateContentBlockReplaceToolRequestSchema = z.object({
+@@ -5963,7 +5962,7 @@ const processingUpdateContentBlockReplaceToolRequestSchema = z.object({
+     callId: z.number().int(),
+     toolCallRequestId: z.string().optional(),
+     name: z.string(),
+-    parameters: z.record(z.unknown()),
++    parameters: z.record(z.string(), z.unknown()),
+     pluginIdentifier: z.string().optional(),
+ });
+ const processingUpdateContentBlockReplaceTextSchema = z.object({
+@@ -6097,7 +6096,7 @@ const processingRequestConfirmToolCallSchema = z.object({
+     callId: z.number().int(),
+     pluginIdentifier: z.string().optional(),
+     name: z.string(),
+-    parameters: z.record(z.any()),
++    parameters: z.record(z.string(), z.any()),
+ });
+ const processingRequestTextInputSchema = z.object({
+     type: z.literal("textInput"),
+@@ -6112,7 +6111,7 @@ const processingRequestResponseConfirmToolCallSchema = z.object({
+     result: z.discriminatedUnion("type", [
+         z.object({
+             type: z.literal("allow"),
+-            toolArgsOverride: z.record(z.any()).optional(),
++            toolArgsOverride: z.record(z.string(), z.any()).optional(),
+         }),
+         z.object({
+             type: z.literal("deny"),
+@@ -6756,7 +6755,7 @@ class Validator {
+      * @returns The pretty-printed error in a string
+      */
+     static prettyPrintZod(rootObjectName, error) {
+-        return error.errors
++        return error.issues
+             .map(e => {
+             if (e.path.length === 0) {
+                 return `- ${chalk.redBright(rootObjectName)}: ${e.message}`;
+@@ -11315,27 +11314,27 @@ class SimpleToolCallContext {
+ const functionToolSchema = toolBaseSchema.extend({
+     type: z.literal("function"),
+     parametersSchema: zodSchemaSchema,
+-    checkParameters: z.function(),
+-    implementation: z.function(),
++    checkParameters: z.custom(value => typeof value === "function", "Expected a function"),
++    implementation: z.custom(value => typeof value === "function", "Expected a function"),
+ });
+ const rawFunctionToolSchema = toolBaseSchema.extend({
+     type: z.literal("rawFunction"),
+     parametersSchema: zodSchemaSchema,
+-    checkParameters: z.function(),
+-    implementation: z.function(),
++    checkParameters: z.custom(value => typeof value === "function", "Expected a function"),
++    implementation: z.custom(value => typeof value === "function", "Expected a function"),
+ });
+ const unimplementedRawFunctionToolSchema = toolBaseSchema.extend({
+     type: z.literal("unimplementedRawFunction"),
+     parametersJsonSchema: zodSchemaSchema,
+-    checkParameters: z.function(),
+-    implementation: z.function(),
++    checkParameters: z.custom(value => typeof value === "function", "Expected a function"),
++    implementation: z.custom(value => typeof value === "function", "Expected a function"),
+ });
+ const remoteToolSchema = toolBaseSchema.extend({
+     type: z.literal("remoteTool"),
+     pluginIdentifier: z.string(),
+     parametersJsonSchema: zodSchemaSchema,
+-    checkParameters: z.function(),
+-    implementation: z.function(),
++    checkParameters: z.custom(value => typeof value === "function", "Expected a function"),
++    implementation: z.custom(value => typeof value === "function", "Expected a function"),
+ });
+ z.discriminatedUnion("type", [
+     functionToolSchema,
+@@ -11474,7 +11473,7 @@ function functionToolToLLMTool(tool) {
+         function: {
+             name: tool.name,
+             description: tool.description,
+-            parameters: zodToJsonSchema(tool.parametersSchema),
++            parameters: z.toJSONSchema(tool.parametersSchema, { target: "draft-7", io: "input" }),
+         },
+     };
+ }
+@@ -14955,7 +14954,7 @@ class DiagnosticsNamespace {
+      */
+     unstable_streamLogs(listener) {
+         const stack = getCurrentStack(1);
+-        this.validator.validateMethodParamOrThrow("client.diagnostics", "unstable_streamLogs", "listener", z.function(), listener, stack);
++        this.validator.validateMethodParamOrThrow("client.diagnostics", "unstable_streamLogs", "listener", z.custom(value => typeof value === "function", "Expected a function"), listener, stack);
+         const channel = this.diagnosticsPort.createChannel("streamLogs", undefined, undefined, {
+             stack,
+         });
+@@ -14980,7 +14979,7 @@ function makeLoadModelOptsSchema(loadModelConfigSchema) {
+         signal: z.instanceof(AbortSignal).optional(),
+         ttl: z.number().optional(),
+         verbose: z.union([z.boolean(), logLevelSchema]).optional(),
+-        onProgress: z.function().optional(),
++        onProgress: z.custom(value => typeof value === "function", "Expected a function").optional(),
+     });
+ }
+ /**
+@@ -15467,19 +15466,19 @@ class EmbeddingNamespace extends ModelNamespace {
+ }
+ 
+ const parseDocumentOptsSchema = documentParsingOptsSchema.extend({
+-    onProgress: z.function().optional(),
++    onProgress: z.custom(value => typeof value === "function", "Expected a function").optional(),
+     signal: z.instanceof(AbortSignal).optional(),
+ });
+ 
+ const retrievalCallbacksSchema = z.object({
+-    onFileProcessList: z.function().optional(),
+-    onFileProcessingStart: z.function().optional(),
+-    onFileProcessingEnd: z.function().optional(),
+-    onFileProcessingStepStart: z.function().optional(),
+-    onFileProcessingStepProgress: z.function().optional(),
+-    onFileProcessingStepEnd: z.function().optional(),
+-    onSearchingStart: z.function().optional(),
+-    onSearchingEnd: z.function().optional(),
++    onFileProcessList: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onFileProcessingStart: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onFileProcessingEnd: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onFileProcessingStepStart: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onFileProcessingStepProgress: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onFileProcessingStepEnd: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onSearchingStart: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onSearchingEnd: z.custom(value => typeof value === "function", "Expected a function").optional(),
+     verbose: z.union([z.boolean(), z.string()]).optional(),
+ });
+ const retrievalOptsSchema = z.object({
+@@ -16229,22 +16228,22 @@ class GuardToolCallController {
+     }
+ }
+ const llmActBaseOptsSchema = z.object({
+-    onFirstToken: z.function().optional(),
+-    onPredictionFragment: z.function().optional(),
+-    onMessage: z.function().optional(),
+-    onRoundStart: z.function().optional(),
+-    onRoundEnd: z.function().optional(),
+-    onPredictionCompleted: z.function().optional(),
+-    onPromptProcessingProgress: z.function().optional(),
+-    onToolCallRequestStart: z.function().optional(),
+-    onToolCallRequestNameReceived: z.function().optional(),
+-    onToolCallRequestArgumentFragmentGenerated: z.function().optional(),
+-    onToolCallRequestEnd: z.function().optional(),
+-    onToolCallRequestFinalized: z.function().optional(),
+-    onToolCallRequestFailure: z.function().optional(),
+-    onToolCallRequestDequeued: z.function().optional(),
+-    guardToolCall: z.function().optional(),
+-    handleInvalidToolRequest: z.function().optional(),
++    onFirstToken: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onPredictionFragment: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onMessage: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onRoundStart: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onRoundEnd: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onPredictionCompleted: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onPromptProcessingProgress: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestStart: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestNameReceived: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestArgumentFragmentGenerated: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestEnd: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestFinalized: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestFailure: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestDequeued: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    guardToolCall: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    handleInvalidToolRequest: z.custom(value => typeof value === "function", "Expected a function").optional(),
+     maxPredictionRounds: z.number().int().min(1).optional(),
+     signal: z.instanceof(AbortSignal).optional(),
+     allowParallelToolExecution: z.boolean().optional(),
+@@ -16914,14 +16913,14 @@ class OngoingPrediction extends StreamablePromise {
+ }
+ 
+ const llmPredictionOptsSchema = llmPredictionConfigInputSchema.extend({
+-    onPromptProcessingProgress: z.function().optional(),
+-    onFirstToken: z.function().optional(),
+-    onPredictionFragment: z.function().optional(),
+-    onToolCallRequestStart: z.function().optional(),
+-    onToolCallRequestNameReceived: z.function().optional(),
+-    onToolCallRequestArgumentFragmentGenerated: z.function().optional(),
+-    onToolCallRequestEnd: z.function().optional(),
+-    onToolCallRequestFailure: z.function().optional(),
++    onPromptProcessingProgress: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onFirstToken: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onPredictionFragment: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestStart: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestNameReceived: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestArgumentFragmentGenerated: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestEnd: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestFailure: z.custom(value => typeof value === "function", "Expected a function").optional(),
+     signal: z.instanceof(AbortSignal).optional(),
+     preset: z.string().optional(),
+ });
+@@ -16944,12 +16943,12 @@ function splitPredictionOpts(opts) {
+     ];
+ }
+ const llmRespondOptsSchema = llmPredictionOptsSchema.extend({
+-    onMessage: z.function().optional(),
+-    onToolCallRequestStart: z.function().optional(),
+-    onToolCallRequestNameReceived: z.function().optional(),
+-    onToolCallRequestArgumentFragmentGenerated: z.function().optional(),
+-    onToolCallRequestEnd: z.function().optional(),
+-    onToolCallRequestFailure: z.function().optional(),
++    onMessage: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestStart: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestNameReceived: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestArgumentFragmentGenerated: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestEnd: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onToolCallRequestFailure: z.custom(value => typeof value === "function", "Expected a function").optional(),
+ });
+ /**
+  * Split a llmRespondOpts into its parts.
+@@ -17132,7 +17131,7 @@ class LLMDynamicHandle extends DynamicHandle {
+         if (typeof config.structured?.parse === "function") {
+             structuredField = {
+                 type: "json",
+-                jsonSchema: zodToJsonSchema(config.structured),
++                jsonSchema: z.toJSONSchema(config.structured, { target: "draft-7", io: "input" }),
+             };
+         }
+         else {
+@@ -17741,9 +17740,9 @@ class OngoingGeneratorPrediction extends StreamablePromise {
+ }
+ 
+ const llmGeneratorPredictionOptsSchema = z.object({
+-    onFirstToken: z.function().optional(),
+-    onPredictionFragment: z.function().optional(),
+-    onMessage: z.function().optional(),
++    onFirstToken: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onPredictionFragment: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onMessage: z.custom(value => typeof value === "function", "Expected a function").optional(),
+     signal: z.instanceof(AbortSignal).optional(),
+     pluginConfig: kvConfigSchema.optional(),
+     workingDirectory: z.string().optional(),
+@@ -17964,7 +17963,7 @@ class LLMGeneratorHandle {
+     }
+ }
+ 
+-const generatorSchema = z.function();
++const generatorSchema = z.custom(value => typeof value === "function", "Expected a function");
+ 
+ /**
+  * The base class for all controllers.
+@@ -18935,7 +18934,7 @@ class PluginSelfRegistrationHost {
+      */
+     setPromptPreprocessor(promptPreprocessor) {
+         const stack = getCurrentStack(1);
+-        this.validator.validateMethodParamOrThrow("plugins", "registerPromptPreprocessor", "promptPreprocessor", z.function(), promptPreprocessor, stack);
++        this.validator.validateMethodParamOrThrow("plugins", "registerPromptPreprocessor", "promptPreprocessor", z.custom(value => typeof value === "function", "Expected a function"), promptPreprocessor, stack);
+         const logger = new SimpleLogger(`PromptPreprocessor`, this.rootLogger);
+         logger.info("Register with LM Studio");
+         const tasks = new Map();
+@@ -19024,7 +19023,7 @@ class PluginSelfRegistrationHost {
+      */
+     setPredictionLoopHandler(predictionLoopHandler) {
+         const stack = getCurrentStack(1);
+-        this.validator.validateMethodParamOrThrow("plugins", "setPredictionLoopHandler", "predictionLoopHandler", z.function(), predictionLoopHandler, stack);
++        this.validator.validateMethodParamOrThrow("plugins", "setPredictionLoopHandler", "predictionLoopHandler", z.custom(value => typeof value === "function", "Expected a function"), predictionLoopHandler, stack);
+         const logger = new SimpleLogger(`   PredictionLoopHandler`, this.rootLogger);
+         logger.info("Register with LM Studio");
+         const tasks = new Map();
+@@ -19113,7 +19112,7 @@ class PluginSelfRegistrationHost {
+      */
+     setToolsProvider(toolsProvider) {
+         const stack = getCurrentStack(1);
+-        this.validator.validateMethodParamOrThrow("plugins", "setToolsProvider", "toolsProvider", z.function(), toolsProvider, stack);
++        this.validator.validateMethodParamOrThrow("plugins", "setToolsProvider", "toolsProvider", z.custom(value => typeof value === "function", "Expected a function"), toolsProvider, stack);
+         const logger = new SimpleLogger(`Tools Prvdr.`, this.rootLogger);
+         logger.info("Register with LM Studio");
+         /**
+@@ -19854,8 +19853,8 @@ class PluginsNamespace {
+ }
+ 
+ const artifactDownloadPlannerDownloadOptsSchema = z.object({
+-    onStartFinalizing: z.function().optional(),
+-    onProgress: z.function().optional(),
++    onStartFinalizing: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onProgress: z.custom(value => typeof value === "function", "Expected a function").optional(),
+     signal: z.instanceof(AbortSignal).optional(),
+ });
+ /**
+@@ -20021,8 +20020,8 @@ class ArtifactDownloadPlanner {
+ }
+ 
+ const downloadOptsSchema = z.object({
+-    onProgress: z.function().optional(),
+-    onStartFinalizing: z.function().optional(),
++    onProgress: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onStartFinalizing: z.custom(value => typeof value === "function", "Expected a function").optional(),
+     signal: z.instanceof(AbortSignal).optional(),
+ });
+ /** @public */
+@@ -20137,8 +20136,8 @@ const downloadArtifactOptsSchema = z.object({
+     name: z.string(),
+     revisionNumber: z.number(),
+     path: z.string(),
+-    onProgress: z.function().optional(),
+-    onStartFinalizing: z.function().optional(),
++    onProgress: z.custom(value => typeof value === "function", "Expected a function").optional(),
++    onStartFinalizing: z.custom(value => typeof value === "function", "Expected a function").optional(),
+     signal: z.instanceof(AbortSignal).optional(),
+ });
+ const pushArtifactOptsSchema = z.object({
+@@ -20147,10 +20146,10 @@ const pushArtifactOptsSchema = z.object({
+     makePrivate: z.boolean().optional(),
+     writeRevision: z.boolean().optional(),
+     overrides: jsonSerializableSchema.optional(),
+-    onMessage: z.function().optional(),
++    onMessage: z.custom(value => typeof value === "function", "Expected a function").optional(),
+ });
+ const ensureAuthenticatedOptsSchema = z.object({
+-    onAuthenticationUrl: z.function(),
++    onAuthenticationUrl: z.custom(value => typeof value === "function", "Expected a function"),
+ });
+ const loginWithPreAuthenticatedKeysOptsSchema = z.object({
+     keyId: z.string(),
+@@ -20163,7 +20162,7 @@ z.object({
+ const createArtifactDownloadPlannerOptsSchema = z.object({
+     owner: z.string(),
+     name: z.string(),
+-    onPlanUpdated: z.function().optional(),
++    onPlanUpdated: z.custom(value => typeof value === "function", "Expected a function").optional(),
+ });
+ /** @public */
+ class RepositoryNamespace {

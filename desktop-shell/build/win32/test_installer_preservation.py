@@ -25,7 +25,7 @@ assert r"\data\extensions\extensions.json" in general
 assert r"\data\extensions\*," not in general
 assert "users-modify" not in sections["Dirs"]
 assert '"*S-1-5-32-545:(OI)(CI)M"' not in source
-for folder in ("data", "workspace"):
+for folder in ("data", "workspace", "environments"):
     assert "AfterInstall: ProtectPrivateDirectory('" + folder + "')" in sections["Dirs"]
 # WSL is provisioned on demand, outside the installer payload. User-data and
 # workspace preservation above still apply; a WSL seed rule is no longer valid.
@@ -36,4 +36,11 @@ registry = next(line for line in files if line.startswith('Source: "data\\extens
 assert 'onlyifdoesntexist' in registry and 'uninsneveruninstall' in registry
 assert 'if CurUninstallStep <> usUninstall then begin' in source
 assert 'if not CurUninstallStep = usUninstall' not in source
+runner = source.split('procedure RunRequiredEnvironmentScript', 1)[1].split('procedure CurStepChanged', 1)[0]
+assert runner.index('EnvironmentInitializationFailed := True') < runner.index('if not Exec(')
+assert runner.index('EnvironmentInitializationFailed := False') > runner.index('if ResultCode <> 0')
+assert re.search(r'function GetCustomSetupExitCode\(\): Integer;.*?if EnvironmentInitializationFailed then\s+Result := 10;', source, re.S)
+initializer = Path(sys.argv[1]).with_name('octocode-initialize.ps1').read_text(encoding='utf-8-sig')
+assert "if (!$relative) { $access += @('/grant:r', '*S-1-5-32-545:(OI)(CI)RX') }" in initializer
+assert "$relative -eq 'environments'" not in initializer
 print("Installer preservation static contract passed; runtime lifecycle still required.")

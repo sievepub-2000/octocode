@@ -1,5 +1,6 @@
 import type { Mock } from "vitest"
 import * as vscode from "vscode"
+import * as path from "node:path"
 import { ContextProxy } from "../../core/config/ContextProxy"
 import { ClineProvider } from "../../core/webview/ClineProvider"
 
@@ -46,6 +47,7 @@ vi.mock("vscode", () => ({
 	window: {
 		createTextEditorDecorationType: vi.fn().mockReturnValue({ dispose: vi.fn() }),
 		createTerminal: vi.fn().mockReturnValue({ dispose: vi.fn(), show: vi.fn() }),
+		onDidCloseTerminal: vi.fn().mockReturnValue({ dispose: vi.fn() }),
 		createWebviewPanel: vi.fn(),
 		registerWebviewPanelSerializer: vi.fn().mockReturnValue({ dispose: vi.fn() }),
 		tabGroups: { all: [], close: vi.fn().mockResolvedValue(true) },
@@ -294,12 +296,13 @@ describe("registerCommands handlers", () => {
 			webview: { postMessage: vi.fn() },
 		}
 		;(vscode.window.createWebviewPanel as Mock).mockReturnValue(panel)
-		let terminalPty: vscode.Pseudoterminal | undefined
+		let closeTerminal: ((terminal: vscode.Terminal) => void) | undefined
 		const terminal = { dispose: vi.fn(), show: vi.fn() }
-		;(vscode.window.createTerminal as Mock).mockImplementation((options: vscode.ExtensionTerminalOptions) => {
-			terminalPty = options.pty
-			return terminal
+		;(vscode.window.onDidCloseTerminal as Mock).mockImplementation((callback) => {
+			closeTerminal = callback
+			return { dispose: vi.fn() }
 		})
+		;(vscode.window.createTerminal as Mock).mockReturnValue(terminal)
 
 		await handlers["octocode.openChatPanel"]()
 		await handlers["octocode.openArtifactPanel"]()
@@ -324,7 +327,7 @@ describe("registerCommands handlers", () => {
 		})
 		expect(terminal.show).toHaveBeenCalledWith(true)
 
-		terminalPty!.close!()
+		closeTerminal!(terminal as unknown as vscode.Terminal)
 		await Promise.resolve()
 		expect(vscode.window.createTerminal).toHaveBeenCalledTimes(1)
 		expect(vscode.window.createWebviewPanel).toHaveBeenCalledTimes(2)
@@ -333,6 +336,30 @@ describe("registerCommands handlers", () => {
 		await handlers["octocode.openRuntimeTerminal"]()
 		expect(vscode.window.createTerminal).toHaveBeenCalledTimes(2)
 		expect(panel.dispose).not.toHaveBeenCalled()
+	})
+
+	it("keeps manually opened native terminals in the selected conversation", async () => {
+		runtimeEventTerminal.forget()
+		;(vscode.window.createTerminal as Mock).mockImplementation((options: vscode.TerminalOptions) => ({
+			name: options.name,
+			show: vi.fn(),
+			hide: vi.fn(),
+			dispose: vi.fn(),
+		}))
+		const directories = [path.resolve("project-a", "manual-chat-a"), path.resolve("project-b", "manual-chat-b")]
+		try {
+			for (const [index, id] of ["manual-a", "manual-b"].entries()) {
+				runtimeEventTerminal.setSessionWorkingDirectory(id, directories[index])
+				runtimeEventTerminal.setActiveSession(id)
+				await vi.waitFor(() => expect(vscode.window.createTerminal).toHaveBeenCalledTimes(index + 1))
+				await handlers["octocode.openRuntimeTerminal"]()
+			}
+			expect((vscode.window.createTerminal as Mock).mock.calls.map(([options]) => options.cwd)).toEqual(
+				directories,
+			)
+		} finally {
+			runtimeEventTerminal.forget()
+		}
 	})
 
 	it("does not recreate a chat panel while the extension is shutting down", async () => {
@@ -354,15 +381,15 @@ describe("registerCommands handlers", () => {
 	})
 
 	it("does not recreate the execution terminal while the extension is shutting down", async () => {
-		let close: (() => void) | undefined
-		;(vscode.window.createTerminal as Mock).mockImplementation((options: vscode.ExtensionTerminalOptions) => {
-			close = options.pty.close
-			return { dispose: vi.fn(), show: vi.fn() }
+		let close: ((terminal: vscode.Terminal) => void) | undefined
+		;(vscode.window.onDidCloseTerminal as Mock).mockImplementation((callback) => {
+			close = callback
+			return { dispose: vi.fn() }
 		})
 
-		runtimeEventTerminal.reopen(vscode.ViewColumn.Three)
+		const terminal = runtimeEventTerminal.reopen(vscode.ViewColumn.Three)
 		mockContext.subscriptions[0].dispose()
-		close!()
+		close!(terminal)
 		await Promise.resolve()
 
 		expect(vscode.window.createTerminal).toHaveBeenCalledTimes(1)

@@ -6,7 +6,7 @@
 import * as https from 'https';
 import 'mocha';
 import { assertNoRpc } from '../utils';
-import { pki } from 'node-forge';
+import { certPEM, privateKeyPEM } from './proxyCertificate';
 import { AddressInfo } from 'net';
 import * as vscode from 'vscode';
 import { Straightforward, Middleware, RequestContext, ConnectContext, isRequest, isConnect } from 'straightforward';
@@ -19,22 +19,6 @@ import assert from 'assert';
 	});
 
 	test('custom root certificate', async () => {
-		const keys = pki.rsa.generateKeyPair(2048);
-		const cert = pki.createCertificate();
-		cert.publicKey = keys.publicKey;
-		cert.serialNumber = '01';
-		cert.validity.notBefore = new Date();
-		cert.validity.notAfter = new Date();
-		cert.validity.notAfter.setFullYear(cert.validity.notBefore.getFullYear() + 1);
-		const attrs = [{
-			name: 'commonName',
-			value: 'localhost-proxy-test'
-		}];
-		cert.setSubject(attrs);
-		cert.setIssuer(attrs);
-		cert.sign(keys.privateKey);
-		const certPEM = pki.certificateToPem(cert);
-		const privateKeyPEM = pki.privateKeyToPem(keys.privateKey);
 
 		let resolvePort: (port: number) => void;
 		let rejectPort: (err: any) => void;

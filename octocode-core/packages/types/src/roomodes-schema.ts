@@ -5,8 +5,7 @@
  * drift-detection test.
  */
 
-import { z } from "zod"
-import { zodToJsonSchema } from "zod-to-json-schema"
+import { z } from "zod/v4"
 
 import { toolGroups, deprecatedToolGroups } from "./tool.js"
 import { groupOptionsSchema, modeConfigSchema } from "./mode.js"
@@ -45,9 +44,8 @@ const roomodesZodSchema = z
  * Includes metadata fields ($id, title, description).
  */
 export function generateRoomodesJsonSchema(): Record<string, unknown> {
-	const jsonSchema = zodToJsonSchema(roomodesZodSchema, {
-		$refStrategy: "none",
-		target: "jsonSchema7",
+	const jsonSchema = z.toJSONSchema(roomodesZodSchema, {
+		target: "draft-7",
 	}) as Record<string, unknown>
 
 	jsonSchema["$id"] = "https://github.com/RooCodeInc/Roo-Code/blob/main/schemas/roomodes.json"

@@ -1,9 +1,9 @@
 import * as vscode from "vscode"
 import * as path from "node:path"
 import { StringDecoder } from "node:string_decoder"
-import { stripVTControlCharacters } from "node:util"
 
 import { getShell } from "../utils/shell"
+import { getWorkspacePath } from "../utils/path"
 import { t } from "../i18n"
 
 export type RuntimeAgentEvent = {
@@ -18,30 +18,6 @@ const record = (value: unknown): Record<string, unknown> | undefined =>
 
 type TerminalOutput = { bytes?: number[]; delta: boolean; found: boolean; text: string }
 type TerminalExecution = { decoder: StringDecoder; output: string; status: string }
-type InteractiveShell = {
-	kill(): void
-	onData(callback: (data: string) => void): unknown
-	onExit(callback: (event: { exitCode: number }) => void): unknown
-	resize(columns: number, rows: number): void
-	write(data: string): void
-}
-type SpawnInteractiveShell = (dimensions?: vscode.TerminalDimensions, cwd?: string) => InteractiveShell
-
-const spawnInteractiveShell: SpawnInteractiveShell = (dimensions, cwd) => {
-	const nodePty = require(path.join(vscode.env.appRoot, "node_modules.asar", "node-pty")) as {
-		spawn: (file: string, args: string[], options: Record<string, unknown>) => InteractiveShell
-	}
-	const shell = getShell()
-	const args = /(?:powershell|pwsh)(?:\.exe)?$/i.test(shell) ? ["-NoLogo"] : []
-	return nodePty.spawn(shell, args, {
-		cols: dimensions?.columns ?? 120,
-		cwd: cwd ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd(),
-		env: process.env,
-		name: "xterm-256color",
-		rows: dimensions?.rows ?? 30,
-	})
-}
-
 const terminalOutput = (value: unknown): TerminalOutput => {
 	if (typeof value === "string") return { delta: false, found: true, text: value }
 	if (Array.isArray(value) && value.every((item) => Number.isInteger(item) && item >= 0 && item <= 255)) {
@@ -153,16 +129,13 @@ export function runtimeEventArtifactPath(event: RuntimeAgentEvent): string | und
 
 export class RuntimeEventTerminal {
 	private readonly executions = new Map<string, TerminalExecution>()
-	private onDidClose?: () => void
-	private suppressCloseNotification = false
-	private writeEmitter?: vscode.EventEmitter<string>
 	private terminal?: vscode.Terminal
-	private terminalReady = false
+	private closeSubscription?: vscode.Disposable
 	private pendingOutput: string[] = []
 	private workingDirectory?: string
+	private onDidClose?: () => void
+
 	constructor(
-		private readonly createEmitter = () => new vscode.EventEmitter<string>(),
-		private readonly spawnShell = spawnInteractiveShell,
 		private readonly terminalName = t("common:ui.runtimeTerminal"),
 		private readonly sessionScoped = false,
 	) {}
@@ -175,6 +148,10 @@ export class RuntimeEventTerminal {
 		return this.terminal
 	}
 
+	hasWorkingDirectory(): boolean {
+		return Boolean(this.workingDirectory)
+	}
+
 	setWorkingDirectory(directory: string): void {
 		if (!path.isAbsolute(directory)) throw new Error("Session working directory must be absolute")
 		if (this.workingDirectory === directory) return
@@ -182,75 +159,33 @@ export class RuntimeEventTerminal {
 		this.workingDirectory = directory
 	}
 
-	/**
-	 * @param location Where the terminal is hosted. A `ViewColumn` puts it in an
-	 * editor group; `TerminalLocation.Panel` puts it in the bottom panel.
-	 * The OctoCode workbench uses the third editor group (lower right).
-	 */
 	open(location: vscode.ViewColumn | vscode.TerminalLocation): vscode.Terminal {
 		if (this.terminal && this.terminal.exitStatus === undefined) return this.terminal
-		this.terminal = undefined
-		this.terminalReady = false
-		const writeEmitter = this.createEmitter()
-		this.writeEmitter = writeEmitter
-		let shell: InteractiveShell | undefined
-		let readyTimer: ReturnType<typeof setTimeout> | undefined
-		const flushPending = () => {
-			this.terminalReady = true
-			for (const message of this.pendingOutput.splice(0)) writeEmitter.fire(message)
-		}
-		const pty: vscode.Pseudoterminal = {
-			onDidWrite: writeEmitter.event,
-			open: (dimensions) => {
-				try {
-					if (this.sessionScoped && !this.workingDirectory)
-						throw new Error("Session working directory unavailable")
-					const openedShell = this.spawnShell(dimensions, this.workingDirectory)
-					shell = openedShell
-					shell.onData((data) => {
-						writeEmitter.fire(data)
-						// PowerShell redraws its first prompt after resizing the new PTY.
-						// Wait for startup output to settle so that redraw cannot erase queued errors.
-						if (!this.terminalReady && (readyTimer || stripVTControlCharacters(data).trim())) {
-							clearTimeout(readyTimer)
-							readyTimer = setTimeout(flushPending, 50)
-						}
-					})
-					shell.onExit(({ exitCode }) => {
-						if (shell !== openedShell) return
-						shell = undefined
-						writeEmitter.fire(`\r\n[PowerShell exited: ${exitCode}]\r\n`)
-					})
-				} catch (error) {
-					writeEmitter.fire(
-						`\r\n[PowerShell unavailable: ${error instanceof Error ? error.message : String(error)}]\r\n`,
-					)
-					flushPending()
-				}
-			},
-			handleInput: (data) => shell?.write(data),
-			setDimensions: ({ columns, rows }) => shell?.resize(columns, rows),
-			close: () => {
-				clearTimeout(readyTimer)
-				shell?.kill()
-				shell = undefined
-				if (this.terminal === terminal) {
-					this.terminal = undefined
-					this.terminalReady = false
-					this.executions.clear()
-					if (!this.suppressCloseNotification) this.onDidClose?.()
-				}
-			},
-		}
-		const terminal = vscode.window.createTerminal({
+		if (this.sessionScoped && !this.workingDirectory) throw new Error("Session working directory unavailable")
+		this.closeSubscription?.dispose()
+		this.closeSubscription = vscode.window.onDidCloseTerminal((closed) => {
+			if (closed !== this.terminal) return
+			this.terminal = undefined
+			this.executions.clear()
+			this.closeSubscription?.dispose()
+			this.closeSubscription = undefined
+			this.onDidClose?.()
+		})
+		const shell = getShell()
+		this.terminal = vscode.window.createTerminal({
 			name: this.terminalName,
-			pty,
+			// Session owners are recreated on restart; stale restored shells must not share their names.
+			isTransient: true,
+			shellPath: shell,
+			shellArgs: /(?:powershell|pwsh)(?:\.exe)?$/i.test(shell) ? ["-NoLogo"] : [],
+			cwd: this.workingDirectory ?? getWorkspacePath(),
 			location:
 				location === vscode.TerminalLocation.Panel
 					? vscode.TerminalLocation.Panel
 					: { viewColumn: location as vscode.ViewColumn, preserveFocus: true },
 		})
-		return (this.terminal = terminal)
+		for (const message of this.pendingOutput.splice(0)) this.write(message)
+		return this.terminal
 	}
 
 	async show(): Promise<void> {
@@ -261,51 +196,36 @@ export class RuntimeEventTerminal {
 
 	async reportArtifactFailure(name: string, showTerminal = true): Promise<void> {
 		if (showTerminal) await this.show()
-		const message = `\r\n[Artifact] 无法预览文件：${name}。请检查工具返回的实际文件路径。\r\n`
-		this.write(message)
+		this.write(`\r\n[Artifact] 无法预览文件：${name}。请检查工具返回的实际文件路径。\r\n`)
 	}
 
 	private write(message: string): void {
-		if (this.terminalReady) this.writeEmitter?.fire(message)
-		else this.pendingOutput.push(message)
+		if (!this.terminal) {
+			this.pendingOutput.push(message)
+			return
+		}
+		// Display agent output without sending it to the native shell as executable input.
+		void vscode.commands
+			.executeCommand("workbench.action.octocode.writeRuntimeTerminal", this.terminal.name, message)
+			.then(undefined, (error) => console.error("Unable to display OctoCode terminal output", error))
 	}
 
 	async restorePosition(): Promise<void> {
-		if (this.terminal && this.terminal.exitStatus === undefined) {
+		if (this.terminal && this.terminal.exitStatus === undefined)
 			await vscode.commands.executeCommand("workbench.action.octocode.placeRuntimeTerminal", this.terminal.name)
-		}
 	}
 
-	/**
-	 * Forget the terminal without opening another.
-	 *
-	 * Only tests need this, and they need it badly: the terminal is cached on this
-	 * singleton, so one test that opens the workbench leaves the next one unable
-	 * to observe its own `createTerminal` mock — the cached instance is returned
-	 * instead and the mock is never called. That failure names the innocent test.
-	 */
 	forget(): void {
 		const terminal = this.terminal
 		this.terminal = undefined
-		this.terminalReady = false
+		this.closeSubscription?.dispose()
+		this.closeSubscription = undefined
 		this.pendingOutput = []
-		this.suppressCloseNotification = true
-		try {
-			terminal?.dispose()
-		} finally {
-			this.suppressCloseNotification = false
-		}
+		terminal?.dispose()
 	}
 
 	reopen(location: vscode.ViewColumn | vscode.TerminalLocation): vscode.Terminal {
-		const terminal = this.terminal
-		this.terminal = undefined
-		this.suppressCloseNotification = true
-		try {
-			terminal?.dispose()
-		} finally {
-			this.suppressCloseNotification = false
-		}
+		this.forget()
 		return this.open(location)
 	}
 
@@ -324,11 +244,17 @@ export class SessionRuntimeEventTerminals {
 	constructor(
 		private readonly createTerminal = (sessionId?: string) =>
 			new RuntimeEventTerminal(
-				undefined,
-				undefined,
 				sessionId ? `${t("common:ui.runtimeTerminal")} (${sessionId})` : t("common:ui.runtimeTerminal"),
-				true,
+				Boolean(sessionId),
 			),
+		private readonly resolveDirectory = async (sessionId: string): Promise<string | undefined> => {
+			const { getOctoCodeRuntime } = await import("../services/octocode-runtime/OctoCodeRuntime")
+			const result = await getOctoCodeRuntime().call<{ working_directory?: string }>(
+				"session.working_directory",
+				{ id: sessionId },
+			)
+			return result.working_directory
+		},
 	) {
 		this.unassigned = createTerminal()
 	}
@@ -364,7 +290,7 @@ export class SessionRuntimeEventTerminals {
 		if (sessionId === this.activeSessionId) return
 		this.active.currentTerminal()?.hide?.()
 		this.activeSessionId = sessionId
-		void this.show().catch(() => undefined)
+		void this.show().catch((error) => console.error("Unable to open OctoCode session terminal", error))
 	}
 
 	releaseSession(sessionId: string): void {
@@ -381,7 +307,14 @@ export class SessionRuntimeEventTerminals {
 
 	async show(): Promise<void> {
 		const sessionId = this.activeSessionId
+
 		const owner = this.active
+		if (sessionId && !owner.hasWorkingDirectory()) {
+			const directory = await this.resolveDirectory(sessionId)
+			if (this.activeSessionId !== sessionId || this.releasedSessions.has(sessionId)) return
+			if (!directory) throw new Error("Session working directory unavailable")
+			owner.setWorkingDirectory(directory)
+		}
 		const terminal = owner.open(vscode.ViewColumn.Three)
 		await owner.restorePosition()
 		if (this.activeSessionId === sessionId) terminal.show(true)

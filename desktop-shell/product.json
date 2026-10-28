@@ -3,6 +3,7 @@
 		"companyName": "OctoCode"
 	},
 	"nameShort": "OctoCode",
+	"vscodeApiVersion": "1.132.4",
 	"nameLong": "OctoCode",
 	"applicationName": "OctoCode",
 	"dataFolderName": ".octocode",
@@ -181,6 +182,6 @@
 		}
 	],
 	"builtInExtensionsEnabledWithAutoUpdates": [],
-	"updateUrl": "https://updates.octocode.invalid",
+	"updateUrl": "https://api.github.com/repos/sievepub-2000/octocode/releases/latest",
 	"quality": "stable"
 }

@@ -1,6 +1,6 @@
-use super::{park_blocking_workers, release_parked_workers, *};
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use super::*;
+#[cfg(target_os = "linux")]
+use std::sync::{Arc, atomic::AtomicBool};
 use std::time::{Duration, Instant};
 
 fn nz(n: usize) -> NonZeroUsize {

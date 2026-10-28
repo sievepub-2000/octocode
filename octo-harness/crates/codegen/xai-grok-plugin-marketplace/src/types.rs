@@ -225,10 +225,10 @@ mod tests {
 
     #[test]
     fn marketplace_relative_path_join_under_rejects_symlink_escape() {
-        let dir = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
         #[cfg(unix)]
         {
+            let dir = tempfile::tempdir().unwrap();
+            let outside = tempfile::tempdir().unwrap();
             std::os::unix::fs::symlink(outside.path(), dir.path().join("escape")).unwrap();
             let path = MarketplaceRelativePath::parse("escape").unwrap();
             assert_eq!(
@@ -240,10 +240,10 @@ mod tests {
 
     #[test]
     fn marketplace_relative_path_join_under_rejects_symlink_ancestor_escape() {
-        let dir = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
         #[cfg(unix)]
         {
+            let dir = tempfile::tempdir().unwrap();
+            let outside = tempfile::tempdir().unwrap();
             std::os::unix::fs::symlink(outside.path(), dir.path().join("plugins")).unwrap();
             let path = MarketplaceRelativePath::parse("plugins/evil").unwrap();
             assert_eq!(

@@ -69,17 +69,24 @@ function parseNoticeFile(filePath: string): NoticeEntry[] {
 		// Validate this looks like a real package header, not license prose
 		// following a decorative dash line inside a LICENSE body.
 		if (!isPackageHeader(headerLine)) {
+			// Decorative separators belong to the preceding license body. Node's
+			// LICENSE includes embedded notices that must survive the merge intact.
+			if (entries.length > 0) {
+				entries[entries.length - 1].licenseText += `\n${SEPARATOR}\n${block}`;
+			}
 			continue;
 		}
 
-		const match = headerLine.match(/^(.+?)\s+([\d][^\s]*)\s+-\s+(.+)$/);
+		const match = headerLine.match(/^(.+?)\s+(\d{1,2} [A-Za-z]+ \d{4})\s+-\s+(.+)$/)
+			?? headerLine.match(/^(.+?)\s+(\S+ \([^)]*\))\s+-\s+(.+)$/)
+			?? headerLine.match(/^(.+?)\s+([\d][^\s]*|[a-f0-9]{7,40})(?:\s+-\s+(.+))?$/);
 		let name: string, version: string, license: string;
 		let url = '';
 
 		if (match) {
 			name = match[1];
 			version = match[2];
-			license = match[3];
+			license = match[3] || '';
 		} else {
 			const match2 = headerLine.match(/^(.+?)\s+-\s+(.+)$/);
 			if (match2) {
@@ -455,6 +462,7 @@ required to debug changes to any libraries licensed under the GNU Lesser General
 	}
 
 	output += '\n' + SEPARATOR + '\n';
+	output = output.replace(/\r\n/g, '\n').replace(/[ \t]+$/gm, '');
 
 	try {
 		fs.writeFileSync(outputPath, output, 'utf8');

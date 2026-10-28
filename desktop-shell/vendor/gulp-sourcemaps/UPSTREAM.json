@@ -1,0 +1,18 @@
+{
+  "package": "gulp-sourcemaps",
+  "version": "3.0.0",
+  "resolved": "https://registry.npmjs.org/gulp-sourcemaps/-/gulp-sourcemaps-3.0.0.tgz",
+  "integrity": "sha512-RqvUckJkuYqy4VaIH60RMal4ZtG0IbQ6PXMNkNsshEGJ9cldUPRb/YCgboYae+CLAs1HQNb4ADTKCx65HInquQ==",
+  "originalFiles": {
+    "index.js": "cfa7ccef9489328d3d014ab553004106e80f3fe47bb908f782410479b09cb441",
+    "LICENSE.md": "15df22dd3f37d2961259236686e3d3ebbdfaf98ea51c4424a54e994c432d6762",
+    "package.json": "9a32c5b36f4a906aee6b9a84e8b0f09f5928e6dbf9cd10a677ee3ed6b6c2566f",
+    "README.md": "8800b74cef8bf7083375506d537f4ecfb04601e101eeb6e682b7929a634c7f1b",
+    "src/debug.js": "949d876c5a63bb34c45ba2b9ac826c89e3ebcd042935d8bb43e7152e5a894db1",
+    "src/init/index.internals.js": "64a5ecc2784b5412dc1d430e4a8362763caf312378ca7ee2bf7d7932552add4f",
+    "src/init/index.js": "c61ad2e302aefa3543f94b083c2ed6630cdee3765031d996636a8415c46ecea1",
+    "src/utils.js": "14d1d2467083bfb0abfa3cde78e2e4cec02b823e2ab106de7f5756a87d646860",
+    "src/write/index.internals.js": "8c756d5d11dd6384d44d04109feb3daf48345b9b7e634745d8604732c385ed67",
+    "src/write/index.js": "344ec4180d857202145c21e3826da1551128431cd984a304dbbce5685c54eca3"
+  }
+}

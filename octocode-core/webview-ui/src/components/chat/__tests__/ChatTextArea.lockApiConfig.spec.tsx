@@ -5,6 +5,21 @@ import { useExtensionState } from "@src/context/ExtensionStateContext"
 import { vscode } from "@src/utils/vscode"
 
 import { ChatTextArea } from "../ChatTextArea"
+import type { ProviderSettings } from "@roo-code/types"
+
+vi.mock("../ThinkingTierPicker", () => ({
+	ThinkingTierPicker: ({
+		apiConfiguration,
+		onChange,
+	}: {
+		apiConfiguration: ProviderSettings
+		onChange: (settings: Pick<ProviderSettings, "reasoningEffort">) => void
+	}) => (
+		<button aria-label="test thinking" onClick={() => onChange({ reasoningEffort: "high" })}>
+			{apiConfiguration.apiProvider}
+		</button>
+	),
+}))
 
 vi.mock("@src/utils/vscode", () => ({
 	vscode: {
@@ -43,7 +58,7 @@ describe("ChatTextArea - lockApiConfigAcrossModes toggle", () => {
 	const defaultState = {
 		filePaths: [],
 		openedTabs: [],
-		apiConfiguration: { apiProvider: "anthropic" },
+		apiConfiguration: { apiProvider: "anthropic" as const },
 		cwd: "/test/workspace",
 		listApiConfigMeta: [{ id: "default", name: "Default", modelId: "claude-3" }],
 		currentApiConfigName: "Default",
@@ -111,6 +126,21 @@ describe("ChatTextArea - lockApiConfigAcrossModes toggle", () => {
 	})
 
 	describe("interaction", () => {
+		it("edits reasoning on the session profile without copying the global model into it", () => {
+			vi.mocked(useExtensionState, { partial: true }).mockReturnValue({
+				...defaultState,
+				sessionApiConfigName: "Session",
+				sessionApiConfiguration: { apiProvider: "openai", openAiModelId: "session-model" },
+			})
+			render(<ChatTextArea {...defaultProps} />)
+			fireEvent.click(screen.getByRole("button", { name: "test thinking" }))
+			expect(mockPostMessage).toHaveBeenCalledWith({
+				type: "upsertApiConfiguration",
+				text: "Session",
+				apiConfiguration: { apiProvider: "openai", openAiModelId: "session-model", reasoningEffort: "high" },
+				activate: false,
+			})
+		})
 		it("posts lockApiConfigAcrossModes=true message when locking", () => {
 			;(useExtensionState as ReturnType<typeof vi.fn>).mockReturnValue({
 				...defaultState,

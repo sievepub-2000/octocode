@@ -49,7 +49,7 @@ suite('PolicyTelemetryContribution', () => {
 	teardown(() => sinon.restore());
 
 	function createContribution(policyService: TestPolicyService): { events: { name: string; data: unknown }[]; clock: sinon.SinonFakeTimers } {
-		const clock = sinon.useFakeTimers();
+		const clock = sinon.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
 		const events: { name: string; data: unknown }[] = [];
 		const telemetryService = {
 			publicLog2: (name: string, data: unknown) => { events.push({ name, data }); },

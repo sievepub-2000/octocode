@@ -5,6 +5,7 @@
 
 const cp = require('child_process');
 const path = require('path');
+const semver = require('semver');
 
 const moduleNames = [
 	'@xterm/xterm',
@@ -33,13 +34,25 @@ function getLatestModuleVersion(moduleName) {
 		cp.exec(`npm view ${moduleName} versions --json`, { cwd: vscodeDir }, (err, stdout, stderr) => {
 			if (err) {
 				reject(err);
+				return;
 			}
-			let versions = JSON.parse(stdout);
+			let versions;
+			try {
+				versions = JSON.parse(stdout);
+			} catch (error) {
+				reject(error);
+				return;
+			}
 			// Fix format if there is only a single version published
 			if (typeof versions === 'string') {
 				versions = [versions];
 			}
-			resolve(versions[versions.length - 1]);
+			const latest = Array.isArray(versions) ? versions[versions.length - 1] : undefined;
+			if (typeof latest !== 'string' || semver.valid(latest) !== latest) {
+				reject(new Error('npm returned an invalid package version'));
+				return;
+			}
+			resolve(latest);
 		});
 	});
 }

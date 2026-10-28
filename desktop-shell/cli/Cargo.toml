@@ -4,6 +4,15 @@ version = "0.1.0"
 edition = "2021"
 default-run = "code"
 
+[workspace]
+members = ["vendor/tunnels"]
+default-members = ["."]
+exclude = ["vendor/russh", "vendor/ssh-key", "vendor/openssl-sys", "vendor/openssl-src"]
+
+[patch.crates-io]
+ssh-key = { path = "vendor/ssh-key" }
+openssl-sys = { path = "vendor/openssl-sys" }
+
 [lib]
 name = "cli"
 path = "src/lib.rs"
@@ -19,7 +28,7 @@ reqwest = { version = "0.13", default-features = false, features = ["json", "str
 tokio = { version = "1.52", features = ["full"] }
 tokio-util = { version = "0.7.8", features = ["compat", "codec"] }
 flate2 = { version = "1.0.26", default-features = false, features = ["zlib"] }
-zip = { version = "0.6.6", default-features = false, features = ["time", "deflate-zlib"] }
+zip = { version = "9", default-features = false, features = ["time", "deflate-flate2-zlib"] }
 regex = "1.8.3"
 sysinfo = { version = "0.29.0", default-features = false }
 serde = { version = "1.0.163", features = ["derive"] }
@@ -33,14 +42,14 @@ jiff = { version = "0.2", default-features = false, features = ["std", "serde"] 
 http = "1"
 gethostname = "0.4.3"
 libc = "0.2.144"
-tunnels = { git = "https://github.com/microsoft/dev-tunnels", rev = "64048c1409ff56cb958b879de7ea069ec71edc8b", default-features = false, features = ["connections"] }
-keyring = { version = "2.0.3", default-features = false, features = ["linux-secret-service-rt-tokio-crypto-openssl", "platform-windows", "platform-macos", "linux-keyutils"] }
+tunnels = { path = "vendor/tunnels", default-features = false, features = ["connections"] }
+keyring-core = "1"
 dialoguer = "0.10.4"
 hyper = { version = "1", features = ["server", "http1", "client"] }
 hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }
 http-body-util = "0.1"
 tokio-tungstenite = { version = "0.29", features = ["native-tls"] }
-indicatif = "0.17.4"
+indicatif = "0.18"
 tempfile = "3.5.0"
 clap_lex = "1"
 url = "2.5.4"
@@ -65,20 +74,21 @@ serde_json = "1.0.96"
 winresource = "0.1"
 
 [target.'cfg(windows)'.dependencies]
+windows-native-keyring-store = "1"
 winreg = "0.56"
 winapi = "0.3.9"
 windows-sys = { version = "0.61", features = ["Win32_System_Console", "Win32_UI_Input_KeyboardAndMouse"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "1", features = ["keychain"] }
 core-foundation = "0.9.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-zbus = { version = "3.13.1", default-features = false, features = ["tokio"] }
+dbus-secret-service-keyring-store = { version = "1", features = ["crypto-openssl", "vendored"] }
+zbus = { version = "6", default-features = false, features = ["tokio"] }
 
-[patch.crates-io]
-russh = { git = "https://github.com/microsoft/vscode-russh", branch = "main" }
-russh-cryptovec = { git = "https://github.com/microsoft/vscode-russh", branch = "main" }
-russh-keys = { git = "https://github.com/microsoft/vscode-russh", branch = "main" }
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Security_Credentials"] }
 
 [profile.release]
 strip = true

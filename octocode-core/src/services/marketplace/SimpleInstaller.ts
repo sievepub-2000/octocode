@@ -9,6 +9,7 @@ import { safeWriteJson } from "../../utils/safeWriteJson"
 import type { CustomModesManager } from "../../core/config/CustomModesManager"
 import { missingBundledMcpDependencies } from "./bundledMcpDependencies"
 import { getSystemToolDirectory } from "../environments/tools"
+import { ServerConfigSchema } from "../mcp/server-config"
 
 export interface InstallOptions extends InstallMarketplaceItemOptions {
 	target: "project" | "global"
@@ -233,9 +234,10 @@ export class SimpleInstaller {
 
 		const filePath = await this.getMcpFilePath(target)
 		const mcpData = JSON.parse(contentToUse)
-		if (!mcpData?.command || mcpData.url || ["sse", "streamable-http"].includes(mcpData.type)) {
-			throw new Error("Only fully local command-based MCP servers are allowed")
-		}
+		const normalized = ServerConfigSchema.parse(mcpData)
+		if (mcpData.url) mcpData.type = normalized.type
+		if (mcpData.url && new URL(mcpData.url).protocol !== "https:")
+			throw new Error("Marketplace remote MCP servers require HTTPS")
 
 		// Read existing file or create new structure
 		let existingData: any = { mcpServers: {} }
@@ -343,7 +345,7 @@ export class SimpleInstaller {
 
 		// Use CustomModesManager to delete the mode configuration
 		// This also handles rules folder deletion
-		await this.customModesManager.deleteCustomMode(modeSlug, true)
+		await this.customModesManager.deleteCustomMode(modeSlug, true, target)
 	}
 
 	private async removeMcp(item: MarketplaceItem, target: "project" | "global"): Promise<void> {
@@ -390,6 +392,10 @@ export class SimpleInstaller {
 	private async getMcpFilePath(target: "project" | "global"): Promise<string> {
 		const systemRoot = getSystemToolDirectory("mcp")
 		if (systemRoot) {
+			if (target === "project")
+				throw new Error(
+					"Project-scoped MCP configuration is unavailable in shared tools mode; use the global component market.",
+				)
 			await fs.mkdir(systemRoot, { recursive: true })
 			return path.join(systemRoot, GlobalFileNames.mcpSettings)
 		}

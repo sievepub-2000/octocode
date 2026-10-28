@@ -3,6 +3,14 @@ import { describe, expect, it, vi } from "vitest"
 import { withRetries } from "../node-host"
 
 describe("toolchain download retries", () => {
+	it("retries an idle download timeout", async () => {
+		const work = vi
+			.fn<() => Promise<string>>()
+			.mockRejectedValueOnce(new Error("Python download timed out"))
+			.mockResolvedValueOnce("ready")
+		await expect(withRetries("Python download", work, 3, 1)).resolves.toBe("ready")
+		expect(work).toHaveBeenCalledTimes(2)
+	})
 	it("retries a transient network failure and returns the eventual result", async () => {
 		const work = vi
 			.fn<() => Promise<string>>()

@@ -24,6 +24,12 @@ interface ApiConfigManagerProps {
 	onDeleteConfig: (configName: string) => void
 	onRenameConfig: (oldName: string, newName: string) => void
 	onUpsertConfig: (configName: string) => void
+	// Creating a profile must start from a blank configuration: the API key is
+	// stored encrypted, so the value rendered in the webview is a masked
+	// placeholder, not the real secret. Inheriting the current apiConfiguration
+	// here would silently persist that placeholder (and the old model id) into
+	// the new profile.
+	onCreateConfig: (configName: string) => void
 }
 
 const ApiConfigManager = ({
@@ -33,7 +39,7 @@ const ApiConfigManager = ({
 	onSelectConfig,
 	onDeleteConfig,
 	onRenameConfig,
-	onUpsertConfig,
+	onCreateConfig,
 }: ApiConfigManagerProps) => {
 	const { t } = useAppTranslation()
 
@@ -167,7 +173,9 @@ const ApiConfigManager = ({
 			return
 		}
 
-		onUpsertConfig(trimmedValue)
+		// Blank-slate creation: send no inherited fields at all. The user picks
+		// the provider, model and credentials explicitly in the fresh form.
+		onCreateConfig(trimmedValue)
 		resetCreateState()
 	}
 

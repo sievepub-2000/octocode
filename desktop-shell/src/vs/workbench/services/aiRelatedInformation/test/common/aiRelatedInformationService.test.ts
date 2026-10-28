@@ -70,6 +70,7 @@ suite('AiRelatedInformationService', () => {
 
 	test('should return empty array on timeout', async () => {
 		const clock = sinon.useFakeTimers({
+			toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'],
 			shouldAdvanceTime: true,
 		});
 		const provider: IAiRelatedInformationProvider = {

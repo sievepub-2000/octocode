@@ -19,6 +19,7 @@ interface IGitHubDeviceCodeResponse {
 	device_code: string;
 	user_code: string;
 	verification_uri: string;
+	expires_in: number;
 	interval: number;
 }
 
@@ -58,9 +59,11 @@ export interface IFlowQuery {
 	target: GitHubTarget;
 	extensionHost: ExtensionHost;
 	isSupportedClient: boolean;
+	useToken?: boolean;
 }
 
 interface IFlowTriggerOptions {
+	useToken?: boolean;
 	/**
 	 * The scopes to request for the OAuth flow.
 	 */
@@ -402,8 +405,7 @@ class DeviceCodeFlow implements IFlow {
 
 		// Get initial device code
 		const uri = baseUri.with({
-			path: '/login/device/code',
-			query: `client_id=${Config.gitHubClientId}&scope=${scopes}`
+			path: '/login/device/code'
 		});
 		const result = await fetching(uri.toString(true), {
 			logger,
@@ -411,14 +413,21 @@ class DeviceCodeFlow implements IFlow {
 			expectJSON: true,
 			method: 'POST',
 			headers: {
-				Accept: 'application/json'
-			}
+				Accept: 'application/json',
+				'Content-Type': 'application/x-www-form-urlencoded'
+			},
+			body: new URLSearchParams({ client_id: Config.gitHubClientId, scope: scopes }).toString()
 		});
 		if (!result.ok) {
 			throw new Error(`Failed to get one-time code: ${await result.text()}`);
 		}
 
 		const json = await result.json() as IGitHubDeviceCodeResponse;
+		const expiresAt = Date.now() + json.expires_in * 1000;
+		if (!Number.isSafeInteger(json.expires_in) || json.expires_in <= 0 || !Number.isSafeInteger(expiresAt)
+			|| !Number.isSafeInteger(json.interval) || json.interval <= 0) {
+			throw new Error('Invalid device authorization lifetime or polling interval');
+		}
 
 		const button = l10n.t('Copy & Continue to Browser');
 		const modalResult = await window.showInformationMessage(
@@ -450,13 +459,14 @@ class DeviceCodeFlow implements IFlow {
 		const uriToOpen = await env.asExternalUri(open);
 		await env.openExternal(uriToOpen);
 
-		return await this.waitForDeviceCodeAccessToken(logger, baseUri, json);
+		return await this.waitForDeviceCodeAccessToken(logger, baseUri, json, expiresAt);
 	}
 
 	private async waitForDeviceCodeAccessToken(
 		logger: Log,
 		baseUri: Uri,
 		json: IGitHubDeviceCodeResponse,
+		expiresAt: number,
 	): Promise<string> {
 		return await window.withProgress<string>({
 			location: ProgressLocation.Notification,
@@ -471,16 +481,17 @@ class DeviceCodeFlow implements IFlow {
 			})
 		}, async (_, token) => {
 			const refreshTokenUri = baseUri.with({
-				path: '/login/oauth/access_token',
-				query: `client_id=${Config.gitHubClientId}&device_code=${json.device_code}&grant_type=urn:ietf:params:oauth:grant-type:device_code`
+				path: '/login/oauth/access_token'
 			});
 
-			// Try for 2 minutes
-			const attempts = 120 / json.interval;
-			for (let i = 0; i < attempts; i++) {
-				await new Promise(resolve => setTimeout(resolve, json.interval * 1000));
+			let interval = json.interval;
+			while (Date.now() < expiresAt) {
+				await new Promise(resolve => setTimeout(resolve, Math.min(interval * 1000, expiresAt - Date.now())));
 				if (token.isCancellationRequested) {
 					throw new Error(USER_CANCELLATION_ERROR);
+				}
+				if (Date.now() >= expiresAt) {
+					break;
 				}
 				let accessTokenResult;
 				try {
@@ -490,8 +501,10 @@ class DeviceCodeFlow implements IFlow {
 						expectJSON: true,
 						method: 'POST',
 						headers: {
-							Accept: 'application/json'
-						}
+							Accept: 'application/json',
+							'Content-Type': 'application/x-www-form-urlencoded'
+						},
+						body: new URLSearchParams({ client_id: Config.gitHubClientId, device_code: json.device_code, grant_type: 'urn:ietf:params:oauth:grant-type:device_code' }).toString()
 					});
 				} catch {
 					continue;
@@ -505,6 +518,16 @@ class DeviceCodeFlow implements IFlow {
 
 				if (accessTokenJson.error === 'authorization_pending') {
 					continue;
+				}
+				if (accessTokenJson.error === 'slow_down') {
+					interval = Math.max(interval + 5, Number.isSafeInteger(accessTokenJson.interval) ? accessTokenJson.interval : 0);
+					continue;
+				}
+				if (accessTokenJson.error === 'expired_token' || accessTokenJson.error === 'token_expired') {
+					throw new Error(TIMED_OUT_ERROR);
+				}
+				if (accessTokenJson.error === 'access_denied') {
+					throw new Error(USER_CANCELLATION_ERROR);
 				}
 
 				if (accessTokenJson.error) {
@@ -534,26 +557,31 @@ class PatFlow implements IFlow {
 		supportsUnsupportedClients: true
 	};
 
-	async trigger({ scopes, baseUri, logger, enterpriseUri }: IFlowTriggerOptions) {
+	async trigger({ scopes, baseUri, logger, enterpriseUri, useToken }: IFlowTriggerOptions) {
 		logger.info(`Trying to retrieve PAT... (${scopes})`);
 
-		const button = l10n.t('Continue to GitHub');
-		const modalResult = await window.showInformationMessage(
-			l10n.t('Continue to GitHub to create a Personal Access Token (PAT)'),
-			{
-				modal: true,
-				detail: l10n.t('To finish authenticating, navigate to GitHub to create a PAT then paste the PAT into the input box.')
-			}, button);
+		if (!useToken) {
+			const button = l10n.t('Continue to GitHub');
+			const modalResult = await window.showInformationMessage(
+				l10n.t('Continue to GitHub to create a Personal Access Token (PAT)'),
+				{
+					modal: true,
+					detail: l10n.t('To finish authenticating, navigate to GitHub to create a PAT then paste the PAT into the input box.')
+				}, button);
 
-		if (modalResult !== button) {
-			throw new Error(USER_CANCELLATION_ERROR);
+			if (modalResult !== button) {
+				throw new Error(USER_CANCELLATION_ERROR);
+			}
+
+			const description = `${env.appName} (${scopes})`;
+			const uriToOpen = await env.asExternalUri(baseUri.with({ path: '/settings/tokens/new', query: `description=${description}&scopes=${scopes.split(' ').join(',')}` }));
+			await env.openExternal(uriToOpen);
 		}
-
-		const description = `${env.appName} (${scopes})`;
-		const uriToOpen = await env.asExternalUri(baseUri.with({ path: '/settings/tokens/new', query: `description=${description}&scopes=${scopes.split(' ').join(',')}` }));
-		await env.openExternal(uriToOpen);
-		const token = await window.showInputBox({ placeHolder: `ghp_1a2b3c4...`, prompt: `GitHub Personal Access Token - ${scopes}`, ignoreFocusOut: true });
+		const token = await window.showInputBox({ placeHolder: `ghp_1a2b3c4...`, prompt: `GitHub Personal Access Token - ${scopes}`, ignoreFocusOut: true, password: true });
 		if (!token) { throw new Error(USER_CANCELLATION_ERROR); }
+		if (!/^[\x21-\x7e]{1,4096}$/.test(token)) {
+			throw new Error('Invalid personal access token format');
+		}
 
 		const appUri = !enterpriseUri || isHostedGitHubEnterprise(enterpriseUri)
 			? Uri.parse(`${baseUri.scheme}://api.${baseUri.authority}`)
@@ -612,6 +640,9 @@ const allFlows: IFlow[] = [
 ];
 
 export function getFlows(query: IFlowQuery) {
+	if (query.useToken) {
+		return allFlows.filter(flow => flow instanceof PatFlow);
+	}
 	const validFlows = allFlows.filter(flow => {
 		let useFlow: boolean = true;
 		switch (query.target) {

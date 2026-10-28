@@ -251,6 +251,18 @@ describe("TerminalRegistry", () => {
 			TerminalRegistry["isInitialized"] = false
 		})
 
+		it("does not log or consume shell events from independent native terminals", async () => {
+			const error = vi.spyOn(console, "error").mockImplementation(() => {})
+			const info = vi.spyOn(console, "info").mockImplementation(() => {})
+			const execution = { commandLine: { value: "private manual command" }, read: vi.fn() }
+			const terminal = { name: "OctoCode Execution" }
+			await startHandler({ terminal, execution })
+			await endHandler({ terminal, execution, exitCode: 0 })
+			expect(execution.read).not.toHaveBeenCalled()
+			expect(error).not.toHaveBeenCalled()
+			expect(info).not.toHaveBeenCalled()
+		})
+
 		it("calls shellExecutionComplete when end event fires before running is set (race)", async () => {
 			const terminal = TerminalRegistry.createTerminal("/test/path", "vscode") as Terminal
 			const mockProcess = {

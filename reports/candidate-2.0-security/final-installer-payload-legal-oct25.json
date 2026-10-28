@@ -1,0 +1,75 @@
+{
+  "vsix": "source\\octocode-core\\bin\\octocode-0.1.11.vsix",
+  "vsixSha256": "86e300a3fdb41649cca8c8cde4be7bae3af6e119fb187485254dd9d582855144",
+  "members": [
+    {
+      "member": "extension/resources/notices/octocode-harness.txt",
+      "source": "D:\\gpt-workspace\\octocode\\source\\octocode-core\\src\\resources\\notices\\octocode-harness.txt",
+      "sha256": "2bdce45a7cfc2596f047b5642fc25cabff6519a34d3cb540a35378cd8df81bee",
+      "bytes": 4632621,
+      "exactBytesMatch": true
+    },
+    {
+      "member": "extension/resources/notices/octocode-host.txt",
+      "source": "D:\\gpt-workspace\\octocode\\source\\octocode-core\\src\\resources\\notices\\octocode-host.txt",
+      "sha256": "0c6aa4252773179f7c90288c8ff1541eaa48ceec588e091e197382d721a921cd",
+      "bytes": 923863,
+      "exactBytesMatch": true
+    },
+    {
+      "member": "extension/resources/notices/tree-sitter-grammars.txt",
+      "source": "D:\\gpt-workspace\\octocode\\source\\octocode-core\\src\\resources\\notices\\tree-sitter-grammars.txt",
+      "sha256": "fe204ad0876238ce89f82f9c614092cafb692fc5a4fbdcdb469c6286302aaafb",
+      "bytes": 61669,
+      "exactBytesMatch": true
+    },
+    {
+      "member": "extension/resources/notices/code-review-graph.txt",
+      "source": "D:\\gpt-workspace\\octocode\\source\\octocode-core\\src\\resources\\notices\\code-review-graph.txt",
+      "sha256": "8ec09edab99391a37dc94dbaa614829cf1635a6f010b61f9edad7786ef55c059",
+      "bytes": 1162,
+      "exactBytesMatch": true
+    },
+    {
+      "member": "extension/webview-ui/build/ThirdPartyNotices.txt",
+      "source": "D:\\gpt-workspace\\octocode\\source\\octocode-core\\src\\webview-ui\\build\\ThirdPartyNotices.txt",
+      "sha256": "7bded1ef405bf076a7b5077643eb8d512a40942d5d2621b89964243f45de088a",
+      "bytes": 501535,
+      "exactBytesMatch": true
+    },
+    {
+      "member": "extension/webview-ui/build/assets/index.mjs",
+      "source": "D:\\gpt-workspace\\octocode\\source\\octocode-core\\src\\webview-ui\\build\\assets\\index.mjs",
+      "sha256": "9a188f546437bb83434fa4e71894341515c090647939cca0d21a3073586bbf71",
+      "bytes": 529515,
+      "exactBytesMatch": true
+    }
+  ],
+  "payloadCopies": [
+    {
+      "component": "Desktop aggregate notice",
+      "path": "source\\VSCode-win32-x64\\resources\\app\\ThirdPartyNotices.txt",
+      "source": "D:\\gpt-workspace\\octocode\\source\\desktop-shell\\ThirdPartyNotices.txt",
+      "sha256": "791b4ff75fc170f2e4c7b96db34335bc8534261c3c9cd7697099f8485dc196a0",
+      "bytes": 34968428,
+      "exactBytesMatch": true
+    },
+    {
+      "component": "Node runtime license",
+      "path": "source\\VSCode-win32-x64\\environments\\node\\LICENSE",
+      "source": "D:\\gpt-workspace\\octocode\\source\\desktop-shell\\.build\\environments\\node\\LICENSE",
+      "sha256": "cbc91dba25c546898544155e1c0fce897f00e3f1df0afc795b8da891d38f92d9",
+      "bytes": 159309,
+      "exactBytesMatch": true
+    },
+    {
+      "component": "Chromium full notices",
+      "path": "source\\VSCode-win32-x64\\LICENSES.chromium.html",
+      "source": "D:\\gpt-workspace\\octocode\\source\\desktop-shell\\node_modules\\electron\\dist\\LICENSES.chromium.html",
+      "sha256": "c971fa90cb787337e9df73773f3b43cd5621f035e53cded439bd927b3b759e0c",
+      "bytes": 20313960,
+      "exactBytesMatch": true
+    }
+  ],
+  "uncheckedOptionalPayloadCopies": []
+}

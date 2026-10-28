@@ -5,6 +5,18 @@ import * as os from "node:os"
 import * as path from "node:path"
 import { pathToFileURL } from "node:url"
 
+const testSigning = await vi.hoisted(async () => {
+	const crypto = await import("node:crypto")
+	const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519")
+	const der = publicKey.export({ format: "der", type: "spki" })
+	return {
+		RELEASE_PUBLIC_KEY_SPKI_BASE64: der.toString("base64"),
+		RELEASE_PUBLIC_KEY_SHA256: crypto.createHash("sha256").update(der).digest("hex"),
+		sign: (raw: Buffer) => crypto.sign(null, raw, privateKey),
+	}
+})
+vi.mock("../releaseTrust", () => testSigning)
+
 vi.mock("../../../i18n", () => ({ t: (key: string) => key, changeLanguage: vi.fn() }))
 
 const showInformationMessage = vi.fn()
@@ -12,11 +24,12 @@ const showErrorMessage = vi.fn()
 const showWarningMessage = vi.fn()
 const executeCommand = vi.fn()
 const registerCommand = vi.fn()
+const getSession = vi.fn()
 let settings: Record<string, unknown> = {}
 const dirtyDocuments = vi.hoisted(() => [] as { isDirty: boolean }[])
-const hasActiveTasks = vi.hoisted(() => vi.fn(() => false))
+const awaitIdleForUpdate = vi.hoisted(() => vi.fn(async () => {}))
 
-vi.mock("../../octocode-runtime/OctoCodeRuntime", () => ({ getOctoCodeRuntime: () => ({ hasActiveTasks }) }))
+vi.mock("../../octocode-runtime/OctoCodeRuntime", () => ({ getOctoCodeRuntime: () => ({ awaitIdleForUpdate }) }))
 
 // A status bar item records what the badge rendered, so the red-dot and the
 // one-click command can be asserted rather than eyeballed.
@@ -35,6 +48,7 @@ const badge = {
 }
 
 vi.mock("vscode", () => ({
+	authentication: { getSession: (...a: unknown[]) => getSession(...a) },
 	version: "1.132.0",
 	window: {
 		showInformationMessage: (...a: unknown[]) => showInformationMessage(...a),
@@ -81,9 +95,10 @@ describe("isNewer", () => {
 describe("UpdateService", () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
+		getSession.mockReset()
 		settings = {}
 		dirtyDocuments.length = 0
-		hasActiveTasks.mockReturnValue(false)
+		awaitIdleForUpdate.mockResolvedValue(undefined)
 		// The badge is module-level; clear it so one test's red dot cannot
 		// satisfy the next test's assertion.
 		badge.visible = false
@@ -112,6 +127,185 @@ describe("UpdateService", () => {
 		const service = new UpdateService(context, vi.fn(), fetchImpl as never)
 
 		await expect(service.check()).resolves.toMatchObject({ available: true, manifest })
+	})
+
+	it("uses GitHub login only for the official private release and strips credentials on asset redirects", async () => {
+		settings["octocode.update.manifestUrl"] = "https://api.github.com/repos/sievepub-2000/octocode/releases/latest"
+		getSession.mockResolvedValue({ accessToken: "fixture-private-token" })
+		const asset = "https://api.github.com/repos/sievepub-2000/octocode/releases/assets/42"
+		const bytes = Buffer.from("verified private VSIX")
+		const manifest = { version: "0.2.0", url: asset, sha256: createHash("sha256").update(bytes).digest("hex") }
+		const raw = Buffer.from(
+			JSON.stringify({
+				schemaVersion: 1,
+				product: "OctoCode",
+				repository: "sievepub-2000/octocode",
+				version: "2.0.0",
+				tag: "v2.0",
+				assets: {
+					"windows-x64-system": { name: "OctoCodeSetup.exe", sha256: "a".repeat(64), size: 4 },
+					extension: {
+						name: "octocode-0.2.0.vsix",
+						version: "0.2.0",
+						sha256: manifest.sha256,
+						size: bytes.length,
+					},
+				},
+			}),
+		)
+		const metadata = {
+			tag_name: "v2.0",
+			assets: [
+				{ name: "octocode-release.json", url: asset.replace("42", "40"), size: raw.length },
+				{ name: "octocode-release.json.sig", url: asset.replace("42", "41"), size: 64 },
+				{ name: "octocode-0.2.0.vsix", url: asset, size: bytes.length },
+				{ name: "OctoCodeSetup.exe", url: asset.replace("42", "43"), size: 4 },
+			],
+		}
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(new Response(JSON.stringify(metadata)))
+			.mockResolvedValueOnce(new Response(raw))
+			.mockResolvedValueOnce(new Response(testSigning.sign(raw)))
+			.mockResolvedValueOnce({
+				ok: false,
+				status: 302,
+				headers: new Headers({
+					location: "https://release-assets.githubusercontent.com/private.vsix?signature=fixture",
+				}),
+			})
+			.mockResolvedValueOnce(new Response(bytes))
+		const service = new UpdateService(context, vi.fn(), fetchImpl as never)
+		const result = await service.check(true)
+		expect(result).toMatchObject({ available: true, manifest })
+		expect(getSession).toHaveBeenCalledWith("github", ["repo"], { createIfNone: true })
+		const downloaded = await service.download(result.manifest!)
+		try {
+			expect(await fs.readFile(downloaded)).toEqual(bytes)
+			for (const [, options] of fetchImpl.mock.calls.slice(0, 4)) {
+				expect(options.headers.Authorization).toBe("Bearer fixture-private-token")
+				expect(options.redirect).toBe("manual")
+			}
+			expect(fetchImpl.mock.calls[4][1].headers).not.toHaveProperty("Authorization")
+		} finally {
+			await fs.rm(path.dirname(downloaded), { recursive: true, force: true })
+		}
+	})
+
+	it("never opens a login prompt during a background check", async () => {
+		settings["octocode.update.manifestUrl"] = "https://api.github.com/repos/sievepub-2000/octocode/releases/latest"
+		getSession.mockResolvedValue(undefined)
+		const fetchImpl = vi.fn()
+		const service = new UpdateService(context, vi.fn(), fetchImpl as never)
+		expect(await service.check()).toMatchObject({ available: false, error: expect.stringContaining("GitHub") })
+		expect(getSession).toHaveBeenCalledWith("github", ["repo"], { silent: true })
+		expect(fetchImpl).not.toHaveBeenCalled()
+	})
+
+	it("rejects unsigned official releases and direct API assets without a verified manifest", async () => {
+		settings["octocode.update.manifestUrl"] = "https://api.github.com/repos/sievepub-2000/octocode/releases/latest"
+		getSession.mockResolvedValue({ id: "oauth-fixture", accessToken: "fixture-token" })
+		const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ assets: [] })))
+		const service = new UpdateService(context, vi.fn(), fetchImpl as never)
+		expect(await service.check()).toMatchObject({
+			available: false,
+			error: expect.stringContaining("unique asset"),
+		})
+		await expect(
+			service.download({
+				version: "0.2.0",
+				url: "https://api.github.com/repos/sievepub-2000/octocode/releases/assets/42",
+				sha256: "a".repeat(64),
+			}),
+		).rejects.toThrow("verified signed release")
+		expect(fetchImpl).toHaveBeenCalledOnce()
+	})
+
+	it("offers OAuth once when an explicit PAT cannot access a private release", async () => {
+		settings["octocode.update.manifestUrl"] = "https://api.github.com/repos/sievepub-2000/octocode/releases/latest"
+		getSession
+			.mockResolvedValueOnce({ id: "octocode-pat:fixture", accessToken: "fixture-bad-token" })
+			.mockResolvedValueOnce({ id: "oauth-fixture", accessToken: "fixture-oauth-token" })
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(new Response("", { status: 404 }))
+			.mockResolvedValueOnce(new Response("", { status: 403 }))
+		const service = new UpdateService(context, vi.fn(), fetchImpl as never)
+		expect(await service.check(true)).toMatchObject({ available: false, error: "HTTP 403" })
+		expect(getSession).toHaveBeenLastCalledWith("github", ["repo"], {
+			forceNewSession: { detail: expect.any(String) },
+		})
+		expect(fetchImpl.mock.calls[1][1].headers.Authorization).toBe("Bearer fixture-oauth-token")
+		expect(fetchImpl).toHaveBeenCalledTimes(2)
+	})
+
+	it("streams signed desktop bytes to disk and rejects excess bytes and cancellation", async () => {
+		getSession.mockResolvedValue({ id: "oauth-fixture", accessToken: "fixture-token" })
+		const bytes = Buffer.alloc(65_537, 23)
+		const release = {
+			desktop: {
+				url: "https://api.github.com/repos/sievepub-2000/octocode/releases/assets/43",
+				name: "OctoCodeSetup.exe",
+				size: bytes.length,
+				sha256: createHash("sha256").update(bytes).digest("hex"),
+			},
+		} as import("../SignedRelease").OfficialRelease
+		const fetchImpl = vi.fn().mockImplementation(async () => new Response(bytes))
+		const service = new UpdateService(context, vi.fn(), fetchImpl as never)
+		const file = await service["downloadDesktop"](release, new AbortController().signal, { report: vi.fn() })
+		try {
+			expect(await fs.readFile(file)).toEqual(bytes)
+		} finally {
+			await fs.rm(path.dirname(file), { recursive: true, force: true })
+		}
+		await expect(
+			service["downloadDesktop"](
+				{ ...release, desktop: { ...release.desktop, size: bytes.length - 1 } },
+				new AbortController().signal,
+				{ report: vi.fn() },
+			),
+		).rejects.toThrow("signed size")
+		const controller = new AbortController()
+		controller.abort()
+		await expect(service["downloadDesktop"](release, controller.signal, { report: vi.fn() })).rejects.toThrow()
+	})
+
+	it("rejects credential-bearing and insecure asset redirects without a second request", async () => {
+		getSession.mockResolvedValue({ accessToken: "fixture-private-token" })
+		for (const location of ["http://example.invalid/a.vsix", "https://user:password@example.invalid/a.vsix"]) {
+			const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 302, headers: new Headers({ location }) })
+			const service = new UpdateService(context, vi.fn(), fetchImpl as never)
+			await expect(
+				service.download({
+					version: "0.2.0",
+					url: "https://example.invalid/custom.vsix",
+					sha256: "a".repeat(64),
+				}),
+			).rejects.toThrow("HTTPS without credentials")
+			expect(fetchImpl).toHaveBeenCalledOnce()
+		}
+	})
+
+	it("never authenticates an unrelated custom channel or accepts an external manifest asset", async () => {
+		settings["octocode.update.manifestUrl"] = "https://example.invalid/latest.json"
+		const fetchImpl = vi.fn().mockResolvedValue({
+			ok: true,
+			json: async () => ({ version: "0.2.0", url: "https://example.invalid/a.vsix", sha256: "a".repeat(64) }),
+		})
+		const service = new UpdateService(context, vi.fn(), fetchImpl as never)
+		await service.check(true)
+		expect(getSession).not.toHaveBeenCalled()
+		settings["octocode.update.manifestUrl"] = "https://api.github.com/repos/sievepub-2000/octocode/releases/latest"
+		getSession.mockResolvedValue({ accessToken: "fixture-private-token" })
+		fetchImpl.mockResolvedValueOnce({
+			ok: true,
+			status: 200,
+			json: async () => ({
+				assets: [{ name: "octocode-extension-update.json", url: "https://example.invalid/steal" }],
+			}),
+		})
+		expect(await service.check(true)).toMatchObject({ available: false, error: expect.stringContaining("asset") })
+		expect(fetchImpl).toHaveBeenCalledTimes(2)
 	})
 
 	it("reads a local workspace manifest and package without network access", async () => {
@@ -177,6 +371,7 @@ describe("UpdateService", () => {
 		vi.spyOn(service, "download").mockResolvedValue("update.vsix")
 		vi.spyOn(service, "install").mockResolvedValue()
 		await expect(service.run(false)).resolves.toBe(true)
+		expect(service.check).toHaveBeenCalledWith(true)
 		expect(service.install).toHaveBeenCalledOnce()
 		expect(executeCommand).toHaveBeenCalledWith("workbench.action.reloadWindow")
 		expect(showInformationMessage).not.toHaveBeenCalledWith("common:update.installed", expect.anything())
@@ -196,7 +391,7 @@ describe("UpdateService", () => {
 		await expect(service.run(false)).resolves.toBe(false)
 		expect(download).not.toHaveBeenCalled()
 		dirtyDocuments.length = 0
-		hasActiveTasks.mockReturnValue(true)
+		awaitIdleForUpdate.mockRejectedValue(new Error("active tasks in another window"))
 		await expect(service.run(false)).resolves.toBe(false)
 		expect(download).not.toHaveBeenCalled()
 		expect(showWarningMessage).toHaveBeenCalledTimes(2)

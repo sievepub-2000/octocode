@@ -1,0 +1,112 @@
+{
+  "fixture": "E:\\Program Files\\octocode\\test\\packaged-node-security-58c69084-9b91-4ea5-a017-21aba51ea5eb",
+  "status": 0,
+  "signal": null,
+  "copied": [
+    {
+      "relative": "OctoCode.exe",
+      "sha256": "57687aafda41e4ac729f4519bd119f3bdaaf662fea6c27d7a964ad3d42101a4b",
+      "bytes": 239528960
+    },
+    {
+      "relative": "icudtl.dat",
+      "sha256": "67c332a252ae56e300213753784e4256b201a6bd5156db9eb87a6afda20215f2",
+      "bytes": 10875024
+    },
+    {
+      "relative": "snapshot_blob.bin",
+      "sha256": "075b10e17381aec76d7d7c86552e2e8913c882b8e7c960c392f4d51a0019389c",
+      "bytes": 365744
+    },
+    {
+      "relative": "v8_context_snapshot.bin",
+      "sha256": "9125fa4330c6273673a9384ce255fb4aa786c2f6344330edcc50a09a56713999",
+      "bytes": 740304
+    },
+    {
+      "relative": "resources/app/package.json",
+      "sha256": "eca9066df2204a54da2f2744ffc7a670cb0b2757f6fc91c763ddef32a3672f9b",
+      "bytes": 15499
+    },
+    {
+      "relative": "resources/app/product.json",
+      "sha256": "b86ad65804df840cae93f9e369239ce6f0456c15a9cccc17083a7b623354a7d0",
+      "bytes": 6933
+    },
+    {
+      "relative": "resources/app/node_modules.asar",
+      "sha256": "fb4941f79582f0f5db5d51556b565853e4ef52fcea33818a9f781ee470c4ef79",
+      "bytes": 94188368
+    },
+    {
+      "relative": "resources/app/out/bootstrap-fork.js",
+      "sha256": "43aefb723f46a8fe2c805cac2af711b95a01f46dd9375377b5a9a5912916ec18",
+      "bytes": 45418
+    },
+    {
+      "relative": "resources/app/scripts/fixtures/node-security/agent1-cert.pem",
+      "sha256": "5968cc95396f7a49d0fccaee6cf2c6b8a2f66b907efa21531c4c98d20962783c",
+      "bytes": 1415
+    },
+    {
+      "relative": "resources/app/scripts/fixtures/node-security/agent1-key.pem",
+      "sha256": "2b75ca8377f0963f5ce0d47a416b9d40de09dbd6e128ffe6e00af0e52be0eda9",
+      "bytes": 1679
+    },
+    {
+      "relative": "resources/app/scripts/fixtures/node-security/ca1-cert.pem",
+      "sha256": "cfc60db87bd758cd89e69973484b60a14fb2f3d9cf798bb4ce0dcc17e59643b6",
+      "bytes": 1302
+    },
+    {
+      "relative": "resources/app/work/verification/spki-test.node",
+      "sha256": "7dde883b0d6ca8d58af0cac98ee73de733fae5d2cc5aa5fc6fff0222bcdcb4c7",
+      "bytes": 107520
+    }
+  ],
+  "identity": {
+    "execPath": "E:\\Program Files\\octocode\\test\\packaged-node-security-58c69084-9b91-4ea5-a017-21aba51ea5eb\\OctoCode.exe",
+    "versions": {
+      "node": "24.22.0",
+      "acorn": "8.18.0",
+      "ada": "4.0.0",
+      "amaro": "1.1.11",
+      "ares": "1.34.8",
+      "brotli": "1.2.0",
+      "cldr": "48.0",
+      "icu": "78.2",
+      "llhttp": "9.4.3",
+      "merve": "1.2.2",
+      "modules": "148",
+      "napi": "10",
+      "nbytes": "0.1.4",
+      "ncrypto": "0.0.1",
+      "nghttp2": "1.70.0",
+      "nghttp3": "",
+      "ngtcp2": "",
+      "openssl": "0.0.0",
+      "simdjson": "4.6.11",
+      "simdutf": "7.7.0",
+      "sqlite": "3.53.4",
+      "tz": "2026d",
+      "undici": "7.29.1",
+      "unicode": "17.0",
+      "uv": "1.52.1",
+      "uvwasi": "0.0.23",
+      "v8": "15.0.245.31-electron.0",
+      "zlib": "1.3.2.1-motley",
+      "zstd": "1.6.0",
+      "electron": "43.8.3",
+      "chrome": "150.0.7871.250"
+    },
+    "resolved": {
+      "undici": "E:\\Program Files\\octocode\\test\\packaged-node-security-58c69084-9b91-4ea5-a017-21aba51ea5eb\\resources\\app\\node_modules.asar\\undici\\index.js",
+      "zod": "E:\\Program Files\\octocode\\test\\packaged-node-security-58c69084-9b91-4ea5-a017-21aba51ea5eb\\resources\\app\\node_modules.asar\\zod\\index.cjs",
+      "@vscode/sandbox-runtime/dist/sandbox/sandbox-config.js": "E:\\Program Files\\octocode\\test\\packaged-node-security-58c69084-9b91-4ea5-a017-21aba51ea5eb\\resources\\app\\node_modules.asar\\@vscode\\sandbox-runtime\\dist\\sandbox\\sandbox-config.js",
+      "@vscode/proxy-agent": "E:\\Program Files\\octocode\\test\\packaged-node-security-58c69084-9b91-4ea5-a017-21aba51ea5eb\\resources\\app\\node_modules.asar\\@vscode\\proxy-agent\\out\\index.js"
+    },
+    "undiciVersion": "8.12.3",
+    "zodVersion": "4.6.6"
+  },
+  "boundary": "Unchanged packaged bootstrap-fork.js, product-branded Electron and exact packaged ASAR. Only test import locations/baseline capture are adapted; no source bootstrap is loaded."
+}

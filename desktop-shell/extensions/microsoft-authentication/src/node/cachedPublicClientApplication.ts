@@ -3,15 +3,17 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { PublicClientApplication, AccountInfo, SilentFlowRequest, AuthenticationResult, InteractiveRequest, LogLevel, RefreshTokenRequest, BrokerOptions, DeviceCodeRequest } from '@azure/msal-node';
+import { PublicClientApplication, AccountInfo, SilentFlowRequest, AuthenticationResult, LogLevel, RefreshTokenRequest, BrokerOptions, DeviceCodeRequest } from '@azure/msal-node';
 import { NativeBrokerPlugin } from '@azure/msal-node-extensions';
-import { Disposable, SecretStorage, LogOutputChannel, window, ProgressLocation, l10n, EventEmitter, workspace, env, Uri, UIKind } from 'vscode';
+import { CancellationError, Disposable, SecretStorage, LogOutputChannel, window, ProgressLocation, l10n, EventEmitter, workspace, env, Uri, UIKind } from 'vscode';
 import { DeferredPromise, raceCancellationAndTimeoutError } from '../common/async';
 import { SecretStorageCachePlugin } from '../common/cachePlugin';
 import { MsalLoggerOptions } from '../common/loggerOptions';
 import { ICachedPublicClientApplication } from '../common/publicClientCache';
 import { IAccountAccess } from '../common/accountAccess';
 import { MicrosoftAuthenticationTelemetryReporter } from '../common/telemetryReporter';
+import type { InteractiveRequestWithLoopback as InteractiveRequest } from '../common/loopbackClientAndOpener';
+import { acquireTokenByUri } from './uriAuth';
 
 export class CachedPublicClientApplication implements ICachedPublicClientApplication {
 	// Core properties
@@ -179,9 +181,14 @@ export class CachedPublicClientApplication implements ICachedPublicClientApplica
 				title: l10n.t('Signing in to Microsoft...')
 			},
 			(_process, token) => this._sequencer.queue(async () => {
+				const cancellation = token.onCancellationRequested(() => request.loopbackClient?.closeServer());
 				try {
+					if (token.isCancellationRequested) {
+						throw new CancellationError();
+					}
+					const { loopbackClient, ...msalRequest } = request;
 					const result = await raceCancellationAndTimeoutError(
-						this._pca.acquireTokenInteractive(request),
+						loopbackClient ? acquireTokenByUri(this._pca, msalRequest, loopbackClient) : this._pca.acquireTokenInteractive(msalRequest),
 						token,
 						1000 * 60 * 5
 					);
@@ -197,6 +204,9 @@ export class CachedPublicClientApplication implements ICachedPublicClientApplica
 				} catch (error) {
 					this._logger.error(`[acquireTokenInteractive] [${this._clientId}] [${request.authority}] [${request.scopes?.join(' ')}] error: ${error}`);
 					throw error;
+				} finally {
+					cancellation.dispose();
+					request.loopbackClient?.closeServer();
 				}
 			})
 		);

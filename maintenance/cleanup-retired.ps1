@@ -40,7 +40,7 @@ foreach($target in $targets){
 New-Item -ItemType Directory -Path $evidence -Force | Out-Null
 $targets | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $evidence 'retired-cleanup-plan.json')
 if(!$Apply){$targets;exit}
-$installedExe=Get-Item -LiteralPath 'D:\Program Files\OctoCode\OctoCode.exe' -ErrorAction Stop
+$installedExe=Get-Item -LiteralPath 'E:\Program Files\octocode\OctoCode.exe' -ErrorAction Stop
 $upgradePassed=$false
 foreach($proofFile in @(Get-ChildItem -LiteralPath $evidence -File -Filter 'native-Upgrade-*.log.json')){
     try {$proof=Get-Content -LiteralPath $proofFile.FullName -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop}

@@ -1,0 +1,21 @@
+{
+  "scripts\\octocode_api.py": "c9374f38e23b5a8135df8ae470ca9a03cb8ffc475bf59f3a9ffeb348c0dda2a3",
+  "scripts\\octocode_credentials.py": "6e8e17c95c53e5f96daba85c2b93521b73144614bb90ec314d9e1444e2413703",
+  "scripts\\octocode_harness2.py": "8524957aad8ea363adbfc95fd6f0bb26116f374cae7ea5c884a7e6bd045976c4",
+  "scripts\\harness2_vendor\\LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+  "scripts\\harness2_vendor\\PROVENANCE.md": "73ae5785f3f5a5ae979d0fa1c069d22332c97a1e829989ed77600c8c4fb028f0",
+  "scripts\\harness2_vendor\\pyproject.toml": "c78fd0d09d2f92bf796871c168b548dd4d33e21566dbb582e343266e24a0bada",
+  "scripts\\harness2_vendor\\harness2\\config.py": "0db5ba0c42b87f5b14cbff2d11aaecddda1cd45500903c1d61741232bd1e0a88",
+  "scripts\\harness2_vendor\\harness2\\__init__.py": "de20a79ef3cf3974bf32cb6afdbb32608655676e749a466ffd6c7c173bb7e26a",
+  "scripts\\harness2_vendor\\harness2\\core\\context.py": "63dd482e5d9467d7e659d186a11289fc7861d08c8aed603244ff0cee92de91f3",
+  "scripts\\harness2_vendor\\harness2\\core\\ledger.py": "7059de5d90fc9fb8d4b3b799ff075f09d34f182ba0fdb56eb9d8b8383d0bbf55",
+  "scripts\\harness2_vendor\\harness2\\core\\prompts.py": "d1f4f8db4ab4cb4addcbca175b548db2270375499fda727ac95d271c63cc2504",
+  "scripts\\harness2_vendor\\harness2\\core\\proposer.py": "475ef49d72228e249d7172d793f8362913774412402dfd259ae6e01c6586e175",
+  "scripts\\harness2_vendor\\harness2\\core\\recursion.py": "b299813b5334f2c0f89024a7f14162f0fdd5418ebd4413be93920b5334a204c1",
+  "scripts\\harness2_vendor\\harness2\\core\\spec.py": "f245ec9e314778e2a1a51594b906584255b9eed8340c073b864a8a6f2c8dc400",
+  "scripts\\harness2_vendor\\harness2\\core\\tree.py": "c2a15690b1b6b02156e922c5e0b1a215c5065d7bea5a3bae2e56b47309197552",
+  "scripts\\harness2_vendor\\harness2\\core\\__init__.py": "ce487673e00fd8921139e3afb688c566fc43d9b07acba048d2102663a81f7151",
+  "bin\\octocode-harness.exe": "30f68e660619ff751d0f4b79b551045c26ac00ad5b81ac1c28ca017066fafbc5",
+  "bin\\octocode-host.exe": "3cad8fcf1c19bd05302c11ab1387d7cb63fc2c12e8b79053ab3b35ea1e684d19",
+  "bin\\rg.exe": "f9dde63498b3193f098355dbec97af99dc4f6b8fa0df5ed04114a03012c042cb"
+}

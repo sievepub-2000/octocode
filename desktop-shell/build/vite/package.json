@@ -17,5 +17,10 @@
   },
   "allowScripts": {
     "fsevents@2.3.3": true
+  },
+  "overrides": {
+    "source-map-js": "^1.2.2",
+    "nanoid": "^5.1.16",
+    "postcss": "^8.5.26"
   }
 }

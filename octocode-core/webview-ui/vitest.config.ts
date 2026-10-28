@@ -27,6 +27,11 @@ export default defineConfig({
 		reporters,
 		silent,
 		environment: "jsdom",
+		// Node's native storage masks jsdom's isolated per-window storage in test
+		// workers. Node 24 names the flag `--no-experimental-webstorage`; the plain
+		// `--no-webstorage` form is rejected by the runtime and kills the worker
+		// forks before any test runs.
+		execArgv: ["--no-experimental-webstorage"],
 		include: ["src/**/*.spec.{ts,tsx}", "src/**/*.test.{ts,tsx}"],
 		onConsoleLog,
 		maxWorkers: isCI || isWindows ? 1 : undefined,

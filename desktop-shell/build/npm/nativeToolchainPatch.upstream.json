@@ -1,0 +1,31 @@
+[
+  {
+    "package": "node-gyp",
+    "version": "11.2.0",
+    "license": "MIT",
+    "source": "https://github.com/nodejs/node-gyp/blob/v11.2.0/lib/find-python.js",
+    "originalSha256": "cf320a028208d5b38fdf81ecb54231277d6a9d9afb6f40c3ad9f4889afc25559"
+  },
+  {
+    "package": "node-gyp",
+    "version": "13.0.0",
+    "license": "MIT",
+    "source": "https://github.com/nodejs/node-gyp/blob/v13.0.0/lib/find-python.js",
+    "originalSha256": "43ebfc0fb75165c46218d16d441de1da7898ca5339452a65aca0cb291aaa160e"
+  },
+  {
+    "package": "node-gyp",
+    "version": "13.1.0",
+    "license": "MIT",
+    "source": "https://github.com/nodejs/node-gyp/blob/v13.1.0/lib/find-python.js",
+    "originalSha256": "43ebfc0fb75165c46218d16d441de1da7898ca5339452a65aca0cb291aaa160e"
+  },
+  {
+    "package": "Electron libuv headers",
+    "version": "43.8.3",
+    "license": "MIT",
+    "source": "https://artifacts.electronjs.org/headers/dist/v43.8.3/node-v43.8.3-headers.tar.gz",
+    "file": "include/node/uv/win.h",
+    "originalSha256": "9ad5dd7d5d4d51981f40edfc65a53ab94e91f6a2e73f2bf897e0e697fd9e8233"
+  }
+]

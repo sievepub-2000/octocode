@@ -133,9 +133,7 @@ fn parse_theme_variables(value: Option<&Value>) -> MermaidThemeVariables {
     };
 
     for (key, value) in mapping {
-        let Some(key) = key.as_str() else {
-            continue;
-        };
+        let key = key.as_str();
         let Some(value) = value_to_string(value) else {
             continue;
         };
@@ -168,7 +166,7 @@ fn mapping_value<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
         return None;
     };
 
-    mapping.get(&Value::String(key.to_string()))
+    mapping.get(key)
 }
 
 fn value_to_string(value: &Value) -> Option<String> {

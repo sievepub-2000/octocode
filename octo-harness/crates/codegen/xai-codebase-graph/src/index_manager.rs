@@ -571,6 +571,8 @@ pub struct IndexManager {
     parser_cache: HashMap<String, tree_sitter::Parser>,
     /// Cached queries by language ID (avoids recompiling on each file)
     query_cache: HashMap<String, tree_sitter::Query>,
+    cache_revision: Option<crate::manager::cache::CacheRevision>,
+    cache_write_revoked: bool,
 }
 
 impl IndexManager {
@@ -650,6 +652,23 @@ impl IndexManager {
                 let registry = LanguageRegistry::new();
                 let current_query_version = registry.compute_query_hash();
 
+                // Hold the same lock as extension rebuild/clear from before the
+                // initial cache snapshot until a fresh build is persisted.
+                let startup_lock = match crate::manager::try_lock(
+                    &config.root_path,
+                    crate::manager::IndexOperation::Build,
+                ) {
+                    crate::manager::LockResult::Acquired(guard) => Some(guard),
+                    crate::manager::LockResult::Busy { .. } => None,
+                };
+                let cache_path = config
+                    .cache_path
+                    .clone()
+                    .unwrap_or_else(|| crate::manager::get_cache_path(&config.root_path));
+                let revision = crate::manager::cache::CacheRevision::read(&cache_path);
+                let cache_write_revoked = startup_lock.is_none() || revision.is_err();
+                let cache_revision = revision.unwrap_or(None);
+
                 // Load or build the index (this is the slow part)
                 let (index, needs_background_validation) = if config.load_from_cache {
                     let cache_path = config
@@ -723,12 +742,15 @@ impl IndexManager {
                     updates_processed: 0,
                     parser_cache: HashMap::new(),
                     query_cache: HashMap::new(),
+                    cache_revision,
+                    cache_write_revoked,
                 };
 
                 // Save fresh build to cache immediately (don't wait for shutdown)
                 if !needs_background_validation {
-                    manager.save_cache();
+                    manager.save_cache_locked(&cache_path);
                 }
+                drop(startup_lock);
 
                 // Bg thread gets a Weak -- can't pin the actor past teardown.
                 if needs_background_validation {
@@ -1256,7 +1278,7 @@ impl IndexManager {
     }
 
     /// Save the index to cache.
-    fn save_cache(&self) {
+    fn save_cache(&mut self) {
         if !self.config.save_to_cache {
             return;
         }
@@ -1267,10 +1289,40 @@ impl IndexManager {
             .clone()
             .unwrap_or_else(|| crate::manager::get_cache_path(&self.config.root_path));
 
+        let _guard = match crate::manager::try_lock(
+            &self.config.root_path,
+            crate::manager::IndexOperation::Save,
+        ) {
+            crate::manager::LockResult::Acquired(guard) => guard,
+            crate::manager::LockResult::Busy { .. } => return,
+        };
+        self.save_cache_locked(&cache_path);
+    }
+
+    fn save_cache_locked(&mut self, cache_path: &Path) {
+        if !self.config.save_to_cache || self.cache_write_revoked {
+            return;
+        }
+        if crate::manager::cache::CacheRevision::read(cache_path)
+            .ok()
+            .as_ref()
+            != Some(&self.cache_revision)
+        {
+            self.cache_write_revoked = true;
+            tracing::info!(
+                "Cache was cleared or replaced externally; discarding stale cache writes"
+            );
+            return;
+        }
+
         let start = Instant::now();
-        if let Err(e) = crate::manager::save_index(&cache_path, &self.index) {
+        if let Err(e) = crate::manager::save_index(cache_path, &self.index) {
             tracing::error!(error = %e, "Failed to save cache");
         } else {
+            match crate::manager::cache::CacheRevision::read(cache_path) {
+                Ok(revision) => self.cache_revision = revision,
+                Err(_) => self.cache_write_revoked = true,
+            }
             tracing::debug!(
                 elapsed_ms = start.elapsed().as_millis() as u64,
                 "Cache saved"
@@ -2125,6 +2177,54 @@ mod tests {
                  the actor is leaking (actor must drop its own sender before run_loop)"
             );
             std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn live_actor_cannot_resurrect_cleared_or_overwrite_rebuilt_cache() {
+        use std::sync::atomic::Ordering;
+        use std::time::{Duration, Instant};
+        for clear in [true, false] {
+            let dir = tempdir().unwrap();
+            fs::write(dir.path().join("a.rs"), "fn oldActorSymbol() {}").unwrap();
+            let handle = IndexManager::spawn(
+                IndexManagerConfig::new(dir.path().to_path_buf()).without_cache_load(),
+            );
+            assert!(handle.has_definition_blocking("oldActorSymbol").unwrap());
+            let cache = crate::manager::get_cache_path(dir.path());
+            assert!(cache.exists());
+            {
+                let _guard =
+                    crate::manager::try_lock(dir.path(), crate::manager::IndexOperation::Build)
+                        .unwrap();
+                if clear {
+                    fs::remove_file(&cache).unwrap();
+                } else {
+                    fs::write(dir.path().join("a.rs"), "fn rebuiltSymbol() {}").unwrap();
+                    let rebuilt = IndexBuilder::new().build(dir.path()).unwrap();
+                    crate::manager::save_index(&cache, &rebuilt).unwrap();
+                }
+            }
+            let exit = Arc::clone(&handle.exit_signal);
+            drop(handle);
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !exit.load(Ordering::SeqCst) {
+                assert!(Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            if clear {
+                assert!(
+                    !cache.exists(),
+                    "old actor resurrected cleared cache at shutdown"
+                );
+            } else {
+                let index = crate::manager::load_index(&cache).unwrap();
+                assert!(!index.find_definitions("rebuiltSymbol").is_empty());
+                assert!(
+                    index.find_definitions("oldActorSymbol").is_empty(),
+                    "old actor overwrote newer cache"
+                );
+            }
         }
     }
 

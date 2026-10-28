@@ -5,12 +5,15 @@ import { execSync } from "child_process"
 import { defineConfig, type PluginOption, type Plugin } from "vite"
 import react from "@vitejs/plugin-react"
 import tailwindcss from "@tailwindcss/vite"
+import { writeThirdPartyNotices } from "../scripts/third-party-notices.mjs"
 
 function getGitSha() {
 	let gitSha: string | undefined = undefined
 
 	try {
-		gitSha = execSync("git rev-parse HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim()
+		gitSha = execSync("git rev-parse HEAD", { stdio: ["ignore", "pipe", "ignore"] })
+			.toString()
+			.trim()
 	} catch (_error) {
 		// Do nothing.
 	}
@@ -24,10 +27,8 @@ const wasmPlugin = (): Plugin => ({
 		if (id.endsWith(".wasm")) {
 			const wasmBinary = await import(id)
 
-			return `
-           			const wasmModule = new WebAssembly.Module(${wasmBinary.default});
-           			export default wasmModule;
-         		`
+			return `const wasmModule = new WebAssembly.Module(${wasmBinary.default});
+export default wasmModule;`
 		}
 	},
 })
@@ -82,6 +83,14 @@ export default defineConfig(({ mode }) => {
 	}
 
 	const plugins: PluginOption[] = [
+		{
+			name: "third-party-notices",
+			generateBundle() {
+				writeThirdPartyNotices([...this.getModuleIds()], resolve(__dirname, outDir, "ThirdPartyNotices.txt"), [
+					resolve(__dirname, "node_modules/@vscode/codicons/package.json"),
+				])
+			},
+		},
 		react({
 			babel: {
 				plugins: [["babel-plugin-react-compiler", { target: "18" }]],

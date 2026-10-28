@@ -322,7 +322,7 @@ suite('Snippet Variables Resolver', function () {
 
 	test('Time-based snippet variables have deterministic millisecond and unix values', function () {
 		const now = Date.UTC(2024, 3, 15, 12, 34, 56, 7);
-		const clock = sinon.useFakeTimers({ now });
+		const clock = sinon.useFakeTimers({ now, toFake: ['Date'] });
 		try {
 			const resolver = new TimeBasedVariableResolver;
 			const expectedDate = new Date(now);
@@ -363,7 +363,7 @@ suite('Snippet Variables Resolver', function () {
 			$CURRENT_TIMEZONE_NAME
 		`;
 
-		const clock = sinon.useFakeTimers();
+		const clock = sinon.useFakeTimers({ toFake: ['Date'] });
 		try {
 			const resolver = new TimeBasedVariableResolver;
 

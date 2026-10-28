@@ -137,11 +137,16 @@ async function createPreviewDirectory(provider: ClineProvider, sessionId?: strin
  */
 async function searchOpenVsx(
 	query: string,
-): Promise<{ id: string; name: string; description?: string; downloads?: number }[]> {
-	const url = `https://open-vsx.org/api/-/search?query=${encodeURIComponent(query)}&size=20`
+	cursor?: string,
+): Promise<import("../../services/extensions/ExtensionRegistry").GallerySearchPage> {
+	const offset = cursor ? Number(cursor) : 0
+	if (!Number.isSafeInteger(offset) || offset < 0 || offset > 1000000)
+		throw new Error("Invalid extension market page")
+	const url = `https://open-vsx.org/api/-/search?query=${encodeURIComponent(query)}&size=20&offset=${offset}&sortBy=downloadCount&sortOrder=desc`
 	const response = await fetch(url, { signal: AbortSignal.timeout(15_000) })
 	if (!response.ok) throw new Error(`Open VSX search failed: HTTP ${response.status}`)
 	const body = (await response.json()) as {
+		totalSize?: number
 		extensions?: {
 			namespace: string
 			name: string
@@ -150,12 +155,15 @@ async function searchOpenVsx(
 			downloadCount?: number
 		}[]
 	}
-	return (body.extensions ?? []).map((extension) => ({
-		id: `${extension.namespace}.${extension.name}`,
-		name: extension.displayName ?? extension.name,
-		description: extension.description,
-		downloads: extension.downloadCount,
-	}))
+	return {
+		extensions: (body.extensions ?? []).map((extension) => ({
+			id: `${extension.namespace}.${extension.name}`,
+			name: extension.displayName ?? extension.name,
+			description: extension.description,
+			downloads: extension.downloadCount,
+		})),
+		...(offset + 20 < (body.totalSize ?? 0) ? { nextCursor: String(offset + 20) } : {}),
+	}
 }
 
 /** A running extension stays in `vscode.extensions.all` until reload; hide what was removed. */
@@ -372,6 +380,7 @@ export const webviewMessageHandler = async (
 					{},
 					message.projectId,
 					() => newTaskRequest === runtimeViewRequest,
+					message.attachmentPaths,
 				)
 			} catch (error) {
 				vscode.window.showErrorMessage(
@@ -409,6 +418,26 @@ export const webviewMessageHandler = async (
 					resolved.images,
 				)
 				runtimeTask = task
+				// Attachments become full-file copies inside the session directory
+				// (the agent's cwd) before the agent starts; the prompt only names
+				// them. A copy failure must not discard the user's turn: degrade to
+				// sending without the attachments and tell the user instead.
+				const { prepareAttachmentPrompt } = await import("../../services/octocode-runtime/attachments")
+				if (task.workingDirectory && message.attachmentPaths?.length) {
+					try {
+						resolved.text = await prepareAttachmentPrompt(
+							message.attachmentPaths,
+							task.workingDirectory,
+							resolved.text,
+						)
+					} catch (error) {
+						vscode.window.showWarningMessage(
+							`附件复制失败，本次发送未包含附件：${error instanceof Error ? error.message : String(error)}`,
+						)
+					}
+				} else if (message.attachmentPaths?.length) {
+					vscode.window.showWarningMessage("会话工作目录不可用，本次发送未包含附件")
+				}
 				const { ClineProvider } = await import("./ClineProvider")
 				ClineProvider.setActiveRuntimeSession(task.sessionId, task.taskId, task.workingDirectory)
 				await provider.postMessageToWebview({
@@ -717,7 +746,7 @@ export const webviewMessageHandler = async (
 					}),
 					runtime.call("message.list", { session_id: sessionId }),
 				])
-				const rows: [number, string, unknown][] = []
+				const rows: [number, string, unknown, number?][] = []
 				for await (const page of readEventPages(runtime, sessionId, window.after, true)) {
 					if (request !== runtimeViewRequest) return
 					rows.push(...page)
@@ -741,6 +770,7 @@ export const webviewMessageHandler = async (
 				let continuationIndex = window.skipped_turns
 				let firstTurn = true
 				let initialImages: string[] = []
+				let legacyRecord: Record<string, unknown> | undefined
 				const events = rows.flatMap((row) => {
 					if (!Array.isArray(row) || typeof row[1] !== "string") return []
 					const payload = row[2]
@@ -748,6 +778,10 @@ export const webviewMessageHandler = async (
 						payload && typeof payload === "object" && !Array.isArray(payload)
 							? (payload as Record<string, unknown>)
 							: {}
+					// Imported event rows share a session time; the adjacent original retains each message's time.
+					const original = legacyRecord
+					legacyRecord = row[1] === "legacy.record" ? data : undefined
+					const timestamp = original && (row[1] === "text" || row[1] === "legacy.turn") ? original.ts : row[3]
 					const images = Array.isArray(data.images)
 						? data.images.filter(
 								(image): image is string =>
@@ -770,7 +804,15 @@ export const webviewMessageHandler = async (
 					) {
 						taskId = (payload as Record<string, unknown>).task_id as string
 					}
-					const event = { task_id: taskId, session_id: sessionId, kind: row[1], payload: row[2] }
+					const event = {
+						task_id: taskId,
+						session_id: sessionId,
+						kind: row[1],
+						payload: row[2],
+						...(typeof timestamp === "number" && Number.isFinite(timestamp)
+							? { created_at: timestamp }
+							: {}),
+					}
 					const legacyContinuation =
 						row[1] === "legacy.turn" &&
 						payload &&
@@ -2221,7 +2263,7 @@ export const webviewMessageHandler = async (
 			break
 		case "upsertApiConfiguration":
 			if (message.text && message.apiConfiguration) {
-				await provider.upsertProviderProfile(message.text, message.apiConfiguration)
+				await provider.upsertProviderProfile(message.text, message.apiConfiguration, message.activate ?? true)
 			}
 			break
 		case "renameApiConfiguration":
@@ -2269,7 +2311,16 @@ export const webviewMessageHandler = async (
 		case "loadApiConfigurationById":
 			if (message.text) {
 				try {
-					await provider.activateProviderProfile({ id: message.text })
+					// A chat with a live session switches its own model only: the
+					// choice is stored as that session's override and the global
+					// profile — which every other conversation reads — is untouched.
+					const { ClineProvider } = await import("./ClineProvider")
+					const sessionId = ClineProvider.getActiveRuntimeTask()?.sessionId
+					if (sessionId) {
+						await provider.setSessionProfile(sessionId, { id: message.text })
+					} else {
+						await provider.activateProviderProfile({ id: message.text })
+					}
 				} catch (error) {
 					provider.log(
 						`Error load api configuration by ID: ${JSON.stringify(error, Object.getOwnPropertyNames(error), 2)}`,
@@ -3031,6 +3082,7 @@ export const webviewMessageHandler = async (
 				// Send success response first - settings are saved regardless of validation
 				await provider.postMessageToWebview({
 					type: "codeIndexSettingsSaved",
+					requestId: message.requestId,
 					success: true,
 					settings: globalStateConfig,
 				})
@@ -3041,6 +3093,16 @@ export const webviewMessageHandler = async (
 				// Then handle validation and initialization for the current workspace
 				const currentCodeIndexManager = provider.getCurrentWorkspaceCodeIndexManager()
 				if (currentCodeIndexManager) {
+					try {
+						await currentCodeIndexManager.initialize(provider.contextProxy)
+					} catch (error) {
+						provider.log(`Code index initialization failed: ${String(error)}`)
+						await provider.postMessageToWebview({
+							type: "indexingStatusUpdate",
+							values: currentCodeIndexManager.getCurrentStatus(),
+						})
+						break
+					}
 					// If embedder provider changed, perform proactive validation
 					if (embedderProviderChanged) {
 						try {
@@ -3109,6 +3171,7 @@ export const webviewMessageHandler = async (
 				provider.log(`Error saving code index settings: ${error.message || error}`)
 				await provider.postMessageToWebview({
 					type: "codeIndexSettingsSaved",
+					requestId: message.requestId,
 					success: false,
 					error: error.message || "Failed to save settings",
 				})
@@ -3116,6 +3179,47 @@ export const webviewMessageHandler = async (
 			break
 		}
 
+		case "searchCodeIndex": {
+			const workspacePath = provider.codeIndexWorkspacePath
+			try {
+				if (!workspacePath || message.values?.workspacePath !== workspacePath)
+					throw new Error("Index workspace changed; retry in the selected project")
+				const query = message.text?.trim()
+				if (!query || query.length > 512) throw new Error("Index search requires 1–512 characters")
+				const manager = provider.getCurrentWorkspaceCodeIndexManager()
+				if (!manager || !manager.isFeatureEnabled)
+					throw new Error("Enable indexing for this project before searching")
+				const found = await manager.searchIndex(query)
+				if (provider.codeIndexWorkspacePath !== workspacePath) return
+				await provider.postMessageToWebview({
+					type: "codeIndexSearchResult",
+					requestId: message.requestId,
+					codeIndexSearch: {
+						workspacePath,
+						matches: found.slice(0, 50).flatMap((match) =>
+							match.payload
+								? [
+										{
+											filePath: match.payload.filePath,
+											startLine: match.payload.startLine,
+											endLine: match.payload.endLine,
+											text: match.payload.codeChunk.slice(0, 4000),
+										},
+									]
+								: [],
+						),
+					},
+				})
+			} catch (error) {
+				await provider.postMessageToWebview({
+					type: "codeIndexSearchResult",
+					requestId: message.requestId,
+					codeIndexSearch: { workspacePath, matches: [] },
+					error: error instanceof Error ? error.message : String(error),
+				})
+			}
+			break
+		}
 		case "requestIndexingStatus": {
 			const manager = provider.getCurrentWorkspaceCodeIndexManager()
 			if (!manager) {
@@ -3152,9 +3256,7 @@ export const webviewMessageHandler = async (
 			break
 		}
 		case "requestUpdateStatus": {
-			// The rail asks what the channel says. `check()` is inert without a
-			// configured manifest URL, so an install that never chose an update
-			// source answers "no channel" rather than reaching the network.
+			// A status refresh may reuse a login but must never prompt for one.
 			const { UpdateService } = await import("../../services/update/UpdateService")
 			const service = new UpdateService(provider.context, (message) => provider.log(message))
 			const result = await service.check()
@@ -3248,20 +3350,12 @@ export const webviewMessageHandler = async (
 
 				// "Start Indexing" implicitly enables the workspace
 				await manager.setWorkspaceEnabled(true)
+				await manager.initialize(provider.contextProxy)
 
 				if (manager.isFeatureEnabled && manager.isFeatureConfigured) {
-					await manager.initialize(provider.contextProxy)
-
 					const currentState = manager.state
-					if (currentState === "Standby" || currentState === "Error") {
+					if (currentState !== "Indexing" && currentState !== "Stopping") {
 						void manager.startIndexing().catch((err) => provider.log(`Indexing error: ${err}`))
-
-						if (!manager.isInitialized) {
-							await manager.initialize(provider.contextProxy)
-							if (manager.state === "Standby" || manager.state === "Error") {
-								void manager.startIndexing().catch((err) => provider.log(`Indexing error: ${err}`))
-							}
-						}
 					}
 				}
 			} catch (error) {
@@ -3547,14 +3641,21 @@ export const webviewMessageHandler = async (
 			const provisioner = getSharedEnvironmentProvisioner()
 			const skills = provider.getSkillsManager()
 			const mcp = provider.getMcpHub()
-			const { searchCommunity, installCommunitySkill, prepareCommunityMcp } =
-				await import("../../services/extensions/community")
+			const {
+				searchCommunity,
+				searchCommunityPage,
+				searchMcpPackages,
+				installCommunitySkill,
+				prepareCommunityMcp,
+			} = await import("../../services/extensions/community")
 			const registry = new ExtensionRegistry({
 				mcp,
 				marketplace: marketplaceManager,
 				skills,
 				community: {
 					search: searchCommunity,
+					searchPage: (kind, query, cursor) =>
+						kind === "mcp" ? searchMcpPackages(query, cursor) : searchCommunityPage(kind, query, cursor),
 					install: async (kind, id) => {
 						if (kind === "skill") {
 							if (!skills) throw new Error("Skills manager is unavailable")
@@ -3567,7 +3668,8 @@ export const webviewMessageHandler = async (
 								await marketplaceManager.installMarketplaceItem(prepared.item, { target: "global" })
 							} catch (error) {
 								const fs = await import("node:fs/promises")
-								await fs.rm(prepared.directory, { recursive: true, force: true })
+								if (prepared.directory)
+									await fs.rm(prepared.directory, { recursive: true, force: true })
 								throw error
 							}
 							await mcp.refreshAllConnections()
@@ -3576,7 +3678,8 @@ export const webviewMessageHandler = async (
 				},
 				modes: {
 					getCustomModes: () => provider.customModesManager.getCustomModes(),
-					deleteCustomMode: (slug) => provider.customModesManager.deleteCustomMode(slug),
+					deleteCustomMode: (slug, source) =>
+						provider.customModesManager.deleteCustomMode(slug, true, source),
 				},
 				vscodeExtensions: {
 					installed: () =>
@@ -3876,16 +3979,28 @@ export const webviewMessageHandler = async (
 			if (message.taskId) {
 				const { getOctoCodeRuntime } = await import("../../services/octocode-runtime/OctoCodeRuntime")
 				const state = await provider.getStateToPostToWebview()
+				// Queued attachments cannot be copied now (the queue may outlive the
+				// picker); the queue entry carries the source paths and the copy
+				// happens when the queued message becomes a turn in drainQueue.
 				await getOctoCodeRuntime().enqueue(
 					message.taskId,
 					resolved.text,
 					resolved.images,
 					state.apiConfiguration,
 					state.permissionProfile ?? "full",
+					message.attachmentPaths,
 				)
 				break
 			}
-			await provider.startRuntimeTask(resolved.text, resolved.images)
+			await provider.startRuntimeTask(
+				resolved.text,
+				resolved.images,
+				undefined,
+				{},
+				undefined,
+				undefined,
+				message.attachmentPaths,
+			)
 			break
 		}
 		case "removeQueuedMessage": {

@@ -8,6 +8,13 @@ import { ContextProxy } from "../../config/ContextProxy"
 // Reload the path helpers imported by vitest.setup.ts with this suite's VS Code mock.
 vi.hoisted(() => vi.resetModules())
 
+vi.mock("../../../services/code-index/manager", () => ({
+	CodeIndexManager: {
+		getInstance: vi.fn().mockReturnValue(undefined),
+		getAllInstances: vi.fn().mockReturnValue([]),
+	},
+}))
+
 vi.mock("vscode", () => ({
 	ExtensionContext: vi.fn(),
 	OutputChannel: vi.fn(),

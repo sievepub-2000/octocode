@@ -1,6 +1,17 @@
 use pretty_assertions::assert_eq;
 
 #[test]
+fn prefill_memory_details_survive_the_headless_error_line() {
+    let mut line = serde_json::json!({"type":"error","message":"server memory unavailable"});
+    let data = serde_json::json!({"error_code":"prefill_memory_exceeded","http_status":400,"recoverable":true});
+    super::attach_terminal_error_details(&mut line, Some(&data));
+    assert_eq!(line["error_code"], "prefill_memory_exceeded");
+    assert_eq!(line["http_status"], 400);
+    assert_eq!(line["recoverable"], true);
+    assert_eq!(line["message"], "server memory unavailable");
+}
+
+#[test]
 fn lifecycle_tracking_is_independent_of_wait_flag() {
     let mut pending = std::collections::HashSet::new();
     let mut completed = std::collections::HashSet::new();

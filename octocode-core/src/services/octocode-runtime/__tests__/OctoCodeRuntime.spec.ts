@@ -1,16 +1,17 @@
 import { describe, expect, it, vi } from "vitest"
-import { EventEmitter } from "node:events"
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { PassThrough } from "node:stream"
 import * as vscode from "vscode"
 
-const { spawnMock } = vi.hoisted(() => ({ spawnMock: vi.fn() }))
+const { connectMock } = vi.hoisted(() => ({ connectMock: vi.fn() }))
 
-vi.mock("node:child_process", async (importOriginal) => ({
-	...(await importOriginal<typeof import("node:child_process")>()),
-	spawn: spawnMock,
+vi.mock("../RuntimeBrokerClient", () => ({ connectSharedHost: connectMock }))
+vi.mock("../../code-index/state-manager", () => ({
+	CodeIndexStateManager: class {
+		dispose = vi.fn()
+	},
 }))
 
 import {
@@ -26,6 +27,8 @@ import {
 } from "../OctoCodeRuntime"
 import { normalizeAudioParams } from "../../models-api/SpeechProvider"
 import { ripgrepCandidatePaths } from "../../ripgrep"
+import { ProviderSettingsManager } from "../../../core/config/ProviderSettingsManager"
+import { makeExtensionContext, makeUri } from "../../../test-utils/vscode"
 
 it("resolves saved compression settings with profile inheritance and safe defaults", () => {
 	expect(resolveAutoCompactThreshold({})).toBe(90)
@@ -145,6 +148,55 @@ describe("memory ownership", () => {
 })
 
 describe("continuation lifecycle", () => {
+	it("does not replace an unconfigured session profile with another conversation's model", async () => {
+		const lookup = vi.spyOn(ProviderSettingsManager.prototype, "getProfile").mockResolvedValue({
+			id: "unfinished",
+			name: "muse-spark-1.3-con",
+		})
+		try {
+			const call = vi.fn().mockResolvedValue("unfinished")
+			const runtime = Object.assign(Object.create(OctoCodeRuntime.prototype), {
+				context: {},
+				runningSessions: new Map(),
+				call,
+			}) as OctoCodeRuntime
+			await expect(
+				runtime.prepareContinuation("session", "continue", {
+					apiProvider: "openrouter",
+					openRouterModelId: "nvidia/test:free",
+				}),
+			).rejects.toThrow("请先在模型设置中选择 API 提供商并保存配置")
+			expect(call).toHaveBeenCalledTimes(1)
+		} finally {
+			lookup.mockRestore()
+		}
+	})
+	it("falls back to the selected profile identity after a session profile is deleted", async () => {
+		const lookup = vi.spyOn(ProviderSettingsManager.prototype, "getProfile").mockRejectedValue(new Error("deleted"))
+		try {
+			const call = vi.fn(async (method: string) =>
+				method === "setting.get" ? "deleted-profile" : { session_id: "session", task_id: "task", route: {} },
+			)
+			const runtime = Object.assign(Object.create(OctoCodeRuntime.prototype), {
+				context: {
+					globalState: {
+						get: (key: string) =>
+							key === "listApiConfigMeta" ? [{ id: "global-id", name: "global" }] : "global",
+					},
+				},
+				runningSessions: new Map(),
+				call,
+			}) as OctoCodeRuntime
+			await expect(
+				runtime.prepareContinuation("session", "continue", { apiProvider: "openai" }),
+			).resolves.toMatchObject({
+				profileId: "global-id",
+				providerSettings: { apiProvider: "openai" },
+			})
+		} finally {
+			lookup.mockRestore()
+		}
+	})
 	it("refuses crash recovery when session permissions were not persisted", async () => {
 		const call = vi.fn(async (method: string) => {
 			if (method === "session.get") return { status: "interrupted", workspace: "D:/project" }
@@ -225,21 +277,93 @@ describe("continuation lifecycle", () => {
 			task_id: "task",
 		})
 
-		await expect(runtime.prepareContinuation("session", "continue", {})).resolves.toMatchObject({
+		await expect(
+			runtime.prepareContinuation("session", "continue", { apiProvider: "openrouter" }),
+		).resolves.toMatchObject({
 			sessionId: "session",
 			taskId: "task",
 		})
-		expect(call).toHaveBeenCalledOnce()
+		// The session-model override lookup runs before the continue call
+		// (setting.get for session-profile:<id>), then harness.continue itself.
+		expect(call).toHaveBeenCalledTimes(2)
+		expect(call).toHaveBeenCalledWith("setting.get", { key: "session-profile:session" })
 		expect(call).toHaveBeenCalledWith("harness.continue", {
 			prompt: "continue",
 			images: [],
-			provider: {},
+			provider: { apiProvider: "openrouter" },
 			session_id: "session",
 		})
+	})
+	it("rejects an unconfigured continuation before sending it to the host", async () => {
+		const call = vi.fn().mockResolvedValue(null)
+		const runtime = Object.assign(Object.create(OctoCodeRuntime.prototype), {
+			runningSessions: new Map(),
+			call,
+		}) as OctoCodeRuntime
+		await expect(runtime.prepareContinuation("session", "continue", {})).rejects.toThrow(
+			"请先在模型设置中选择 API 提供商并保存配置",
+		)
+		expect(call).not.toHaveBeenCalledWith("harness.continue", expect.anything())
 	})
 })
 
 describe("Models API routing", () => {
+	it.each([
+		{ global: false, workspace: true, expected: false },
+		{ global: true, workspace: false, expected: false },
+		{ global: true, workspace: true, expected: true },
+	])(
+		"passes workspace indexing opt-in to the actual agent.run payload: $global/$workspace",
+		async ({ global, workspace, expected }) => {
+			const { CodeIndexManager } = await import("../../code-index/manager")
+			const previous = process.env.OCTOCODE_HARNESS_PATH
+			process.env.OCTOCODE_HARNESS_PATH = process.execPath
+			const context = makeExtensionContext({
+				extensionPath: process.cwd(),
+				globalStorageUri: makeUri(process.cwd()),
+			})
+			vi.mocked(context.globalState.get).mockReturnValue({ codebaseIndexEnabled: global })
+			vi.mocked(context.workspaceState.get).mockReturnValue(workspace)
+			const call = vi.fn(async (method: string, params?: { task_id?: string }) =>
+				method === "agent.run" ? { task_id: params?.task_id } : {},
+			)
+			const runtime = Object.assign(Object.create(OctoCodeRuntime.prototype), {
+				context,
+				call,
+				runningSessions: new Map(),
+				cancelledTasks: new Set(),
+				workbenchMcp: { startTask: vi.fn().mockResolvedValue({ url: "http://mcp", token: "fixture" }) },
+				modelsApi: { materialize: vi.fn().mockResolvedValue({ model: "fixture" }), release: vi.fn() },
+				supervision: vi.fn().mockResolvedValue({ fallbacks: [] }),
+			}) as OctoCodeRuntime
+			try {
+				await runtime.runPreparedAgentTask(
+					{
+						sessionId: "index-session",
+						taskId: "index-task",
+						workingDirectory: process.cwd(),
+						autoCompactThresholdPercent: 90,
+						route: {
+							model: {
+								model: "fixture",
+								base_url: "http://fixture",
+								api_backend: "chat_completions",
+								context_window: 1000,
+								max_completion_tokens: 100,
+							},
+						},
+					},
+					"fixture",
+				)
+				expect(call).toHaveBeenCalledWith("agent.run", expect.objectContaining({ codebase_indexing: expected }))
+			} finally {
+				CodeIndexManager.disposeAll()
+				if (previous === undefined) delete process.env.OCTOCODE_HARNESS_PATH
+				else process.env.OCTOCODE_HARNESS_PATH = previous
+			}
+		},
+	)
+
 	it("removes credentials and query secrets from logged endpoints", () => {
 		expect(safeLogEndpoint("https://user:pass@example.com/v1?api_key=secret#token")).toBe("https://example.com/v1")
 	})
@@ -661,26 +785,66 @@ describe("hostEnvironment", () => {
 })
 
 describe("shutdown lifecycle", () => {
+	it("waits for queued persistence and a Host barrier before permitting an update", async () => {
+		let finishWrite: () => void = () => {}
+		const queueWrite = new Promise<void>((resolve) => {
+			finishWrite = resolve
+		})
+		const call = vi.fn().mockResolvedValueOnce({ pong: true }).mockResolvedValueOnce([])
+		const runtime: OctoCodeRuntime = Object.assign(Object.create(OctoCodeRuntime.prototype), {
+			queueWrite,
+			runningSessions: new Map(),
+			drainingSessions: new Map(),
+			call,
+		})
+		const idle = runtime.awaitIdleForUpdate()
+		expect(call).not.toHaveBeenCalled()
+		finishWrite()
+		await idle
+		expect(call.mock.calls.map(([method]) => method)).toEqual(["ping", "session.list"])
+	})
+
+	it("blocks an update for tasks starting during the barrier or running in another window", async () => {
+		const runningSessions = new Map<string, string>()
+		// The ping itself starts a task: the gate must re-check through the Host
+		// even when this process's map was empty at entry.
+		const runtime: OctoCodeRuntime = Object.assign(Object.create(OctoCodeRuntime.prototype), {
+			queueWrite: Promise.resolve(),
+			runningSessions,
+			drainingSessions: new Map(),
+			call: vi.fn(async (method: string) => {
+				runningSessions.set("owned", "task")
+				return method === "ping" ? { pong: true } : []
+			}),
+		})
+		await expect(runtime.awaitIdleForUpdate()).rejects.toThrow(/active/i)
+		runningSessions.clear()
+		Object.assign(runtime, {
+			call: vi
+				.fn()
+				.mockResolvedValueOnce({ pong: true })
+				.mockResolvedValueOnce([{ status: "running" }]),
+		})
+		await expect(runtime.awaitIdleForUpdate()).rejects.toThrow(/active/i)
+	})
+
 	it("starts one host when initial RPC calls arrive concurrently", async () => {
 		const storage = mkdtempSync(join(tmpdir(), "octocode-runtime-"))
 		const previousHostPath = process.env.OCTOCODE_HOST_PATH
 		process.env.OCTOCODE_HOST_PATH = process.execPath
-		spawnMock.mockImplementation(() => {
-			const process = Object.assign(new EventEmitter(), {
-				pid: 42,
-				stdin: new PassThrough(),
-				stdout: new PassThrough(),
-				stderr: new PassThrough(),
-				kill: vi.fn(),
-			})
-			process.stdin.on("data", (chunk) => {
-				for (const line of String(chunk).trim().split("\n")) {
-					const { id } = JSON.parse(line) as { id: number }
-					process.stdout.write(`${JSON.stringify({ id, result: { ok: true } })}\n`)
-				}
-			})
-			return process
-		})
+		connectMock.mockImplementation(
+			async (options: { onLine: (line: string) => void; onLog: (line: string) => void }) => {
+				const socket = new PassThrough()
+				options.onLog("[OctoCode host] attached broker=42 pid=43")
+				socket.on("data", (chunk) => {
+					for (const line of String(chunk).trim().split("\n")) {
+						const { id } = JSON.parse(line) as { id: number }
+						options.onLine(JSON.stringify({ id, result: { ok: true } }))
+					}
+				})
+				return socket
+			},
+		)
 		const output = { appendLine: vi.fn() }
 		const runtime = Object.assign(Object.create(OctoCodeRuntime.prototype), {
 			cancelledTasks: new Set(),
@@ -704,16 +868,16 @@ describe("shutdown lifecycle", () => {
 		try {
 			await Promise.all([runtime.health(), runtime.health()])
 
-			expect(spawnMock).toHaveBeenCalledOnce()
+			expect(connectMock).toHaveBeenCalledOnce()
 			expect(
-				output.appendLine.mock.calls.filter(([line]) => line.includes("[OctoCode host] started")),
+				output.appendLine.mock.calls.filter(([line]) => line.includes("[OctoCode host] attached")),
 			).toHaveLength(1)
 		} finally {
 			runtime.dispose()
 			rmSync(storage, { force: true, recursive: true })
 			if (previousHostPath === undefined) delete process.env.OCTOCODE_HOST_PATH
 			else process.env.OCTOCODE_HOST_PATH = previousHostPath
-			spawnMock.mockReset()
+			connectMock.mockReset()
 		}
 	})
 
@@ -724,6 +888,7 @@ describe("shutdown lifecycle", () => {
 		}) as unknown as {
 			dispose(): void
 			stop(error: Error): void
+			acceptLine(line: string): void
 		}
 		Object.assign(runtime, {
 			runningSessions: new Map(),
@@ -739,6 +904,7 @@ describe("shutdown lifecycle", () => {
 
 		runtime.dispose()
 		runtime.stop(new Error("process exited"))
+		runtime.acceptLine('{"task_id":"task-a","session_id":"session-a","kind":"agent.finished","payload":{}}')
 
 		expect(output.appendLine).not.toHaveBeenCalled()
 	})

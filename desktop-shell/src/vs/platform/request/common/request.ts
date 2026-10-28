@@ -97,12 +97,12 @@ export abstract class AbstractRequestService extends Disposable implements IRequ
 	}
 
 	protected async logAndRequest(options: IRequestOptions, request: () => Promise<IRequestContext>): Promise<IRequestContext> {
-		const prefix = `#${++this.counter}: ${options.url}`;
-		this.logService.trace(`${prefix} - begin`, options.type, new LoggableHeaders(options.headers ?? {}));
+		const prefix = `#${++this.counter}: ${options.sensitive ? '[private update request]' : options.url}`;
+		this.logService.trace(`${prefix} - begin`, options.type, options.sensitive ? '[private request headers]' : new LoggableHeaders(options.headers ?? {}));
 		const startTime = Date.now();
 		try {
 			const result = await request();
-			this.logService.trace(`${prefix} - end`, options.type, result.res.statusCode, result.res.headers);
+			this.logService.trace(`${prefix} - end`, options.type, result.res.statusCode, options.sensitive ? '[private response headers]' : result.res.headers);
 			this._onDidCompleteRequest.fire({
 				callSite: options.callSite,
 				latency: Date.now() - startTime,
@@ -110,7 +110,7 @@ export abstract class AbstractRequestService extends Disposable implements IRequ
 			});
 			return result;
 		} catch (error) {
-			this.logService.error(`${prefix} - error`, options.type, getErrorMessage(error));
+			this.logService.error(`${prefix} - error`, options.type, options.sensitive ? 'Private request failed' : getErrorMessage(error));
 			throw error;
 		}
 	}

@@ -53,7 +53,7 @@ export const sort = sort_;
 export const gulp = {
 	// Import task, sequence and parallel from "../lib/task"!
 	src: ((globs: Parameters<typeof g.src>[0], options?: Parameters<typeof g.src>[1]) => {
-		const merged: Parameters<typeof g.src>[1] = { encoding: false, ...options };
+		const merged = { encoding: false, ...options };
 		return g.src(globs, merged);
 	}) as typeof g.src,
 	dest: g.dest

@@ -10,10 +10,17 @@ use std::sync::Arc;
 use ratatui::{
     CompletedFrame, Frame, TerminalOptions, Viewport,
     backend::{Backend, ClearType},
-    buffer::{Buffer, Cell},
+    buffer::{Buffer, Cell, CellDiffOption, CellWidth as _},
     layout::{Position, Rect, Size},
 };
-use unicode_width::UnicodeWidthStr as _;
+
+pub(crate) fn backend_error(error: impl std::error::Error + Send + Sync + 'static) -> io::Error {
+    let error: Box<dyn std::error::Error + Send + Sync> = Box::new(error);
+    match error.downcast::<io::Error>() {
+        Ok(error) => *error,
+        Err(error) => io::Error::other(error),
+    }
+}
 
 /// A hyperlink region on a single screen row, in absolute viewport coordinates.
 ///
@@ -229,7 +236,7 @@ where
     fn drop(&mut self) {
         // Attempt to restore the cursor state
         if self.hidden_cursor {
-            let _ = self.show_cursor();
+            let _ = self.backend.show_cursor();
         }
     }
 }
@@ -237,6 +244,7 @@ where
 impl<B> Terminal<B>
 where
     B: Backend,
+    B::Error: Send + Sync + 'static,
 {
     /// Creates a new [`Terminal`] with the given [`Backend`] with a full screen viewport.
     ///
@@ -277,7 +285,7 @@ where
     pub fn with_options(mut backend: B, options: TerminalOptions) -> io::Result<Self> {
         let area = match options.viewport {
             Viewport::Fullscreen | Viewport::Inline(_) => {
-                Rect::from((Position::ORIGIN, backend.size()?))
+                Rect::from((Position::ORIGIN, backend.size().map_err(backend_error)?))
             }
             Viewport::Fixed(area) => area,
         };
@@ -347,7 +355,9 @@ where
         if let Some((col, row, _)) = updates.last() {
             self.last_known_cursor_pos = Position { x: *col, y: *row };
         }
-        self.backend.draw(updates.into_iter())?;
+        self.backend
+            .draw(updates.into_iter())
+            .map_err(backend_error)?;
         Ok(has_changes)
     }
 
@@ -666,7 +676,7 @@ where
         self.swap_buffers();
 
         // Flush
-        self.backend.flush()?;
+        self.backend.flush().map_err(backend_error)?;
 
         let completed_frame = CompletedFrame {
             buffer: &self.buffers[1 - self.current],
@@ -682,14 +692,14 @@ where
 
     /// Hides the cursor.
     pub fn hide_cursor(&mut self) -> io::Result<()> {
-        self.backend.hide_cursor()?;
+        self.backend.hide_cursor().map_err(backend_error)?;
         self.hidden_cursor = true;
         Ok(())
     }
 
     /// Shows the cursor.
     pub fn show_cursor(&mut self) -> io::Result<()> {
-        self.backend.show_cursor()?;
+        self.backend.show_cursor().map_err(backend_error)?;
         self.hidden_cursor = false;
         Ok(())
     }
@@ -714,13 +724,15 @@ where
     ///
     /// This is the position of the cursor after the last draw call.
     pub fn get_cursor_position(&mut self) -> io::Result<Position> {
-        self.backend.get_cursor_position()
+        self.backend.get_cursor_position().map_err(backend_error)
     }
 
     /// Sets the cursor position.
     pub fn set_cursor_position<P: Into<Position>>(&mut self, position: P) -> io::Result<()> {
         let position = position.into();
-        self.backend.set_cursor_position(position)?;
+        self.backend
+            .set_cursor_position(position)
+            .map_err(backend_error)?;
         self.last_known_cursor_pos = position;
         Ok(())
     }
@@ -728,17 +740,27 @@ where
     /// Clear the terminal and force a full redraw on the next draw call.
     pub fn clear(&mut self) -> io::Result<()> {
         match self.viewport {
-            Viewport::Fullscreen => self.backend.clear_region(ClearType::All)?,
+            Viewport::Fullscreen => self
+                .backend
+                .clear_region(ClearType::All)
+                .map_err(backend_error)?,
             Viewport::Inline(_) => {
                 self.backend
-                    .set_cursor_position(self.viewport_area.as_position())?;
-                self.backend.clear_region(ClearType::AfterCursor)?;
+                    .set_cursor_position(self.viewport_area.as_position())
+                    .map_err(backend_error)?;
+                self.backend
+                    .clear_region(ClearType::AfterCursor)
+                    .map_err(backend_error)?;
             }
             Viewport::Fixed(_) => {
                 let area = self.viewport_area;
                 for y in area.top()..area.bottom() {
-                    self.backend.set_cursor_position(Position { x: 0, y })?;
-                    self.backend.clear_region(ClearType::AfterCursor)?;
+                    self.backend
+                        .set_cursor_position(Position { x: 0, y })
+                        .map_err(backend_error)?;
+                    self.backend
+                        .clear_region(ClearType::AfterCursor)
+                        .map_err(backend_error)?;
                 }
             }
         }
@@ -773,7 +795,7 @@ where
 
     /// Queries the real size of the backend.
     pub fn size(&self) -> io::Result<Size> {
-        self.backend.size()
+        self.backend.size().map_err(backend_error)
     }
 
     /// Insert some content before the current inline viewport. This has no effect when the
@@ -1130,8 +1152,8 @@ where
                 .iter()
                 .enumerate()
                 .map(|(i, c)| ((i % width) as u16, y_offset + (i / width) as u16, c));
-            self.backend.draw(iter)?;
-            self.backend.flush()?;
+            self.backend.draw(iter).map_err(backend_error)?;
+            self.backend.flush().map_err(backend_error)?;
         }
         Ok(remainder)
     }
@@ -1155,8 +1177,10 @@ where
                 area,
                 content: to_draw.to_vec(),
             };
-            self.backend.draw(old.diff(&new).into_iter())?;
-            self.backend.flush()?;
+            self.backend
+                .draw(old.diff(&new).into_iter())
+                .map_err(backend_error)?;
+            self.backend.flush().map_err(backend_error)?;
         }
         Ok(remainder)
     }
@@ -1169,7 +1193,9 @@ where
                 0,
                 self.last_known_area.height.saturating_sub(1),
             ))?;
-            self.backend.append_lines(lines_to_scroll)?;
+            self.backend
+                .append_lines(lines_to_scroll)
+                .map_err(backend_error)?;
         }
         Ok(())
     }
@@ -1193,16 +1219,22 @@ fn diff_large<'a>(prev: &Buffer, next: &'a Buffer) -> Vec<(u16, u16, &'a Cell)> 
     let mut to_skip: usize = 0;
 
     for (i, (current, previous)) in next_buffer.iter().zip(previous_buffer.iter()).enumerate() {
-        if !current.skip && (current != previous || invalidated > 0) && to_skip == 0 {
+        if current.diff_option != CellDiffOption::Skip
+            && (current != previous
+                || invalidated > 0
+                || current.diff_option == CellDiffOption::AlwaysUpdate)
+            && to_skip == 0
+        {
             // Safe coordinate conversion: divide in usize, then narrow to u16.
             let x = area.x + (i % width) as u16;
             let y = area.y + (i / width) as u16;
             updates.push((x, y, &next_buffer[i]));
         }
 
-        to_skip = current.symbol().width().saturating_sub(1);
+        to_skip = usize::from(current.cell_width()).saturating_sub(1);
 
-        let affected_width = std::cmp::max(current.symbol().width(), previous.symbol().width());
+        let affected_width =
+            usize::from(std::cmp::max(current.cell_width(), previous.cell_width()));
         invalidated = std::cmp::max(affected_width, invalidated).saturating_sub(1);
     }
     updates
@@ -1236,16 +1268,22 @@ fn diff_large_with_links<'a>(
     for (i, (current, previous)) in next_buffer.iter().zip(previous_buffer.iter()).enumerate() {
         let link_changed =
             resolve_link(next_ids, next_table, i) != resolve_link(prev_ids, prev_table, i);
-        if !current.skip && (current != previous || link_changed || invalidated > 0) && to_skip == 0
+        if current.diff_option != CellDiffOption::Skip
+            && (current != previous
+                || link_changed
+                || invalidated > 0
+                || current.diff_option == CellDiffOption::AlwaysUpdate)
+            && to_skip == 0
         {
             let x = area.x + (i % width) as u16;
             let y = area.y + (i / width) as u16;
             updates.push((x, y, &next_buffer[i]));
         }
 
-        to_skip = current.symbol().width().saturating_sub(1);
+        to_skip = usize::from(current.cell_width()).saturating_sub(1);
 
-        let affected_width = std::cmp::max(current.symbol().width(), previous.symbol().width());
+        let affected_width =
+            usize::from(std::cmp::max(current.cell_width(), previous.cell_width()));
         invalidated = std::cmp::max(affected_width, invalidated).saturating_sub(1);
     }
     updates
@@ -1265,7 +1303,10 @@ fn emit_frame_with_links<B: Backend + Write>(
     cur_ids: &[u32],
     cur_table: &[LinkRef],
     area: Rect,
-) -> io::Result<()> {
+) -> io::Result<()>
+where
+    B::Error: Send + Sync + 'static,
+{
     let width = area.width as usize;
     let resolve = |x: u16, y: u16| -> Option<&LinkRef> {
         let idx = (y - area.y) as usize * width + (x - area.x) as usize;
@@ -1298,9 +1339,11 @@ fn emit_frame_with_links<B: Backend + Write>(
             // dangling OSC 8 open can never be flushed to the terminal.
             let drawn = backend.draw(updates[i..j].iter().copied());
             write_osc8_close(backend)?;
-            drawn?;
+            drawn.map_err(backend_error)?;
         } else {
-            backend.draw(updates[i..j].iter().copied())?;
+            backend
+                .draw(updates[i..j].iter().copied())
+                .map_err(backend_error)?;
         }
 
         i = j;
@@ -1313,8 +1356,11 @@ fn compute_inline_size<B: Backend>(
     height: u16,
     size: Size,
     offset_in_previous_viewport: u16,
-) -> io::Result<(Rect, Position)> {
-    let pos = backend.get_cursor_position()?;
+) -> io::Result<(Rect, Position)>
+where
+    B::Error: Send + Sync + 'static,
+{
+    let pos = backend.get_cursor_position().map_err(backend_error)?;
     let mut row = pos.y;
 
     let max_height = size.height.min(height);
@@ -1323,7 +1369,9 @@ fn compute_inline_size<B: Backend>(
         .saturating_sub(offset_in_previous_viewport)
         .saturating_sub(1);
 
-    backend.append_lines(lines_after_cursor)?;
+    backend
+        .append_lines(lines_after_cursor)
+        .map_err(backend_error)?;
 
     let available_lines = size.height.saturating_sub(row).saturating_sub(1);
     let missing_lines = lines_after_cursor.saturating_sub(available_lines);
@@ -1343,7 +1391,10 @@ fn compute_inline_size<B: Backend>(
     ))
 }
 
-impl<B: Backend> Terminal<B> {
+impl<B: Backend> Terminal<B>
+where
+    B::Error: Send + Sync + 'static,
+{
     /// HACK: this is added
     pub fn viewport_area(&self) -> Rect {
         self.viewport_area
@@ -1364,9 +1415,10 @@ impl<B: Backend> Terminal<B> {
     /// only stdin reader), and both buffers reset — follow with a full redraw.
     pub fn set_viewport(&mut self, viewport: Viewport) -> io::Result<()> {
         let area = match viewport {
-            Viewport::Fullscreen | Viewport::Inline(_) => {
-                Rect::from((Position::ORIGIN, self.backend.size()?))
-            }
+            Viewport::Fullscreen | Viewport::Inline(_) => Rect::from((
+                Position::ORIGIN,
+                self.backend.size().map_err(backend_error)?,
+            )),
             Viewport::Fixed(area) => area,
         };
         let (viewport_area, cursor_pos) = match viewport {
@@ -1413,6 +1465,52 @@ mod inline_resize_tests {
     use ratatui::{TerminalOptions, Viewport, layout::Rect};
 
     use super::Terminal;
+
+    #[test]
+    fn backend_error_preserves_io_error_details() {
+        let original = std::io::Error::from_raw_os_error(5);
+        let expected = (
+            original.kind(),
+            original.raw_os_error(),
+            original.to_string(),
+        );
+        let converted = super::backend_error(original);
+        assert_eq!(
+            (
+                converted.kind(),
+                converted.raw_os_error(),
+                converted.to_string()
+            ),
+            expected
+        );
+    }
+
+    #[test]
+    fn diff_options_apply_to_plain_and_hyperlinked_frames() {
+        use ratatui::buffer::{Buffer, CellDiffOption};
+        use std::num::NonZeroU16;
+
+        let area = Rect::new(0, 0, 5, 1);
+        let mut previous = Buffer::empty(area);
+        previous[(0, 0)].set_diff_option(CellDiffOption::AlwaysUpdate);
+        let mut next = previous.clone();
+        next[(1, 0)]
+            .set_symbol("x")
+            .set_diff_option(CellDiffOption::Skip);
+        next[(2, 0)]
+            .set_symbol("x")
+            .set_diff_option(CellDiffOption::ForcedWidth(NonZeroU16::new(2).unwrap()));
+        next[(3, 0)].set_symbol("y");
+        next[(4, 0)].set_symbol("z");
+        let plain = super::diff_large(&previous, &next);
+        let linked = super::diff_large_with_links(&previous, &next, &[], &[], &[], &[]);
+        for updates in [plain, linked] {
+            assert_eq!(
+                updates.iter().map(|(x, y, _)| (*x, *y)).collect::<Vec<_>>(),
+                vec![(0, 0), (2, 0), (4, 0)]
+            );
+        }
+    }
 
     fn full_height_inline(width: u16, height: u16) -> Terminal<TestBackend> {
         Terminal::with_options(

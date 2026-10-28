@@ -7,8 +7,8 @@
  * application code.
  *
  * Light is classic Solarized Light — Ethan Schoonover's published values, not an
- * approximation of them. Dark is a deep desaturated purple-navy with an amber
- * accent, taken from a supplied design reference.
+ * approximation of them. Dark follows the supplied black/charcoal/copper reference.
+ * High Contrast Light uses white and neutral grey surfaces.
  *
  * Every surface is opaque. An earlier revision carried a frosted-glass surface
  * for the left rail; it needed the window itself to be translucent to have
@@ -139,30 +139,61 @@ export const solarizedLight: Palette = {
 	},
 }
 
-/**
- * Deep desaturated purple-navy with the OctoCode brand red (the wordmark's
- * #D4554F) as accent, so buttons, focus rings and badges match the logo.
- * White text on it measures about 4:1.
- */
+/** Keep the saved theme identifier; the current palette is black, charcoal and copper. */
 export const midnightPurple: Palette = {
+	bg: "#000000",
+	bgElevated: "#0e0e10",
+	bgSunken: "#0a0a0a",
+	border: "#2d2d2d",
+	borderStrong: "#626262",
+
+	fg: "#e5e5e5",
+	fgStrong: "#ffffff",
+	fgMuted: "#a3a3a3",
+
+	accent: "#9b6b50",
+	accentFg: "#ffffff",
+
+	success: "#8cb88b",
+	warning: "#d8b483",
+	danger: "#eb9090",
+	info: "#adbdc9",
+
+	syntax: {
+		keyword: "#d4d4d4",
+		string: "#d7b18e",
+		number: "#c5c5c5",
+		comment: "#8b8b8b",
+		function: "#f5f5f5",
+		type: "#c1b4aa",
+		variable: "#dadada",
+		operator: "#b5b5b5",
+	},
+
+	diff: {
+		addedBg: "#17251b",
+		removedBg: "#301c1c",
+		addedFg: "#9adcb4",
+		removedFg: "#f2a3ab",
+	},
+}
+
+/** Original OctoCode Dark colours, retained by High Contrast Dark. */
+export const legacyDark: Palette = {
 	bg: "#1c1a2b",
 	bgElevated: "#272438",
 	bgSunken: "#15131f",
 	border: "#3a3550",
 	borderStrong: "#4e4868",
-
 	fg: "#d6d3e3",
 	fgStrong: "#f3f1f8",
 	fgMuted: "#9a95b0",
-
 	accent: "#D4554F",
 	accentFg: "#ffffff",
-
 	success: "#5cc79a",
 	warning: "#e0b354",
 	danger: "#f0757f",
 	info: "#7aa7f0",
-
 	syntax: {
 		keyword: "#c39cf0",
 		string: "#e0a878",
@@ -173,7 +204,6 @@ export const midnightPurple: Palette = {
 		variable: "#a8c8f0",
 		operator: "#d6d3e3",
 	},
-
 	diff: {
 		addedBg: "#1e3527",
 		removedBg: "#3a1f28",
@@ -182,11 +212,44 @@ export const midnightPurple: Palette = {
 	},
 }
 
+export const whiteHighContrastLight: Palette = {
+	bg: "#ffffff",
+	bgElevated: "#ffffff",
+	bgSunken: "#f7f7f7",
+	border: "#c4c4c4",
+	borderStrong: "#8a8a8a",
+	fg: "#1f1f1f",
+	fgStrong: "#000000",
+	fgMuted: "#616161",
+	accent: "#242424",
+	accentFg: "#ffffff",
+	success: "#26734d",
+	warning: "#875d14",
+	danger: "#b42318",
+	info: "#24598a",
+	syntax: {
+		keyword: "#242424",
+		string: "#5b4232",
+		number: "#654a36",
+		comment: "#626262",
+		function: "#1f4b6a",
+		type: "#365c46",
+		variable: "#343434",
+		operator: "#484848",
+	},
+	diff: {
+		addedBg: "#e5f3e9",
+		removedBg: "#fce8e6",
+		addedFg: "#216339",
+		removedFg: "#9b2525",
+	},
+}
+
 export type ThemeId = "solarized-light" | "midnight-purple"
 
 export const themes: Record<ThemeId, { id: ThemeId; label: string; kind: "light" | "dark"; palette: Palette }> = {
 	"solarized-light": { id: "solarized-light", label: "Solarized Light", kind: "light", palette: solarizedLight },
-	"midnight-purple": { id: "midnight-purple", label: "Midnight Purple", kind: "dark", palette: midnightPurple },
+	"midnight-purple": { id: "midnight-purple", label: "Charcoal Dark", kind: "dark", palette: midnightPurple },
 }
 
 export const DEFAULT_THEME_BY_KIND: Record<"light" | "dark", ThemeId> = {

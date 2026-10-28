@@ -47,6 +47,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
+from octocode_credentials import selected_model, context_window
 
 ROOT = Path(os.environ.get("OCTOCODE_ROOT") or Path(__file__).absolute().parents[2])
 STORE = ROOT / "data" / "user-data" / "User" / "globalStorage" / "octocode.octocode" / "harness-runtime"
@@ -62,6 +63,10 @@ RECOVERY_PENDING: set[str] = set()
 MONITOR_LOCK = threading.Lock()
 DESKTOP_PID = int(os.environ.get("OCTOCODE_DESKTOP_PID", "0"))
 DESKTOP_LOCK = threading.Lock()
+# Cap on the parent-command line read by `watch_parent`. The only valid command is
+# "stop\n" (5 bytes); the cap is generous enough to reject garbage without allowing
+# an unbounded read on the stdin pipe (see test_parent_pipe.py).
+MAX_COMMAND_BYTES = 32
 RESOURCE_STREAK = 0
 RESTART_REQUESTED = False
 LAST_RESOURCE_RESTART = 0.0
@@ -81,16 +86,8 @@ def extension_binary(env_name: str, stem: str) -> Path:
 
 
 def last_app_model() -> dict:
-    """The model section of the newest config the app wrote, so runs match the chat."""
-    configs = sorted((STORE / "sessions").glob("*/config.toml"), key=os.path.getmtime)
-    for path in reversed(configs):
-        try:
-            model = tomllib.loads(path.read_text(encoding="utf-8")).get("model", {}).get("octocode-selected")
-        except (OSError, tomllib.TOMLDecodeError):
-            continue
-        if model:
-            return model
-    return {}
+    """Read the selected desktop profile; session proxy URLs expire with their task."""
+    return selected_model(ROOT)
 
 
 def bundled_mcp_servers() -> dict:
@@ -295,17 +292,25 @@ def host() -> HostClient:
 # ---------------------------------------------------------------- runs
 
 def provider_input(spec: ModelSpec | None) -> tuple[dict, str]:
-    model = dict(last_app_model())
     spec = spec or ModelSpec()
+    try:
+        model = {} if spec.model and spec.base_url else dict(last_app_model())
+    except RuntimeError:
+        raise HTTPException(400, "Configure an OpenAI-compatible model in OctoCode or pass model.model and model.base_url explicitly") from None
     base_url = spec.base_url or model.get("base_url")
     model_id = spec.model or model.get("model")
     if not base_url or not model_id:
         raise HTTPException(400, "No model configured: pick one in OctoCode once, or pass model.model and model.base_url.")
-    key = spec.api_key or os.environ.get("OCTOCODE_MODEL_API_KEY", "")
-    provider = {
+    key = spec.api_key or os.environ.get("OCTOCODE_MODEL_API_KEY") or model.get("api_key", "")
+    provider = dict(model.get("provider") or {})
+    provider.update({
         "apiProvider": "openai", "openAiBaseUrl": base_url, "openAiModelId": model_id, "openAiApiKey": key,
-        "autoContextWindow": False, "modelContextWindow": spec.context_window or int(model.get("context_window", 131072)),
-    }
+    })
+    try:
+        resolved_context = spec.context_window or context_window(provider)
+    except RuntimeError:
+        raise HTTPException(400, "The model must report its context window, or pass model.context_window explicitly; no lower default was applied") from None
+    provider.update(autoContextWindow=False, modelContextWindow=resolved_context)
     if spec.thinking:
         provider.update(reasoningEffort=spec.thinking, enableReasoningEffort=spec.thinking != "disable", reasoningStyle="template")
     return provider, key
@@ -331,6 +336,7 @@ class Run:
         self.result: dict = {}
         self.done = threading.Event()
         self.tool_copy_dir: Path | None = None
+        self.working_directory = request.cwd
 
     def accept(self, kind: str, payload: dict) -> None:
         self.events.append({"type": kind, **payload} if isinstance(payload, dict) else {"type": kind, "value": payload})
@@ -353,14 +359,16 @@ class Run:
 
     def summary(self, text: bool = True) -> dict:
         end = next((e for e in reversed(self.events) if e.get("type") == "end"), {})
+        error = next((e for e in reversed(self.events) if e.get("type") == "error" and e.get("message")), {})
         out = {
             "run_id": self.id, "session_id": self.session_id, "task_id": self.task_id, "origin": self.origin,
             "status": self.status, "started": self.started, "finished": self.finished,
+            "source_cwd": self.request.cwd, "working_directory": self.working_directory,
             "tool_calls": [e.get("toolName") for e in self.events if e.get("type") == "tool_call"],
             "supervisor": [{k: e.get(k) for k in ("action", "detail")} for e in self.events
                            if e.get("type") == "agent.supervisor" and e.get("action") != "attempt_started"],
             "usage": end.get("usage"), "attempts": self.result.get("attempts"),
-            "error": self.result.get("message") if self.status == "failed" else None,
+            "error": (self.result.get("message") or error.get("message")) if self.status == "failed" else None,
         }
         if text:
             out["text"] = final_text(self.events)
@@ -417,6 +425,10 @@ def start_run(request: RunRequest, origin: str = "api") -> Run:
     provider, _ = provider_input(request.model)
     try:
         if request.resume:
+            session = host().call("session.get", {"id": request.session_id})
+            workspace = session.get("workspace") if isinstance(session, dict) else None
+            if not workspace or not Path(workspace).resolve(strict=True).samefile(Path(request.cwd).resolve(strict=True)):
+                raise HTTPException(400, "Continuation source directory does not match the original session project")
             prepared = host().call("harness.continue", {"session_id": request.session_id, "prompt": request.prompt, "provider": provider})
         else:
             prepared = host().call("harness.prepare", {
@@ -425,6 +437,28 @@ def start_run(request: RunRequest, origin: str = "api") -> Run:
             })
         run.session_id, run.task_id = prepared["session_id"], prepared["task_id"]
         session_home = daemon_session_home(run.session_id)
+        # New hosts isolate cwd per conversation; older hosts omit this field.
+        working_directory = prepared.get("working_directory") or request.cwd
+        source = Path(request.cwd).resolve(strict=True)
+        if prepared.get("working_directory"):
+            encoded = base64.urlsafe_b64encode(run.session_id.encode("utf-8")).decode("ascii").rstrip("=")
+            expected = source / ".octocode" / "sessions" / encoded
+            actual = Path(working_directory).resolve(strict=True)
+            # Windows native canonicalization returns \\?\ paths; compare file identity.
+            if not actual.is_dir() or len(actual.parents) < 3 or not source.samefile(actual.parents[2]) or not actual.samefile(expected):
+                raise HTTPException(400, "Prepared working directory does not belong to the requested project/session")
+        run.working_directory = str(working_directory)
+        prompt = request.prompt if Path(working_directory).resolve() == source else (
+            request.prompt
+            + "\n\n## Required file-path contract\n"
+            + f"Selected source project (input root): {source.as_posix()}\n"
+            + f"Isolated conversation cwd (output root): {Path(working_directory).resolve().as_posix()}\n"
+            + "Use absolute source-project paths for filesystem read/list/search tool path arguments. "
+            + f"A project-relative input must become {source.as_posix()}/<project-relative-input> before the tool call. "
+            + "Relative tool paths resolve inside the isolated conversation cwd, not the selected source project. "
+            + "Do not guess parent-relative paths or change cwd to the shared project. "
+            + "This path contract takes precedence over task-local guidance suggesting relative input paths. "
+            + "Keep conversation outputs in the isolated working directory. Existing tool permissions still apply.")
         model = {**prepared["route"]["model"]}
         model["api_key"] = model.get("api_key") or provider["openAiApiKey"]
         supervision = {"fallbacks": [materialize(spec) for spec in request.fallbacks]}
@@ -434,12 +468,12 @@ def start_run(request: RunRequest, origin: str = "api") -> Run:
             supervision["advisor"] = {"model": model}
         host().listeners[run.task_id] = run
         RUNS[run.id] = run
-        mcp_servers, run.tool_copy_dir = isolated_mcp_servers(request.cwd)
+        mcp_servers, run.tool_copy_dir = isolated_mcp_servers(run.working_directory)
         host().call("agent.run", {
             "task_id": run.task_id, "session_id": run.session_id,
             "executable": str(extension_binary("OCTOCODE_HARNESS", "octocode-harness")),
             "harness_home": str(session_home),
-            "cwd": request.cwd, "model": model, "prompt": request.prompt, "resume": request.resume,
+            "cwd": run.working_directory, "model": model, "prompt": prompt, "resume": request.resume,
             "max_turns": request.max_turns, "permission_profile": request.permission_mode,
             "supervision": supervision, "mcp_servers": mcp_servers,
         })
@@ -725,8 +759,11 @@ def get_run(run_id: str) -> Run:
 
 @app.get("/health")
 def health() -> dict:
-    model = last_app_model()
     problems = []
+    try:
+        model = last_app_model()
+    except RuntimeError:
+        model = {}
     harness = None
     try:
         extension_binary("OCTOCODE_HOST", "octocode-host")
@@ -751,6 +788,7 @@ def health() -> dict:
         "ok": not problems, "problems": problems, "pid": os.getpid(),
         "uptime_s": int(time.time() - STARTED), "harness": harness, "store": str(STORE),
         "model": model.get("model"), "base_url": model.get("base_url"),
+        "default_model_available": bool(model), "explicit_model_required": not bool(model),
         "running": sum(1 for r in RUNS.values() if r.status == "running"),
         "monitored_sessions": len(ACTIVE_SESSIONS),
         "desktop_pid": DESKTOP_PID,
@@ -1023,8 +1061,17 @@ def shutdown() -> None:
 
 def watch_parent() -> None:
     """A normal Exit sends stop; a broken pipe leaves supervision running."""
-    if sys.stdin.buffer.readline().strip() == b"stop":
-        shutdown()
+    # A buffered reader held by a daemon thread can abort Python during HTTP shutdown.
+    command = bytearray()
+    while len(command) <= MAX_COMMAND_BYTES:
+        chunk = os.read(sys.stdin.fileno(), 1)
+        if not chunk:
+            return
+        command.extend(chunk)
+        if chunk == b"\n":
+            if command.strip() == b"stop":
+                shutdown()
+            return
 
 
 def process_alive(pid: int) -> bool:

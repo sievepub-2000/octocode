@@ -6,6 +6,7 @@ import process from "node:process"
 import * as console from "node:console"
 
 import { copyPaths, copyWasms, copyLocales, setupLocaleWatcher } from "@roo-code/build"
+import { writeThirdPartyNotices } from "../scripts/third-party-notices.mjs"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -43,6 +44,7 @@ async function main() {
 	 */
 	const buildOptions = {
 		bundle: true,
+		metafile: true,
 		minify,
 		sourcemap,
 		logLevel: "silent",
@@ -64,10 +66,34 @@ async function main() {
 		await removeDirWithRetries(distDir)
 	}
 
+	// The worker and broker contexts share the same distDir; their bundle inputs
+	// must reach the same ThirdPartyNotices.txt or license evidence for packages
+	// only they import would be silently missing from the VSIX. Every context
+	// merges its metafile inputs into this shared set before rewriting the file.
+	const sharedNoticesInputs = new Set()
+	const makeThirdPartyNoticesPlugin = (extras) => ({
+		name: "thirdPartyNotices",
+		setup(build) {
+			build.onEnd((result) => {
+				if (result.errors.length || !result.metafile) return
+				for (const file of Object.keys(result.metafile.inputs))
+					sharedNoticesInputs.add(path.resolve(srcDir, file))
+				// writeThirdPartyNotices is synchronous, so concurrent watch rebuilds
+				// serialize naturally; a throw here fails the build on purpose.
+				writeThirdPartyNotices([...sharedNoticesInputs], path.join(distDir, "ThirdPartyNotices.txt"), extras)
+			})
+		},
+	})
+
 	/**
 	 * @type {import('esbuild').Plugin[]}
 	 */
 	const plugins = [
+		makeThirdPartyNoticesPlugin(
+			["tiktoken", "web-tree-sitter", "tree-sitter-wasms", "esbuild-wasm", "global-agent"].map((name) =>
+				path.join(srcDir, "node_modules", name, "package.json"),
+			),
+		),
 		{
 			name: "copyFiles",
 			setup(build) {
@@ -135,17 +161,24 @@ async function main() {
 	 */
 	const workerConfig = {
 		...buildOptions,
+		plugins,
 		entryPoints: ["workers/countTokens.ts"],
 		outdir: "dist/workers",
 	}
 
-	const [extensionCtx, workerCtx] = await Promise.all([
+	const [extensionCtx, workerCtx, brokerCtx] = await Promise.all([
 		esbuild.context(extensionConfig),
 		esbuild.context(workerConfig),
+		esbuild.context({
+			...buildOptions,
+			plugins,
+			entryPoints: ["services/octocode-runtime/RuntimeBroker.ts"],
+			outfile: "dist/runtime/hostBroker.js",
+		}),
 	])
 
 	if (watch) {
-		await Promise.all([extensionCtx.watch(), workerCtx.watch()])
+		await Promise.all([extensionCtx.watch(), workerCtx.watch(), brokerCtx.watch()])
 		copyLocales(srcDir, distDir)
 		setupLocaleWatcher(srcDir, distDir)
 	} else {
@@ -153,7 +186,8 @@ async function main() {
 		// onEnd hooks copy the same asset directories concurrently.
 		await extensionCtx.rebuild()
 		await workerCtx.rebuild()
-		await Promise.all([extensionCtx.dispose(), workerCtx.dispose()])
+		await brokerCtx.rebuild()
+		await Promise.all([extensionCtx.dispose(), workerCtx.dispose(), brokerCtx.dispose()])
 	}
 }
 

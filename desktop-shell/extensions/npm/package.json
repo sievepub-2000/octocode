@@ -16,6 +16,10 @@
   "enabledApiProposals": [
     "terminalQuickFixProvider"
   ],
+  "overrides": {
+    "argparse": "2.0.1",
+    "braces": "$braces"
+  },
   "scripts": {
     "compile": "npx gulp compile-extension:npm",
     "watch": "npx gulp watch-extension:npm",
@@ -32,14 +36,15 @@
     "jsonc-parser": "^3.2.0",
     "minimatch": "^5.1.8",
     "request-light": "^0.7.0",
+    "vscode-uri": "^3.0.8",
     "which": "^4.0.0",
-    "which-pm": "^2.1.1",
-    "vscode-uri": "^3.0.8"
+    "which-pm": "^2.1.1"
   },
   "devDependencies": {
     "@types/minimatch": "^5.1.2",
     "@types/node": "24.x",
-    "@types/which": "^3.0.0"
+    "@types/which": "^3.0.0",
+    "braces": "file:../../vendor/braces"
   },
   "main": "./out/npmMain",
   "browser": "./dist/browser/npmBrowserMain",

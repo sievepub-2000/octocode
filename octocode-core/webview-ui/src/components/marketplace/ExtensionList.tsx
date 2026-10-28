@@ -28,12 +28,18 @@ export function ExtensionList({
 	const [error, setError] = useState<string>()
 	const [query, setQuery] = useState("")
 	const [page, setPage] = useState<"market" | "installed">("market")
+	const [pageNumber, setPageNumber] = useState(1)
+	const [nextCursor, setNextCursor] = useState<string>()
+	const appendRequest = useRef<string | undefined>(undefined)
 	const activeRequest = useRef<string | undefined>(undefined)
+	const loadedCount = useRef(0)
 
 	const send = useCallback(
-		(action: ExtensionAction | "list", entry?: ExtensionEntry) => {
+		(action: ExtensionAction | "list", entry?: ExtensionEntry, cursor?: string) => {
 			const requestId = crypto.randomUUID()
 			activeRequest.current = requestId
+			appendRequest.current = cursor === undefined ? undefined : requestId
+			if (cursor !== undefined) setPending("next-page")
 			if (entry) setPending(`${entry.id}:${action}`)
 			vscode.postMessage({
 				type: "extensionRequest",
@@ -45,6 +51,7 @@ export function ExtensionList({
 								requestId,
 								...(tabs ? { page } : {}),
 								...(query.trim() ? { query: query.trim() } : {}),
+								...(cursor === undefined ? {} : { cursor }),
 							}
 						: {
 								action,
@@ -65,7 +72,26 @@ export function ExtensionList({
 			if (event.data?.type !== "extensionState") return
 			const result = event.data.payload as ExtensionResult
 			if (result.requestId !== activeRequest.current) return
-			setEntries(result.entries.filter((entry) => entry.kind === kind))
+			if (appendRequest.current === result.requestId && result.error) {
+				setError(result.error)
+				setPending(undefined)
+				return
+			}
+			const incoming = result.entries.filter((entry) => entry.kind === kind)
+			setEntries((previous) => {
+				const merged = new Map(
+					(appendRequest.current === result.requestId ? (previous ?? []) : []).map((entry) => [
+						`${entry.scope}:${entry.id}`,
+						entry,
+					]),
+				)
+				for (const entry of incoming) merged.set(`${entry.scope}:${entry.id}`, entry)
+				return [...merged.values()]
+			})
+			if (appendRequest.current === result.requestId) {
+				if (loadedCount.current > 0 && loadedCount.current % 20 === 0) setPageNumber((number) => number + 1)
+			} else setPageNumber(1)
+			setNextCursor(result.nextCursor)
 			setError(result.error)
 			setPending(undefined)
 		}
@@ -76,6 +102,8 @@ export function ExtensionList({
 	useEffect(() => {
 		activeRequest.current = undefined
 		setEntries(undefined)
+		setPageNumber(1)
+		setNextCursor(undefined)
 		setError(undefined)
 		if (!query) {
 			send("list")
@@ -85,12 +113,20 @@ export function ExtensionList({
 		const timer = setTimeout(() => send("list"), 400)
 		return () => clearTimeout(timer)
 	}, [query, send])
-	const visible = entries?.filter(
-		(entry) =>
-			(!tabs || page !== "installed" || entry.installed) &&
-			(!query.trim() ||
-				`${entry.name} ${entry.description ?? ""}`.toLowerCase().includes(query.trim().toLowerCase())),
-	)
+	const filtered = entries
+		?.filter(
+			(entry) =>
+				(!tabs || page !== "installed" || entry.installed) &&
+				(!query.trim() ||
+					`${entry.name} ${entry.description ?? ""}`.toLowerCase().includes(query.trim().toLowerCase())),
+		)
+		.sort((a, b) => Number(b.installed) - Number(a.installed) || (b.rank ?? -1) - (a.rank ?? -1))
+	const pageCount = Math.max(1, Math.ceil((filtered?.length ?? 0) / 20))
+	loadedCount.current = filtered?.length ?? 0
+	useEffect(() => {
+		if (pageNumber > pageCount) setPageNumber(pageCount)
+	}, [pageNumber, pageCount])
+	const visible = filtered?.slice((Math.min(pageNumber, pageCount) - 1) * 20, Math.min(pageNumber, pageCount) * 20)
 
 	return (
 		<div className="space-y-2" data-testid={`extension-list-${kind}`}>
@@ -187,6 +223,49 @@ export function ExtensionList({
 					</div>
 				))}
 			</div>
+			{entries && (
+				<nav
+					aria-label={t("common:extensions.pagination")}
+					className="flex flex-wrap items-center justify-center gap-2 py-2">
+					<Button
+						size="sm"
+						variant="secondary"
+						disabled={!!pending || pageNumber <= 1}
+						onClick={() => setPageNumber((number) => number - 1)}>
+						{t("common:extensions.previousPage")}
+					</Button>
+					{Array.from(
+						{ length: Math.min(7, pageCount) },
+						(_, index) => Math.max(1, Math.min(pageNumber - 3, pageCount - 6)) + index,
+					).map((number) => (
+						<Button
+							key={number}
+							size="sm"
+							variant={Math.min(pageNumber, pageCount) === number ? "primary" : "secondary"}
+							aria-current={Math.min(pageNumber, pageCount) === number ? "page" : undefined}
+							aria-label={t("common:extensions.pageNumber", { number })}
+							disabled={!!pending}
+							onClick={() => setPageNumber(number)}>
+							{number}
+						</Button>
+					))}
+					<span aria-live="polite" className="text-xs">
+						{Math.min(pageNumber, pageCount)} / {pageCount}
+						{nextCursor ? "+" : ""}
+					</span>
+					<Button
+						size="sm"
+						variant="secondary"
+						disabled={!!pending || (pageNumber >= pageCount && !nextCursor)}
+						onClick={() =>
+							pageNumber < pageCount
+								? setPageNumber((number) => number + 1)
+								: send("list", undefined, nextCursor)
+						}>
+						{t("common:extensions.nextPage")}
+					</Button>
+				</nav>
+			)}
 		</div>
 	)
 }

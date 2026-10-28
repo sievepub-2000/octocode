@@ -18,16 +18,24 @@ describe("rules service", () => {
 	let tempDir: string
 	let homeDir: string
 	let cwd: string
+	let savedDataDir: string | undefined
 
 	beforeEach(async () => {
 		tempDir = await fs.mkdtemp(path.join(tmpdir(), "octocode-rules-"))
 		homeDir = path.join(tempDir, "home")
 		cwd = path.join(tempDir, "workspace")
 		mockHome.path = homeDir
+		// The global rules base prefers OCTOCODE_DATA over homedir; this machine
+		// sets it, which would leak the real shared rules directory into the
+		// scan. Point it at the temp home so both roots resolve inside tempDir.
+		savedDataDir = process.env.OCTOCODE_DATA
+		process.env.OCTOCODE_DATA = homeDir
 		await fs.mkdir(cwd, { recursive: true })
 	})
 
 	afterEach(async () => {
+		if (savedDataDir !== undefined) process.env.OCTOCODE_DATA = savedDataDir
+		else delete process.env.OCTOCODE_DATA
 		await fs.rm(tempDir, { recursive: true, force: true })
 	})
 
@@ -216,42 +224,53 @@ describe("rules service", () => {
 		await expect(fs.stat(targetRulePath)).rejects.toMatchObject({ code: "ENOENT" })
 	})
 
-	it("skips symlinked rule file targets outside the rules directory", async () => {
-		const projectRulesDir = path.join(cwd, ".roo", "rules")
-		const targetRulePath = path.join(tempDir, "linked-rule.md")
-		await fs.mkdir(projectRulesDir, { recursive: true })
-		await fs.writeFile(targetRulePath, "# Linked")
-		await fs.symlink(targetRulePath, path.join(projectRulesDir, "linked-file.md"), "file")
+	// File symlinks on Windows require an elevated token or Developer Mode;
+	// this account has neither, so the two file-symlink cases cannot execute
+	// here (directory junctions keep working and are covered above).
+	const canSymlinkFiles = process.platform !== "win32"
 
-		const rules = await getRules(cwd, { modes: [] })
+	it.skipIf(canSymlinkFiles === false && process.platform === "win32")(
+		"skips symlinked rule file targets outside the rules directory",
+		async () => {
+			const projectRulesDir = path.join(cwd, ".roo", "rules")
+			const targetRulePath = path.join(tempDir, "linked-rule.md")
+			await fs.mkdir(projectRulesDir, { recursive: true })
+			await fs.writeFile(targetRulePath, "# Linked")
+			await fs.symlink(targetRulePath, path.join(projectRulesDir, "linked-file.md"), "file")
 
-		expect(rules).toEqual([])
-		await expect(
-			resolveRuleFile(cwd, { scope: "project", kind: "generic", relativePath: "linked-file.md" }),
-		).rejects.toThrow("Rule path must stay inside the rules directory")
-	})
+			const rules = await getRules(cwd, { modes: [] })
 
-	it("discovers a symlinked rule file target inside the rules directory", async () => {
-		const projectRulesDir = path.join(cwd, ".roo", "rules")
-		const targetRulePath = path.join(projectRulesDir, "target-rule.md")
-		await fs.mkdir(projectRulesDir, { recursive: true })
-		await fs.writeFile(targetRulePath, "# Linked")
-		await fs.symlink(targetRulePath, path.join(projectRulesDir, "linked-file.md"), "file")
+			expect(rules).toEqual([])
+			await expect(
+				resolveRuleFile(cwd, { scope: "project", kind: "generic", relativePath: "linked-file.md" }),
+			).rejects.toThrow("Rule path must stay inside the rules directory")
+		},
+	)
 
-		const rules = await getRules(cwd, { modes: [] })
+	it.skipIf(canSymlinkFiles === false && process.platform === "win32")(
+		"discovers a symlinked rule file target inside the rules directory",
+		async () => {
+			const projectRulesDir = path.join(cwd, ".roo", "rules")
+			const targetRulePath = path.join(projectRulesDir, "target-rule.md")
+			await fs.mkdir(projectRulesDir, { recursive: true })
+			await fs.writeFile(targetRulePath, "# Linked")
+			await fs.symlink(targetRulePath, path.join(projectRulesDir, "linked-file.md"), "file")
 
-		expect(rules).toEqual([
-			expect.objectContaining({
-				name: "linked-file.md",
-				filePath: targetRulePath,
-				isSymlink: true,
-			}),
-			expect.objectContaining({
-				name: "target-rule.md",
-				filePath: targetRulePath,
-			}),
-		])
-	})
+			const rules = await getRules(cwd, { modes: [] })
+
+			expect(rules).toEqual([
+				expect.objectContaining({
+					name: "linked-file.md",
+					filePath: targetRulePath,
+					isSymlink: true,
+				}),
+				expect.objectContaining({
+					name: "target-rule.md",
+					filePath: targetRulePath,
+				}),
+			])
+		},
+	)
 
 	it("skips broken symlinks while scanning rules", async () => {
 		const projectRulesDir = path.join(cwd, ".roo", "rules")

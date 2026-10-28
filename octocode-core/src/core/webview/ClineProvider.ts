@@ -1,5 +1,6 @@
 import EventEmitter from "events"
 import fs from "fs/promises"
+import { existsSync, realpathSync } from "node:fs"
 import os from "os"
 import * as path from "path"
 
@@ -134,6 +135,7 @@ export class ClineProvider
 	private view?: vscode.WebviewView | vscode.WebviewPanel
 	private codeIndexStatusSubscription?: vscode.Disposable
 	private codeIndexManager?: CodeIndexManager
+	private readonly pendingCodeIndexWork = new Set<Promise<void>>()
 	private _workspaceTracker?: WorkspaceTracker // workSpaceTracker read-only for access outside this class
 	protected mcpHub?: McpHub // Change from private to protected
 	protected skillsManager?: SkillsManager
@@ -142,6 +144,7 @@ export class ClineProvider
 	private currentWorkspacePath: string | undefined
 	private static activeRuntimeTaskId?: string
 	private static activeRuntimeSessionId?: string
+	private static activeRuntimeWorkingDirectory?: string
 	private readonly artifactsBySession = new Map<string, ExtensionMessage>()
 	private _disposed = false // 5 seconds
 	public static readonly PENDING_OPERATION_TIMEOUT_MS = 30000 // 30 seconds
@@ -186,18 +189,21 @@ export class ClineProvider
 	}
 
 	private withProviderProfileMutationTimeout<T>(operation: Promise<T>, onTimeout: () => void): Promise<T> {
-		let timeoutId: ReturnType<typeof setTimeout> | undefined
-		const timeout = new Promise<never>((_, reject) => {
-			timeoutId = setTimeout(() => {
+		return new Promise<T>((resolve, reject) => {
+			const timeoutId = setTimeout(() => {
 				onTimeout()
 				reject(new Error("Provider profile mutation timed out"))
 			}, ClineProvider.PENDING_OPERATION_TIMEOUT_MS)
-		})
-
-		return Promise.race([operation, timeout]).finally(() => {
-			if (timeoutId) {
-				clearTimeout(timeoutId)
-			}
+			void operation.then(
+				(value) => {
+					clearTimeout(timeoutId)
+					resolve(value)
+				},
+				(error) => {
+					clearTimeout(timeoutId)
+					reject(error)
+				},
+			)
 		})
 	}
 
@@ -310,6 +316,8 @@ export class ClineProvider
 	public async evictCurrentTask(): Promise<void> {
 		ClineProvider.activeRuntimeSessionId = undefined
 		ClineProvider.activeRuntimeTaskId = undefined
+		ClineProvider.activeRuntimeWorkingDirectory = undefined
+		ClineProvider.syncCodeIndexSelection()
 		runtimeEventTerminal.setActiveSession(undefined)
 	}
 
@@ -342,6 +350,7 @@ export class ClineProvider
 		}
 
 		this.clearWebviewResources()
+		await Promise.all(this.pendingCodeIndexWork)
 
 		// Clean up cloud service event listener
 		if (CloudService.hasInstance()) {
@@ -385,9 +394,14 @@ export class ClineProvider
 	}
 
 	public static setActiveRuntimeSession(sessionId: string, taskId: string, workingDirectory?: string): void {
+		const directory =
+			workingDirectory && path.isAbsolute(workingDirectory) ? path.normalize(workingDirectory) : undefined
+		const changed = this.activeRuntimeSessionId !== sessionId || this.activeRuntimeWorkingDirectory !== directory
 		if (workingDirectory) runtimeEventTerminal.setSessionWorkingDirectory(sessionId, workingDirectory)
 		this.activeRuntimeSessionId = sessionId
 		this.activeRuntimeTaskId = taskId
+		this.activeRuntimeWorkingDirectory = directory
+		if (changed) this.syncCodeIndexSelection()
 		void this.getArtifactInstance()?.replayCurrentArtifact()
 		runtimeEventTerminal.setActiveSession(sessionId)
 	}
@@ -402,6 +416,8 @@ export class ClineProvider
 		if (this.activeRuntimeSessionId !== sessionId) return false
 		this.activeRuntimeSessionId = undefined
 		this.activeRuntimeTaskId = undefined
+		this.activeRuntimeWorkingDirectory = undefined
+		this.syncCodeIndexSelection()
 		this.getArtifactInstance()?.artifactsBySession.delete(sessionId)
 		void this.getArtifactInstance()?.replayCurrentArtifact()
 		runtimeEventTerminal.releaseSession(sessionId)
@@ -557,7 +573,8 @@ export class ClineProvider
 		}
 
 		webviewView.webview.html =
-			this.contextProxy.extensionMode === vscode.ExtensionMode.Development
+			this.contextProxy.extensionMode === vscode.ExtensionMode.Development &&
+			existsSync(path.join(this.contextProxy.extensionUri.fsPath, "..", "webview-ui", "package.json"))
 				? await this.getHMRHtmlContent(webviewView.webview)
 				: await this.getHtmlContent(webviewView.webview)
 
@@ -1106,6 +1123,68 @@ export class ClineProvider
 		)
 	}
 
+	/**
+	 * Per-chat model identity. A chat that already runs on a session keeps its
+	 * own profile in the Host store (`session-profile:<sessionId>`), so switching
+	 * the model in one conversation never flips the profile every other
+	 * conversation in the window reads from the global state.
+	 */
+	private static sessionProfileKey(sessionId: string): string {
+		return `session-profile:${sessionId}`
+	}
+
+	async setSessionProfile(sessionId: string, args: { name: string } | { id: string }): Promise<void> {
+		// Resolve read-only: activating the profile here would rewrite the global
+		// currentApiConfigName in the profile store and flip the model that every
+		// OTHER conversation and new chat reads — exactly the cross-chat leak this
+		// per-chat scoping exists to prevent.
+		let profileId: string | undefined
+		try {
+			const profile = await this.providerSettingsManager.getProfile(args)
+			profileId = profile?.id
+		} catch {
+			profileId = undefined
+		}
+		if (!profileId) throw new Error("Profile has no stable identity; cannot scope it to a conversation")
+		const { getOctoCodeRuntime } = await import("../../services/octocode-runtime/OctoCodeRuntime")
+		await getOctoCodeRuntime().call("setting.set", {
+			key: ClineProvider.sessionProfileKey(sessionId),
+			value: profileId,
+		})
+		await this.postStateToWebview()
+	}
+
+	async getSessionProfileId(sessionId: string): Promise<string | undefined> {
+		const { getOctoCodeRuntime } = await import("../../services/octocode-runtime/OctoCodeRuntime")
+		const value = await getOctoCodeRuntime().call<string | null>("setting.get", {
+			key: ClineProvider.sessionProfileKey(sessionId),
+		})
+		return typeof value === "string" && value ? value : undefined
+	}
+
+	/** The profile a session actually runs on: its override first, then the global pick. */
+	async resolveSessionProfile(
+		sessionId: string | undefined,
+	): Promise<{ profileId?: string; settings?: ProviderSettings; name?: string }> {
+		const overrideId = sessionId ? await this.getSessionProfileId(sessionId).catch(() => undefined) : undefined
+		if (overrideId) {
+			try {
+				const profile = await this.providerSettingsManager.getProfile({ id: overrideId })
+				return { profileId: profile.id, settings: profile, name: profile.name }
+			} catch {
+				// The override points at a deleted profile; fall through to the global pick.
+			}
+		}
+		const name = this.contextProxy.getValues().currentApiConfigName
+		if (!name) return {}
+		try {
+			const profile = await this.providerSettingsManager.getProfile({ name })
+			return { profileId: profile.id, settings: profile, name: profile.name }
+		} catch {
+			return {}
+		}
+	}
+
 	private async activateProviderProfileUnlocked(
 		args: { name: string } | { id: string },
 		options?: {
@@ -1536,6 +1615,15 @@ export class ClineProvider
 			autoCloseOctoCodeOpenedNewFiles,
 		} = await this.getState()
 
+		// The per-chat model override must NOT rewrite the shared state fields:
+		// the settings screen and every other consumer read the global profile
+		// from here, and a session-scoped value leaking into them made the
+		// settings screen flag phantom edits ("discard changes?" on navigation).
+		// The override travels as its own field; the chat composer consumes it.
+		const sessionProfile = ClineProvider.activeRuntimeSessionId
+			? await this.resolveSessionProfile(ClineProvider.activeRuntimeSessionId)
+			: undefined
+
 		let cloudOrganizations: CloudOrganizationMembership[] = []
 
 		try {
@@ -1640,6 +1728,8 @@ export class ClineProvider
 			terminalProfile,
 			mcpEnabled: mcpEnabled ?? true,
 			currentApiConfigName: currentApiConfigName ?? "default",
+			sessionApiConfigName: sessionProfile?.name,
+			sessionApiConfiguration: sessionProfile?.settings,
 			listApiConfigMeta: listApiConfigMeta ?? [],
 			pinnedApiConfigs: pinnedApiConfigs ?? {},
 			mode: mode ?? defaultModeSlug,
@@ -1654,6 +1744,7 @@ export class ClineProvider
 			maxOpenTabsContext: maxOpenTabsContext ?? 20,
 			maxWorkspaceFiles: maxWorkspaceFiles ?? 200,
 			cwd,
+			codeIndexWorkspacePath: this.codeIndexWorkspacePath,
 			disabledTools,
 			telemetrySetting,
 			telemetryKey,
@@ -2049,7 +2140,39 @@ export class ClineProvider
 	 * @returns CodeIndexManager instance for the current workspace or the default one
 	 */
 	public getCurrentWorkspaceCodeIndexManager(): CodeIndexManager | undefined {
-		return CodeIndexManager.getInstance(this.context)
+		const directory = this.codeIndexWorkspacePath
+		return directory ? CodeIndexManager.getInstance(this.context, directory) : undefined
+	}
+
+	public get codeIndexWorkspacePath(): string | undefined {
+		const directory = ClineProvider.activeRuntimeSessionId
+			? ClineProvider.activeRuntimeWorkingDirectory
+			: getWorkspacePath()
+		if (!directory) return undefined
+		try {
+			// Match the manager's canonical path before applying workspace ownership checks in the UI.
+			return realpathSync.native(directory)
+		} catch {
+			return directory
+		}
+	}
+
+	private static syncCodeIndexSelection(): void {
+		for (const provider of this.activeInstances) {
+			if (provider._disposed || !provider.view) continue
+			provider.updateCodeIndexStatusSubscription()
+			provider.trackCodeIndexWork(provider.postStateToWebview())
+		}
+	}
+
+	private trackCodeIndexWork(work: Promise<unknown>): void {
+		const settled = work
+			.then(() => undefined)
+			.catch((error) => {
+				if (!this._disposed) this.log(`Failed to synchronize code index: ${String(error)}`)
+			})
+		this.pendingCodeIndexWork.add(settled)
+		void settled.finally(() => this.pendingCodeIndexWork.delete(settled))
 	}
 
 	/**
@@ -2075,6 +2198,7 @@ export class ClineProvider
 
 		// Subscribe to the new manager's progress updates if it exists
 		if (currentManager) {
+			this.trackCodeIndexWork(currentManager.initialize(this.contextProxy))
 			this.codeIndexStatusSubscription = currentManager.onProgressUpdate((update: IndexProgressUpdate) => {
 				// Only send updates if this manager is still the current one
 				if (currentManager === this.getCurrentWorkspaceCodeIndexManager()) {
@@ -2109,6 +2233,7 @@ export class ClineProvider
 		configuration: RooCodeSettings = {},
 		projectId?: string,
 		isCurrent?: () => boolean,
+		attachmentPaths?: string[],
 	) {
 		assertOctoCodeAuthenticationAllowed()
 		await ClineProvider.applyTaskConfiguration(this, configuration)
@@ -2118,6 +2243,23 @@ export class ClineProvider
 		let task: Awaited<ReturnType<typeof runtime.prepareTask>> | undefined
 		try {
 			task = await runtime.prepareTask(text, apiConfiguration, requestedSessionId, undefined, images, projectId)
+			// Attachments become full-file copies inside the session directory
+			// (the agent's cwd) before the agent starts; the prompt only names them.
+			// A copy failure must not discard the user's turn: degrade to sending
+			// without the attachments and tell the user, instead of throwing away
+			// the message (it is not persisted anywhere else at this point).
+			const { prepareAttachmentPrompt } = await import("../../services/octocode-runtime/attachments")
+			if (task.workingDirectory && attachmentPaths?.length) {
+				try {
+					text = await prepareAttachmentPrompt(attachmentPaths, task.workingDirectory, text)
+				} catch (error) {
+					vscode.window.showWarningMessage(
+						`附件复制失败，本次发送未包含附件：${error instanceof Error ? error.message : String(error)}`,
+					)
+				}
+			} else if (attachmentPaths?.length) {
+				vscode.window.showWarningMessage("会话工作目录不可用，本次发送未包含附件")
+			}
 			if (isCurrent && !isCurrent()) {
 				await runtime.transitionTask(task, "cancelled")
 				return { sessionId: task.sessionId, taskId: task.taskId }
@@ -2244,6 +2386,8 @@ export class ClineProvider
 		const cancelled = await getOctoCodeRuntime().cancelTask(ClineProvider.activeRuntimeTaskId)
 		ClineProvider.activeRuntimeTaskId = undefined
 		ClineProvider.activeRuntimeSessionId = undefined
+		ClineProvider.activeRuntimeWorkingDirectory = undefined
+		ClineProvider.syncCodeIndexSelection()
 		runtimeEventTerminal.setActiveSession(undefined)
 		return cancelled
 	}

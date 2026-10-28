@@ -163,7 +163,7 @@ suite('BrowserSessionTrust', () => {
 	});
 
 	test('trustCertificate stores expiresAt relative to current time', async () => {
-		const clock = sinon.useFakeTimers({ now: Date.parse('2026-03-01T00:00:00.000Z') });
+		const clock = sinon.useFakeTimers({ now: Date.parse('2026-03-01T00:00:00.000Z'), toFake: ['Date'] });
 		const { trust, storage } = createTrust();
 		trust.connectStorage(storage.asService());
 
@@ -179,7 +179,7 @@ suite('BrowserSessionTrust', () => {
 	});
 
 	test('trust is valid at expiration and invalid after expiration', async () => {
-		const clock = sinon.useFakeTimers({ now: Date.parse('2026-03-01T00:00:00.000Z') });
+		const clock = sinon.useFakeTimers({ now: Date.parse('2026-03-01T00:00:00.000Z'), toFake: ['Date'] });
 		const { trust, electronSession, storage } = createTrust();
 		const webContents = new TestWebContents();
 		trust.installCertErrorHandler(webContents.asWebContents());
@@ -240,7 +240,7 @@ suite('BrowserSessionTrust', () => {
 	}));
 
 	test('stored and reloaded trust expires and is pruned', async () => {
-		const clock = sinon.useFakeTimers({ now: Date.parse('2026-03-01T00:00:00.000Z') });
+		const clock = sinon.useFakeTimers({ now: Date.parse('2026-03-01T00:00:00.000Z'), toFake: ['Date'] });
 
 		const storage = new TestApplicationStorageMainService();
 		const firstSession = new TestElectronSession();

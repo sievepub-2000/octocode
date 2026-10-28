@@ -10,6 +10,7 @@ configure({ asyncUtilTimeout: 10000 })
 
 // Mock vscode API
 const mockPostMessage = vi.hoisted(() => vi.fn())
+const indexActions = vi.hoisted(() => ({ save: vi.fn(), discard: vi.fn() }))
 const mockVscode = {
 	postMessage: mockPostMessage,
 }
@@ -196,6 +197,19 @@ vi.mock("@src/components/mcp/McpView", () => ({
 	default: () => null,
 }))
 
+vi.mock("@src/components/chat/IndexingStatusBadge", () => ({
+	IndexingStatusBadge: ({
+		settingsRef,
+		onDirtyChange,
+	}: {
+		settingsRef: React.Ref<import("../../chat/CodeIndexPopover").CodeIndexSettingsActions>
+		onDirtyChange: (dirty: boolean) => void
+	}) => {
+		React.useImperativeHandle(settingsRef, () => indexActions)
+		return <button onClick={() => onDirtyChange(true)}>edit index settings</button>
+	},
+}))
+
 vi.mock("../../common/Tab", () => ({
 	Tab: ({ children }: any) => <div>{children}</div>,
 	TabContent: React.forwardRef<HTMLDivElement, any>(({ children, ...props }, ref) => (
@@ -262,13 +276,18 @@ vi.mock("../ApiConfigManager", () => ({
 
 const mockApiOptions = ({ apiConfiguration, setApiConfigurationField }: any) => (
 	<div>
+		<button
+			data-testid="automatic-model-sync"
+			onClick={() => setApiConfigurationField("apiModelId", "synced-model", false)}>
+			sync model
+		</button>
 		<span data-testid="provider-value">{apiConfiguration.apiProvider}</span>
 		<input
 			data-testid="baseten-api-key"
 			value={apiConfiguration.basetenApiKey ?? ""}
 			onChange={(event) => setApiConfigurationField("basetenApiKey", event.target.value)}
 		/>
-		{["openrouter", "baseten", "deepseek", "friendli"].map((provider) => (
+		{["openai", "openrouter", "baseten", "deepseek", "friendli"].map((provider) => (
 			<button
 				key={provider}
 				data-testid={`set-provider-${provider}`}
@@ -464,6 +483,58 @@ describe("SettingsView - Change Detection Fix", () => {
 		})
 	})
 
+	it("clears unsaved changes when a provider edit is reverted", () => {
+		const onDone = vi.fn()
+		vi.mocked(useExtensionState, { partial: true }).mockReturnValue({ apiConfiguration: { apiProvider: "openai" } })
+		renderWithExtensionState(<SettingsView onDone={onDone} />, { queryClient })
+		fireEvent.click(screen.getByTestId("set-provider-baseten"))
+		expect(screen.getByTestId("save-button")).toBeEnabled()
+		fireEvent.click(screen.getByTestId("set-provider-openai"))
+		expect(screen.getByTestId("save-button")).toBeDisabled()
+		fireEvent.click(screen.getByText("settings:common.done"))
+		expect(onDone).toHaveBeenCalledOnce()
+		expect(screen.queryByTestId("alert-dialog")).not.toBeInTheDocument()
+	})
+
+	it("uses the last save as the baseline for subsequent edits", () => {
+		const onDone = vi.fn()
+		vi.mocked(useExtensionState, { partial: true }).mockReturnValue({ apiConfiguration: { apiProvider: "openai" } })
+		renderWithExtensionState(<SettingsView onDone={onDone} />, { queryClient })
+		fireEvent.click(screen.getByTestId("set-provider-baseten"))
+		fireEvent.click(screen.getByTestId("save-button"))
+		fireEvent.click(screen.getByTestId("set-provider-deepseek"))
+		fireEvent.click(screen.getByTestId("set-provider-baseten"))
+		expect(screen.getByTestId("save-button")).toBeDisabled()
+		fireEvent.click(screen.getByText("settings:common.done"))
+		expect(onDone).toHaveBeenCalledOnce()
+	})
+
+	it("retains the warning when only one of two edited fields is reverted", () => {
+		const onDone = vi.fn()
+		vi.mocked(useExtensionState, { partial: true }).mockReturnValue({ apiConfiguration: { apiProvider: "openai" } })
+		renderWithExtensionState(<SettingsView onDone={onDone} />, { queryClient })
+		fireEvent.click(screen.getByTestId("set-provider-baseten"))
+		fireEvent.change(screen.getByTestId("baseten-api-key"), { target: { value: "unsaved-key" } })
+		fireEvent.click(screen.getByTestId("set-provider-openai"))
+		fireEvent.click(screen.getByText("settings:common.done"))
+		expect(screen.getByTestId("alert-dialog")).toBeInTheDocument()
+		expect(onDone).not.toHaveBeenCalled()
+	})
+
+	it("ignores automatic normalization of a populated model without hiding genuine edits", () => {
+		vi.mocked(useExtensionState, { partial: true }).mockReturnValue({
+			apiConfiguration: { apiProvider: "openai", apiModelId: "previous-model" },
+		})
+		renderWithExtensionState(<SettingsView onDone={vi.fn()} />, { queryClient })
+		fireEvent.click(screen.getByTestId("automatic-model-sync"))
+		expect(screen.getByTestId("save-button")).toBeDisabled()
+		fireEvent.click(screen.getByTestId("set-provider-baseten"))
+		fireEvent.click(screen.getByTestId("automatic-model-sync"))
+		expect(screen.getByTestId("save-button")).toBeEnabled()
+		fireEvent.click(screen.getByText("settings:common.done"))
+		expect(screen.getByTestId("alert-dialog")).toBeInTheDocument()
+	})
+
 	it("should not show unsaved changes when no changes are made", async () => {
 		const onDone = vi.fn()
 		;(useExtensionState as any).mockReturnValue(createExtensionState())
@@ -493,23 +564,79 @@ describe("SettingsView - Change Detection Fix", () => {
 	// These tests are passing for the basic case but failing due to vi.doMock limitations
 	// The core fix has been verified - when no actual changes are made, no unsaved changes dialog appears
 
-	it("verifies the fix: empty string should not be treated as a change", () => {
-		// This test verifies the core logic of our fix
-		// When a field is initialized from empty string to a value with isUserAction=false
-		// it should NOT trigger change detection
+	it.each([true, false])("waits for index save acknowledgement before leaving (success: %s)", async (success) => {
+		const onDone = vi.fn()
+		let acknowledge!: (success: boolean) => void
+		indexActions.save.mockImplementation(
+			() =>
+				new Promise<boolean>((resolve) => {
+					acknowledge = resolve
+				}),
+		)
+		vi.mocked(useExtensionState, { partial: true }).mockReturnValue({ apiConfiguration: { apiProvider: "openai" } })
+		renderWithExtensionState(<SettingsView onDone={onDone} targetSection="codeIndex" />, { queryClient })
+		fireEvent.click(screen.getByText("edit index settings"))
+		expect(screen.getByTestId("save-button")).toBeEnabled()
+		fireEvent.click(screen.getByText("settings:common.done"))
+		fireEvent.click(screen.getByText("settings:unsavedChangesDialog.saveButton"))
+		expect(indexActions.save).toHaveBeenCalledOnce()
+		expect(onDone).not.toHaveBeenCalled()
+		await act(async () => acknowledge(success))
+		if (success) {
+			expect(onDone).toHaveBeenCalledOnce()
+			expect(screen.queryByTestId("alert-dialog")).not.toBeInTheDocument()
+		} else {
+			expect(onDone).not.toHaveBeenCalled()
+			expect(screen.getByTestId("alert-dialog")).toBeInTheDocument()
+			expect(screen.getByTestId("save-button")).toBeEnabled()
+		}
+	})
 
-		// Our fix in SettingsView.tsx lines 245-247:
-		// const isInitialSync = !isUserAction &&
-		//     (previousValue === undefined || previousValue === "" || previousValue === null) &&
-		//     value !== undefined && value !== "" && value !== null
+	it("discards index edits through the child and clears the pending warning", () => {
+		const onDone = vi.fn()
+		vi.mocked(useExtensionState, { partial: true }).mockReturnValue({ apiConfiguration: { apiProvider: "openai" } })
+		renderWithExtensionState(<SettingsView onDone={onDone} targetSection="codeIndex" />, { queryClient })
+		fireEvent.click(screen.getByText("edit index settings"))
+		fireEvent.click(screen.getByText("settings:common.done"))
+		fireEvent.click(screen.getByText("settings:unsavedChangesDialog.discardButton"))
+		expect(indexActions.discard).toHaveBeenCalledOnce()
+		expect(onDone).toHaveBeenCalledOnce()
+		expect(screen.getByTestId("save-button")).toBeDisabled()
+	})
 
-		// This logic correctly handles:
-		// - undefined -> value (initialization)
-		// - "" -> value (initialization from empty string)
-		// - null -> value (initialization from null)
-
-		expect(true).toBe(true) // Placeholder - the real test is the running system
-	}, 10000)
+	it("preserves newer ordinary edits made while waiting for the index save acknowledgement", async () => {
+		const onDone = vi.fn()
+		let acknowledge!: (success: boolean) => void
+		indexActions.save.mockImplementation(
+			() =>
+				new Promise<boolean>((resolve) => {
+					acknowledge = resolve
+				}),
+		)
+		vi.mocked(useExtensionState, { partial: true }).mockReturnValue({ apiConfiguration: { apiProvider: "openai" } })
+		const view = renderWithExtensionState(<SettingsView onDone={onDone} targetSection="codeIndex" />, {
+			queryClient,
+		})
+		fireEvent.click(screen.getByText("edit index settings"))
+		view.rerender(<SettingsView onDone={onDone} targetSection="providers" />)
+		fireEvent.click(screen.getByText("settings:common.done"))
+		fireEvent.click(screen.getByText("settings:unsavedChangesDialog.saveButton"))
+		fireEvent.click(screen.getByTestId("set-provider-baseten"))
+		await act(async () => acknowledge(true))
+		expect(screen.getByTestId("provider-value")).toHaveTextContent("baseten")
+		expect(screen.getByTestId("save-button")).toBeEnabled()
+		expect(screen.getByTestId("alert-dialog")).toBeInTheDocument()
+		expect(onDone).not.toHaveBeenCalled()
+		expect(mockPostMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: "upsertApiConfiguration" }))
+		fireEvent.click(screen.getByText("settings:unsavedChangesDialog.saveButton"))
+		await waitFor(() => expect(onDone).toHaveBeenCalledOnce())
+		expect(mockPostMessage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: "upsertApiConfiguration",
+				apiConfiguration: { apiProvider: "baseten" },
+			}),
+		)
+	})
 
 	it("preserves a DeepSeek provider edit after saving Baseten when the same import timestamp replays", async () => {
 		const onDone = vi.fn()

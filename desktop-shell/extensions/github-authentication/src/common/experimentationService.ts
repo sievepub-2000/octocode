@@ -44,10 +44,16 @@ export class ExperimentationTelemetry implements IExperimentationTelemetry {
 	 * @returns A promise that you shouldn't need to await because this is just telemetry.
 	 */
 	async sendTelemetryEvent(eventName: string, properties?: Record<string, string>, measurements?: Record<string, number>) {
+		if (!vscode.env.isTelemetryEnabled) {
+			return;
+		}
 		if (!this.experimentationServicePromise) {
 			this.experimentationServicePromise = this.createExperimentationService();
 		}
 		await this.experimentationServicePromise;
+		if (!vscode.env.isTelemetryEnabled) {
+			return;
+		}
 
 		this.baseReporter.sendTelemetryEvent(
 			eventName,
@@ -67,10 +73,16 @@ export class ExperimentationTelemetry implements IExperimentationTelemetry {
 		properties?: Record<string, string>,
 		_measurements?: Record<string, number>
 	) {
+		if (!vscode.env.isTelemetryEnabled) {
+			return;
+		}
 		if (!this.experimentationServicePromise) {
 			this.experimentationServicePromise = this.createExperimentationService();
 		}
 		await this.experimentationServicePromise;
+		if (!vscode.env.isTelemetryEnabled) {
+			return;
+		}
 
 		this.baseReporter.sendTelemetryErrorEvent(eventName, {
 			...this.sharedProperties,

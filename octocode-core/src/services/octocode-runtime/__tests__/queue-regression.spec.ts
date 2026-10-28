@@ -1,8 +1,49 @@
 import { describe, expect, it, vi } from "vitest"
 import { OctoCodeRuntime } from "../OctoCodeRuntime"
 import { EventEmitter } from "node:events"
+import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 describe("runtime queue", () => {
+	it("copies queued attachments before steering an active task", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "octocode-steer-attachments-"))
+		try {
+			const source = join(directory, "document.pdf")
+			const workingDirectory = join(directory, "session")
+			await writeFile(source, Buffer.from([0, 255, 42]))
+			const stored = new Map<string, unknown>()
+			const steer = vi.fn().mockResolvedValue(undefined)
+			const runtime = Object.assign(Object.create(OctoCodeRuntime.prototype), {
+				runningSessions: new Map([["session", "task"]]),
+				drainingSessions: new Map(),
+				queueSettings: new Map(),
+				queueWrite: Promise.resolve(),
+				eventEmitter: { fire: vi.fn() },
+				steer,
+				call: vi.fn(async (method: string, params: { key: string; value?: unknown }) => {
+					if (method === "session.working_directory") return { working_directory: workingDirectory }
+					if (method === "setting.set") stored.set(params.key, params.value)
+					return stored.get(params.key) ?? null
+				}),
+			}) as OctoCodeRuntime
+			await runtime.enqueue("session", "inspect", [], {}, "full", [source])
+			const [entry] = await runtime.getQueue("session")
+			await runtime.pushQueuedMessage("session", entry.id, {}, "full")
+			expect(steer).toHaveBeenCalledWith(
+				"task",
+				expect.objectContaining({
+					text: expect.stringContaining(join(workingDirectory, "attachments", "document.pdf")),
+				}),
+			)
+			expect(await readFile(join(workingDirectory, "attachments", "document.pdf"))).toEqual(
+				Buffer.from([0, 255, 42]),
+			)
+			expect(await runtime.getQueue("session")).toEqual([])
+		} finally {
+			await rm(directory, { recursive: true, force: true })
+		}
+	})
 	it("reconciles a late acknowledgement after a delivery timeout", async () => {
 		vi.useFakeTimers()
 		try {

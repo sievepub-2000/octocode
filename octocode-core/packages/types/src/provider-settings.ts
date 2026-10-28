@@ -1,4 +1,4 @@
-import { z } from "zod"
+import { z } from "zod/v4"
 
 import { providerDefinitionList, type ProviderDefinition } from "./provider-settings/index.js"
 import { API_PROVIDER_FIELD, SETTINGS_SHAPE_FIELD } from "./provider-settings/common.js"
@@ -214,7 +214,7 @@ const indexProviderDefinitions = (
 const providerDefinitions = indexProviderDefinitions(providerDefinitionList)
 
 const defaultSchema = z.object({
-	[API_PROVIDER_FIELD]: z.undefined(),
+	[API_PROVIDER_FIELD]: z.undefined().optional(),
 })
 
 type ProviderDefinitionSchemas<D extends readonly ProviderDefinition[]> = {
@@ -241,12 +241,12 @@ export const providerSettingsSchemaDiscriminated = z.discriminatedUnion(API_PROV
 
 type ProviderSettingsShape = UnionToIntersection<(typeof providerDefinitionList)[number][typeof SETTINGS_SHAPE_FIELD]>
 
-const providerSettingsObjectSchema = providerDefinitionList.reduce<z.AnyZodObject>(
+const providerSettingsObjectSchema = providerDefinitionList.reduce<z.ZodObject>(
 	(schema, definition) => schema.merge(z.object(definition[SETTINGS_SHAPE_FIELD])),
 	z.object({}),
 )
 
-// `AnyZodObject.shape` loses the merged shape precision, so restore the type derived from the provider definitions.
+// The accumulator loses the merged shape precision, so restore the type derived from the provider definitions.
 const providerSettingsShape = providerSettingsObjectSchema.shape as ProviderSettingsShape
 
 export const providerSettingsSchema = z.object({
@@ -518,9 +518,42 @@ export const MODELS_BY_PROVIDER: Record<
 	[providerIdentifiers.opencodeGo]: { id: providerIdentifiers.opencodeGo, label: "Opencode Go", models: [] },
 	[providerIdentifiers.kenari]: { id: providerIdentifiers.kenari, label: "Kenari", models: [] },
 	[providerIdentifiers.nanogpt]: { id: providerIdentifiers.nanogpt, label: "NanoGPT", models: [] },
-	[providerIdentifiers.octoCodeGateway]: { id: providerIdentifiers.octoCodeGateway, label: "OctoCode Gateway", models: [] },
+	[providerIdentifiers.octoCodeGateway]: {
+		id: providerIdentifiers.octoCodeGateway,
+		label: "OctoCode Gateway",
+		models: [],
+	},
 
 	// Local providers; models discovered from localhost endpoints.
 	[providerIdentifiers.lmstudio]: { id: providerIdentifiers.lmstudio, label: "LM Studio", models: [] },
 	[providerIdentifiers.ollama]: { id: providerIdentifiers.ollama, label: "Ollama", models: [] },
+}
+
+// Curated labels for providers without a MODELS_BY_PROVIDER entry.
+const EXTRA_PROVIDER_LABELS: Partial<Record<ProviderName, string>> = {
+	[providerIdentifiers.openai]: "OpenAI Compatible",
+	[providerIdentifiers.fakeAi]: "Fake AI",
+	[providerIdentifiers.geminiCli]: "Gemini CLI",
+}
+
+/**
+ * Resolves the human-readable vendor label for a provider identifier.
+ * Falls back to the raw identifier when no curated label exists (retired
+ * providers or unknown values).
+ */
+export const getProviderLabel = (provider: string | undefined): string | undefined => {
+	if (!provider) {
+		return undefined
+	}
+
+	if (isProviderName(provider)) {
+		return (
+			(provider in MODELS_BY_PROVIDER
+				? MODELS_BY_PROVIDER[provider as keyof typeof MODELS_BY_PROVIDER].label
+				: EXTRA_PROVIDER_LABELS[provider]) ?? provider
+		)
+	}
+
+	// Retired providers and unknown values keep their stored identifier.
+	return provider
 }

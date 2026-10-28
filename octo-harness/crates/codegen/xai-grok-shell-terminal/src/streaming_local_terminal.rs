@@ -866,6 +866,9 @@ fn spawn_with_argv(
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
 
+            if let Some(key) = crate::conflicting_color_env(env) {
+                cmd.env_remove(key);
+            }
             xai_grok_sandbox::child_net::restrict_child_network(cmd);
         });
         // setsid: detach from the TTY and start a new process group for tree teardown
@@ -886,6 +889,10 @@ fn spawn_with_argv(
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
+
+            if let Some(key) = crate::conflicting_color_env(env) {
+                cmd.env_remove(key);
+            }
         });
         // CreationFlags must precede JobObject per process-wrap docs.
         cmd.wrap(CreationFlags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW));

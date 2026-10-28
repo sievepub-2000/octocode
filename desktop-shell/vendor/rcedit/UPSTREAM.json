@@ -1,0 +1,23 @@
+{
+  "package": "rcedit",
+  "version": "5.0.2",
+  "resolved": "https://registry.npmjs.org/rcedit/-/rcedit-5.0.2.tgz",
+  "integrity": "sha512-dgysxaeXZ4snLpPjn8aVtHvZDCx+aRcvZbaWBgl1poU6OPustMvOkj9a9ZqASQ6i5Y5szJ13LSvglEOwrmgUxA==",
+  "deprecated": "Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.",
+  "license": "MIT",
+  "dependencies": {
+    "cross-spawn-windows-exe": "^1.1.0"
+  },
+  "engines": {
+    "node": ">= 22.12.0"
+  },
+  "originalFiles": {
+    "bin/rcedit-x64.exe": "3e7801db1a5edbec91b49a24a094aad776cb4515488ea5a4ca2289c400eade2a",
+    "bin/rcedit.exe": "38fb5e935d7cb58d7a98b4ed8f876c83f5db032bcd0329b0a4de4e4a1de876b6",
+    "lib/index.d.ts": "5680aca899c5e8e579fa2439b8eb8e1893f3b700b421c2be9efed8c472560c61",
+    "lib/index.js": "3385ce0efbff05cb272b4760cab763f88f507a53c776e2df942991644cb6f20b",
+    "LICENSE": "365e2e848090ff97ffc97197654e8a004bd2e13f9b216618fdee394ac016cf79",
+    "package.json": "f764916b001d86241d78368e6f42557bf79c0f498938dd69a3bcb160f949c1b7",
+    "README.md": "d081051be5dad8854b894236fc273d631abf2b7556b94b277aa6bf782c44c56b"
+  }
+}

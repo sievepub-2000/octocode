@@ -42,6 +42,20 @@ function parseOnDemandListFromScript(script: string): string[] {
 }
 
 describe("installer payload", () => {
+	it("ships the verified Protobuf 36.2 compiler on Windows", () => {
+		const protobuf = environmentManifest.find((env) => env.id === "protobuf")
+		expect(protobuf?.shipped).toBe(process.platform === "win32")
+		if (process.platform === "win32") {
+			expect(protobuf?.source).toEqual({
+				kind: "archive",
+				version: "36.2",
+				url: "https://github.com/protocolbuffers/protobuf/releases/download/v36.2/protoc-36.2-win64.zip",
+				sha256: "f0c128dc0d8492eceece83bb459a4c0e316764b929ffbf1aa416357fd644edd3",
+				archive: "zip",
+			})
+			expect(getExcludedFromInstallerIds()).not.toContain("protobuf")
+		} else expect(protobuf?.source.kind).toBe("resolver")
+	})
 	it("excludes exactly the environments the manifest marks as not shipped", () => {
 		const script = fs.readFileSync(findBuildScript(), "utf8")
 		expect(parseOnDemandListFromScript(script)).toEqual(getExcludedFromInstallerIds())

@@ -81,33 +81,35 @@ impl AgentShutdownGuard {
     pub fn new(cancel: CancellationToken, thread: Option<thread::JoinHandle<Result<()>>>) -> Self {
         Self { cancel, thread }
     }
+
+    /// Complete teardown before returning success; Drop remains the fallback for error/unwind paths.
+    pub fn finish(&mut self) -> Result<()> {
+        self.cancel.cancel();
+        let Some(handle) = self.thread.take() else {
+            return Ok(());
+        };
+        let timeout = SESSION_FLUSH_GRACE + AGENT_JOIN_SLACK;
+        match join_agent_thread(handle, timeout) {
+            JoinOutcome::Joined => Ok(()),
+            JoinOutcome::Failed(error) => {
+                anyhow::bail!("agent worker exited with error after cancel: {error}")
+            }
+            JoinOutcome::Panicked(panic) => {
+                anyhow::bail!("agent worker panicked after cancel: {panic}")
+            }
+            JoinOutcome::TimedOut => anyhow::bail!(
+                "agent worker did not exit within {}ms after cancel; SessionEnd teardown may be incomplete",
+                timeout.as_millis()
+            ),
+            JoinOutcome::HelperLost => anyhow::bail!("agent worker join helper disappeared"),
+        }
+    }
 }
 
 impl Drop for AgentShutdownGuard {
     fn drop(&mut self) {
-        self.cancel.cancel();
-        let Some(handle) = self.thread.take() else {
-            return;
-        };
-        let timeout = SESSION_FLUSH_GRACE + AGENT_JOIN_SLACK;
-        match join_agent_thread(handle, timeout) {
-            JoinOutcome::Joined => {}
-            JoinOutcome::Failed(error) => {
-                tracing::warn!(%error, "agent worker exited with error after cancel");
-            }
-            JoinOutcome::Panicked(panic) => {
-                tracing::warn!(%panic, "agent worker panicked after cancel");
-            }
-            JoinOutcome::TimedOut => {
-                tracing::warn!(
-                    timeout_ms = timeout.as_millis() as u64,
-                    "agent worker did not exit within grace after cancel; \
-                     SessionEnd teardown (hooks/telemetry/uploads) may be incomplete"
-                );
-            }
-            JoinOutcome::HelperLost => {
-                tracing::warn!("agent worker join helper disappeared; proceeding");
-            }
+        if let Err(error) = self.finish() {
+            tracing::warn!(%error, "agent shutdown failed");
         }
     }
 }
@@ -346,9 +348,9 @@ async fn spawn_agent_thread_direct(
                 // flush, /exit and headless quit race process death and skip
                 // SessionEnd. Mirrors leader auto-update / relaunch.
                 cancel.cancelled().await;
-                agent_rc.flush_all_sessions(SESSION_FLUSH_GRACE).await;
+                let shutdown = agent_rc.flush_all_sessions(SESSION_FLUSH_GRACE).await;
                 xai_grok_telemetry::session_ctx::drain_at_process_exit().await;
-                anyhow::Result::Ok(())
+                shutdown
             });
             // LocalSet before runtime, as an implicit scope-end drop would do.
             drop(local);
@@ -400,6 +402,54 @@ mod tests {
             join_agent_thread(handle, Duration::from_secs(5)),
             JoinOutcome::Failed("flush failed".to_string())
         );
+    }
+
+    #[test]
+    fn shutdown_guard_finish_propagates_worker_failure() {
+        let cancel = CancellationToken::new();
+        let handle = thread::spawn(|| Err(anyhow::anyhow!("actor failed")));
+        let mut guard = AgentShutdownGuard::new(cancel.clone(), Some(handle));
+        assert!(
+            guard
+                .finish()
+                .unwrap_err()
+                .to_string()
+                .contains("actor failed")
+        );
+        assert!(cancel.is_cancelled());
+        assert!(guard.finish().is_ok(), "joining is idempotent");
+    }
+
+    #[test]
+    fn shutdown_guard_finish_propagates_worker_panic() {
+        let handle = thread::spawn(|| panic!("injected worker panic"));
+        let mut guard = AgentShutdownGuard::new(CancellationToken::new(), Some(handle));
+        assert!(
+            guard
+                .finish()
+                .unwrap_err()
+                .to_string()
+                .contains("injected worker panic")
+        );
+    }
+
+    #[test]
+    fn shutdown_guard_drop_cancels_and_joins_real_worker() {
+        let cancel = CancellationToken::new();
+        let worker_cancel = cancel.clone();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let handle = thread::spawn(move || {
+            while !worker_cancel.is_cancelled() {
+                thread::sleep(Duration::from_millis(1));
+            }
+            done_tx.send(()).unwrap();
+            Ok(())
+        });
+        drop(AgentShutdownGuard::new(cancel.clone(), Some(handle)));
+        assert!(cancel.is_cancelled());
+        done_rx
+            .try_recv()
+            .expect("Drop must wait for the worker to finish");
     }
 
     /// The timeout branch the built-binary e2e cannot reach: a wedged worker

@@ -172,7 +172,7 @@ describe("MarketplaceView", () => {
 		})
 	})
 
-	it("keeps MCP and AgentMods catalogs separate", () => {
+	it("keeps MCP separate and places legacy Agent mode links in Skills", () => {
 		const { rerender } = render(
 			<ExtensionStateContext.Provider value={mockExtensionState}>
 				<MarketplaceView stateManager={stateManager} targetTab="mcp" />
@@ -187,7 +187,8 @@ describe("MarketplaceView", () => {
 				<MarketplaceView stateManager={stateManager} targetTab="mode" />
 			</ExtensionStateContext.Provider>,
 		)
-		expect(screen.getByRole("button", { name: "Agent 模式" })).toHaveAttribute("aria-pressed", "true")
+		expect(screen.queryByRole("button", { name: "Agent 模式" })).not.toBeInTheDocument()
+		expect(screen.getByRole("button", { name: "Skills 技能" })).toHaveAttribute("aria-pressed", "true")
 		expect(screen.queryByRole("button", { name: "MCP" })).not.toBeInTheDocument()
 		fireEvent.click(screen.getByRole("button", { name: "VS Code 扩展" }))
 		// VS Code extensions are managed in place, not by opening the Extensions view as an extra column.

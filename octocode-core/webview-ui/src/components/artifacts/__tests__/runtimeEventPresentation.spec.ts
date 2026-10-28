@@ -3,6 +3,32 @@ import { describe, expect, it } from "vitest"
 import { appendRuntimeEvents, compactTranscriptEvents, describeRuntimeEvent } from "../runtimeEvent"
 
 describe("describeRuntimeEvent", () => {
+	it("shows a recoverable prefill memory error while preserving the server cause and original event", () => {
+		const payload = {
+			message: "server memory unavailable",
+			error_code: "prefill_memory_exceeded",
+			http_status: 400,
+			recoverable: true,
+		}
+		const event = { kind: "error", payload }
+		const rendered = describeRuntimeEvent(event)
+		expect(rendered).toContain("prefill_memory_exceeded")
+		expect(rendered).toContain("server memory unavailable")
+		expect(rendered).toContain("conversation is preserved")
+		expect(payload.error_code).toBe("prefill_memory_exceeded")
+		expect(describeRuntimeEvent({ kind: "text", payload })).toBe("server memory unavailable")
+	})
+	it("preserves the first delta time without inventing a time for undated history", () => {
+		const event = { task_id: "task", session_id: "session", kind: "text", payload: { data: "first" } }
+		const later = { ...event, created_at: 2000, payload: { data: " second" } }
+		expect(appendRuntimeEvents([{ ...event, created_at: 1000 }], [later])[0].created_at).toBe(1000)
+		expect(appendRuntimeEvents([event], [later])[0].created_at).toBeUndefined()
+		expect(
+			compactTranscriptEvents([
+				{ ...event, created_at: 1000, payload: { data: "<octo_thought>reason</octo_thought>answer" } },
+			]).map((item) => item.created_at),
+		).toEqual([1000, 1000])
+	})
 	it("shows the model error cause without turning cumulative usage into error text", () => {
 		const cause = "reqwest error stream: error sending request for url (http://2.2.2.2:8000/v1/chat/completions)"
 		const detail = { message: cause, promptUsage: { inputTokens: 2573154, outputTokens: 9644, modelCalls: 22 } }

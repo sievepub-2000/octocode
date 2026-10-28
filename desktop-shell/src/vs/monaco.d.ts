@@ -92,7 +92,7 @@ declare namespace monaco {
 
 	export interface CancellationToken {
 		/**
-		 * A flag signalling is cancellation has been requested.
+		 * A flag signalling that cancellation has been requested.
 		 */
 		readonly isCancellationRequested: boolean;
 		/**

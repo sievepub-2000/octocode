@@ -39,6 +39,9 @@ pub struct AgentRun {
     pub permission_profile: PermissionProfile,
     #[serde(default)]
     pub read_only: bool,
+    /// Desktop opt-in, scoped to the selected workspace. Never implicitly on.
+    #[serde(default)]
+    pub codebase_indexing: bool,
     #[serde(default)]
     pub supervision: Supervision,
     /// Extra stdio MCP servers for runs without a workbench (the desktop reaches
@@ -109,6 +112,7 @@ pub struct AgentEvent {
     pub session_id: String,
     pub kind: String,
     pub payload: Value,
+    pub created_at: i64,
 }
 
 #[derive(Default)]
@@ -177,6 +181,7 @@ impl AgentManager {
                     session_id: run.session_id.clone(),
                     kind: "agent.error".into(),
                     payload: json!({"message": error.to_string()}),
+                    created_at: chrono::Utc::now().timestamp_millis(),
                 });
             }
             cancels
@@ -376,7 +381,7 @@ async fn run_attempt(
     cancel: &mut oneshot::Receiver<()>,
     inputs: &mut mpsc::UnboundedReceiver<Value>,
 ) -> anyhow::Result<AttemptOutcome> {
-    write_harness_config(&run.harness_home, model, &run.workbench_mcp_url, run.auto_compact_threshold_percent)?;
+    write_harness_config(&run.harness_home, model, &run.workbench_mcp_url, run.auto_compact_threshold_percent, run.codebase_indexing)?;
     if !run.mcp_servers.is_empty() {
         use std::io::Write as _;
         std::fs::OpenOptions::new()
@@ -571,6 +576,7 @@ fn event(task_id: &str, session_id: &str, kind: &str, payload: Value) -> AgentEv
         session_id: session_id.into(),
         kind: kind.into(),
         payload,
+        created_at: chrono::Utc::now().timestamp_millis(),
     }
 }
 
@@ -678,6 +684,7 @@ fn write_harness_config(
     model: &ModelProfile,
     workbench_mcp_url: &str,
     auto_compact_threshold_percent: u8,
+    codebase_indexing: bool,
 ) -> anyhow::Result<()> {
     // A base URL may list several addresses for the same model server, best
     // first (see `endpoint`). Resolve it here, per run, so a session started
@@ -724,7 +731,7 @@ fn write_harness_config(
         thinking.push_str(&format!("extra_body = {}\n", toml_inline(body)?));
     }
     let config = format!(
-        "[features]\nremote_fetch = false\nweb_fetch = true\n\n[toolset.web_fetch]\nallowed_domains = [\"*\"]\n\n[session]\nauto_compact_threshold_percent = {auto_compact_threshold_percent}\n\n[models]\ndefault = \"octocode-selected\"\nsession_summary = \"octocode-selected\"\nimage_description = \"octocode-selected\"\nprompt_suggestion = \"octocode-selected\"\n\n[model.octocode-selected]\nmodel = {}\nname = \"OctoCode Selected Model\"\nbase_url = {}\nenv_key = \"OCTOCODE_MODEL_API_KEY\"\napi_backend = \"{backend}\"\nagent_type = \"octocode\"\nsystem_prompt_label = \"OctoCode\"\ncontext_window = {}\nmax_completion_tokens = {}\nstream_tool_calls = true\nmax_retries = 4\n{thinking}\n{workbench}{MEMORY_CONFIG}",
+        "[features]\ncodebase_indexing = {codebase_indexing}\nremote_fetch = false\nweb_fetch = true\n\n[toolset.web_fetch]\nallowed_domains = [\"*\"]\n\n[session]\nauto_compact_threshold_percent = {auto_compact_threshold_percent}\n\n[models]\ndefault = \"octocode-selected\"\nsession_summary = \"octocode-selected\"\nimage_description = \"octocode-selected\"\nprompt_suggestion = \"octocode-selected\"\n\n[model.octocode-selected]\nmodel = {}\nname = \"OctoCode Selected Model\"\nbase_url = {}\nenv_key = \"OCTOCODE_MODEL_API_KEY\"\napi_backend = \"{backend}\"\nagent_type = \"octocode\"\nsystem_prompt_label = \"OctoCode\"\ncontext_window = {}\nmax_completion_tokens = {}\nstream_tool_calls = true\nmax_retries = 4\n{thinking}\n{workbench}{MEMORY_CONFIG}",
         serde_json::to_string(&model.model)?,
         serde_json::to_string(model.base_url.trim_end_matches('/'))?,
         model.context_window,
@@ -799,6 +806,7 @@ mod tests {
         })).unwrap();
         let (events, _) = mpsc::unbounded_channel();
         assert_eq!(run.auto_compact_threshold_percent, 90);
+        assert!(!run.codebase_indexing, "indexing must be opt-in for every desktop turn");
         let mut invalid = run.clone();
         invalid.auto_compact_threshold_percent = 101;
         assert!(manager.start(invalid, events.clone()).unwrap_err().to_string().contains("0..=100"));
@@ -913,7 +921,7 @@ mod tests {
             reasoning_effort: Some("high".into()),
             extra_body: Some(json!({"chat_template_kwargs":{"enable_thinking":true},"thinking_budget":2048})),
         };
-        write_harness_config(home.path(), &model, "http://127.0.0.1:12345/mcp", 90).unwrap();
+        write_harness_config(home.path(), &model, "http://127.0.0.1:12345/mcp", 90, false).unwrap();
         let config = std::fs::read_to_string(home.path().join("config.toml")).unwrap();
         assert!(config.contains("reasoning_effort = \"high\"\nsupports_reasoning_effort = true\n"));
         assert!(config.contains(
@@ -921,7 +929,7 @@ mod tests {
         ));
         model.reasoning_effort = None;
         model.extra_body = None;
-        write_harness_config(home.path(), &model, "http://127.0.0.1:12345/mcp", 90).unwrap();
+        write_harness_config(home.path(), &model, "http://127.0.0.1:12345/mcp", 90, false).unwrap();
         let config = std::fs::read_to_string(home.path().join("config.toml")).unwrap();
         assert!(!config.contains("reasoning_effort") && !config.contains("extra_body"));
     }
@@ -964,7 +972,7 @@ mod tests {
             context_window: 262_144,
             max_completion_tokens: 32_768,
         };
-        write_harness_config(home.path(), &model, "http://127.0.0.1:12345/mcp", 90).unwrap();
+        write_harness_config(home.path(), &model, "http://127.0.0.1:12345/mcp", 90, false).unwrap();
         let config = std::fs::read_to_string(home.path().join("config.toml")).unwrap();
         assert!(config.contains("api_backend = \"responses\""));
         assert!(config.contains("agent_type = \"octocode\""));
@@ -974,7 +982,7 @@ mod tests {
         assert!(config.contains("[mcp_servers.octocode-workbench]"));
         assert!(config.contains("bearer_token_env_var"));
         assert!(!config.contains("secret"));
-        assert!(config.contains("[features]\nremote_fetch = false\nweb_fetch = true\n"));
+        assert!(config.contains("[features]\ncodebase_indexing = false\nremote_fetch = false\nweb_fetch = true\n"));
         assert!(config.contains("[toolset.web_fetch]\nallowed_domains = [\"*\"]\n"));
         // A dead endpoint must surface in minutes, not after 15 retries (~25 min).
         assert!(config.contains("\nmax_retries = 4\n"));
@@ -984,14 +992,20 @@ mod tests {
         assert!(config.ends_with("[compaction.memory_flush]\nenabled = false\n"));
         let parsed: toml::Table = toml::from_str(&config).unwrap_or_else(|error| panic!("invalid TOML: {error}\n{config}"));
         assert_eq!(parsed["compaction"]["memory_flush"]["enabled"], toml::Value::Boolean(false));
-        write_harness_config(home.path(), &model, "", 90).unwrap();
+        write_harness_config(home.path(), &model, "", 90, false).unwrap();
         let standalone = std::fs::read_to_string(home.path().join("config.toml")).unwrap();
         assert!(!standalone.contains("mcp_servers"), "runs without a workbench get no workbench MCP");
         assert!(toml::from_str::<toml::Table>(&standalone).is_ok());
         for threshold in [0, 70, 100] {
-            write_harness_config(home.path(), &model, "http://127.0.0.1:12345/mcp", threshold).unwrap();
+            write_harness_config(home.path(), &model, "http://127.0.0.1:12345/mcp", threshold, false).unwrap();
             let config = std::fs::read_to_string(home.path().join("config.toml")).unwrap();
             assert!(config.contains(&format!("auto_compact_threshold_percent = {threshold}")));
+        }
+        for enabled in [false, true] {
+            write_harness_config(home.path(), &model, "", 90, enabled).unwrap();
+            let config = std::fs::read_to_string(home.path().join("config.toml")).unwrap();
+            let parsed: toml::Table = toml::from_str(&config).unwrap();
+            assert_eq!(parsed["features"]["codebase_indexing"].as_bool(), Some(enabled));
         }
     }
 
@@ -1011,7 +1025,7 @@ mod tests {
             context_window: 262_144,
             max_completion_tokens: 32_768,
         };
-        write_harness_config(home.path(), &model, "http://127.0.0.1:12345/mcp", 90).unwrap();
+        write_harness_config(home.path(), &model, "http://127.0.0.1:12345/mcp", 90, false).unwrap();
         let config = std::fs::read_to_string(home.path().join("config.toml")).unwrap();
         assert!(
             !config.contains(','),

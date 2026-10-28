@@ -230,12 +230,15 @@ const getCommandsMap = ({
 	/*
 	 * Updates for the extension layer.
 	 *
-	 * Inert until someone sets `octocode.update.manifestUrl`; see UpdateService
-	 * for why nothing is contacted before then.
+	 * Private releases use the user's GitHub login; custom channels are supported.
 	 */
 	checkForUpdate: async () => {
 		const { UpdateService } = await import("../services/update/UpdateService")
 		await new UpdateService(context, (message) => outputChannel.appendLine(message)).run(true)
+	},
+	recoverDesktopUpdate: async () => {
+		const { UpdateService } = await import("../services/update/UpdateService")
+		await new UpdateService(context, (message) => outputChannel.appendLine(message)).recoverDesktop()
 	},
 	settingsButtonClicked: () => {
 		const visibleProvider = getVisibleProviderOrLog(outputChannel)

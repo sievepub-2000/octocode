@@ -1,4 +1,4 @@
-import { z } from "zod"
+import { z } from "zod/v4"
 
 import {
 	KIMI_CODE_BASE_URL,

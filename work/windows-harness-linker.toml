@@ -1,0 +1,4 @@
+# Cargo --config replaces the target array. Preserve both Windows harness
+# flags from octo-harness/.cargo/config.toml before selecting the LLVM driver.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "force-unwind-tables=yes", "-C", "target-feature=+crt-static", "-C", "linker-flavor=lld-link"]

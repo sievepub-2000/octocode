@@ -428,6 +428,9 @@ impl SamplingError {
     }
 
     pub fn is_retryable(&self) -> bool {
+        if self.is_prefill_memory_exceeded() {
+            return false;
+        }
         match self {
             SamplingError::Auth { .. } => false,
             SamplingError::InvalidConfiguration(_) => false,
@@ -475,6 +478,9 @@ impl SamplingError {
     /// Retry loops back off instead of fast-failing, and the compaction classifier stays transient instead of stepping the input ladder.
     /// A 429 without `Retry-After`, or with a size code, still classifies (the request exceeds the cap outright; retrying is futile).
     pub fn is_context_length_error(&self) -> bool {
+        if self.is_prefill_memory_exceeded() {
+            return false;
+        }
         match self {
             SamplingError::Api {
                 status,
@@ -560,7 +566,20 @@ impl SamplingError {
     /// - `x-should-retry: false`: the server says the request content caused the failure, not something transient.
     /// - Context-length overflow: deterministic; re-sending the same payload always fails.
     pub fn is_retry_vetoed(&self) -> bool {
-        self.should_retry_header() == Some(false) || self.is_context_length_error()
+        self.should_retry_header() == Some(false)
+            || self.is_prefill_memory_exceeded()
+            || self.is_context_length_error()
+    }
+
+    /// Server allocation pressure permits a later explicit retry, without
+    /// treating text mentioning context length as a logical size overflow.
+    pub fn is_prefill_memory_exceeded(&self) -> bool {
+        let code = match self {
+            Self::Api { error_code, .. } => error_code.as_ref(),
+            Self::StreamError { code, .. } => code.as_ref(),
+            _ => None,
+        };
+        code.is_some_and(|code| code.as_str() == "prefill_memory_exceeded")
     }
 }
 
@@ -714,10 +733,19 @@ fn structured_error_message(bytes: &[u8]) -> Option<String> {
     if let Some(ParsedError {
         error_type,
         message,
+        code,
         ..
     }) = &rigid
         && message != "unknown error"
     {
+        if code
+            .as_ref()
+            .is_some_and(|code| code.as_str() == "prefill_memory_exceeded")
+        {
+            return Some(truncate_user_error(&format!(
+                "[prefill_memory_exceeded] {message}"
+            )));
+        }
         if let Some(inner) = parse_provider_error_str(message)
             && inner.message != *message
             && !inner.message_is_markup()
@@ -805,6 +833,27 @@ fn message_looks_overloaded(message: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prefill_memory_failure_preserves_code_without_context_recovery_or_automatic_retry() {
+        let bytes = br#"{"error":{"type":"invalid_request_error","message":"prefill needs more memory for this context window","code":"prefill_memory_exceeded"}}"#;
+        let message = user_facing_api_error_message(StatusCode::BAD_REQUEST, bytes);
+        assert!(message.contains("prefill_memory_exceeded"));
+        let api = |error_code| SamplingError::Api {
+            status: StatusCode::BAD_REQUEST,
+            message: "maximum context length cannot be prefetched with available memory".into(),
+            model_metadata: None,
+            retry_after_secs: None,
+            should_retry: Some(true),
+            error_code,
+        };
+        let error = api(Some(ApiErrorCode::parse("prefill_memory_exceeded")));
+        assert!(!error.is_context_length_error());
+        assert!(error.is_retry_vetoed());
+        assert!(!error.is_retryable());
+        let text_only = api(None);
+        assert!(text_only.is_context_length_error());
+    }
 
     #[test]
     fn overloaded_detects_stream_and_api_shapes() {

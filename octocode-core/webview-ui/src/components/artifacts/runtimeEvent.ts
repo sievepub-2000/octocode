@@ -33,25 +33,32 @@ export const isTranscriptEvent = ({ kind, payload }: Pick<RuntimeEvent, "kind" |
 	return (payload as Record<string, unknown>).kind !== "execute"
 }
 
-const splitVisibleThought = (event: RuntimeEvent): RuntimeEvent[] => {
+type TextPart = { end: number; created_at?: number }
+
+const splitVisibleThought = (event: RuntimeEvent, parts: TextPart[]): RuntimeEvent[] => {
 	if (event.kind !== "text") return [event]
 	const text = eventText(event.payload)
 	const lower = text.toLowerCase()
 	const opening = "<octo_thought>"
 	const closing = "</octo_thought>"
 	const result: RuntimeEvent[] = []
+	const visible = (kind: string, start: number, data: string): void => {
+		const first = data.search(/\S/)
+		if (first < 0) return
+		const created_at = parts.find((part) => part.end > start + first)?.created_at
+		result.push({ ...event, kind, created_at, payload: { data: kind === "thought" ? data.trim() : data } })
+	}
 	let cursor = 0
 	while (cursor < text.length) {
 		const start = lower.indexOf(opening, cursor)
 		if (start < 0) {
-			if (text.slice(cursor)) result.push({ ...event, payload: { data: text.slice(cursor) } })
+			visible("text", cursor, text.slice(cursor))
 			break
 		}
-		if (start > cursor) result.push({ ...event, payload: { data: text.slice(cursor, start) } })
+		if (start > cursor) visible("text", cursor, text.slice(cursor, start))
 		const contentStart = start + opening.length
 		const end = lower.indexOf(closing, contentStart)
-		const thought = text.slice(contentStart, end < 0 ? text.length : end).trim()
-		if (thought) result.push({ ...event, kind: "thought", payload: { data: thought } })
+		visible("thought", contentStart, text.slice(contentStart, end < 0 ? text.length : end))
 		if (end < 0) break
 		cursor = end + closing.length
 	}
@@ -62,15 +69,24 @@ export const appendRuntimeEvents = (previousEvents: RuntimeEvent[], events: Runt
 	const compacted = [...previousEvents]
 	for (const event of events) {
 		const previous = compacted.at(-1)
+		const oldText = previous ? eventText(previous.payload) : ""
+		const newText = eventText(event.payload)
 		if (
 			previous?.kind === event.kind &&
 			previous.task_id === event.task_id &&
 			previous.session_id === event.session_id &&
-			(event.kind === "text" || event.kind === "thought")
+			(event.kind === "text" || event.kind === "thought") &&
+			// Keep only tag-adjacent chunk boundaries; ordinary streamed tokens still coalesce.
+			(event.kind !== "text" ||
+				(!oldText.includes("<") &&
+					!newText.includes("<") &&
+					!oldText.endsWith(">") &&
+					(oldText.trim().length > 0 || newText.trim().length === 0)))
 		) {
 			compacted[compacted.length - 1] = {
 				...event,
-				payload: { data: eventText(previous.payload) + eventText(event.payload) },
+				created_at: previous.created_at,
+				payload: { data: oldText + newText },
 			}
 		} else {
 			compacted.push(event)
@@ -79,16 +95,50 @@ export const appendRuntimeEvents = (previousEvents: RuntimeEvent[], events: Runt
 	return compacted
 }
 
-export const compactTranscriptEvents = (events: RuntimeEvent[]): RuntimeEvent[] =>
-	appendRuntimeEvents([], events).filter(isTranscriptEvent).flatMap(splitVisibleThought)
+export const compactTranscriptEvents = (events: RuntimeEvent[]): RuntimeEvent[] => {
+	const source = appendRuntimeEvents([], events)
+	const result: RuntimeEvent[] = []
+	for (let index = 0; index < source.length; index++) {
+		const event = source[index]
+		if (event.kind !== "text") {
+			if (isTranscriptEvent(event)) result.push(event)
+			continue
+		}
+		const chunks: string[] = []
+		const parts: TextPart[] = []
+		let length = 0
+		let next = event
+		for (;;) {
+			const data = eventText(next.payload)
+			chunks.push(data)
+			length += data.length
+			parts.push({ end: length, created_at: next.created_at })
+			const following = source[index + 1]
+			if (
+				following?.kind !== "text" ||
+				following.task_id !== event.task_id ||
+				following.session_id !== event.session_id
+			)
+				break
+			next = following
+			index++
+		}
+		result.push(...splitVisibleThought({ ...event, payload: { data: chunks.join("") } }, parts))
+	}
+	return result
+}
 
 export const describeRuntimeEvent = (
 	{ kind, payload }: Pick<RuntimeEvent, "kind" | "payload">,
-	labels: { completed?: string; stopped?: string; unknown?: string } = {},
+	labels: { completed?: string; stopped?: string; unknown?: string; prefillMemory?: string } = {},
 ): string => {
 	if (kind === "thought") return stripThoughtProtocolTags(eventText(payload))
 	if (!payload || typeof payload !== "object") return String(payload ?? "")
 	const value = payload as Record<string, unknown>
+	if ((kind === "error" || kind === "agent.error") && value.error_code === "prefill_memory_exceeded") {
+		const cause = describeRuntimeEvent({ kind, payload: { message: value.message } }, labels)
+		return `[prefill_memory_exceeded] ${cause}\n${labels.prefillMemory ?? "The model server has insufficient prefill memory. This conversation is preserved; retry here after server memory is available."}`
+	}
 	if (kind === "auto_compact_started") return `正在压缩上下文（${value.percentage ?? "—"}%）`
 	if (kind === "auto_compact_completed") return "上下文压缩完成，继续执行当前任务。"
 	if (kind === "auto_compact_failed") return `上下文压缩失败：${String(value.error ?? "未知错误")}`

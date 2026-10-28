@@ -5,12 +5,12 @@ $log=Join-Path $fixture 'build[1].log'
 $checks=0
 New-Item -ItemType Directory -Path $fixture | Out-Null
 try {
-    foreach($text in @('Build succeeded','0 warnings','Finished with 0 warnings','  Compressing: warnings.txt')){
+    foreach($text in @('Build succeeded','0 warnings','Finished with 0 warnings','  Compressing: warnings.txt','webview:lint: $ eslint src --max-warnings=0')){
         Set-Content -LiteralPath $log -Value $text
         Assert-CleanBuildLog -Log $log
         $checks++
     }
-    foreach($text in @('WARNING: broken dependency','Using fallback cache','fallback: old provider')){
+    foreach($text in @('WARNING: broken dependency','Using fallback cache','fallback: old provider','eslint --max-warnings=0 WARNING: real issue')){
         Set-Content -LiteralPath $log -Value $text
         $rejected=$false
         try {Assert-CleanBuildLog -Log $log} catch {$rejected=$true}

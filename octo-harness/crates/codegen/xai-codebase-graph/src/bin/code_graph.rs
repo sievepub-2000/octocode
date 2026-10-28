@@ -36,6 +36,9 @@ use xai_codebase_graph::{
     IndexBuilder, Navigator, ScopeGraphIndex, get_cache_path, load_index, save_index,
 };
 
+#[path = "code_graph/machine.rs"]
+mod machine;
+
 // Use mimalloc for faster allocation
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -50,6 +53,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Local workspace indexing API: JSON stdout, diagnostics on stderr.
+    Machine {
+        #[command(subcommand)]
+        operation: machine::Operation,
+    },
     /// Build or rebuild the index for a repository
     Index {
         /// Path to the repository
@@ -130,6 +138,12 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Machine { operation } => {
+            if let Err(error) = machine::run(operation) {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
+        }
         Commands::Index {
             path,
             cache,
@@ -185,6 +199,7 @@ fn effective_cache_path(repo_path: &Path, custom_cache: Option<&Path>) -> PathBu
 
 /// Load index from cache or build if necessary.
 fn load_or_build_index(repo_path: &Path, cache_path: &Path) -> ScopeGraphIndex {
+    let _guard = workspace_lock(repo_path);
     if let Ok(index) = load_index(cache_path) {
         println!("Loaded index from cache: {}", cache_path.display());
         return index;
@@ -215,6 +230,7 @@ fn load_or_build_index(repo_path: &Path, cache_path: &Path) -> ScopeGraphIndex {
 }
 
 fn cmd_index(path: &Path, custom_cache: Option<&Path>, _force: bool, threads: Option<usize>) {
+    let _guard = workspace_lock(path);
     let cache_path = effective_cache_path(path, custom_cache);
 
     println!("Building index for: {}", path.display());
@@ -243,6 +259,16 @@ fn cmd_index(path: &Path, custom_cache: Option<&Path>, _force: bool, threads: Op
         std::process::exit(1);
     } else {
         println!("  Cache saved:   {}", cache_path.display());
+    }
+}
+
+fn workspace_lock(path: &Path) -> xai_codebase_graph::WorkspaceLockGuard {
+    match xai_codebase_graph::try_lock(path, xai_codebase_graph::IndexOperation::Build) {
+        xai_codebase_graph::LockResult::Acquired(guard) => guard,
+        xai_codebase_graph::LockResult::Busy { operation, .. } => {
+            eprintln!("Workspace index is busy ({operation})");
+            std::process::exit(1);
+        }
     }
 }
 

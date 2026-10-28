@@ -696,7 +696,7 @@ suite('ExtHost Testing', () => {
 		});
 
 		test('run cancel force ends after a timeout', () => {
-			const clock = sinon.useFakeTimers();
+			const clock = sinon.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
 			try {
 				const tracker = ds.add(c.prepareForMainThreadTestRun(ext, req, dto, configuration, cts.token));
 				const task = c.createTestRun(ext, 'ctrl', single, req, 'run1', true);

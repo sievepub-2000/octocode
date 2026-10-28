@@ -345,6 +345,10 @@
 	"dismiss": "關閉",
 	"dismissAndDontShowAgain": "關閉且不再顯示",
 	"extensions": {
+		"pagination": "元件分頁",
+		"pageNumber": "第 {{number}} 頁",
+		"previousPage": "上一頁",
+		"nextPage": "下一頁",
 		"market": "市場",
 		"systemToolsHint": "系統工具 · 所有工作區皆可使用",
 		"environments": "執行環境",

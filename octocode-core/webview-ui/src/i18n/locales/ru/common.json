@@ -373,6 +373,10 @@
 	"dismiss": "Закрыть",
 	"dismissAndDontShowAgain": "Закрыть и больше не показывать",
 	"extensions": {
+		"pagination": "Страницы компонентов",
+		"pageNumber": "Страница {{number}}",
+		"previousPage": "Назад",
+		"nextPage": "Далее",
 		"market": "Каталог",
 		"systemToolsHint": "Системные инструменты · доступны во всех рабочих пространствах",
 		"environments": "Среды выполнения",

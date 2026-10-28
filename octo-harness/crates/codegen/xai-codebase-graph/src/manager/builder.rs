@@ -179,93 +179,82 @@ impl IndexBuilder {
         self.build_fast(root_path, &file_paths)
     }
 
-    /// Collect all supported files from a directory, respecting gitignore.
-    /// Uses `git ls-files` when available (faster), falls back to directory walking.
+    /// Collect supported workspace files, including untracked files. Always walk:
+    /// the Git index can contain hidden, newly ignored, or removed files.
     fn collect_files(&self, root_path: &Path) -> Result<Vec<PathBuf>> {
-        // Try git ls-files first - it's much faster as it reads from git's index
-        // But it only works for tracked files, so we also add untracked files
-        if let Some(files) = self.collect_files_git(root_path)
-            && !files.is_empty()
-        {
-            return Ok(files);
-        }
-
-        // Fall back to directory walking
-        self.collect_files_walk(root_path)
+        self.workspace_files(root_path)
     }
 
-    /// Collect files using git2 - reads from the git index (tracked files).
-    /// Untracked files are not included since:
-    /// 1. They are typically a small minority
-    /// 2. They will be picked up by fsnotify when created
-    /// 3. The statuses() call for untracked files is very slow (~10x overhead)
-    fn collect_files_git(&self, root_path: &Path) -> Option<Vec<PathBuf>> {
-        use git2::Repository;
-
-        // Open the repository
-        let repo = Repository::open(root_path).ok()?;
-
-        // Get all files from the index (tracked files)
-        let index = repo.index().ok()?;
-        let files: Vec<PathBuf> = index
-            .iter()
-            .filter_map(|entry| {
-                // git2 stores paths as bytes, convert to str
-                let path_str = std::str::from_utf8(&entry.path).ok()?;
-                if self.registry.is_supported(path_str) {
-                    Some(root_path.join(path_str))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        Some(files)
-    }
-
-    /// Collect files by walking the directory tree.
-    /// Used as fallback when not in a git repository.
-    fn collect_files_walk(&self, root_path: &Path) -> Result<Vec<PathBuf>> {
-        use std::sync::Mutex;
-
-        let files = Mutex::new(Vec::with_capacity(50000));
-
-        let walker = WalkBuilder::new(root_path)
+    /// Apply the same boundary on rebuild and on cached-result read-back.
+    /// Hidden files, ignored files, dependencies and links are never traversed.
+    pub fn workspace_files(&self, root_path: &Path) -> Result<Vec<PathBuf>> {
+        let root = dunce::canonicalize(root_path)?;
+        let mut files = Vec::new();
+        let walker = WalkBuilder::new(&root)
             .hidden(self.skip_hidden)
             .git_ignore(self.respect_gitignore)
             .git_global(self.respect_gitignore)
             .git_exclude(self.respect_gitignore)
-            .threads(self.num_threads.min(12)) // Use parallel walking (capped at 12)
-            .build_parallel();
-
-        walker.run(|| {
-            let files = &files;
-            let registry = &self.registry;
-            Box::new(move |entry| {
-                use ignore::WalkState;
-
-                let entry = match entry {
-                    Ok(e) => e,
-                    Err(_) => return WalkState::Continue,
+            .require_git(false)
+            .add_custom_ignore_filename(".rooignore")
+            .follow_links(false)
+            .filter_entry(|entry| {
+                if entry.depth() == 0 {
+                    return true;
+                }
+                let name = entry.file_name().to_string_lossy();
+                if [
+                    "node_modules",
+                    "__pycache__",
+                    "env",
+                    "venv",
+                    "dist",
+                    "out",
+                    "bundle",
+                    "vendor",
+                    "tmp",
+                    "temp",
+                    "deps",
+                    "pkg",
+                    "Pods",
+                ]
+                .contains(&name.as_ref())
+                {
+                    return false;
+                }
+                if entry.path().ends_with("target/dependency")
+                    || entry.path().ends_with("build/dependencies")
+                {
+                    return false;
+                }
+                let Ok(metadata) = std::fs::symlink_metadata(entry.path()) else {
+                    return false;
                 };
-
-                let path = entry.path();
-
-                // Skip directories
-                if path.is_dir() {
-                    return WalkState::Continue;
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::MetadataExt;
+                    if metadata.file_attributes() & 0x400 != 0 {
+                        return false;
+                    }
                 }
-
-                // Check if the file is supported
-                if registry.is_supported(path) {
-                    files.lock().unwrap().push(path.to_path_buf());
-                }
-
-                WalkState::Continue
+                !metadata.file_type().is_symlink()
             })
-        });
-
-        Ok(files.into_inner().unwrap())
+            .build();
+        for entry in walker {
+            let entry = entry.map_err(|error| IndexError::WalkError {
+                message: error.to_string(),
+            })?;
+            if entry.file_type().is_some_and(|kind| kind.is_file())
+                && self.registry.is_supported(entry.path())
+            {
+                let real = dunce::canonicalize(entry.path())?;
+                if real.starts_with(&root) {
+                    files.push(real);
+                }
+            }
+        }
+        files.sort();
+        Ok(files)
     }
 
     /// Build index with maximum throughput optimizations:

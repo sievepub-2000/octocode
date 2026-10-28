@@ -34,7 +34,7 @@ import {
 	UpdateStateError,
 } from './errors.js';
 import { convertSubcommand, initializeDefault } from '../fig-autocomplete-shared';
-import { exec, type ExecException } from 'child_process';
+import { execFile } from 'child_process';
 import type { IFigExecuteExternals } from '../execute';
 
 type ArgArrayState = {
@@ -1119,7 +1119,7 @@ const executeLoginShell = async ({
 	executable: string;
 }): Promise<string> => {
 	return new Promise((resolve, reject) => {
-		exec(`${executable} -c "${command}"`, (error: ExecException | null, stdout: string, stderr: string) => {
+		execFile(executable, ['-c', command], (error, stdout, stderr) => {
 			if (error) {
 				reject(stderr);
 			} else {

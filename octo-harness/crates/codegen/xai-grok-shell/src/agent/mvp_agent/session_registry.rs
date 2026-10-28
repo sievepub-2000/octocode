@@ -5,6 +5,7 @@ use super::*;
 #[derive(Clone, Default)]
 pub(super) struct SessionRegistry {
     sessions: Rc<RefCell<HashMap<acp::SessionId, SessionResources>>>,
+    actor_failed: Rc<std::cell::Cell<bool>>,
 }
 /// Turn activity of a resident actor.
 /// Split from [`SessionLiveState`] so a reader cannot observe `Working` without a resident actor.
@@ -229,11 +230,18 @@ impl SessionRegistry {
         let Some(mut released) = entries.remove(id) else {
             return;
         };
-        let running = released
+        let thread = released
             .presence
             .as_mut()
-            .and_then(SessionPresence::take_thread)
-            .filter(|t| !t.is_finished());
+            .and_then(SessionPresence::take_thread);
+        let running = thread.and_then(|thread| {
+            if thread.is_finished() {
+                self.record_thread_result(thread.join());
+                None
+            } else {
+                Some(thread)
+            }
+        });
         if running.is_some() {
             entries.insert(
                 id.clone(),
@@ -258,17 +266,26 @@ impl SessionRegistry {
                 None
             }
         });
-        if displaced.is_some_and(|t| !t.is_finished()) {
-            tracing::warn!(session_id = %id.0, "session thread displaced while still running");
+        if let Some(thread) = displaced {
+            if thread.is_finished() {
+                self.record_thread_result(thread.join());
+            } else {
+                tracing::warn!(session_id = %id.0, "session thread displaced while still running");
+            }
         }
     }
-    /// Drops the tracked thread.
+    /// Joins and drops a finished tracked thread, preserving any actor failure.
     /// Returns nothing on purpose: handing a `SessionThread` to a caller lets the last handle die in a local.
     /// That detaches the thread with no record left for the sweep.
     pub(super) fn clear_thread(&self, id: &acp::SessionId) {
+        if self.thread_is_finished(id) != Some(true) {
+            return;
+        }
         self.clear(id, |e| {
             if let Some(presence) = &mut e.presence {
-                let _ = presence.take_thread();
+                if let Some(thread) = presence.take_thread() {
+                    self.record_thread_result(thread.join());
+                }
                 if presence.is_resource_empty() {
                     e.presence = None;
                 }
@@ -304,6 +321,26 @@ impl SessionRegistry {
             })
             .map(|(id, _)| id.clone())
             .collect()
+    }
+    fn record_thread_result(&self, result: Result<(), String>) -> bool {
+        let clean = result.is_ok();
+        if !clean {
+            self.actor_failed.set(true);
+        }
+        clean
+    }
+    pub(super) fn has_actor_failure(&self) -> bool {
+        self.actor_failed.get()
+    }
+    /// Consume only a finished handle: never block the supervisor on a live actor.
+    pub(super) fn join_finished_thread(&self, id: &acp::SessionId) -> Option<bool> {
+        if self.thread_is_finished(id) != Some(true) {
+            return None;
+        }
+        let thread = self.edit(id, |e| {
+            e.presence.as_mut().and_then(SessionPresence::take_thread)
+        })?;
+        Some(self.record_thread_result(thread.join()))
     }
     pub(super) fn clear_exited_thread(&self, id: &acp::SessionId) {
         self.clear(id, |e| {

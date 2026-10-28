@@ -1,6 +1,6 @@
 // npx vitest core/config/__tests__/CustomModesSettings.spec.ts
 
-import { ZodError } from "zod"
+import { ZodError } from "zod/v4"
 
 import { type ModeConfig, customModesSettingsSchema } from "@roo-code/types"
 

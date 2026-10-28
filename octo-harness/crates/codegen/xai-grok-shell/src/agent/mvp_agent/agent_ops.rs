@@ -436,8 +436,29 @@ impl MvpAgent {
     /// Call on non-leader process quit **after** the cancel token fires but **before** dropping the agent / exiting the process.
     /// Otherwise session actors are killed mid-hook.
     /// Mirrors the leader auto-update / relaunch flush path ([`crate::agent::activity::AgentActivity::flush_all_sessions`]).
-    pub async fn flush_all_sessions(&self, grace: std::time::Duration) {
+    pub async fn flush_all_sessions(&self, grace: std::time::Duration) -> anyhow::Result<()> {
         self.activity.flush_all_sessions(grace).await;
+        // The mailbox closes before the OS thread finishes its final telemetry drain,
+        // so the join loop gets its own budget on top of the flush deadline instead of
+        // sharing it: a flush that consumes all of `grace` must not leave zero time to
+        // join threads that are about to exit anyway (false shutdown failure).
+        let deadline =
+            tokio::time::Instant::now() + grace + crate::agent::activity::AGENT_JOIN_SLACK;
+        loop {
+            self.sweep_dead_sessions();
+            if self.session_registry.counts().session_threads == 0 {
+                break;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                anyhow::bail!("session actor threads did not exit within shutdown grace");
+            }
+            tokio::time::sleep(crate::agent::activity::SHUTDOWN_POLL).await;
+        }
+        anyhow::ensure!(
+            !self.session_registry.has_actor_failure(),
+            "session actor failed before completing teardown"
+        );
+        Ok(())
     }
     /// Install the channel that fans new session cwds into the leader's `ConfigFileWatcher::watch_path`.
     /// Called once after the watcher is constructed in `agent/app.rs`.
@@ -2596,7 +2617,7 @@ impl MvpAgent {
                     self.session_registry.clear_thread(session_id);
                     tracing::debug!(
                         session_id = %session_id.0,
-                        "Old session thread finished cleanly"
+                        "Old session thread finished"
                     );
                     return;
                 }

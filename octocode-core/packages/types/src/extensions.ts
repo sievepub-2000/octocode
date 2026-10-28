@@ -31,15 +31,18 @@ export type ExtensionEntry = {
 	actions: ExtensionAction[]
 	/** Short state note, e.g. download size or connection status. */
 	detail?: string
+	/** Provider-supplied popularity/download score; absent when the source has no metric. */
+	rank?: number
 }
 
 export type ExtensionRequest = {
 	requestId?: string
 	page?: "market" | "installed"
+	cursor?: string
 } & (
 	| { action: "list"; kind?: ExtensionKind; query?: string }
 	/** `query` keeps a searched list (VS Code extensions) in the result after the action. */
 	| { action: ExtensionAction; kind: ExtensionKind; id: string; scope?: "global" | "project"; query?: string }
 )
 
-export type ExtensionResult = { entries: ExtensionEntry[]; error?: string; requestId?: string }
+export type ExtensionResult = { entries: ExtensionEntry[]; error?: string; requestId?: string; nextCursor?: string }

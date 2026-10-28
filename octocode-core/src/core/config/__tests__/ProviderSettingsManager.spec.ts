@@ -162,7 +162,10 @@ describe("ProviderSettingsManager", () => {
 				openAiModelId: "qwen38-flash-next:instruct",
 			})
 			expect(storedConfig.apiConfigs.omlx.openAiNativeBaseUrl).toBeUndefined()
-			expect(storedConfig.apiConfigs.official).toMatchObject({ apiProvider: "openai-native", apiModelId: "gpt-5.4" })
+			expect(storedConfig.apiConfigs.official).toMatchObject({
+				apiProvider: "openai-native",
+				apiModelId: "gpt-5.4",
+			})
 			expect(storedConfig.migrations.openAiNativeCustomEndpointMigrated).toBe(true)
 		})
 
@@ -467,6 +470,18 @@ describe("ProviderSettingsManager", () => {
 	})
 
 	describe("SaveConfig", () => {
+		it("preserves entered model and credentials when the provider has not been selected", async () => {
+			await providerSettingsManager.saveConfig("unfinished", {
+				openRouterModelId: "nvidia/test:free",
+				openRouterApiKey: "fixture-key",
+			})
+			const stored = JSON.parse(mockSecrets.store.mock.calls.at(-1)![1])
+			expect(stored.apiConfigs.unfinished).toMatchObject({
+				openRouterModelId: "nvidia/test:free",
+				openRouterApiKey: "fixture-key",
+			})
+		})
+
 		it("should save new config", async () => {
 			mockSecrets.get.mockResolvedValue(
 				JSON.stringify({

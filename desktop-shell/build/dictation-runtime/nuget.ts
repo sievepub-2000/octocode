@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Fetches the Foundry Local native core libraries (Foundry Local Core +
+ * Fetches the Foundry Local native dependency libraries (
  * onnxruntime + onnxruntime-genai) from NuGet for an EXPLICIT RID, so a single
  * build agent can assemble a tarball for any target regardless of its own
  * `process.platform`/`process.arch`.
@@ -17,17 +17,19 @@
  * tarballs; extracting `runtimes/<rid>/native/*` from the same `.nupkg` files
  * for an explicit RID is host-independent and fixes that.
  *
- * Only the "standard" artifact set is supported (the three packages selected by
- * `package.ts`); the SDK installer's WinML override / `includeFiles` /
- * `removeFiles` paths are intentionally not ported.
+ * The standard artifacts selected by `package.ts` are verified against the
+ * official NuGet catalog before native libraries and legal files are copied.
  */
 
 import { createRequire } from 'module';
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as https from 'https';
 import * as os from 'os';
 import * as path from 'path';
-import { SDK_PACKAGE_NAME } from './common.ts';
+import { pipeline } from 'stream/promises';
+import { gunzipSync } from 'zlib';
+import { getSdkRoot } from './common.ts';
 
 const SCRIPT = 'nuget.ts';
 
@@ -37,20 +39,16 @@ const SCRIPT = 'nuget.ts';
  * `.nupkg` archives.
  */
 function loadAdmZip(): any {
-	const sdkRequire = createRequire(import.meta.url);
-	const fromSdk = createRequire(sdkRequire.resolve(`${SDK_PACKAGE_NAME}/package.json`));
+	const fromSdk = createRequire(path.join(getSdkRoot(), 'package.json'));
 	return fromSdk('adm-zip');
 }
 
 /**
- * NuGet feeds tried in order, matching `foundry-local-sdk`'s installer: the
- * stable nuget.org feed first, then the public ORT-Nightly Azure DevOps feed
- * (where pre-release Foundry Local Core / ORT / ORT-GenAI builds live before
- * they reach nuget.org).
+ * SDK 2's pinned standard artifacts are published on the public NuGet feed.
+ * Keep the catalog and package on that authoritative feed for hash verification.
  */
 const FEEDS: readonly string[] = [
 	'https://api.nuget.org/v3/index.json',
-	'https://pkgs.dev.azure.com/aiinfra/PublicPackages/_packaging/ORT-Nightly/nuget/v3/index.json',
 ];
 
 /** The NuGet Runtime IDentifier for each supported runtime target. */
@@ -70,6 +68,8 @@ function libExt(target: string): string {
 export interface INugetArtifact {
 	readonly name: string;
 	readonly version: string;
+	/** Restrict extraction when a package also carries another artifact's libraries. */
+	readonly includeNative?: readonly string[];
 }
 
 /**
@@ -116,19 +116,42 @@ async function installPackage(
 			const nameLower = artifact.name.toLowerCase();
 			const verLower = artifact.version.toLowerCase();
 			const downloadUrl = `${baseAddress}${nameLower}/${verLower}/${nameLower}.${verLower}.nupkg`;
+			const leaf = JSON.parse(await downloadToString(`https://api.nuget.org/v3/registration5-gz-semver2/${nameLower}/${verLower}.json`)) as { catalogEntry: string };
+			const catalog = JSON.parse(await downloadToString(leaf.catalogEntry)) as { id: string; version: string; packageHashAlgorithm: string; packageHash: string; packageSize: number };
+			if (catalog.id.toLowerCase() !== nameLower || catalog.version.toLowerCase() !== verLower || catalog.packageHashAlgorithm.toUpperCase() !== 'SHA512') {
+				throw new Error(`Unexpected NuGet catalog identity or hash algorithm for ${artifact.name}.`);
+			}
 
 			const nupkgPath = path.join(tempDir, `${artifact.name}.${artifact.version}.nupkg`);
 			console.log(`[${SCRIPT}]   Downloading ${artifact.name} ${artifact.version} from ${feedHost}...`);
-			await downloadToFile(downloadUrl, nupkgPath);
+			await retryDownload(async () => {
+				await downloadToFile(downloadUrl, nupkgPath);
+				await verifyNugetArchive(nupkgPath, catalog.packageHash, catalog.packageSize);
+			});
 
 			const zip = new AdmZip(nupkgPath);
-			const entries = nativeEntriesForRid(zip, rid, ext);
+			const entries = nativeEntriesForRid(zip, rid, ext).filter((entry: any) => !artifact.includeNative || artifact.includeNative.includes(entry.name));
 			if (entries.length === 0) {
-				console.warn(`[${SCRIPT}]   No files found for RID ${rid} in ${artifact.name}.`);
+				throw new Error(`No native libraries for RID ${rid} in ${artifact.name}.`);
 			}
 			for (const entry of entries) {
 				zip.extractEntryTo(entry, binDir, false, true);
 				console.log(`[${SCRIPT}]     Extracted ${entry.name}`);
+			}
+			const licenseDir = path.join(binDir, 'licenses', `${nameLower}-${verLower}`);
+			const legal = zip.getEntries().filter((entry: any) => !entry.isDirectory && /(?:license|notice|copying)/i.test(path.posix.basename(String(entry.entryName).replace(/\\/g, '/'))));
+			if (!legal.length) {
+				throw new Error(`No license or notice files in ${artifact.name}.`);
+			}
+			for (const entry of legal) {
+				// Preserve subdirectories so equally named third-party licenses cannot overwrite one another.
+				const relative = String(entry.entryName).replace(/\\/g, '/');
+				const destination = path.resolve(licenseDir, relative);
+				if (!destination.startsWith(path.resolve(licenseDir) + path.sep)) {
+					throw new Error(`Invalid license path in ${artifact.name}.`);
+				}
+				fs.mkdirSync(path.dirname(destination), { recursive: true });
+				fs.writeFileSync(destination, entry.getData());
 			}
 			return;
 		} catch (err) {
@@ -181,30 +204,54 @@ async function getBaseAddress(feedUrl: string, cache: Map<string, unknown>): Pro
 
 /** GET `url` following redirects, resolving with the response body as a string. */
 function downloadToString(url: string): Promise<string> {
-	return followRedirects(url, res => new Promise<string>((resolve, reject) => {
-		let data = '';
-		res.on('data', chunk => data += chunk);
-		res.on('end', () => resolve(data));
-		res.on('error', reject);
+	return retryDownload(() => followRedirects(url, async res => {
+		const chunks: Buffer[] = [];
+		for await (const chunk of res) {
+			chunks.push(Buffer.from(chunk));
+		}
+		const bytes = Buffer.concat(chunks);
+		return (bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzipSync(bytes) : bytes).toString('utf8');
 	}));
 }
 
 /** GET `url` following redirects, streaming the response body into `dest`. */
 function downloadToFile(url: string, dest: string): Promise<void> {
-	return followRedirects(url, res => new Promise<void>((resolve, reject) => {
-		const file = fs.createWriteStream(dest);
-		res.pipe(file);
-		file.on('finish', () => file.close(err => err ? reject(err) : resolve()));
-		file.on('error', err => { fs.rmSync(dest, { force: true }); reject(err); });
-		res.on('error', reject);
-	}));
+	return followRedirects(url, res => pipeline(res, fs.createWriteStream(dest)));
+}
+
+/** Check the complete archive against the immutable official catalog before extraction. */
+export async function verifyNugetArchive(file: string, sha512: string, size: number): Promise<void> {
+	if (!Number.isSafeInteger(size) || size <= 0 || fs.statSync(file).size !== size) {
+		throw new Error('NuGet archive size does not match the official catalog.');
+	}
+	const hash = createHash('sha512');
+	for await (const chunk of fs.createReadStream(file)) {
+		hash.update(chunk);
+	}
+	if (hash.digest('base64') !== sha512) {
+		throw new Error('NuGet archive SHA512 does not match the official catalog.');
+	}
+}
+
+async function retryDownload<T>(action: () => Promise<T>): Promise<T> {
+	for (let attempt = 1; ; attempt++) {
+		try {
+			return await action();
+		} catch (error) {
+			if (attempt === 3) {
+				throw error;
+			}
+			console.log(`[${SCRIPT}] Download attempt ${attempt} failed; retrying: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	}
 }
 
 /** Issue a GET, following up to 5 redirects, then hand the 200 response to `onOk`. */
 function followRedirects<T>(url: string, onOk: (res: import('http').IncomingMessage) => Promise<T>): Promise<T> {
 	return new Promise<T>((resolve, reject) => {
 		const request = (currentUrl: string, redirectsLeft: number): void => {
-			https.get(currentUrl, res => {
+			const requestHandle = https.get(currentUrl, res => {
+				res.setTimeout(60_000, () => res.destroy(new Error(`Download response stalled: ${currentUrl}`)));
 				const status = res.statusCode ?? 0;
 				if (status >= 300 && status < 400 && res.headers.location) {
 					res.resume();
@@ -222,6 +269,7 @@ function followRedirects<T>(url: string, onOk: (res: import('http').IncomingMess
 				}
 				onOk(res).then(resolve, reject);
 			}).on('error', reject);
+			requestHandle.setTimeout(60_000, () => requestHandle.destroy(new Error(`Download stalled: ${currentUrl}`)));
 		};
 		request(url, 5);
 	});

@@ -33,15 +33,17 @@ pub(crate) fn extract_pptx_text_from_bytes(bytes: &[u8]) -> Result<String, Strin
 
     // Collect slide numbers from `ppt/slides/slideN.xml` entries and sort
     // numerically so slide ordering matches the presentation.
-    let mut slide_numbers: Vec<u32> = archive
-        .file_names()
-        .filter_map(|name| {
-            name.strip_prefix("ppt/slides/slide")?
-                .strip_suffix(".xml")?
-                .parse()
-                .ok()
-        })
-        .collect();
+    let mut slide_numbers: Vec<u32> = Vec::new();
+    for name in archive.file_names() {
+        let name = name.map_err(|e| format!("Failed to read PPTX entry name: {e}"))?;
+        if let Some(number) = name
+            .strip_prefix("ppt/slides/slide")
+            .and_then(|name| name.strip_suffix(".xml"))
+            .and_then(|number| number.parse().ok())
+        {
+            slide_numbers.push(number);
+        }
+    }
     slide_numbers.sort_unstable();
 
     if slide_numbers.is_empty() {
@@ -113,7 +115,7 @@ fn extract_drawingml_text(xml: &str) -> Result<String, String> {
         match reader.read_event() {
             Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"t" => in_text_run = true,
             Ok(Event::Text(e)) if in_text_run => {
-                let content = e.xml_content().map_err(|e| e.to_string())?;
+                let content = e.xml10_content().map_err(|e| e.to_string())?;
                 text.push_str(&content);
             }
             // quick-xml ≥0.37 emits `&amp;` / `&#233;` as separate events

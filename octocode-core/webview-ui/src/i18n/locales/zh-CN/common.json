@@ -343,6 +343,10 @@
 	"dismiss": "关闭",
 	"dismissAndDontShowAgain": "关闭且不再显示",
 	"extensions": {
+		"pagination": "组件分页",
+		"pageNumber": "第 {{number}} 页",
+		"previousPage": "上一页",
+		"nextPage": "下一页",
 		"market": "市场",
 		"systemToolsHint": "系统工具 · 所有工作区均可调用",
 		"environments": "运行环境",
@@ -356,7 +360,7 @@
 		"working": "处理中…",
 		"empty": "暂无内容。",
 		"environmentsHint": "代理可用的工具链。首次需要时会自动下载；也可以在这里提前安装或卸载。",
-		"search": "搜索 VS Code 扩展（Open VSX）…",
+		"search": "搜索组件市场…",
 		"vscodeHint": "VS Code 扩展提供语言支持、调试器和编辑器功能。在这里搜索、安装或卸载。"
 	}
 }
