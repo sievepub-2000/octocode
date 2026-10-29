@@ -1,0 +1,55 @@
+{
+  "verifiedAt": "2026-10-29T20:55:12.066296+00:00",
+  "repository": "sievepub-2000/octocode",
+  "sourceCommit": "a422c808e38514559a76f1ced66a95b388cbf25d",
+  "tag": "v2.0.5",
+  "tagCommit": "a422c808e38514559a76f1ced66a95b388cbf25d",
+  "releaseId": 428344088,
+  "releaseUrl": "https://github.com/sievepub-2000/octocode/releases/tag/v2.0.5",
+  "publishedAt": "2026-10-29T20:54:28Z",
+  "draft": false,
+  "latest": true,
+  "allServerDigestsMatchLocal": true,
+  "temporaryPartAssetsRemaining": 0,
+  "assemblyRun": {
+    "id": 40952926030,
+    "url": "https://github.com/sievepub-2000/octocode/actions/runs/40952926030",
+    "conclusion": "success",
+    "workflowCommit": "1a6faf7737b11399dd33a1296af9a9798ac709a1"
+  },
+  "assets": [
+    {
+      "name": "octocode-0.1.17.vsix",
+      "id": 689869235,
+      "size": 86258063,
+      "digest": "sha256:3524b72adedb16daab552f777b63df67986abc6c0267656864bf54e0466d0740",
+      "state": "uploaded",
+      "browser_download_url": "https://github.com/sievepub-2000/octocode/releases/download/v2.0.5/octocode-0.1.17.vsix"
+    },
+    {
+      "name": "octocode-release.json",
+      "id": 689797518,
+      "size": 561,
+      "digest": "sha256:c8ec0cf04fe2dbf3f0ccbe5c20e2f92ff167da818fb0980dbe5b85d0e0e1f113",
+      "state": "uploaded",
+      "browser_download_url": "https://github.com/sievepub-2000/octocode/releases/download/v2.0.5/octocode-release.json"
+    },
+    {
+      "name": "octocode-release.json.sig",
+      "id": 689874009,
+      "size": 64,
+      "digest": "sha256:eaef54c49f962f476f34294a0a74dcd2940cfdb4dc840f287445a65f21bcfe48",
+      "state": "uploaded",
+      "browser_download_url": "https://github.com/sievepub-2000/octocode/releases/download/v2.0.5/octocode-release.json.sig"
+    },
+    {
+      "name": "OctoCodeSetup.exe",
+      "id": 689875338,
+      "size": 869435704,
+      "digest": "sha256:ebbc5451cbcf2bf435b167c1139e6654c2bd8270f0bc266472e53cd1d79de7f6",
+      "state": "uploaded",
+      "browser_download_url": "https://github.com/sievepub-2000/octocode/releases/download/v2.0.5/OctoCodeSetup.exe"
+    }
+  ],
+  "formalClientUpgradeTested": false
+}

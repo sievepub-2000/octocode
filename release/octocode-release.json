@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "product": "OctoCode",
+  "repository": "sievepub-2000/octocode",
+  "version": "2.0.5",
+  "tag": "v2.0.5",
+  "assets": {
+    "windows-x64-system": {
+      "name": "OctoCodeSetup.exe",
+      "sha256": "ebbc5451cbcf2bf435b167c1139e6654c2bd8270f0bc266472e53cd1d79de7f6",
+      "size": 869435704
+    },
+    "extension": {
+      "name": "octocode-0.1.17.vsix",
+      "sha256": "3524b72adedb16daab552f777b63df67986abc6c0267656864bf54e0466d0740",
+      "size": 86258063,
+      "version": "0.1.17",
+      "minShellVersion": "2.0.5"
+    }
+  }
+}

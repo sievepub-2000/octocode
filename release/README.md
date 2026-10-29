@@ -20,4 +20,4 @@ Get-FileHash -LiteralPath '.\OctoCodeSetup.exe' -Algorithm SHA256
 版本使用 Release 附件 `octocode-release.json` 记录安装包及 VSIX 的哈希、大小与版本，
 `octocode-release.json.sig` 提供固化公钥验证的 Ed25519 签名。安装前保存任务并关闭 OctoCode；已有安装使用原位升级。
 
-发布采用版本标签、GitHub Release、版本说明与附件。自动附加的 Source code ZIP/TAR 是源代码，安装时请下载 EXE。GitHub Release 发布不代表应用内在线更新服务已经上线。
+发布采用版本标签、GitHub Release、版本说明与附件。自动附加的 Source code ZIP/TAR 是源代码，安装时请下载 EXE。客户端更新提示取决于当前版本、GitHub 认证和更新检查结果；本轮未操作正式客户端进行升级验收。
