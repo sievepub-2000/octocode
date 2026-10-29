@@ -1,0 +1,92 @@
+{
+  "status": "PASS",
+  "repository": "sievepub-2000/octocode",
+  "releaseId": 427453548,
+  "tag": "v2.0.4",
+  "sourceCommit": "ebb3a1ff59b0f2b2a936c364620d8f92bcb07e1f",
+  "publishedAt": "2026-10-29T04:25:32Z",
+  "soleBranch": "master",
+  "openDependabotAlerts": 0,
+  "fixedAlerts": [
+    {
+      "dismissed_at": null,
+      "dismissed_reason": null,
+      "fixed_at": "2026-10-29T04:01:19Z",
+      "number": 489,
+      "package": "@hono/node-server",
+      "path": "octocode-core/pnpm-lock.yaml",
+      "state": "fixed"
+    },
+    {
+      "dismissed_at": null,
+      "dismissed_reason": null,
+      "fixed_at": "2026-10-29T04:01:19Z",
+      "number": 488,
+      "package": "@hono/node-server",
+      "path": "desktop-shell/package-lock.json",
+      "state": "fixed"
+    },
+    {
+      "dismissed_at": null,
+      "dismissed_reason": null,
+      "fixed_at": "2026-10-29T04:01:18Z",
+      "number": 487,
+      "package": "tornado",
+      "path": "desktop-shell/build/environment-scripts/runtime-python-requirements.txt",
+      "state": "fixed"
+    },
+    {
+      "dismissed_at": null,
+      "dismissed_reason": null,
+      "fixed_at": "2026-10-29T04:01:18Z",
+      "number": 486,
+      "package": "tornado",
+      "path": "desktop-shell/build/environment-scripts/runtime-python-requirements.txt",
+      "state": "fixed"
+    },
+    {
+      "dismissed_at": null,
+      "dismissed_reason": null,
+      "fixed_at": "2026-10-29T04:01:17Z",
+      "number": 485,
+      "package": "tornado",
+      "path": "desktop-shell/build/environment-scripts/runtime-python-requirements.txt",
+      "state": "fixed"
+    },
+    {
+      "dismissed_at": null,
+      "dismissed_reason": null,
+      "fixed_at": "2026-10-29T04:01:17Z",
+      "number": 484,
+      "package": "@hono/node-server",
+      "path": "desktop-shell/build/environment-scripts/npm/llmwiki/package-lock.json",
+      "state": "fixed"
+    }
+  ],
+  "assets": [
+    {
+      "name": "octocode-0.1.16.vsix",
+      "size": 86258102,
+      "digest": "sha256:d905b90b380818f8c0da682b8e3fcc4a106af58d9e1a954b47f8d0cef0ae0cbf",
+      "browser_download_url": "https://github.com/sievepub-2000/octocode/releases/download/v2.0.4/octocode-0.1.16.vsix"
+    },
+    {
+      "name": "octocode-release.json",
+      "size": 561,
+      "digest": "sha256:208e780740f58c673a95bfd99a5cf944ea408c79ab2d7a3127470b8d471e4ebe",
+      "browser_download_url": "https://github.com/sievepub-2000/octocode/releases/download/v2.0.4/octocode-release.json"
+    },
+    {
+      "name": "octocode-release.json.sig",
+      "size": 64,
+      "digest": "sha256:df31426044f5e1eda8c37e569f631b60abc2759fd869bbf99c9aecb086d2f436",
+      "browser_download_url": "https://github.com/sievepub-2000/octocode/releases/download/v2.0.4/octocode-release.json.sig"
+    },
+    {
+      "name": "OctoCodeSetup.exe",
+      "size": 778195302,
+      "digest": "sha256:bda58e4f74187cedaafa5a0a0561b79891df582e8dddd27e29f7ae693d7fb106",
+      "browser_download_url": "https://github.com/sievepub-2000/octocode/releases/download/v2.0.4/OctoCodeSetup.exe"
+    }
+  ]
+}

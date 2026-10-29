@@ -8,3 +8,8 @@ User approved noncommercial personal use only; commercial work and organization 
 4. Test About disclosure and documents, full-text presence, offline reads and canonical/bundled equality. Update README with verified features and practical limits, not blanket model compatibility or all-original code claims.
 5. Bump desktop to 2.0.4 and extension to 0.1.16 after source checks, build actual production VSIX and installer, inspect packaged fixed dependency versions and bundled documents, sign with the existing identity, update release notes and hashes.
 6. Export the three source trees into a verified master fast-forward, push no other branches, wait for the six real GitHub alerts to close, publish only complete signed assets after server digest verification, and report the exact download URL and test scope.
+
+Completed: steps 1–6 verified on 2026-10-29. GitHub release 427453548 is latest;
+six alerts are fixed with none dismissed and zero open; four server assets match.
+Source tag: ebb3a1ff59b0f2b2a936c364620d8f92bcb07e1f. See reports/v2.0.4-release.md
+for actual test scope and the unexecuted installation/Docker boundaries.

@@ -53,7 +53,7 @@ OctoCode 是面向 Windows 的 AI 编程桌面应用，将编辑器、项目与�
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'E:\Program Files\octocode\test\self-test.ps1'
 ```
 
-正式安装、用户数据、工作区、运行环境和安装验收均位于 `E:\Program Files\octocode`，三个数据目录使用真实目录，不再链接到 D 盘。D 盘仅用于源码与开发构建。升级通过新版安装器原位覆盖并保留用户状态；卸载保留非空用户数据目录。不要跟随旧版联接删除项目或凭据。在线更新验收完成前，请从 GitHub Releases 下载已验证安装包后升级。
+正式安装、用户数据、工作区、运行环境和安装验收均位于 `E:\Program Files\octocode`，三个数据目录使用真实目录，不再链接到 D 盘。D 盘仅用于源码与开发构建。升级通过新版安装器原位覆盖并保留用户状态；卸载保留非空用户数据目录。不要跟随旧版联接删除项目或凭据。已有用户可在程序内“检查更新”；私有仓库需要有效的 GitHub 读取授权，首次安装与独立恢复可从 Release 下载。
 
 ## 代码结构
 
