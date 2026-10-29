@@ -1,7 +1,7 @@
 import { HTMLAttributes } from "react"
 import { useAppTranslation } from "@/i18n/TranslationContext"
 import { Trans } from "react-i18next"
-import { Download, Upload, TriangleAlert, Bug, Lightbulb, Shield, MessagesSquare } from "lucide-react"
+import { Download, Upload, TriangleAlert, Bug, Lightbulb, Shield } from "lucide-react"
 import { VSCodeCheckbox, VSCodeLink } from "@vscode/webview-ui-toolkit/react"
 
 import type { TelemetrySetting } from "@roo-code/types"
@@ -16,6 +16,7 @@ import { Button } from "@/components/ui"
 import { SectionHeader } from "./SectionHeader"
 import { Section } from "./Section"
 import { SearchableSetting } from "./SearchableSetting"
+import { OctoCodeAbout } from "./OctoCodeAbout"
 
 type AboutProps = HTMLAttributes<HTMLDivElement> & {
 	telemetrySetting: TelemetrySetting
@@ -30,6 +31,7 @@ export const About = ({ telemetrySetting, setTelemetrySetting, debug, setDebug, 
 	return (
 		<div className={cn("flex flex-col gap-2", className)} {...props}>
 			<SectionHeader>{t("settings:sections.about")}</SectionHeader>
+			<OctoCodeAbout />
 
 			<Section>
 				<p>
@@ -88,18 +90,6 @@ export const About = ({ telemetrySetting, setTelemetrySetting, debug, setDebug, 
 							<VSCodeLink href={EXTERNAL_LINKS.SECURITY_POLICY}>
 								{t("settings:about.securityIssue.link")}
 							</VSCodeLink>
-						</span>
-					</div>
-					<div className="flex items-start gap-2">
-						<MessagesSquare className="size-4 text-vscode-descriptionForeground shrink-0" />
-						<span>
-							<Trans
-								i18nKey="settings:about.community"
-								components={{
-									redditLink: <VSCodeLink href={EXTERNAL_LINKS.REDDIT} />,
-									discordLink: <VSCodeLink href={EXTERNAL_LINKS.DISCORD} />,
-								}}
-							/>
 						</span>
 					</div>
 					{setDebug && (

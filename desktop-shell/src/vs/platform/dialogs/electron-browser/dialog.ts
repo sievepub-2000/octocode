@@ -33,8 +33,9 @@ export function createNativeAboutDialogDetails(productService: IProductService, 
 		);
 	};
 
-	const details = getDetails(true);
-	const detailsToCopy = getDetails(false);
+	const author = '\n\n此项目由 zillafan80@gmail.com 独立完成。\n合作联系：zillafan80@gmail.com / 479729980@qq.com\n第三方作品保留原许可；个人非商业免费，商业使用须书面授权。\n完整授权和离线使用手册：设置 → 关于。';
+	const details = getDetails(true) + author;
+	const detailsToCopy = getDetails(false) + author;
 
 	return {
 		title: productService.nameLong,

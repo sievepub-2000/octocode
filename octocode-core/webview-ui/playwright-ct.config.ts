@@ -84,6 +84,9 @@ export default defineConfig({
 		},
 		viewport: { width: 520, height: 360 },
 		deviceScaleFactor: 1,
+		launchOptions: process.env.OCTOCODE_CT_CHROMIUM
+			? { executablePath: process.env.OCTOCODE_CT_CHROMIUM }
+			: undefined,
 		colorScheme: "dark",
 	},
 	expect: {

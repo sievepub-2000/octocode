@@ -341,7 +341,9 @@ def legacy_llmwiki_version(base: Path, boundary: Path) -> str:
         safe_path(base / name, boundary)
     package = json.loads((base / "package.json").read_text(encoding="utf-8-sig"))
     lock = json.loads((base / "package-lock.json").read_text(encoding="utf-8-sig"))
-    if set(package.get("dependencies", {})) != {"@llmwiki/core"} or set(package) - {"dependencies", "name", "version", "private", "lockfileVersion"}:
+    if (set(package.get("dependencies", {})) != {"@llmwiki/core"}
+            or set(package) - {"dependencies", "name", "version", "private", "lockfileVersion", "overrides"}
+            or package.get("overrides", {}) not in ({}, {"@hono/node-server": "2.1.3"})):
         raise ValueError(f"Custom llmwiki package preserved: {base}")
     core = base / "node_modules/@llmwiki/core/package.json"
     safe_path(core, boundary)

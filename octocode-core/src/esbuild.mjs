@@ -100,9 +100,12 @@ async function main() {
 				build.onEnd(() => {
 					copyPaths(
 						[
-							["../README.md", "README.md"],
+							["../../README.md", "README.md"],
 							["../CHANGELOG.md", "CHANGELOG.md"],
-							["../LICENSE", "LICENSE"],
+							["../LICENSE", "LICENSE-UPSTREAM"],
+							["../../LICENSE", "LICENSE"],
+							["../../LICENSE-COMMERCIAL.md", "LICENSE-COMMERCIAL.md"],
+							["../../THIRD_PARTY_NOTICES.md", "THIRD_PARTY_NOTICES.md"],
 							["../webview-ui/audio", "webview-ui/audio"],
 							["assets/marketplace", "dist/assets/marketplace"],
 						],

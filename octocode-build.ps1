@@ -23,6 +23,8 @@ $ErrorActionPreference = 'Stop'
 [Diagnostics.Process]::GetCurrentProcess().PriorityClass = 'BelowNormal'
 if (!$env:CARGO_BUILD_JOBS) { $env:CARGO_BUILD_JOBS = [string][Math]::Max(1, [Math]::Min(4, [Environment]::ProcessorCount - 1)) }
 . "$PSScriptRoot\work\octo-env.ps1"
+& (Join-Path $env:OCTO_ENV_ROOT 'python\python.exe') (Join-Path $PSScriptRoot 'maintenance\sync-about-documents.py') --check
+if ($LASTEXITCODE -ne 0) { throw 'Bundled About documents are stale' }
 . "$PSScriptRoot\build-log-policy.ps1"
 . "$PSScriptRoot\build-product-safety.ps1"
 

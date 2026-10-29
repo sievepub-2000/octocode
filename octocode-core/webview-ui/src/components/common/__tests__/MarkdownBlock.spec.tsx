@@ -1,4 +1,5 @@
-import { render, screen } from "@/utils/test-utils"
+import { render, screen, fireEvent } from "@/utils/test-utils"
+import { vscode } from "@src/utils/vscode"
 
 import MarkdownBlock from "../MarkdownBlock"
 
@@ -15,6 +16,22 @@ vi.mock("@src/context/ExtensionStateContext", () => ({
 }))
 
 describe("MarkdownBlock", () => {
+	it("leaves author mail links to the host instead of opening a workspace file", () => {
+		vi.mocked(vscode.postMessage).mockClear()
+		let prevented: boolean | undefined
+		render(
+			<div
+				onClick={(event) => {
+					prevented = event.defaultPrevented
+					event.preventDefault()
+				}}>
+				<MarkdownBlock markdown="[作者](mailto:zillafan80@gmail.com)" />
+			</div>,
+		)
+		fireEvent.click(screen.getByRole("link", { name: "作者" }))
+		expect(prevented).toBe(false)
+		expect(vscode.postMessage).not.toHaveBeenCalled()
+	})
 	it("should correctly handle URLs with trailing punctuation", async () => {
 		const markdown = "Check out this link: https://example.com."
 		const { container } = render(<MarkdownBlock markdown={markdown} />)

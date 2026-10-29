@@ -3,6 +3,11 @@
 !/.gitignore
 !/.gitattributes
 !/README.md
+!/LICENSE
+!/LICENSE-COMMERCIAL.md
+!/THIRD_PARTY_NOTICES.md
+!/SECURITY.md
+!/licenses/
 !/release/
 !/*.ps1
 !/WINDOWS-INSTALL-UPDATE.md
@@ -25,3 +30,4 @@ __pycache__/
 !/docs/releases/0.1.9.md
 !/docs/superpowers/
 !/docs/HARNESS2.md
+!/docs/USER_GUIDE.zh-CN.md

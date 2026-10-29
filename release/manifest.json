@@ -1,15 +1,15 @@
 {
-  "status": "2.0.3 signed release; user manual acceptance confirmed; automated scope documented",
-  "tag": "v2.0.3",
+  "status": "2.0.4 signed release; security, offline About and payload verification passed; scope documented",
+  "tag": "v2.0.4",
   "builtDate": "2026-10-29",
   "platform": "win32-x64",
-  "shellVersion": "2.0.3",
-  "extensionVersion": "0.1.15",
+  "shellVersion": "2.0.4",
+  "extensionVersion": "0.1.16",
   "installer": {
     "file": "OctoCodeSetup.exe",
-    "bytes": 778101442,
-    "sha256": "8de7e0547d745a53ec6bdc4b31a715946614414028b1cdeed566f4ae67517dfb",
-    "url": "https://github.com/sievepub-2000/octocode/releases/download/v2.0.3/OctoCodeSetup.exe"
+    "bytes": 778195302,
+    "sha256": "bda58e4f74187cedaafa5a0a0561b79891df582e8dddd27e29f7ae693d7fb106",
+    "url": "https://github.com/sievepub-2000/octocode/releases/download/v2.0.4/OctoCodeSetup.exe"
   },
-  "acceptanceReport": "reports/v2.0.3-release.md"
+  "acceptanceReport": "reports/v2.0.4-release.md"
 }

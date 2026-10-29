@@ -292,7 +292,9 @@ const MarkdownBlock = memo(({ markdown }: MarkdownBlockProps) => {
 			a: ({ href, children, ...props }: any) => {
 				const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
 					// Only process file:// protocol or local file paths
-					const isLocalPath = href?.startsWith("file://") || href?.startsWith("/") || !href?.includes("://")
+					const hasExternalScheme =
+						/^[a-z][a-z0-9+.-]*:/i.test(href || "") && !/^file:|^[a-z]:[\\/]/i.test(href)
+					const isLocalPath = !!href && !hasExternalScheme && !href.startsWith("#") && !href.startsWith("//")
 
 					if (!isLocalPath) {
 						return

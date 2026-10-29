@@ -1,21 +1,35 @@
 # OctoCode
 
-当前发布版本：桌面 **2.0.3**，核心扩展 **0.1.15**。
-更新内容及验证范围见 [2.0.3 更新说明](release/v2.0.3.md)。
+当前发布版本：桌面 **2.0.4**，核心扩展 **0.1.16**。
+更新内容及验证范围见 [2.0.4 更新说明](release/v2.0.4.md)。
+
+## 作者、授权与完整手册
+
+此项目由 **zillafan80@gmail.com** 独立完成，有合作需要请联系作者 **zillafan80@gmail.com / 479729980@qq.com**。
+
+独立完成指 OctoCode 产品的独立开发、集成与维护；项目集成第三方开源组件，不宣称第三方作品为作者原创。作者有权授权的 OctoCode 自有内容实行双授权：个人非商业学习、自用免费；企业内部使用、受雇工作、收费服务、客户项目及商业集成等须取得作者书面授权。完整范围以 [LICENSE](LICENSE) 和 [商业授权说明](LICENSE-COMMERCIAL.md) 为准。商业限制不是 OSI 开源许可证，也不改变第三方 MIT、Apache 等既有授权。见 [第三方许可与来源](THIRD_PARTY_NOTICES.md)。
+
+[详细中文使用手册](docs/USER_GUIDE.zh-CN.md) 包含安装、模型配置、项目与任务、权限、市场、知识库、主题、更新和故障排查。客户端“设置 → 关于”内嵌完整授权协议、第三方许可全文与使用手册，断网也可展开阅读。
 
 OctoCode 是面向 Windows 的 AI 编程桌面应用，将编辑器、项目与对话管理、模型接入、原生任务执行和 MCP 工具集成到同一工作台。用户可以让模型检索代码、修改文件、运行命令并检查结果；实际能力及访问范围取决于配置的模型、工具和权限。
 
 ## 下载与当前版本
 
-当前版本为 **2.0.3**（核心扩展 **0.1.15**），修复系统级在线更新退出交接与重复启动问题。用户已确认手工测试正常；自动验证与手工验收的范围见[发布记录](reports/v2.0.3-release.md)。
+当前版本为 **2.0.4**（核心扩展 **0.1.16**），修复本轮六项依赖告警，并新增作者、授权与离线手册。验证范围见[发布记录](reports/v2.0.4-release.md)。
 
 - [已发布的 GitHub Releases](https://github.com/sievepub-2000/octocode/releases)
-- [2.0.3 更新说明](release/v2.0.3.md)及[发布与校验说明](release/README.md)
+- [下载 2.0.4 Windows x64](https://github.com/sievepub-2000/octocode/releases/download/v2.0.4/OctoCodeSetup.exe)
+- [2.0.4 更新说明](release/v2.0.4.md)及[发布与校验说明](release/README.md)
 - [免费编码模型实测](reports/openrouter-free-models-oct28.md)：大模型与放宽参数门槛后的轻量候选、实际速度、工具调用及筛选限制。
 
 当前安装包约 742 MiB，包含桌面程序、核心扩展、Host、harness 和配套运行环境；首次使用仍需配置自己的模型服务及凭据。模型费用由所选服务决定。本版本仅提供 Windows x64 安装包。
 
 ## 主要功能
+
+- **Windows 原生 IDE + Agent**：原生桌面编辑器、文件操作、PowerShell 终端、系统安装器及配套工具运行环境，代码编辑和 Agent 执行在同一工作台完成，无需先部署 Linux 容器。
+- **开源、闭源与本地模型**：可接入应用列出的云端提供商、OpenRouter 聚合服务、OpenAI Compatible 网关及本地兼容推理 API；可配置开源权重与闭源商业模型。软件不直接加载任意权重，也不承诺兼容任意私有协议；工具调用、视觉、上下文和费用以实际模型及服务为准。
+- **多配置管理**：分别保存提供商、服务地址、模型和凭据，新建配置不继承其他配置密钥。免费额度由上游决定，不保证持续免费或固定速度。
+- **离线帮助与可验证更新**：作者信息、授权全文和手册随包分发；在线更新校验 Ed25519 签名、文件大小和 SHA-256，系统权限确认由 Windows 处理。
 
 - **项目与对话管理**：新项目拥有自己的目录，新对话拥有独立执行目录。草稿、终端、附件和产物预览关联所属对话；运行时检查任务工作目录。
 - **代码与任务执行**：原生 harness 负责代码检索、文件操作、命令及工具调用，支持会话检查点、上下文压缩和任务接续。
@@ -23,7 +37,7 @@ OctoCode 是面向 Windows 的 AI 编程桌面应用，将编辑器、项目与�
 - **MCP 工具**：支持 MCP 配置与调用，发行环境包含代码审查等工具；部分可选工具需另外配置。
 - **组件市场**：插件、Skills、MCP、运行环境共用市场入口和操作流程，每页最多 20 项，底部显示分页。Skills 接入 Agentic Awesome Skills 的 GitHub 目录，支持检索和按固定提交安装；慢网时明确显示随包快照来源。已安装组件优先，其他类别按来源热度排列。
 - **项目代码索引**：在设置的“记忆和知识库”管理索引并搜索当前项目；原生索引提供离线符号和文本检索，也可配置嵌入服务使用语义检索。
-- **界面与历史**：High Contrast Light 使用纯白底色，Dark 使用黑底、炭灰与铜棕色强调；回答、思考和执行的居中时间标签精确到秒。
+- **界面与历史**：未设置时默认 Light，Light 使用白底，High Contrast Light 使用暖色浅底；Dark 使用黑底、炭灰与铜棕色强调。回答、思考和执行的居中时间标签精确到秒。
 - **命令行自动化**：harness 支持 `--single`、`--model` 和 JSON 输出；多个编辑器窗口通过经过认证的本地管道共享一个 Host。Host 使用 stdin/stdout JSON RPC，不对外开放 HTTP 桌面控制端口。
 
 目录隔离用于避免状态误复用，不构成操作系统级安全沙箱；绝对路径访问及权限绕过模式仍受所授予权限影响。已有会话保留原目录，迁移需显式执行。
@@ -62,7 +76,7 @@ git config --global core.longpaths true
 git clone https://github.com/sievepub-2000/octocode.git
 ```
 
-2026-10-27 核心完整回归为 6,241 项通过、28 项条件跳过；10 月 28 日主题修正后的 Webview 全套为 1,636 项通过，另有 9 个浏览器主题渲染用例通过。High Contrast Dark 保留原紫灰／品牌红配色，普通 Dark 黑底／棕铜配色不变。前一安装版已实际验证双主题、原生 PowerShell 和 GLM5.3 同会话错误恢复；主题修正版仍须完成新的安装和界面验收。详细范围见 [2.0 项目报告](reports/PROJECT-STATUS-2.0.md)。本次只分发 Windows x64 桌面程序；其他平台未执行的安装生命周期不计为通过。
+2.0.4 核心完整回归为 6,250 项通过、28 项条件跳过；新增“关于”和邮件链接回归 26 项通过，并完成真实浏览器离线展开文档检查。类型检查、lint、生产构建和安装包内容检查见 [2.0.4 报告](reports/v2.0.4-release.md)。本次只分发 Windows x64；组件浏览器测试不等于正式客户端安装验收，其他平台未执行的生命周期不计为通过。
 
 ## 本机 API
 
@@ -79,6 +93,6 @@ Invoke-RestMethod 'http://127.0.0.1:8765/v1/runs' -Headers $headers
 
 ## 许可证与来源
 
-2026-10-27 推送前 GitHub 实际返回 261 条未关闭 Dependabot 告警。五套 Rust 锁文件、桌面全部 59 套 npm 锁文件和核心依赖已重新审计；新发现的 zstd 内存安全问题已升级修复，未忽略告警。依赖版本、移除路径或源码补丁见[原修复清单](reports/security-dependencies-2.0.json)、[当前告警映射](reports/security-alert-map-20261027.json)、[本轮验收证据](reports/candidate-2.0-security/)和 [Rust 修复记录](reports/rust-dependency-security-20261025.md)。本地审计不代替主分支推送后的 GitHub 复扫。仓库状态见 [Dependabot](https://github.com/sievepub-2000/octocode/security/dependabot)。
+2.0.4 将三处 `@hono/node-server` 锁定为 **2.1.3**，内置 Tornado 升级为 **6.6**，对应本轮六项新告警。真实漏洞复现、HTTP 回归、Python 运行环境、llm-wiki MCP 与完整核心测试等证据见 [2.0.4 报告](reports/v2.0.4-release.md)。本地审计不代替推送后的 GitHub 复扫；仓库状态见 [Dependabot](https://github.com/sievepub-2000/octocode/security/dependabot)。安全报告渠道见 [SECURITY.md](SECURITY.md)。
 
 OctoCode 集成并改造多个开源组件，不宣称全部代码为原创。各组件保留其许可证和第三方版权说明；分发前请阅读 `desktop-shell/`、`octo-harness/`、`octocode-core/` 内的许可证及 notices。

@@ -5,6 +5,9 @@
 !README.md
 !CHANGELOG.md
 !LICENSE
+!LICENSE-UPSTREAM
+!LICENSE-COMMERCIAL.md
+!THIRD_PARTY_NOTICES.md
 
 # Include package.json
 !package.json

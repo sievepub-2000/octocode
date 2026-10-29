@@ -324,7 +324,7 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 				this.emit('data', file);
 			}));
 
-		const licenseSources = [product.licenseFileName, 'ThirdPartyNotices.txt'];
+		const licenseSources = [product.licenseFileName, 'LICENSE.txt', 'ThirdPartyNotices.txt'];
 		if (fs.existsSync('licenses')) {
 			licenseSources.push('licenses/**');
 		}

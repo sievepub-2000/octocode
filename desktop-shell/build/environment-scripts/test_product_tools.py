@@ -57,6 +57,19 @@ def deliver(stage_root, app):
 
 
 class ProductToolsTests(unittest.TestCase):
+    def test_reviewed_hono_override_is_accepted_but_custom_overrides_are_preserved(self):
+        base = self.old / "environments/tools/mcp/llmwiki"
+        manifest = base / "package.json"
+        package = json.loads(manifest.read_text())
+        package["overrides"] = {"@hono/node-server": "2.1.3"}
+        write(manifest, json.dumps(package))
+        self.assertEqual(product_tools.legacy_llmwiki_version(base, self.old / "environments"), "1.0.0")
+        for override in ({"@hono/node-server": "1.19.15"}, {"other": "1.0.0"}):
+            package["overrides"] = override
+            write(manifest, json.dumps(package))
+            with self.assertRaisesRegex(ValueError, "Custom llmwiki"):
+                product_tools.legacy_llmwiki_version(base, self.old / "environments")
+
     def setUp(self):
         self.temporary = TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

@@ -3,6 +3,7 @@
 本目录保存版本说明、发布清单和 SHA-256 校验值。安装包作为 GitHub Release 附件分发。
 
 - [已发布的 GitHub Releases](https://github.com/sievepub-2000/octocode/releases)
+- [2.0.4 更新说明](v2.0.4.md)：六项依赖告警修复、作者与双授权、内嵌离线手册，见[发布记录](../reports/v2.0.4-release.md)。
 - [2.0.3 更新说明](v2.0.3.md)：系统更新退出交接修复，范围见[发布记录](../reports/v2.0.3-release.md)。
 - [2.0.2 更新说明](v2.0.2.md)：交换浅色配色并默认 Light，实际在线升级状态见[报告](../reports/v2.0.2-acceptance.md)。
 - [2.0.1 更新说明](v2.0.1.md)：桌面内部版本 2.0.1、核心扩展 0.1.14，验收状态见[报告](../reports/v2.0.1-acceptance.md)。
@@ -14,7 +15,7 @@
 Get-FileHash -LiteralPath '.\OctoCodeSetup.exe' -Algorithm SHA256
 ```
 
-本目录 `SHA256SUMS` 对应 2.0.3 的签名资产；文件匹配不代表所有功能已经自动验收。
+本目录 `SHA256SUMS` 对应 2.0.4 的签名资产；文件匹配不代表所有功能已经自动验收。
 版本使用 Release 附件 `octocode-release.json` 记录安装包及 VSIX 的哈希、大小与版本，
 `octocode-release.json.sig` 提供固化公钥验证的 Ed25519 签名。安装前保存任务并关闭 OctoCode；已有安装使用原位升级。
 
