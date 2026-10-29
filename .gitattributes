@@ -4,4 +4,6 @@ maintenance/**/*.mjs text eol=lf
 reports/*.md text eol=lf
 reports/**/*.json text eol=lf
 release/*.md text eol=lf
+release/octocode-release.json -text
+release/octocode-release.json.sig binary
 maintenance/omlx/*.patch text eol=lf -whitespace
