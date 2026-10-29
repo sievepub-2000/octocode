@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { ChildProcess, spawn } from 'child_process';
-import { app, shell } from 'electron';
+import { app } from 'electron';
 import { unlinkSync } from 'fs';
 import { mkdir, readFile, unlink } from 'fs/promises';
 import { release, tmpdir } from 'os';
@@ -61,6 +61,7 @@ function getUpdateType(): UpdateType {
 export class Win32UpdateService extends AbstractUpdateService implements IRelaunchHandler {
 
 	private availableUpdate: IAvailableUpdate | undefined;
+	private installerHandoffStarted = false;
 	private updateCancellationTokenSource: CancellationTokenSource | undefined;
 	/** Cancels an in-flight check/download chain (e.g. when updates are disabled at runtime). */
 	private checkCancellationTokenSource: CancellationTokenSource | undefined;
@@ -716,10 +717,13 @@ export class Win32UpdateService extends AbstractUpdateService implements IRelaun
 			}
 		} else {
 			if (this.productService.target !== 'user') {
+				if (this.installerHandoffStarted) { return; }
+				this.installerHandoffStarted = true;
 				// ShellExecute honors the system installer's UAC manifest.
-				void shell.openPath(this.availableUpdate.packagePath).then(error => {
-					if (error) { this.logService.error(`update#quitAndInstall: ${error}`); }
-				});
+				// Electron is already quitting; let the detached Windows shell own the handoff.
+				const launcher = spawn(path.join(process.env.SystemRoot || 'C:\\Windows', 'explorer.exe'), [this.availableUpdate.packagePath], { detached: true, stdio: 'ignore' });
+				launcher.on('error', error => this.logService.error('update#quitAndInstall: shell handoff failed', error));
+				launcher.unref();
 				return;
 			}
 			spawn(this.availableUpdate.packagePath, ['/silent', '/log', '/mergetasks=runcode,!desktopicon,!quicklaunchicon'], {
