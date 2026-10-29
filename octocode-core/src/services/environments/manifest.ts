@@ -105,9 +105,9 @@ export const environmentManifest: readonly EnvironmentDescriptor[] = [
 	{
 		id: "powershell",
 		label: "PowerShell 7",
-		tier: "agent",
+		tier: "core",
 		approxSizeMb: 245,
-		shipped: false,
+		shipped: true,
 		detect: { win32: "pwsh.exe", posix: "pwsh" },
 		pathEntries: { win32: ["."], posix: ["."] },
 		triggers: ["pwsh"],

@@ -124,7 +124,7 @@ export function getExtensionStream(extension: IExtensionDefinition) {
 	// if the extension exists on disk, use those files instead of downloading anew
 	if (isUpToDate(extension)) {
 		log('[extensions]', `${extension.name}@${extension.version} up to date`, ansiColors.green('✔︎'));
-		return vfs.src(['**'], { cwd: getExtensionPath(extension), dot: true })
+		return vfs.src(['**'], { cwd: getExtensionPath(extension), dot: true, encoding: false })
 			.pipe(rename(p => p.dirname = `${extension.name}/${p.dirname}`));
 	}
 

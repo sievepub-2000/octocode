@@ -1,7 +1,7 @@
 # OctoCode
 
-当前发布版本：桌面 **2.0.4**，核心扩展 **0.1.16**。
-更新内容及验证范围见 [2.0.4 更新说明](release/v2.0.4.md)。
+当前发布版本：桌面 **2.0.5**，核心扩展 **0.1.17**。
+更新内容及验证范围见 [2.0.5 更新说明](release/v2.0.5.md)。
 
 ## 作者、授权与完整手册
 
@@ -15,11 +15,11 @@ OctoCode 是面向 Windows 的 AI 编程桌面应用，将编辑器、项目与�
 
 ## 下载与当前版本
 
-当前版本为 **2.0.4**（核心扩展 **0.1.16**），修复本轮六项依赖告警，并新增作者、授权与离线手册。验证范围见[发布记录](reports/v2.0.4-release.md)。
+当前版本为 **2.0.5**（核心扩展 **0.1.17**），修复默认工作区标记、PS7 默认终端、账户入口、关于版本及日志窗口位置。验证范围见[发布记录](reports/v2.0.5-release.md)。
 
 - [已发布的 GitHub Releases](https://github.com/sievepub-2000/octocode/releases)
-- [下载 2.0.4 Windows x64](https://github.com/sievepub-2000/octocode/releases/download/v2.0.4/OctoCodeSetup.exe)
-- [2.0.4 更新说明](release/v2.0.4.md)及[发布与校验说明](release/README.md)
+- [下载 2.0.5 Windows x64](https://github.com/sievepub-2000/octocode/releases/download/v2.0.5/OctoCodeSetup.exe)
+- [2.0.5 更新说明](release/v2.0.5.md)及[发布与校验说明](release/README.md)
 - [免费编码模型实测](reports/openrouter-free-models-oct28.md)：大模型与放宽参数门槛后的轻量候选、实际速度、工具调用及筛选限制。
 
 当前安装包约 742 MiB，包含桌面程序、核心扩展、Host、harness 和配套运行环境；首次使用仍需配置自己的模型服务及凭据。模型费用由所选服务决定。本版本仅提供 Windows x64 安装包。
@@ -76,7 +76,7 @@ git config --global core.longpaths true
 git clone https://github.com/sievepub-2000/octocode.git
 ```
 
-2.0.4 核心完整回归为 6,250 项通过、28 项条件跳过；新增“关于”和邮件链接回归 26 项通过，并完成真实浏览器离线展开文档检查。类型检查、lint、生产构建和安装包内容检查见 [2.0.4 报告](reports/v2.0.4-release.md)。本次只分发 Windows x64；组件浏览器测试不等于正式客户端安装验收，其他平台未执行的生命周期不计为通过。
+2.0.5 的相关回归、类型检查、lint、生产构建和安装包内容检查见 [2.0.5 报告](reports/v2.0.5-release.md)。本次只分发 Windows x64；正式客户端由用户收到更新提示后升级并测试，发布前未重启或改装正在使用的客户端。其他平台未执行的生命周期不计为通过。
 
 ## 本机 API
 

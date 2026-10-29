@@ -6,6 +6,16 @@ if (-not (Test-Path -LiteralPath (Join-Path $AppRoot "OctoCode.exe"))) { throw "
 @("data", "data\tmp", "data\user-data", "data\extensions", "data\shared-data", "workspace", "test") |
 	ForEach-Object { New-Item -ItemType Directory -Force -Path (Join-Path $AppRoot $_) | Out-Null }
 
+$workspaceMarker = [IO.File]::Open((Join-Path $AppRoot 'workspace\Program'), [IO.FileMode]::OpenOrCreate)
+$workspaceMarker.Dispose()
+$legacyMarker = Join-Path ([IO.Path]::GetPathRoot($AppRoot)) 'Program'
+if (Test-Path -LiteralPath $legacyMarker -PathType Leaf) {
+	$legacy = Get-Item -LiteralPath $legacyMarker -Force
+	if ($legacy.Length -eq 0 -and -not ($legacy.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+		Remove-Item -LiteralPath $legacyMarker -Force
+	}
+}
+
 # Custom builds can change NLS indices while retaining the upstream commit ID.
 # Regenerate the derived language cache; never reuse an older index mapping.
 $languageCache = [IO.Path]::GetFullPath((Join-Path $AppRoot 'data\user-data\clp'))

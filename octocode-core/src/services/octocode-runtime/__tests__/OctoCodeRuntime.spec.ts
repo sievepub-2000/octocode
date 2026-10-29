@@ -765,6 +765,16 @@ describe("agent lifecycle ownership", () => {
 })
 
 describe("hostEnvironment", () => {
+	it("pins the Windows agent to bundled PowerShell 7 even with an inherited legacy override", async () => {
+		if (process.platform !== "win32") return
+		const result = await hostEnvironment(undefined, {
+			OCTOCODE_ENVIRONMENTS: "E:\\Program Files\\octocode\\environments",
+			Path: "C:\\Windows\\System32",
+			GROK_SHELL: "powershell",
+		})
+		expect(result.GROK_SHELL).toBe("pwsh")
+		expect(result.Path?.split(";")[0]).toBe("E:\\Program Files\\octocode\\environments\\powershell")
+	})
 	it("points the harness grep tools at VS Code's bundled ripgrep", async () => {
 		const appRoot = mkdtempSync(join(tmpdir(), "octocode-approot-"))
 		try {

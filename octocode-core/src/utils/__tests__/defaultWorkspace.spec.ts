@@ -10,11 +10,25 @@ describe("configured workspace", () => {
 	beforeEach(async () => {
 		root = await fs.mkdtemp(path.join(os.tmpdir(), "octocode-workspace-"))
 		configured = ""
+		vi.spyOn(fs, "lstat").mockRejectedValue(Object.assign(new Error("missing"), { code: "ENOENT" }))
+		vi.spyOn(fs, "unlink").mockResolvedValue(undefined)
 		Object.defineProperty(vscode.workspace, "workspaceFolders", { configurable: true, value: undefined })
 		vi.spyOn(vscode.commands, "executeCommand").mockResolvedValue(undefined)
 		vi.spyOn(vscode.workspace, "getConfiguration").mockReturnValue({
 			get: () => configured,
 		} as unknown as vscode.WorkspaceConfiguration)
+	})
+	it.skipIf(process.platform !== "win32")("migrates only an empty regular drive-root marker", async () => {
+		const fixture = path.join(root, "legacy")
+		await fs.writeFile(fixture, "")
+		vi.mocked(fs.lstat).mockResolvedValue(await fs.stat(fixture))
+		await ensureDefaultWorkspace(context(), output(), path.join(root, "resources", "app"))
+		expect(fs.unlink).toHaveBeenCalledWith(path.join(path.parse(root).root, "Program"))
+		vi.mocked(fs.unlink).mockClear()
+		await fs.writeFile(fixture, "user data")
+		vi.mocked(fs.lstat).mockResolvedValue(await fs.stat(fixture))
+		await ensureDefaultWorkspace(context(), output(), path.join(root, "resources", "app"))
+		expect(fs.unlink).not.toHaveBeenCalled()
 	})
 	afterEach(async () => {
 		vi.restoreAllMocks()
@@ -29,6 +43,10 @@ describe("configured workspace", () => {
 		})
 		const result = await ensureDefaultWorkspace(context(), output(), path.join(root, "resources", "app"))
 		expect(result).toBe(path.join(root, "workspace"))
+		expect(await fs.readFile(path.join(result!, "Program"), "utf8")).toBe("")
+		await fs.writeFile(path.join(result!, "Program"), "preserve")
+		await ensureDefaultWorkspace(context(), output(), path.join(root, "resources", "app"))
+		expect(await fs.readFile(path.join(result!, "Program"), "utf8")).toBe("preserve")
 		expect((await fs.stat(path.join(result!, ".git"))).isDirectory()).toBe(true)
 		expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
 			"vscode.openFolder",

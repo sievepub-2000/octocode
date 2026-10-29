@@ -352,6 +352,8 @@ export type ExtensionState = Pick<
 > & {
 	lockApiConfigAcrossModes?: boolean
 	version: string
+	desktopVersion?: string
+	desktopCommit?: string
 	apiConfiguration: ProviderSettings
 	/** Profile name the active conversation itself runs on, when it has one. */
 	sessionApiConfigName?: string

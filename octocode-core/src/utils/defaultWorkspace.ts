@@ -71,8 +71,19 @@ export async function ensureDefaultWorkspace(
 	const workspacePath = configuredWorkspacePath(appRoot)
 	await fs.mkdir(workspacePath, { recursive: true })
 	await fs.access(workspacePath, constants.W_OK)
-	if (!(vscode.workspace.getConfiguration("octocode").get<string>("workspace.path", "") ?? "").trim())
+	if (!(vscode.workspace.getConfiguration("octocode").get<string>("workspace.path", "") ?? "").trim()) {
+		await fs.writeFile(path.join(workspacePath, "Program"), "", { flag: "a" })
+		if (process.platform === "win32") {
+			const legacyMarker = path.join(path.parse(workspacePath).root, "Program")
+			const legacy = await fs.lstat(legacyMarker).catch((error: NodeJS.ErrnoException) => {
+				if (error.code !== "ENOENT") throw error
+				return undefined
+			})
+			// Only migrate the empty legacy marker; named user files and links are preserved.
+			if (legacy?.isFile() && legacy.size === 0) await fs.unlink(legacyMarker)
+		}
 		await ensureGitRepository(workspacePath, outputChannel)
+	}
 	const openFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
 	const same =
 		openFolder &&

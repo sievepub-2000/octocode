@@ -2,6 +2,7 @@ import * as vscode from "vscode"
 import * as path from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import * as workspacePaths from "../../utils/path"
+import * as shellPaths from "../../utils/shell"
 import {
 	RuntimeEventTerminal,
 	SessionRuntimeEventTerminals,
@@ -23,6 +24,8 @@ describe("runtime event terminal", () => {
 	it("opens a native shell without a session and never supplies a pseudoterminal", () => {
 		const workspace = path.resolve("owned-workspace")
 		vi.spyOn(workspacePaths, "getWorkspacePath").mockReturnValue(workspace)
+		const shell = path.resolve("environments", "powershell", "pwsh.exe")
+		vi.spyOn(shellPaths, "getShell").mockReturnValue(shell)
 		const create = vi
 			.spyOn(vscode.window, "createTerminal")
 			.mockReturnValue({ name: "PowerShell", dispose: vi.fn() } as unknown as vscode.Terminal)
@@ -30,6 +33,8 @@ describe("runtime event terminal", () => {
 		expect(create).toHaveBeenCalledWith(
 			expect.objectContaining({
 				cwd: workspace,
+				shellPath: shell,
+				shellArgs: ["-NoLogo"],
 				location: { viewColumn: vscode.ViewColumn.Three, preserveFocus: true },
 			}),
 		)
@@ -57,7 +62,10 @@ describe("runtime event terminal", () => {
 		runtime.setSessionWorkingDirectory("b", second)
 		runtime.setActiveSession("a")
 		await vi.waitFor(() => expect(created).toHaveLength(1))
-		runtime.accept({ ...event("agent.error", { message: "only a" }), session_id: "a" })
+		runtime.accept({
+			...event("tool_call", { kind: "execute", toolCallId: "a", rawInput: { command: "only a" } }),
+			session_id: "a",
+		})
 		runtime.setActiveSession("b")
 		await vi.waitFor(() => expect(created).toHaveLength(2))
 		expect(create.mock.calls.map(([options]) => (options as vscode.TerminalOptions).cwd)).toEqual([first, second])
@@ -131,12 +139,14 @@ describe("runtime event terminal", () => {
 		vi.spyOn(vscode.window, "createTerminal").mockReturnValue(terminal)
 		const commands = vi.spyOn(vscode.commands, "executeCommand").mockResolvedValue(undefined)
 		const runtime = new RuntimeEventTerminal()
-		runtime.accept(event("agent.error", { message: "early error" }))
+		runtime.accept(
+			event("tool_call", { kind: "execute", toolCallId: "early", rawInput: { command: "echo early" } }),
+		)
 		runtime.open(vscode.ViewColumn.Three)
 		expect(commands).toHaveBeenCalledWith(
 			"workbench.action.octocode.writeRuntimeTerminal",
 			"native",
-			expect.stringContaining("early error"),
+			expect.stringContaining("echo early"),
 		)
 		expect(terminal.sendText).not.toHaveBeenCalled()
 	})
@@ -161,21 +171,19 @@ describe("runtime event terminal", () => {
 		expect(onClose).toHaveBeenCalledOnce()
 	})
 
-	it("renders runtime errors in the fixed execution terminal", () => {
+	it("keeps runtime errors out of the command terminal", () => {
 		expect(
 			terminalEventText(event("agent.error", { message: "Provider unavailable\nRetry later" }), new Map()),
-		).toBe("\x1b[31m[OctoCode error] Provider unavailable\r\nRetry later\x1b[0m\r\n")
-		expect(terminalEventText(event("agent.error", { error: "Authentication failed" }), new Map())).toContain(
-			"Authentication failed",
-		)
+		).toBeUndefined()
+		expect(terminalEventText(event("agent.error", { error: "Authentication failed" }), new Map())).toBeUndefined()
 	})
 
-	it("shows supervisor interventions and hides attempt bookkeeping", () => {
+	it("keeps supervisor status out of the command terminal", () => {
 		const executions = new Map()
-		expect(terminalEventText(event("agent.supervisor", { action: "fallback", detail: "a -> b" }), executions)).toBe(
-			"\x1b[33m[OctoCode 模型回退]: a -> b\x1b[0m\r\n",
-		)
-		expect(terminalEventText(event("agent.supervisor", { action: "review_ok" }), executions)).toContain("复核通过")
+		expect(
+			terminalEventText(event("agent.supervisor", { action: "fallback", detail: "a -> b" }), executions),
+		).toBeUndefined()
+		expect(terminalEventText(event("agent.supervisor", { action: "review_ok" }), executions)).toBeUndefined()
 		expect(
 			terminalEventText(event("agent.supervisor", { action: "attempt_started", pid: 1 }), executions),
 		).toBeUndefined()

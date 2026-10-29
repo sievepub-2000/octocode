@@ -71,12 +71,12 @@ describe("environment manifest", () => {
 	it("keeps the shipped core minimal", () => {
 		// The whole point of on-demand provisioning is that the installer stays small.
 		// If something creeps back into "core" this test should make it obvious.
-		expect(getCoreEnvironmentIds().sort()).toEqual(["node", "scripts"])
+		expect(getCoreEnvironmentIds().sort()).toEqual(["node", "powershell", "scripts"])
 	})
 
 	it("provisions the heavy toolchains on demand", () => {
 		const onDemand = getOnDemandEnvironmentIds()
-		for (const id of ["rust", "jdk", "go", "dotnet", "android", "wsl", "python", "powershell"]) {
+		for (const id of ["rust", "jdk", "go", "dotnet", "android", "wsl", "python"]) {
 			expect(onDemand).toContain(id)
 		}
 	})

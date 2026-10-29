@@ -151,7 +151,7 @@ foreach ($task in $tasks) {
 		# package asserts the two agree, because a mismatch fails silently.
 		$onDemandEnvironments = @(
 			'android', 'dotnet', 'ffmpeg', 'go', 'jdk', 'pandoc',
-			'powershell', 'rust', 'uv', 'wsl'
+			'rust', 'uv', 'wsl'
 		)
 		$excludedDirs = $onDemandEnvironments | ForEach-Object { Join-Path $environmentSource $_ }
 

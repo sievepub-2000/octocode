@@ -1686,8 +1686,16 @@ export class ClineProvider
 			// Keep the default unauthenticated state if the optional OctoCode auth service is unavailable.
 		}
 
+		let desktop: { version?: string; commit?: string } | undefined
+		try {
+			desktop = JSON.parse(await fs.readFile(path.join(vscode.env.appRoot, "product.json"), "utf8"))
+		} catch {
+			// An extension running outside the packaged desktop has no product metadata.
+		}
 		return {
 			version: this.context.extension?.packageJSON?.version ?? "",
+			desktopVersion: desktop?.version,
+			desktopCommit: desktop?.commit,
 			apiConfiguration,
 			customInstructions,
 			alwaysAllowReadOnly: alwaysAllowReadOnly ?? false,

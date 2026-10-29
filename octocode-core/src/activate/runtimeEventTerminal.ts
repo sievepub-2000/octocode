@@ -44,39 +44,12 @@ const terminalOutput = (value: unknown): TerminalOutput => {
 	return { delta: false, found: false, text: "" }
 }
 
-const SUPERVISOR_LABELS: Record<string, string> = {
-	fallback: "模型回退",
-	endpoint_retry: "端点重试",
-	rule: "规则纠正",
-	stall: "重复调用纠正",
-	review: "复核意见",
-	review_ok: "复核通过",
-	review_skipped: "复核跳过",
-}
-
-function supervisorText(payload: Record<string, unknown>): string | undefined {
-	const label = typeof payload.action === "string" ? SUPERVISOR_LABELS[payload.action] : undefined
-	if (!label) return undefined
-	const detail = typeof payload.detail === "string" && payload.detail ? `: ${payload.detail}` : ""
-	return `\x1b[33m[OctoCode ${label}]${detail}\x1b[0m\r\n`
-}
-
 export function terminalEventText(
 	event: RuntimeAgentEvent,
 	executions: Map<string, TerminalExecution>,
 ): string | undefined {
 	const payload = record(event.payload)
 	if (!payload) return undefined
-	if (event.kind === "agent.error") {
-		const message =
-			typeof payload.message === "string"
-				? payload.message
-				: typeof payload.error === "string"
-					? payload.error
-					: "Runtime execution failed"
-		return `\x1b[31m[OctoCode error] ${message.replace(/\r?\n/g, "\r\n")}\x1b[0m\r\n`
-	}
-	if (event.kind === "agent.supervisor") return supervisorText(payload)
 	const id = typeof payload.toolCallId === "string" ? payload.toolCallId : ""
 	if (event.kind === "tool_call") {
 		if (payload.kind !== "execute" || !id) return undefined
@@ -192,11 +165,6 @@ export class RuntimeEventTerminal {
 		const terminal = this.open(vscode.ViewColumn.Three)
 		await this.restorePosition()
 		terminal.show(true)
-	}
-
-	async reportArtifactFailure(name: string, showTerminal = true): Promise<void> {
-		if (showTerminal) await this.show()
-		this.write(`\r\n[Artifact] 无法预览文件：${name}。请检查工具返回的实际文件路径。\r\n`)
 	}
 
 	private write(message: string): void {
@@ -339,13 +307,6 @@ export class SessionRuntimeEventTerminals {
 	accept(event: RuntimeAgentEvent): void {
 		if (this.releasedSessions.has(event.session_id)) return
 		this.forSession(event.session_id).accept(event)
-	}
-
-	async reportArtifactFailure(name: string, sessionId = this.activeSessionId): Promise<void> {
-		if (sessionId && this.releasedSessions.has(sessionId)) return
-		const owner = sessionId ? this.forSession(sessionId) : this.active
-		if (sessionId === this.activeSessionId) await this.show()
-		await owner.reportArtifactFailure(name, false)
 	}
 }
 

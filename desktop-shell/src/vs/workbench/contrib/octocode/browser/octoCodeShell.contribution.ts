@@ -144,7 +144,7 @@ export class OctoCodeShellContribution extends Disposable implements IWorkbenchC
 
 	static readonly ID = 'workbench.contrib.octoCodeShell';
 
-	/** OctoCode hosts its terminals and logs in the lower-right editor group. */
+	/** Only terminals occupy the lower-right editor group. */
 	private static readonly CHROME_PARTS: readonly Parts[] = [
 		Parts.ACTIVITYBAR_PART,
 		Parts.SIDEBAR_PART,
@@ -178,6 +178,8 @@ export class OctoCodeShellContribution extends Disposable implements IWorkbenchC
 						// A migrated text-editor reference cannot reconnect a terminal process.
 						// Close only that dead virtual resource; file editors and backups stay intact.
 						void group.closeEditor(editor);
+					} else if (group === target) {
+						group.moveEditor(editor, groups[1], { preserveFocus: true });
 					}
 				}
 			}

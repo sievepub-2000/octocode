@@ -215,6 +215,24 @@ export async function activate(context: vscode.ExtensionContext) {
 	initializeI18n(resolvedLanguage.language)
 
 	// Initialize terminal shell execution handlers.
+	if (process.platform === "win32" && process.env.OCTOCODE_ENVIRONMENTS && !process.env.ROO_CLI_RUNTIME) {
+		await getSharedEnvironmentProvisioner()?.ensure("powershell")
+		const terminal = vscode.workspace.getConfiguration("terminal.integrated")
+		await terminal.update(
+			"profiles.windows",
+			{
+				...terminal.get<Record<string, unknown>>("profiles.windows"),
+				"PowerShell 7": {
+					path: path.join(process.env.OCTOCODE_ENVIRONMENTS, "powershell", "pwsh.exe"),
+					args: ["-NoLogo"],
+				},
+				"Windows PowerShell": null,
+				PowerShell: null,
+			},
+			vscode.ConfigurationTarget.Global,
+		)
+		await terminal.update("defaultProfile.windows", "PowerShell 7", vscode.ConfigurationTarget.Global)
+	}
 	TerminalRegistry.initialize()
 
 	// Initialize OpenAI Codex OAuth manager for ChatGPT subscription-based access.
@@ -306,14 +324,21 @@ export async function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(
 		octoRuntime.onEvent((event) => {
 			runtimeEventTerminal.accept(event)
+			if (event.kind === "agent.error" || event.kind === "agent.supervisor") {
+				outputChannel.appendLine(`[${event.kind}] ${JSON.stringify(event.payload)}`)
+				if (event.kind === "agent.error") outputChannel.show(true)
+			}
 			const artifactPath = runtimeEventArtifactPath(event)
 			const artifact = artifactPath ? ClineProvider.getArtifactInstance() : undefined
 			if (artifactPath && artifact) {
 				void previewRuntimeArtifact(
 					artifactPath,
 					(filePath) => artifact.showArtifact(filePath),
-					(name) => runtimeEventTerminal.reportArtifactFailure(name, event.session_id),
-				).catch(() => outputChannel.appendLine("[Artifact] Execution terminal unavailable"))
+					async (name) => {
+						outputChannel.appendLine(`[Artifact] 无法预览文件：${name}。请检查工具返回的实际文件路径。`)
+						outputChannel.show(true)
+					},
+				).catch((error) => outputChannel.appendLine(`[Artifact] ${String(error)}`))
 			}
 			for (const instance of ClineProvider.getAllInstances()) {
 				void instance.postMessageToWebview({ type: "agentEvent", payload: event })

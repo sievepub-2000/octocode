@@ -6,6 +6,9 @@ import { EXTERNAL_LINKS } from "@/constants/externalLinks"
 
 import { About } from "../About"
 
+const installed = vi.hoisted(() => ({ desktopVersion: "2.0.4", desktopCommit: "d95203a88a", version: "0.1.16" }))
+vi.mock("@/context/ExtensionStateContext", () => ({ useExtensionState: () => installed }))
+
 vi.mock("@/utils/vscode", () => ({
 	vscode: { postMessage: vi.fn() },
 }))
@@ -85,7 +88,7 @@ describe("About", () => {
 				<About {...defaultProps} />
 			</TranslationProvider>,
 		)
-		expect(screen.getByText(/Version: 1\.0\.0/)).toBeInTheDocument()
+		expect(screen.getByText("Version: 2.0.4 (d95203a8)")).toBeInTheDocument()
 	})
 
 	it("renders the bug report section with label and link text", () => {

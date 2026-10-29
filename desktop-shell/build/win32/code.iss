@@ -1834,10 +1834,8 @@ begin
   Parameters := '-NoLogo -NoProfile -ExecutionPolicy Bypass -File ' +
     AddQuotes(ExpandConstant('{app}\environments\scripts\' + ScriptName)) +
     ' -AppRoot ' + AddQuotes(ExpandConstant('{app}'));
-  // Runs under Windows PowerShell (always present on Windows), NOT the bundled
-  // pwsh: PowerShell 7 is provisioned on demand and is therefore absent at
-  // install time. Bootstrap must never depend on an on-demand environment --
-  // doing so silently skipped initialize.ps1 after a clean install.
+  // Installation and repair bootstrap use the inbox Windows component before
+  // bundled tools are validated. Interactive and agent terminals use shipped PS7.
   if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Parameters, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
     RaiseException('Unable to start ' + ScriptName);
   if ResultCode <> 0 then

@@ -12,13 +12,6 @@ export function getRequestyAuthUrl(uriScheme?: string) {
 	return `https://app.requesty.ai/oauth/authorize?callback_url=${getCallbackUrl("requesty", uriScheme)}`
 }
 
-const OCTOCODE_DEFAULT_BASE_URL = "https://www.octocode.dev"
-
-export function getOctoCodeAuthUrl(uriScheme?: string, baseUrl?: string, deviceName?: string) {
-	const resolvedBaseUrl = baseUrl || OCTOCODE_DEFAULT_BASE_URL
-	const callbackUri = getCallbackUrl("auth-callback", uriScheme)
-	const resolvedDeviceName = encodeURIComponent(deviceName || "VS Code")
-	const editor = encodeURIComponent("VS Code")
-	const version = Package.version
-	return `${resolvedBaseUrl}/dashboard/connect?device=${resolvedDeviceName}&editor=${editor}&version=${version}&callback_uri=${callbackUri}`
+export function getOctoCodeAuthUrl(_uriScheme?: string, _baseUrl?: string, _deviceName?: string) {
+	return "https://octosys.cloud"
 }

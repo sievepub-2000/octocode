@@ -9,6 +9,7 @@ import type { TelemetrySetting } from "@roo-code/types"
 import { Package } from "@roo/package"
 
 import { vscode } from "@/utils/vscode"
+import { useExtensionState } from "@/context/ExtensionStateContext"
 import { EXTERNAL_LINKS } from "@/constants/externalLinks"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui"
@@ -27,6 +28,9 @@ type AboutProps = HTMLAttributes<HTMLDivElement> & {
 
 export const About = ({ telemetrySetting, setTelemetrySetting, debug, setDebug, className, ...props }: AboutProps) => {
 	const { t } = useAppTranslation()
+	const { desktopVersion, desktopCommit, version } = useExtensionState()
+	const displayedVersion = desktopVersion || version || Package.version
+	const displayedCommit = desktopVersion ? desktopCommit : Package.sha
 
 	return (
 		<div className={cn("flex flex-col gap-2", className)} {...props}>
@@ -35,9 +39,12 @@ export const About = ({ telemetrySetting, setTelemetrySetting, debug, setDebug, 
 
 			<Section>
 				<p>
-					{Package.sha
-						? t("settings:about.versionWithSha", { version: Package.version, sha: Package.sha.slice(0, 8) })
-						: t("settings:about.version", { version: Package.version })}
+					{displayedCommit
+						? t("settings:about.versionWithSha", {
+								version: displayedVersion,
+								sha: displayedCommit.slice(0, 8),
+							})
+						: t("settings:about.version", { version: displayedVersion })}
 				</p>
 				<SearchableSetting
 					settingId="about-telemetry"

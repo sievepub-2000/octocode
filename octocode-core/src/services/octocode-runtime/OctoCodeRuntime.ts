@@ -1159,6 +1159,16 @@ export async function hostEnvironment(
 	appRoot: string | undefined,
 	env: NodeJS.ProcessEnv = process.env,
 ): Promise<NodeJS.ProcessEnv> {
+	if (process.platform === "win32" && env.OCTOCODE_ENVIRONMENTS) {
+		const pathKey = Object.keys(env).find((key) => key.toLowerCase() === "path") ?? "Path"
+		env = {
+			...env,
+			GROK_SHELL: "pwsh",
+			[pathKey]: [path.join(env.OCTOCODE_ENVIRONMENTS, "powershell"), env[pathKey]]
+				.filter(Boolean)
+				.join(path.delimiter),
+		}
+	}
 	if (env.RG_BIN_PATH || !appRoot) return env
 	const rg = await getRipgrepPath(appRoot)
 	return rg ? { ...env, RG_BIN_PATH: rg } : env
