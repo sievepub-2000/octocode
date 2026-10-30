@@ -76,6 +76,7 @@ export interface ShutdownEvent {
 }
 
 export interface IRelaunchHandler {
+	hasPendingUpdate?(options?: IRelaunchOptions): boolean;
 
 	/**
 	 * Allows a handler to deal with relaunching the application. The return
@@ -166,7 +167,7 @@ export interface ILifecycleMainService {
 	/**
 	 * Shutdown the application normally. All lifecycle event handlers are triggered.
 	 */
-	quit(willRestart?: boolean): Promise<boolean /* veto */>;
+	quit(willRestart?: boolean, forUpdate?: boolean): Promise<boolean /* veto */>;
 
 	/**
 	 * Forcefully shutdown the application and optionally set an exit code.
@@ -359,7 +360,7 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 		}
 	}
 
-	private async readDaemonHealth(response: Response, root: string): Promise<{ ok: boolean; pid: number; problems: string[] }> {
+	private async readDaemonHealth(response: Response, root: string): Promise<{ ok: boolean; pid: number; problems: string[]; running?: number; monitored_sessions?: number }> {
 		if (!response.ok) throw new Error(`Health check failed: HTTP ${response.status}`);
 		const health = await response.json() as { ok: boolean; pid: number; store: string; problems: string[] };
 		const store = join(root, 'data', 'user-data', 'User', 'globalStorage', 'octocode.octocode', 'harness-runtime');
@@ -908,9 +909,25 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 		});
 	}
 
-	quit(willRestart?: boolean): Promise<boolean /* veto */> {
+	async quit(willRestart?: boolean, forUpdate = false): Promise<boolean /* veto */> {
+		if (forUpdate && isWindows && this.productService.nameShort === 'OctoCode') {
+			try {
+				const root = join(electron.app.getAppPath(), '..', '..');
+				const response = await fetch('http://127.0.0.1:8765/health', { signal: AbortSignal.timeout(4000) });
+				const health = await this.readDaemonHealth(response, root);
+				if (health.running !== 0 || health.monitored_sessions !== 0) {
+					this.logService.error('OctoCode update postponed: daemon work is active or unknown');
+					return true;
+				}
+			} catch (error) {
+				if ((error as { cause?: { code?: string } }).cause?.code !== 'ECONNREFUSED') {
+					this.logService.error(`OctoCode update postponed: ${error}`);
+					return true;
+				}
+			}
+		}
 		const preserveDaemon = this.daemonPreserveForRestart;
-		if (willRestart) this.daemonPreserveForRestart = true;
+		if (willRestart) this.daemonPreserveForRestart = !forUpdate;
 		return this.doQuit(willRestart).then(veto => {
 			if (!veto && willRestart) {
 				// Windows: we are about to restart and as such we need to restore the original
@@ -975,6 +992,8 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 
 	async relaunch(options?: IRelaunchOptions): Promise<void> {
 		this.trace('Lifecycle#relaunch()');
+		const preserveDaemon = this.daemonPreserveForRestart;
+		const forUpdate = !preserveDaemon && !!this.relaunchHandler?.hasPendingUpdate?.(options);
 
 		const args = process.argv.slice(1);
 		if (options?.addArgs) {
@@ -991,7 +1010,7 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 		}
 
 		const quitListener = () => {
-			if (!this.relaunchHandler?.handleRelaunch(options)) {
+			if (preserveDaemon || !this.relaunchHandler?.handleRelaunch(options)) {
 				this.trace('Lifecycle#relaunch() - calling app.relaunch()');
 				electron.app.relaunch({ args });
 			}
@@ -1000,7 +1019,7 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 
 		// `app.relaunch()` does not quit automatically, so we quit first,
 		// check for vetoes and then relaunch from the `app.on('quit')` event
-		const veto = await this.quit(true /* will restart */);
+		const veto = await this.quit(true /* will restart */, forUpdate);
 		if (veto) {
 			electron.app.removeListener('quit', quitListener);
 		}

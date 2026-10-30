@@ -294,3 +294,24 @@ test('normal stop sends stop rather than preserving the child', async () => {
 	assert.equal(ended, 'stop\n');
 	assert.equal(unreferenced, 0);
 });
+
+test('update restart stops its idle daemon instead of leaving the watchdog alive', async () => {
+	const f = fixture({ fetch: async () => response(health({ running: 0, monitored_sessions: 0 })) });
+	let ended;
+	const child = Object.assign(new EventEmitter(), { exitCode: null, signalCode: null });
+	child.stdin = { end: value => { ended = value; child.exitCode = 0; child.emit('exit', 0); } };
+	f.service.daemon = child;
+	f.service.trace = () => {};
+	f.service.doQuit = async () => { await f.service.stopDaemon(); return true; };
+	await f.service.quit(true, true);
+	assert.equal(ended, 'stop\n');
+	assert.equal(f.service.daemonPreserveForRestart, false);
+});
+
+for (const extra of [{ running: 1, monitored_sessions: 0 }, { running: 0, monitored_sessions: 1 }, {}]) {
+	test(`update refuses to interrupt active or unknown daemon work: ${JSON.stringify(extra)}`, async () => {
+		const f = fixture({ fetch: async () => response(health(extra)) });
+		f.service.doQuit = async () => { assert.fail('must not quit'); };
+		assert.equal(await f.service.quit(true, true), true);
+	});
+}

@@ -42,7 +42,7 @@ begin
   Command := '$p=Get-Process -Id ' + IntToStr(GetCurrentProcessId()) + ' -ErrorAction SilentlyContinue; ' +
     'if($p -and !$p.WaitForExit(30000)){exit 1}; ' +
     '$s=Start-Process -FilePath ''' + Installer + ''' -WorkingDirectory ''' + Directory + ''' -WindowStyle Hidden ' +
-    '-ArgumentList @(''/SP-'',''/VERYSILENT'',''/SUPPRESSMSGBOXES'',''/LOG'',''/NORESTART'',''/NOCLOSEAPPLICATIONS'',' +
+    '-ArgumentList @(''/SP-'',''/VERYSILENT'',''/SUPPRESSMSGBOXES'',''/LOG'',''/NORESTART'',' +
     '''/mergetasks=runcode,!desktopicon,!quicklaunchicon'',(''/DIR='' + [char]34 + ''' + Directory + ''' + [char]34)) -Wait -PassThru; exit $s.ExitCode';
   Parameters := '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -Command ' + AddQuotes(Command);
   if not ExecAsOriginalUser(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Parameters, ExistingOctoCodeDirectory(), SW_HIDE, ewNoWait, ExitCode) then

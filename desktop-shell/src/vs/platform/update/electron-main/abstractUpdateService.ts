@@ -473,7 +473,7 @@ export abstract class AbstractUpdateService extends Disposable implements IUpdat
 		this.setState(State.Restarting(this.state.update));
 		this.logService.trace('update#quitAndInstall(): before lifecycle quit()');
 
-		this.lifecycleMainService.quit(true /* will restart */).then(vetod => {
+		this.lifecycleMainService.quit(true /* will restart */, true /* update */).then(vetod => {
 			this.logService.trace(`update#quitAndInstall(): after lifecycle quit() with veto: ${vetod}`);
 			if (vetod) {
 				this.logService.info('update#quitAndInstall(): quit was vetoed, restoring Ready state');

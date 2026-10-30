@@ -15,6 +15,12 @@ export const ViewColumn = { Active: -1, Beside: -2, One: 1, Two: 2, Three: 3 }
 // OctoCode draws its own window, so the editor area is left to the shell.
 export const TerminalLocation = { Editor: 0, Panel: 1 }
 
+export class TabInputText {
+	constructor(uri) {
+		this.uri = uri
+	}
+}
+
 const mockUri = {
 	file: (path) => ({ fsPath: path, path, scheme: "file" }),
 	parse: (path) => ({ fsPath: path, path, scheme: "file" }),
@@ -63,6 +69,7 @@ export const workspace = {
 }
 
 export const window = {
+	tabGroups: { all: [], close: () => Promise.resolve(true) },
 	activeTextEditor: null,
 	onDidChangeActiveTextEditor: () => mockDisposable,
 	showErrorMessage: () => Promise.resolve(),

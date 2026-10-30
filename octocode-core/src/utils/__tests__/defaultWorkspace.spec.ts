@@ -10,6 +10,8 @@ describe("configured workspace", () => {
 	beforeEach(async () => {
 		root = await fs.mkdtemp(path.join(os.tmpdir(), "octocode-workspace-"))
 		configured = ""
+		Object.defineProperty(vscode.window.tabGroups, "all", { configurable: true, value: [] })
+		vi.spyOn(vscode.window.tabGroups, "close").mockResolvedValue(true)
 		vi.spyOn(fs, "lstat").mockRejectedValue(Object.assign(new Error("missing"), { code: "ENOENT" }))
 		vi.spyOn(fs, "unlink").mockResolvedValue(undefined)
 		Object.defineProperty(vscode.workspace, "workspaceFolders", { configurable: true, value: undefined })
@@ -30,6 +32,47 @@ describe("configured workspace", () => {
 		await ensureDefaultWorkspace(context(), output(), path.join(root, "resources", "app"))
 		expect(fs.unlink).not.toHaveBeenCalled()
 	})
+	it.skipIf(process.platform !== "win32")(
+		"replaces a clean missing drive-root editor with the workspace marker",
+		async () => {
+			configured = path.join(root, "workspace")
+			Object.defineProperty(vscode.workspace, "workspaceFolders", {
+				configurable: true,
+				value: [{ uri: vscode.Uri.file(configured) }],
+			})
+			const tab = {
+				input: new vscode.TabInputText(vscode.Uri.file(path.join(path.parse(root).root, "Program"))),
+				isDirty: false,
+				isPreview: false,
+			}
+			Object.defineProperty(vscode.window.tabGroups, "all", {
+				configurable: true,
+				value: [{ viewColumn: 2, tabs: [tab] }],
+			})
+			await ensureDefaultWorkspace(context(), output(), path.join(root, "resources", "app"))
+			expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+				"vscode.open",
+				vscode.Uri.file(path.join(configured, "Program")),
+				{ viewColumn: 2, preserveFocus: true, preview: false },
+			)
+			expect(vscode.window.tabGroups.close).toHaveBeenCalledWith(tab, true)
+			vi.mocked(vscode.window.tabGroups.close).mockClear()
+			tab.isDirty = true
+			await ensureDefaultWorkspace(context(), output(), path.join(root, "resources", "app"))
+			expect(vscode.window.tabGroups.close).not.toHaveBeenCalled()
+			tab.isDirty = false
+			vi.mocked(vscode.commands.executeCommand).mockRejectedValueOnce(new Error("open failed"))
+			await ensureDefaultWorkspace(context(), output(), path.join(root, "resources", "app"))
+			expect(vscode.window.tabGroups.close).not.toHaveBeenCalled()
+			const fixture = path.join(root, "user-file")
+			await fs.writeFile(fixture, "user data")
+			vi.mocked(fs.lstat).mockResolvedValue(await fs.stat(fixture))
+			vi.mocked(vscode.commands.executeCommand).mockClear()
+			await ensureDefaultWorkspace(context(), output(), path.join(root, "resources", "app"))
+			expect(vscode.commands.executeCommand).not.toHaveBeenCalled()
+			expect(vscode.window.tabGroups.close).not.toHaveBeenCalled()
+		},
+	)
 	afterEach(async () => {
 		vi.restoreAllMocks()
 		await fs.rm(root, { recursive: true, force: true })

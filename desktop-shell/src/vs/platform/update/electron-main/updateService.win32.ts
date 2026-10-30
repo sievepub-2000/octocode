@@ -106,14 +106,12 @@ export class Win32UpdateService extends AbstractUpdateService implements IRelaun
 		lifecycleMainService.setRelaunchHandler(this);
 	}
 
-	handleRelaunch(options?: IRelaunchOptions): boolean {
-		if (options?.addArgs || options?.removeArgs) {
-			return false; // we cannot apply an update and restart with different args
-		}
+	hasPendingUpdate(options?: IRelaunchOptions): boolean {
+		return !options?.addArgs && !options?.removeArgs && this.state.type === StateType.Ready && !!this.availableUpdate;
+	}
 
-		if (this.state.type !== StateType.Ready || !this.availableUpdate) {
-			return false; // we only handle the relaunch when we have a pending update
-		}
+	handleRelaunch(options?: IRelaunchOptions): boolean {
+		if (!this.hasPendingUpdate(options)) return false;
 
 		this.logService.trace('update#handleRelaunch(): running raw#quitAndInstall()');
 		this.doQuitAndInstall();

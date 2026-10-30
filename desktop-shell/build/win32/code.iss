@@ -1657,7 +1657,8 @@ end;
 
 function GetAppMutex(Value: string): string;
 begin
-  if IsBackgroundUpdate() then
+  // Let Restart Manager request a normal shutdown when an older updater reopens the app.
+  if IsBackgroundUpdate() or (WizardSilent() and (ExistingOctoCodeDirectory() <> '')) then
     Result := ''
   else
     Result := '{#AppMutex}';

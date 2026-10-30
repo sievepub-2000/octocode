@@ -86,6 +86,33 @@ export async function ensureDefaultWorkspace(
 			})
 			// Only migrate the empty legacy marker; named user files and links are preserved.
 			if (legacy?.isFile() && legacy.size === 0) await fs.unlink(legacyMarker)
+			if (!legacy || (legacy.isFile() && legacy.size === 0)) {
+				for (const group of vscode.window.tabGroups.all) {
+					for (const tab of group.tabs) {
+						if (
+							tab.isDirty ||
+							!(tab.input instanceof vscode.TabInputText) ||
+							tab.input.uri.scheme !== "file" ||
+							tab.input.uri.fsPath.toLowerCase() !== legacyMarker.toLowerCase()
+						)
+							continue
+						try {
+							await vscode.commands.executeCommand(
+								"vscode.open",
+								vscode.Uri.file(path.join(workspacePath, "Program")),
+								{
+									viewColumn: group.viewColumn,
+									preserveFocus: true,
+									preview: tab.isPreview,
+								},
+							)
+							if (!tab.isDirty) await vscode.window.tabGroups.close(tab, true)
+						} catch (error) {
+							outputChannel.appendLine(`[workspace] Could not migrate legacy Program editor: ${error}`)
+						}
+					}
+				}
+			}
 		}
 		await ensureGitRepository(workspacePath, outputChannel)
 	}
