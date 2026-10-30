@@ -33,11 +33,11 @@ export const About = ({ telemetrySetting, setTelemetrySetting, debug, setDebug, 
 	const displayedCommit = desktopVersion ? desktopCommit : Package.sha
 
 	return (
-		<div className={cn("flex flex-col gap-2", className)} {...props}>
+		<div className={cn("flex flex-col gap-1 leading-snug [&_p]:my-0 [&_h3]:my-1", className)} {...props}>
 			<SectionHeader>{t("settings:sections.about")}</SectionHeader>
 			<OctoCodeAbout />
 
-			<Section>
+			<Section className="gap-2">
 				<p>
 					{displayedCommit
 						? t("settings:about.versionWithSha", {
@@ -69,9 +69,9 @@ export const About = ({ telemetrySetting, setTelemetrySetting, debug, setDebug, 
 				</SearchableSetting>
 			</Section>
 
-			<Section className="space-y-0">
+			<Section className="gap-2">
 				<h3>{t("settings:about.contactAndCommunity")}</h3>
-				<div className="flex flex-col gap-3">
+				<div className="flex flex-col gap-2">
 					<div className="flex items-start gap-2">
 						<Bug className="size-4 text-vscode-descriptionForeground shrink-0" />
 						<span>
@@ -104,7 +104,7 @@ export const About = ({ telemetrySetting, setTelemetrySetting, debug, setDebug, 
 							settingId="about-debug-mode"
 							section="about"
 							label={t("settings:about.debugMode.label")}
-							className="mt-4 pt-4 border-t border-vscode-settings-headerBorder">
+							className="mt-2 pt-2 border-t border-vscode-settings-headerBorder">
 							<VSCodeCheckbox
 								checked={debug ?? false}
 								onChange={(e: any) => {
@@ -121,7 +121,7 @@ export const About = ({ telemetrySetting, setTelemetrySetting, debug, setDebug, 
 				</div>
 			</Section>
 
-			<Section className="space-y-0">
+			<Section className="gap-2">
 				<SearchableSetting
 					settingId="about-manage-settings"
 					section="about"

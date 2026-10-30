@@ -13,7 +13,8 @@ test("About exposes complete local documentation without network access", async 
 			<OctoCodeAbout />
 		</TooltipProvider>,
 	)
-	await expect(component.getByText("此项目由 zillafan80@gmail.com 独立完成。", { exact: true })).toBeVisible()
+	await expect(component.getByText("此项目由 zillafan80@gmail.com 独立完成。", { exact: true })).toHaveCount(0)
+	await expect(component.getByRole("link", { name: "zillafan80@gmail.com", exact: true })).toBeVisible()
 	for (const title of ["完整授权协议（离线）", "第三方许可与来源全文（离线）", "使用手册（离线）"]) {
 		const summary = component.locator("summary", { hasText: title })
 		await summary.click()
@@ -21,8 +22,8 @@ test("About exposes complete local documentation without network access", async 
 		await expect(summary.locator("..").locator('[data-testid="about-document"]')).toBeVisible()
 		await summary.click()
 	}
-	await page.screenshot({ path: "test-results/about-offline-2.0.4.png", fullPage: true })
+	await page.screenshot({ path: "test-results/about-offline.png", fullPage: true })
 	await component.locator("summary", { hasText: "使用手册（离线）" }).click()
 	await expect(component.getByRole("heading", { name: "13. 授权与合作" })).toBeVisible()
-	await page.screenshot({ path: "test-results/about-manual-2.0.4.png", fullPage: true })
+	await page.screenshot({ path: "test-results/about-manual.png", fullPage: true })
 })

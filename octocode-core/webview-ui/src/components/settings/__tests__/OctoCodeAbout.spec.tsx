@@ -18,7 +18,8 @@ describe("OctoCode author and offline documents", () => {
 					.some((link) => link.getAttribute("href") === `mailto:${email}`),
 			).toBe(true)
 		}
-		expect(screen.getByText(/以上指 OctoCode 产品的独立开发/)).toHaveTextContent("第三方作品及既有许可继续保留")
+		expect(screen.queryByText("此项目由 zillafan80@gmail.com 独立完成。")).not.toBeInTheDocument()
+		expect(screen.getByText(/第三方作品及既有许可继续保留/)).toBeInTheDocument()
 	})
 
 	it.each([

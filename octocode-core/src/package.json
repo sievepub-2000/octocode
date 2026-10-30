@@ -7,7 +7,7 @@
 		"type": "git",
 		"url": "https://github.com/sievepub-2000/octocode.git"
 	},
-	"version": "0.1.18",
+	"version": "0.1.19",
 	"icon": "assets/icons/icon.png",
 	"galleryBanner": {
 		"color": "#617A91",
