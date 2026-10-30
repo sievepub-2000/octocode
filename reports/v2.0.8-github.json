@@ -1,0 +1,33 @@
+{
+  "version": "2.0.8",
+  "repositoryVisibility": "public",
+  "sourceCommit": "eb74cadc0310ac81e6998280f3f42526162c8385",
+  "releaseUrl": "https://github.com/sievepub-2000/octocode/releases/tag/v2.0.8",
+  "assemblyRun": "https://github.com/sievepub-2000/octocode/actions/runs/41039814868",
+  "assets": [
+    {
+      "name": "octocode-0.1.20.vsix",
+      "size": 86258249,
+      "digest": "sha256:3d5d926193f5da030a320caa0d8e3f6f1355e9d3d06cd5d21ebbb9de01488dbf",
+      "state": "uploaded"
+    },
+    {
+      "name": "octocode-release.json",
+      "size": 561,
+      "digest": "sha256:99ded0c97bba8ca72c91a3aa889eabffb477388b055c76516dc69e608a8b1703",
+      "state": "uploaded"
+    },
+    {
+      "name": "octocode-release.json.sig",
+      "size": 64,
+      "digest": "sha256:cc73c93cf455587665bf5bd99556a3ff9e8710d416b2ff16efbcc7a853f2af17",
+      "state": "uploaded"
+    },
+    {
+      "name": "OctoCodeSetup.exe",
+      "size": 869430202,
+      "digest": "sha256:49324109e5abd4453d2fc1bbc7c6325bedf589120c1be385f8e053bab39dcfdd",
+      "state": "uploaded"
+    }
+  ]
+}
