@@ -1,8 +1,11 @@
 {
-  "status": "pending",
+  "status": "waiting_for_manual_legacy_process_exit",
   "publishedVersion": "2.0.8",
   "installedVersion": "2.0.5",
   "downloadVersion": "2.0.8",
+  "downloadVerified": true,
+  "silentInstallerStarted": true,
+  "installerCanceledForRunningLegacyProcess": true,
   "previousStateReadable": {
     "modelProfiles": 11,
     "sessions": 2,
