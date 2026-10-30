@@ -89,5 +89,54 @@ $fresh = Join-Path $fixture 'fresh install'
 $child = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SP-','/NORESTART',('/DIR="' + $fresh + '"')) -WindowStyle Hidden -PassThru
 if (-not $child.WaitForExit(30000) -or $child.ExitCode -ne 0) { throw 'Fresh installer failed' }
 if ((Get-Content -LiteralPath (Join-Path $fresh 'upgraded') -Raw) -ne 'silent') { throw 'Fresh installation failed' }
-Write-Output "PASS: real Inno installer delegates legacy handoff silently, uses non-force Restart Manager shutdown, and preserves fresh install behavior ($fixture)"
+$abortRoot = Join-Path $fixture 'interrupted install'
+New-Item -ItemType Directory -Path (Join-Path $abortRoot 'resources\app\out') -Force | Out-Null
+[IO.File]::WriteAllText((Join-Path $abortRoot 'resources\app\out\main.js'), 'retained old entry')
+[IO.File]::WriteAllText((Join-Path $abortRoot 'resources\app\node_modules.asar'), 'retained old modules')
+$production = Get-Content -LiteralPath (Join-Path $desktop 'build\win32\code.iss') -Raw
+$deletions = ([regex]::Match($production, '(?s)\[InstallDelete\](.*?)\[UninstallDelete\]').Groups[1].Value -split "`r?`n" | Where-Object { $_ -like '*Name: "{app}*' }) -join "`n"
+$abortScript = @'
+#define VersionedResourcesFolder ""
+[Setup]
+AppName=Owned interrupted upgrade fixture
+AppVersion=1.0
+DefaultDirName={#FixtureRoot}\unused
+PrivilegesRequired=lowest
+OutputDir={#FixtureRoot}
+OutputBaseFilename=AbortFixtureSetup
+Uninstallable=no
+DisableProgramGroupPage=yes
+[InstallDelete]
+RUNTIME_DELETIONS
+[Files]
+Source: "{#FixtureRoot}\Fixture-new.exe"; DestDir: "{app}"; BeforeInstall: FailExtraction
+[Code]
+function IsNotBackgroundUpdate(): Boolean;
+begin Result := True; end;
+function GetCurrentProcessId(): Cardinal;
+  external 'GetCurrentProcessId@kernel32.dll stdcall';
+procedure FailExtraction();
+begin
+  SaveStringToFile(ExpandConstant('{app}\write-started'), IntToStr(GetCurrentProcessId()), False);
+  Sleep(30000);
+end;
+'@
+$abortScript = $abortScript.Replace('RUNTIME_DELETIONS', $deletions)
+$abortIss = Join-Path $fixture 'abort.iss'
+[IO.File]::WriteAllText($abortIss, $abortScript)
+& 'D:\Program Files\develop\Inno Setup 7\ISCC.exe' /Qp "/DFixtureRoot=$fixture" $abortIss
+if ($LASTEXITCODE -ne 0) { throw 'Abort fixture compilation failed' }
+$failed = Start-Process -FilePath (Join-Path $fixture 'AbortFixtureSetup.exe') -ArgumentList @('/SP-','/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="' + $abortRoot + '"')) -WindowStyle Hidden -PassThru
+$writeStarted = Join-Path $abortRoot 'write-started'
+for ($attempt = 0; $attempt -lt 100 -and -not (Test-Path -LiteralPath $writeStarted); $attempt++) { Start-Sleep -Milliseconds 100 }
+if (-not (Test-Path -LiteralPath $writeStarted)) { throw 'Owned fixture did not reach the replacement write' }
+$ownedWorkerId = [int]([IO.File]::ReadAllText($writeStarted))
+$ownedWorker = Get-CimInstance Win32_Process -Filter "ProcessId=$ownedWorkerId"
+if (-not $ownedWorker -or $ownedWorker.ParentProcessId -ne $failed.Id -or [IO.Path]::GetFileName($ownedWorker.ExecutablePath) -ne 'AbortFixtureSetup.tmp' -or -not $ownedWorker.CommandLine.Contains($fixture)) { throw 'Refusing to interrupt an unverified fixture process' }
+# Simulate a crash only in this owned temporary installer, before its replacement write.
+Stop-Process -Id $ownedWorkerId -Force
+if (-not $failed.WaitForExit(30000)) { throw 'Owned interrupted fixture did not exit' }
+if (Test-Path -LiteralPath (Join-Path $abortRoot 'Fixture-new.exe')) { throw 'Expected the owned replacement write to be aborted' }
+if (-not (Test-Path -LiteralPath (Join-Path $abortRoot 'resources\app\out\main.js')) -or -not (Test-Path -LiteralPath (Join-Path $abortRoot 'resources\app\node_modules.asar'))) { throw 'Interrupted upgrade deleted the existing runtime before replacement' }
+Write-Output "PASS: silent legacy handoffs, non-force Restart Manager, fresh install, and old runtime preservation after simulated extraction failure ($fixture)"
 $global:LASTEXITCODE = 0

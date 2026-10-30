@@ -74,13 +74,8 @@ Name: "turkish"; MessagesFile: "compiler:Languages\Turkish.isl,{#RepoDir}\build\
 [InstallDelete]
 Type: files; Name: "{userdesktop}\{#NameLong}.lnk"; Check: IsNotBackgroundUpdate
 Type: files; Name: "{commondesktop}\{#NameLong}.lnk"; Check: IsNotBackgroundUpdate
-Type: filesandordirs; Name: "{app}\{#VersionedResourcesFolder}\resources\app\out"; Check: IsNotBackgroundUpdate
-Type: filesandordirs; Name: "{app}\{#VersionedResourcesFolder}\resources\app\plugins"; Check: IsNotBackgroundUpdate
-Type: filesandordirs; Name: "{app}\{#VersionedResourcesFolder}\resources\app\extensions"; Check: IsNotBackgroundUpdate
-Type: filesandordirs; Name: "{app}\{#VersionedResourcesFolder}\resources\app\node_modules"; Check: IsNotBackgroundUpdate
-Type: filesandordirs; Name: "{app}\{#VersionedResourcesFolder}\resources\app\node_modules.asar.unpacked"; Check: IsNotBackgroundUpdate
-Type: files; Name: "{app}\{#VersionedResourcesFolder}\resources\app\node_modules.asar"; Check: IsNotBackgroundUpdate
-Type: files; Name: "{app}\{#VersionedResourcesFolder}\resources\app\Credits_45.0.2454.85.html"; Check: IsNotBackgroundUpdate
+; Replace runtime files through Inno's normal file rollback. Pre-deleted trees
+; cannot be recovered when an upgrade is interrupted before replacement.
 
 [UninstallDelete]
 Type: files; Name: "{app}\.octocode-install.lock"
