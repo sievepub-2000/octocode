@@ -15,6 +15,9 @@ import { gt } from '../../../base/common/semver/semver.js';
 import { IUpdate } from '../common/update.js';
 
 export function gitHubTokenHeaders(token: string | undefined): Record<string, string> {
+	if (token === undefined) {
+		return { 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'OctoCode-Updater' };
+	}
 	if (typeof token !== 'string' || !/^[\x21-\x7e]{1,4096}$/.test(token)) {
 		throw new GitHubUpdateError('Sign in to GitHub for Updates with an account that can read the private release repository.');
 	}

@@ -106,7 +106,7 @@ function allowedUpdateUrl(value: string): boolean {
 /**
  * Self-update for the extension layer.
  *
- * The official private release channel uses the user's GitHub login. Custom
+ * The official release channel also supports the user's GitHub login. Custom
  * channels remain supported; an empty channel disables checks.
  */
 export class UpdateService {
@@ -140,15 +140,11 @@ export class UpdateService {
 		const headers: Record<string, string> = {}
 		if (url === GITHUB_RELEASE_URL || GITHUB_ASSET_URL.test(url)) {
 			const session =
-				this.githubSession ??
-				(await vscode.authentication.getSession(
-					"github",
-					["repo"],
-					interactive ? { createIfNone: true } : { silent: true },
-				))
-			if (!session) throw new Error("Sign in to GitHub to access private OctoCode updates")
-			this.githubSession = session
-			headers.Authorization = `Bearer ${session.accessToken}`
+				this.githubSession ?? (await vscode.authentication.getSession("github", ["repo"], { silent: true }))
+			if (session) {
+				this.githubSession = session
+				headers.Authorization = `Bearer ${session.accessToken}`
+			}
 			headers.Accept = GITHUB_ASSET_URL.test(url) ? "application/octet-stream" : "application/vnd.github+json"
 			headers["X-GitHub-Api-Version"] = "2022-11-28"
 		}

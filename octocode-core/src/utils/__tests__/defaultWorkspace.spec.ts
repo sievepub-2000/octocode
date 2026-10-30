@@ -61,6 +61,23 @@ describe("configured workspace", () => {
 		expect((await fs.stat(configured)).isDirectory()).toBe(true)
 		await expect(fs.stat(path.join(configured, ".git"))).rejects.toThrow()
 	})
+	it("repairs a missing marker when the installation workspace is explicitly configured and already open", async () => {
+		configured = path.join(root, "workspace")
+		await fs.mkdir(path.join(configured, ".git"), { recursive: true })
+		Object.defineProperty(vscode.workspace, "workspaceFolders", {
+			configurable: true,
+			value: [{ uri: vscode.Uri.file(configured) }],
+		})
+		expect(await ensureDefaultWorkspace(context(), output(), path.join(root, "resources", "app"))).toBeUndefined()
+		const marker = path.join(configured, "Program")
+		expect(await fs.readFile(marker, "utf8")).toBe("")
+		await fs.writeFile(marker, "keep")
+		await ensureDefaultWorkspace(context(), output(), path.join(root, "resources", "app"))
+		expect(await fs.readFile(marker, "utf8")).toBe("keep")
+		await fs.rm(marker)
+		await ensureDefaultWorkspace(context(), output(), path.join(root, "resources", "app"))
+		expect(await fs.readFile(marker, "utf8")).toBe("")
+	})
 	it("does not silently fall back when the chosen path is invalid or unwritable", async () => {
 		configured = "relative/path"
 		expect(() => configuredWorkspacePath()).toThrow("绝对路径")

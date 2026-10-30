@@ -261,11 +261,6 @@ export class Win32UpdateService extends AbstractUpdateService implements IRelaun
 		if (!this.quality) {
 			return;
 		}
-		if (!explicit && !this.gitHubToken && getGitHubReleaseFeed(this.productService.updateUrl)) {
-			this.logService.info('update#checkForUpdates: waiting for GitHub update sign-in');
-			return;
-		}
-
 		const internalOrg = this.getInternalOrg();
 		const background = !explicit && !internalOrg;
 		const url = this.buildUpdateFeedUrl(this.quality, pendingCommit ?? this.productService.commit!, { background, internalOrg });
@@ -719,14 +714,15 @@ export class Win32UpdateService extends AbstractUpdateService implements IRelaun
 			if (this.productService.target !== 'user') {
 				if (this.installerHandoffStarted) { return; }
 				this.installerHandoffStarted = true;
-				// ShellExecute honors the system installer's UAC manifest.
-				// Electron is already quitting; let the detached Windows shell own the handoff.
-				const launcher = spawn(path.join(process.env.SystemRoot || 'C:\\Windows', 'explorer.exe'), [this.availableUpdate.packagePath], { detached: true, stdio: 'ignore' });
+				const payload = Buffer.from(JSON.stringify({ installer: this.availableUpdate.packagePath, directory: path.dirname(app.getPath('exe')) }), 'utf8').toString('base64');
+				// ShellExecute supplies elevation; encoded data preserves spaces without command interpolation.
+				const command = `$p = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json; Start-Process -FilePath $p.installer -Verb RunAs -WindowStyle Hidden -ArgumentList @('/VERYSILENT','/LOG','/NORESTART','/NOCLOSEAPPLICATIONS','/mergetasks=runcode,!desktopicon,!quicklaunchicon',('/DIR="' + $p.directory + '"'))`;
+				const launcher = spawn(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], { windowsHide: true, stdio: 'ignore' });
 				launcher.on('error', error => this.logService.error('update#quitAndInstall: shell handoff failed', error));
 				launcher.unref();
 				return;
 			}
-			spawn(this.availableUpdate.packagePath, ['/silent', '/log', '/mergetasks=runcode,!desktopicon,!quicklaunchicon'], {
+			spawn(this.availableUpdate.packagePath, ['/verysilent', '/log', '/norestart', '/nocloseapplications', '/mergetasks=runcode,!desktopicon,!quicklaunchicon'], {
 				detached: true,
 				stdio: ['ignore', 'ignore', 'ignore'],
 				env: { ...process.env, __COMPAT_LAYER: 'RunAsInvoker' }

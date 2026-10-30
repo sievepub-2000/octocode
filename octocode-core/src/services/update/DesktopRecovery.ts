@@ -53,7 +53,7 @@ try {
     if ($actual -cne $p.sha256) { Save-State 'checksum_failed'; return }
     $target = [IO.Path]::GetDirectoryName($p.executable)
     if ($target.Contains('"') -or $p.installer.Contains('"')) { throw 'Invalid installation path' }
-    $installerArgs = @('/silent', '/log', '/NORESTART', '/NOCLOSEAPPLICATIONS', '/mergetasks=runcode,!desktopicon,!quicklaunchicon', ('/DIR="' + $target + '"'))
+    $installerArgs = @('/VERYSILENT', '/log', '/NORESTART', '/NOCLOSEAPPLICATIONS', '/mergetasks=runcode,!desktopicon,!quicklaunchicon', ('/DIR="' + $target + '"'))
     Save-State 'installing'
     $setup = Start-Process -FilePath $p.installer -ArgumentList $installerArgs -PassThru
   } finally { $file.Dispose() }

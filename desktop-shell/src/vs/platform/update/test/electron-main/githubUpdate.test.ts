@@ -111,9 +111,20 @@ suite('Private GitHub Windows updates', () => {
 		assert.strictEqual(calls, 1);
 	});
 
-	test('missing authentication and foreign API asset URLs fail before networking', async () => {
+	test('public updates work without authentication and never forward headers to CDN', async () => {
+		const requests: IRequestOptions[] = [];
+		const service = { request: async (options: IRequestOptions) => {
+			requests.push(options);
+			return requests.length === 1 ? context(200, JSON.stringify(release)) : context(200, 'package');
+		} } as unknown as IRequestService;
+		assert.strictEqual(await requestGitHubUpdate(service, feed, undefined, '2.0.0', 'win32-x64', CancellationToken.None), null);
+		await requestGitHubAsset(service, feed, asset.url, undefined, CancellationToken.None);
+		assert.strictEqual(requests.length, 2);
+		assert.ok(requests.every(request => request.headers?.Authorization === undefined));
+	});
+
+	test('invalid authentication and foreign API asset URLs fail before networking', async () => {
 		const service = { request: async () => { throw new Error('network must not run'); } } as unknown as IRequestService;
-		await assert.rejects(requestGitHubUpdate(service, feed, undefined, '1.0.0', 'win32-x64', CancellationToken.None), /Sign in to GitHub/);
 		await assert.rejects(requestGitHubAsset(service, feed, 'https://api.github.com/repos/other/repo/releases/assets/11', 'fixture-token', CancellationToken.None), /Invalid private/);
 		await assert.rejects(requestGitHubAsset(service, feed, asset.url, 'bad\r\nheader', CancellationToken.None), /Sign in to GitHub/);
 	});

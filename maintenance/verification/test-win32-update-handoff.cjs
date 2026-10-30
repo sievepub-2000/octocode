@@ -12,7 +12,7 @@ const code = ts.transpileModule('class Fixture {' + method.getText(ast) + '} glo
   compilerOptions: { target: ts.ScriptTarget.ES2022 }
 }).outputText;
 let calls = [], detached = 0, errors = 0, onError;
-const context = { path: path.win32, process: { env: { SystemRoot: 'C:\\Windows' } }, StateType: { Ready: 'ready', Restarting: 'restarting' },
+const context = { Buffer, app: { getPath: () => 'E:\\Program Files\\octocode\\OctoCode.exe' }, path: path.win32, process: { env: { SystemRoot: 'C:\\Windows' } }, StateType: { Ready: 'ready', Restarting: 'restarting' },
   shell: { openPath() { throw new Error('Electron has already shut down'); } },
   spawn(...args) { calls.push(args); return { on(event, handler) { assert.equal(event, 'error'); onError = handler; }, unref() { detached++; } }; }
 };
@@ -23,10 +23,14 @@ Object.assign(fixture, { state: { type: 'ready' }, availableUpdate: { packagePat
 fixture.doQuitAndInstall();
 fixture.doQuitAndInstall();
 assert.equal(calls.length, 1, 'Repeated shutdown callbacks must launch only once');
-assert.equal(calls[0][0], 'C:\\Windows\\explorer.exe');
-assert.equal(calls[0][1].length, 1);
-assert.equal(calls[0][1][0], fixture.availableUpdate.packagePath);
-assert.equal(calls[0][2].detached, true);
+assert.equal(calls[0][0], 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+const launcher = Buffer.from(calls[0][1].at(-1), 'base64').toString('utf16le');
+assert.ok(launcher.includes('Start-Process') && launcher.includes('-Verb RunAs'));
+const payload = JSON.parse(Buffer.from(launcher.match(/FromBase64String\('([^']+)'\)/)[1], 'base64').toString());
+assert.equal(payload.installer, fixture.availableUpdate.packagePath);
+assert.equal(payload.directory, 'E:\\Program Files\\octocode');
+for (const flag of ['/VERYSILENT', '/NORESTART', '/NOCLOSEAPPLICATIONS', '/mergetasks=runcode']) assert.ok(launcher.includes(flag), flag);
+assert.equal(calls[0][2].windowsHide, true);
 assert.equal(calls[0][2].stdio, 'ignore');
 assert.equal(detached, 1);
 onError(new Error('owned failure fixture'));

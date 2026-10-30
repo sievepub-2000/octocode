@@ -145,8 +145,8 @@ Name: "{group}\{#NameLong}"; Filename: "{app}\{#ExeBasename}.exe"; Parameters: "
 Name: "{autodesktop}\{#NameLong}"; Filename: "{app}\{#ExeBasename}.exe"; Parameters: "--disable-workspace-trust"; WorkingDir: "{app}"; IconFilename: "{app}\{#VersionedResourcesFolder}\resources\app\resources\win32\code.ico"; IconIndex: 0; Tasks: desktopicon; AppUserModelID: "{#AppUserId}"; Check: ShouldUpdateShortcut(ExpandConstant('{autodesktop}\{#NameLong}.lnk'))
 
 [Run]
-Filename: "{app}\{#ExeBasename}.exe"; Parameters: "--disable-workspace-trust"; Description: "{cm:LaunchProgram,{#NameLong}}"; Tasks: runcode; Flags: nowait postinstall; Check: ShouldRunAfterUpdate
-Filename: "{app}\{#ExeBasename}.exe"; Parameters: "--disable-workspace-trust"; Description: "{cm:LaunchProgram,{#NameLong}}"; Flags: nowait postinstall; Check: WizardNotSilent
+Filename: "{app}\{#ExeBasename}.exe"; Parameters: "--disable-workspace-trust"; WorkingDir: "{app}\workspace"; Description: "{cm:LaunchProgram,{#NameLong}}"; Tasks: runcode; Flags: nowait postinstall; Check: ShouldRunAfterUpdate
+Filename: "{app}\{#ExeBasename}.exe"; Parameters: "--disable-workspace-trust"; WorkingDir: "{app}\workspace"; Description: "{cm:LaunchProgram,{#NameLong}}"; Flags: nowait postinstall; Check: WizardNotSilent
 
 [Registry]
 #if "user" == InstallTarget
@@ -1363,12 +1363,18 @@ begin
 end;
 
 // Don't allow installing conflicting architectures
+#include "octocode-upgrade.iss"
+
 function InitializeSetup(): Boolean;
 #if "user" == InstallTarget
 var
   RegKey: String;
 #endif
 begin
+  if DelegateOctoCodeUpgrade() then begin
+    Result := False;
+    Exit;
+  end;
   Result := True;
 
   #if "user" == InstallTarget

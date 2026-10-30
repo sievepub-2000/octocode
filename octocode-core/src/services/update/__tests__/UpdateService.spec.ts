@@ -178,7 +178,7 @@ describe("UpdateService", () => {
 		const service = new UpdateService(context, vi.fn(), fetchImpl as never)
 		const result = await service.check(true)
 		expect(result).toMatchObject({ available: true, manifest })
-		expect(getSession).toHaveBeenCalledWith("github", ["repo"], { createIfNone: true })
+		expect(getSession).toHaveBeenCalledWith("github", ["repo"], { silent: true })
 		const downloaded = await service.download(result.manifest!)
 		try {
 			expect(await fs.readFile(downloaded)).toEqual(bytes)
@@ -195,11 +195,15 @@ describe("UpdateService", () => {
 	it("never opens a login prompt during a background check", async () => {
 		settings["octocode.update.manifestUrl"] = "https://api.github.com/repos/sievepub-2000/octocode/releases/latest"
 		getSession.mockResolvedValue(undefined)
-		const fetchImpl = vi.fn()
+		const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ tag_name: "v2.0.6", assets: [] })))
 		const service = new UpdateService(context, vi.fn(), fetchImpl as never)
-		expect(await service.check()).toMatchObject({ available: false, error: expect.stringContaining("GitHub") })
+		expect(await service.check()).toMatchObject({
+			available: false,
+			error: expect.stringContaining("unique asset"),
+		})
 		expect(getSession).toHaveBeenCalledWith("github", ["repo"], { silent: true })
-		expect(fetchImpl).not.toHaveBeenCalled()
+		expect(fetchImpl).toHaveBeenCalledOnce()
+		expect(fetchImpl.mock.calls[0][1].headers).not.toHaveProperty("Authorization")
 	})
 
 	it("rejects unsigned official releases and direct API assets without a verified manifest", async () => {

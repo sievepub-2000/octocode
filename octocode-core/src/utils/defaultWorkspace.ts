@@ -71,7 +71,12 @@ export async function ensureDefaultWorkspace(
 	const workspacePath = configuredWorkspacePath(appRoot)
 	await fs.mkdir(workspacePath, { recursive: true })
 	await fs.access(workspacePath, constants.W_OK)
-	if (!(vscode.workspace.getConfiguration("octocode").get<string>("workspace.path", "") ?? "").trim()) {
+	const installationWorkspace = path.resolve(appRoot, "..", "..", "workspace")
+	const isInstallationWorkspace =
+		process.platform === "win32"
+			? workspacePath.toLowerCase() === installationWorkspace.toLowerCase()
+			: workspacePath === installationWorkspace
+	if (isInstallationWorkspace) {
 		await fs.writeFile(path.join(workspacePath, "Program"), "", { flag: "a" })
 		if (process.platform === "win32") {
 			const legacyMarker = path.join(path.parse(workspacePath).root, "Program")
