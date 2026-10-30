@@ -1,0 +1,23 @@
+[
+  {
+    "scenario": "fresh",
+    "status": "PASS",
+    "extensionsDisabled": true,
+    "path": "E:\\Program Files\\octocode\\test\\workspace-2.0.6-acceptance-release-final\\workspace\\Program",
+    "pid": 3592
+  },
+  {
+    "scenario": "missing-again",
+    "status": "PASS",
+    "extensionsDisabled": true,
+    "path": "E:\\Program Files\\octocode\\test\\workspace-2.0.6-acceptance-release-final\\workspace\\Program",
+    "pid": 38840
+  },
+  {
+    "scenario": "preserve",
+    "status": "PASS",
+    "extensionsDisabled": true,
+    "path": "E:\\Program Files\\octocode\\test\\workspace-2.0.6-acceptance-release-final\\workspace\\Program",
+    "pid": 38676
+  }
+]
