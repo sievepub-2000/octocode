@@ -315,3 +315,24 @@ for (const extra of [{ running: 1, monitored_sessions: 0 }, { running: 0, monito
 		assert.equal(await f.service.quit(true, true), true);
 	});
 }
+
+for (const preserve of [false, true]) {
+	test(`pending update relaunch preserves resource-restart supervision: ${preserve}`, async () => {
+		const f = fixture();
+		let applied = 0, relaunched = 0;
+		f.context.process.argv = ['OctoCode.exe'];
+		f.context.electron.app = Object.assign(new EventEmitter(), { relaunch: () => { relaunched++; } });
+		f.service.trace = () => {};
+		f.service.daemonPreserveForRestart = preserve;
+		f.service.relaunchHandler = { hasPendingUpdate: () => true, handleRelaunch: () => { applied++; return true; } };
+		f.service.quit = async (restart, forUpdate) => {
+			assert.equal(restart, true);
+			assert.equal(forUpdate, !preserve);
+			f.context.electron.app.emit('quit');
+			return false;
+		};
+		await f.service.relaunch();
+		assert.equal(applied, preserve ? 0 : 1);
+		assert.equal(relaunched, preserve ? 1 : 0);
+	});
+}

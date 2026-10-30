@@ -19,8 +19,14 @@ begin
 end;
 
 function NeedsSilentOctoCodeUpgrade(): Boolean;
+var
+  Index: Integer;
 begin
-  Result := not WizardSilent() and (ExistingOctoCodeDirectory() <> '');
+  Result := False;
+  if (ExistingOctoCodeDirectory() = '') or (ExpandConstant('{param:update|}') <> '') then Exit;
+  Result := not WizardSilent();
+  for Index := 1 to ParamCount do
+    if CompareText(ParamStr(Index), '/NOCLOSEAPPLICATIONS') = 0 then Result := True;
 end;
 
 function GetCurrentProcessId(): Cardinal;

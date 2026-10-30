@@ -75,6 +75,16 @@ if (-not $parent.WaitForExit(60000)) { throw "Fixture did not finish; inspect $f
 for ($attempt = 0; $attempt -lt 100 -and -not (Test-Path -LiteralPath (Join-Path $existing 'upgraded')); $attempt++) { Start-Sleep -Milliseconds 200 }
 if ((Get-Content -LiteralPath (Join-Path $existing 'upgraded') -Raw) -ne 'silent') { throw 'Legacy handoff did not run a silent child' }
 if (-not $gui.WaitForExit(10000)) { throw "Restart Manager did not close the owned fixture; inspect $fixture" }
+$ready = Join-Path $existing 'gui-ready'
+Remove-Item -LiteralPath $ready
+Remove-Item -LiteralPath (Join-Path $existing 'upgraded')
+$gui = Start-Process -FilePath (Join-Path $existing 'Fixture.exe') -WindowStyle Hidden -PassThru
+for ($attempt = 0; $attempt -lt 100 -and -not (Test-Path -LiteralPath $ready); $attempt++) { Start-Sleep -Milliseconds 100 }
+if (-not (Test-Path -LiteralPath $ready)) { throw 'Second owned GUI did not become ready' }
+$parent = Start-Process -FilePath $setup -ArgumentList @('/SP-','/VERYSILENT','/NOCLOSEAPPLICATIONS',('/DIR="' + $existing + '"')) -WindowStyle Hidden -PassThru
+if (-not $parent.WaitForExit(60000)) { throw 'Silent legacy handoff did not finish' }
+for ($attempt = 0; $attempt -lt 100 -and -not (Test-Path -LiteralPath (Join-Path $existing 'upgraded')); $attempt++) { Start-Sleep -Milliseconds 200 }
+if (-not $gui.WaitForExit(10000) -or -not (Test-Path -LiteralPath (Join-Path $existing 'upgraded'))) { throw 'Silent legacy no-close flag was not normalized' }
 $fresh = Join-Path $fixture 'fresh install'
 $child = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SP-','/NORESTART',('/DIR="' + $fresh + '"')) -WindowStyle Hidden -PassThru
 if (-not $child.WaitForExit(30000) -or $child.ExitCode -ne 0) { throw 'Fresh installer failed' }
