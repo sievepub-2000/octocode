@@ -1,0 +1,59 @@
+name: Assemble verified 2.0.6 installer
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: sievepub-2000/octocode
+    steps:
+      - name: Assemble and verify signed installer bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir parts
+          gh release download v2.0.6 --pattern '*.part-*' --dir parts
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          artifacts = [{'name': 'OctoCodeSetup.exe', 'sha256': 'd551ecb713cfe6579fd6888a417a00c5c9873c57344654fcd6418f427ee8d72b', 'size': 869426820, 'count': 52}, {'name': 'octocode-0.1.18.vsix', 'sha256': '1123ffac79742cb00442c5548aba56b3f4e1b32c9e2c439e3f8f632ce4ad9583', 'size': 86258035, 'version': '0.1.18', 'minShellVersion': '2.0.6', 'count': 6}]
+          expected_names = {f"{a['name']}.part-{i:03d}" for a in artifacts for i in range(a['count'])}
+          assert {p.name for p in Path('parts').iterdir()} == expected_names
+          for artifact in artifacts:
+              digest = hashlib.sha256()
+              with open(artifact['name'], 'xb') as output:
+                  for index in range(artifact['count']):
+                      part = Path('parts')/f"{artifact['name']}.part-{index:03d}"
+                      assert part.stat().st_size == min(16*1024*1024,artifact['size']-index*16*1024*1024)
+                      with part.open('rb') as source:
+                          for data in iter(lambda: source.read(1024 * 1024), b''):
+                              output.write(data)
+                              digest.update(data)
+              assert Path(artifact['name']).stat().st_size == artifact['size']
+              assert digest.hexdigest() == artifact['sha256']
+          PY
+          gh release upload v2.0.6 OctoCodeSetup.exe octocode-0.1.18.vsix
+      - name: Verify server digest and remove only temporary parts
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/sievepub-2000/octocode/releases/428759595/assets --paginate > assets.json
+          python3 - <<'PY'
+          import json, subprocess
+          assets = json.load(open('assets.json'))
+          artifacts = [{'name': 'OctoCodeSetup.exe', 'sha256': 'd551ecb713cfe6579fd6888a417a00c5c9873c57344654fcd6418f427ee8d72b', 'size': 869426820, 'count': 52}, {'name': 'octocode-0.1.18.vsix', 'sha256': '1123ffac79742cb00442c5548aba56b3f4e1b32c9e2c439e3f8f632ce4ad9583', 'size': 86258035, 'version': '0.1.18', 'minShellVersion': '2.0.6', 'count': 6}]
+          for artifact in artifacts:
+              canonical = [a for a in assets if a['name'] == artifact['name']]
+              assert len(canonical) == 1
+              assert canonical[0]['state'] == 'uploaded' and canonical[0]['size'] == artifact['size']
+              assert canonical[0]['digest'] == 'sha256:'+artifact['sha256']
+          names = {f"{a['name']}.part-{i:03d}" for a in artifacts for i in range(a['count'])}
+          parts = [a for a in assets if a['name'] in names]
+          assert len(parts) == len(names)
+          for part in parts:
+              subprocess.run(['gh', 'api', '--method', 'DELETE', f"repos/sievepub-2000/octocode/releases/assets/{part['id']}"], check=True)
+          print('Canonical installer verified; temporary parts removed')
+          PY
