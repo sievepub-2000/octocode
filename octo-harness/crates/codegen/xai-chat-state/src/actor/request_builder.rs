@@ -1,8 +1,6 @@
 //! ConversationRequest assembly — image compaction, pruning, repair, memory injection.
 
-use xai_grok_sampling_types::{
-    ConversationItem, ConversationRequest, ConversationToolChoice, ToolSpec, TraceContext,
-};
+use xai_grok_sampling_types::{ConversationItem, ConversationRequest, ToolSpec, TraceContext};
 
 use super::ChatStateActor;
 use crate::events::ChatStateEvent;
@@ -90,21 +88,13 @@ impl ChatStateActor {
         }
         items = crate::compaction_utils::ModelRequestHistory::from_raw(items).into_items();
 
-        // Qwen3.8's OpenAI-compatible endpoint is reliable with native tool
-        // calls when the initial agent request is explicit. Keep later turns
-        // automatic so the model can return a final answer after tool results.
-        let tool_choice = initial_tool_choice_for_model(
-            &self.state.sampling_config.model,
-            &items,
-            &tool_definitions,
-        );
-
         // Step 4: Assemble request
         ConversationRequest {
             items,
             tools: tool_definitions,
             hosted_tools: vec![],
-            tool_choice,
+            // Greetings and direct answers must be allowed to finish without a tool call.
+            tool_choice: None,
             model: Some(self.state.sampling_config.model.clone()),
             temperature: self.state.sampling_config.temperature,
             max_output_tokens: self.state.sampling_config.max_completion_tokens,
@@ -125,23 +115,6 @@ impl ChatStateActor {
             // of failing it; text-only salvage stays behind `CompletePartial`.
             length_policy: xai_grok_sampling_types::LengthPolicy::CompleteToolCalls,
         }
-    }
-}
-
-fn initial_tool_choice_for_model(
-    model: &str,
-    items: &[ConversationItem],
-    tools: &[ToolSpec],
-) -> Option<ConversationToolChoice> {
-    if tools.is_empty() || !matches!(items.last(), Some(ConversationItem::User(_))) {
-        return None;
-    }
-
-    let model = model.to_ascii_lowercase();
-    if model.contains("qwen38") || model.contains("qwen3.8") {
-        Some(ConversationToolChoice::Required)
-    } else {
-        None
     }
 }
 
@@ -322,43 +295,5 @@ mod tests {
         inject_memory_reminder(&mut items, "Remember: user likes rust");
         assert_eq!(items.len(), 2);
         assert!(matches!(&items[0], ConversationItem::System(_)));
-    }
-
-    #[test]
-    fn qwen_requires_a_tool_only_on_the_initial_user_request() {
-        let tool = ToolSpec {
-            name: "probe".to_string(),
-            description: None,
-            parameters: serde_json::json!({"type": "object"}),
-        };
-        assert!(matches!(
-            initial_tool_choice_for_model(
-                "qwen38-flash-next:instruct",
-                &[ConversationItem::user("inspect")],
-                std::slice::from_ref(&tool),
-            ),
-            Some(ConversationToolChoice::Required)
-        ));
-        assert!(
-            initial_tool_choice_for_model(
-                "qwen38-flash-next:instruct",
-                &[ConversationItem::tool_result("call_1", "ok")],
-                &[tool],
-            )
-            .is_none()
-        );
-    }
-
-    #[test]
-    fn other_models_keep_automatic_tool_choice() {
-        let tool = ToolSpec {
-            name: "probe".to_string(),
-            description: None,
-            parameters: serde_json::json!({"type": "object"}),
-        };
-        assert!(
-            initial_tool_choice_for_model("grok-4", &[ConversationItem::user("inspect")], &[tool],)
-                .is_none()
-        );
     }
 }

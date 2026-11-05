@@ -1785,6 +1785,41 @@ async fn build_request_with_tool_definitions() {
 }
 
 #[tokio::test]
+async fn qwen_greetings_allow_a_final_answer_without_forcing_a_tool() {
+    use xai_grok_sampling_types::ToolSpec;
+
+    for model in ["qwen3.8-flash-next", "qwen38-flash-next:instruct", "grok-4"] {
+        let config = SamplingConfig {
+            model: model.into(),
+            ..test_config()
+        };
+        let h = TestHarness::with_config(vec![ConversationItem::user("你好")], config);
+        let request = h
+            .handle
+            .build_request(
+                vec![ToolSpec {
+                    name: "read_file".into(),
+                    description: Some("Read a file".into()),
+                    parameters: serde_json::json!({"type": "object"}),
+                }],
+                None,
+                false,
+                None,
+                "c".into(),
+                "r".into(),
+            )
+            .await
+            .unwrap();
+
+        assert!(
+            request.tool_choice.is_none(),
+            "{model} must permit a text answer"
+        );
+        assert_eq!(request.tools.len(), 1);
+    }
+}
+
+#[tokio::test]
 async fn build_request_uses_sampling_config() {
     let config = SamplingConfig {
         base_url: "https://api.example.com".to_string(),
