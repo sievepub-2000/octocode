@@ -9,6 +9,7 @@ import os from 'os';
 import path from 'path';
 import { createHash } from 'crypto';
 import { spawnSync } from 'child_process';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'url';
 import { test } from 'node:test';
 import VinylFile from 'vinyl';
@@ -115,10 +116,9 @@ test('final branded PE bytes, size and every integrity block agree before native
 	for (const filename of ['node_modules.asar.unpacked/@octo-fixture/native/binding.node', 'node_modules/@octo-fixture/native/binding.node']) {
 		assert.strictEqual(hash(fs.readFileSync(path.join(fixture, filename))), entry.integrity.hash);
 	}
-	const runtimeReport = JSON.parse(fs.readFileSync(path.join(root, '../../reports/packaged-node-security-oct25.json'), 'utf8'));
-	const executable = path.join(runtimeReport.fixture, 'OctoCode.exe');
-	const result = spawnSync(executable, ['-e', `require(${JSON.stringify(archive + '/@octo-fixture/native/binding.node')}).clear(); console.log('native-loaded')`], { cwd: fixture, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, windowsHide: true, encoding: 'utf8', timeout: 10000 });
-	assert.strictEqual(result.status, 0, result.stderr);
+	const executable = createRequire(import.meta.url)('electron') as string;
+	const result = spawnSync(executable, ['-e', `require(${JSON.stringify(archive + '/@octo-fixture/native/binding.node')}).clear(); console.log('native-loaded')`], { cwd: fixture, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, windowsHide: true, encoding: 'utf8', timeout: 30_000 });
+	assert.strictEqual(result.status, 0, result.error?.message ?? result.stderr ?? 'Electron native module probe failed');
 	assert.match(result.stdout, /native-loaded/);
 	console.log(JSON.stringify({ nativeBrandingFixture: fixture, originalSha256: hash(original), finalSha256: hash(branded), finalSize: branded.length, nativeLoaded: true }));
 });

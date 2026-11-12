@@ -34,7 +34,7 @@ test('modern glob preserves Windows paths, exclusions, dot files and caller-sort
 			await fs.promises.mkdir(path.dirname(path.join(fixture, filename)), { recursive: true });
 			await fs.promises.writeFile(path.join(fixture, filename), '');
 		}
-		const options = { windowsPathsNoEscape: true, nodir: true, dot: true, ignore: ['**/ignored/**'] };
+		const options = { cwd: fixture, windowsPathsNoEscape: true, nodir: true, dot: true, ignore: ['ignored/**'] };
 		const pattern = path.join(fixture, '**', '*.ts');
 		const expected = ['.hidden.ts', 'a.ts', 'z.ts'].map(file => path.join(fixture, file).replace(/\\/g, '/')).sort();
 		assert.deepStrictEqual((await glob(pattern, options)).map(file => file.replace(/\\/g, '/')).sort(), expected);

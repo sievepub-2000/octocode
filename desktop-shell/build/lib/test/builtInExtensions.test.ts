@@ -5,7 +5,9 @@ import { test } from 'node:test';
 import { getExtensionStream, type IExtensionDefinition } from '../builtInExtensions.ts';
 
 test('cached extensions preserve binary bytes', async () => {
-	const cache = await fs.mkdtemp(path.resolve('.build/builtInExtensions/octocode-binary-test-'));
+	const cacheRoot = path.resolve(import.meta.dirname, '../../../.build/builtInExtensions');
+	await fs.mkdir(cacheRoot, { recursive: true });
+	const cache = await fs.mkdtemp(path.join(cacheRoot, 'octocode-binary-test-'));
 	const contents = Buffer.from([0x4d, 0x5a, 0xff, 0xfe, 0x80, 0, 0xc0]);
 	try {
 		await fs.writeFile(path.join(cache, 'package.json'), JSON.stringify({ version: '1.0.0' }));
