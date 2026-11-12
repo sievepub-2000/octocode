@@ -996,6 +996,7 @@
 		"maxThinkingTokens": "Max Thinking Tokens"
 	},
 	"validation": {
+		"apiProvider": "Wählen Sie einen API-Anbieter aus und speichern Sie die Konfiguration, bevor Sie eine Aufgabe starten oder fortsetzen.",
 		"apiKey": "Du musst einen gültigen API-Schlüssel angeben.",
 		"awsRegion": "Du musst eine Region für die Verwendung mit Amazon Bedrock auswählen.",
 		"googleCloud": "Du musst eine gültige Google Cloud Projekt-ID und Region angeben.",

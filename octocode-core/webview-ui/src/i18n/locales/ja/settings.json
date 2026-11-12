@@ -996,6 +996,7 @@
 		"maxThinkingTokens": "最大思考 tokens"
 	},
 	"validation": {
+		"apiProvider": "タスクを開始または再開する前に、API プロバイダーを選択して設定を保存してください。",
 		"apiKey": "有効なAPIキーを入力してください。",
 		"awsRegion": "Amazon Bedrockを使用するにはリージョンを選択してください。",
 		"googleCloud": "有効なGoogle CloudプロジェクトIDとリージョンを入力してください。",

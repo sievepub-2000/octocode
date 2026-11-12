@@ -41,7 +41,7 @@ import unicodedata
 from contextlib import closing
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Callable, Literal
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request, status
@@ -156,7 +156,7 @@ class RunRequest(BaseModel):
     max_turns: int = Field(60, ge=1, le=1000)
     permission_mode: Literal["review", "directory", "full"] = "directory"
     model: ModelSpec | None = None
-    fallbacks: list[ModelSpec] = Field(default_factory=list, description="Tried in order on endpoint/context failures")
+    fallbacks: list[ModelSpec] = Field(default_factory=list, description="Tried in order on endpoint failures")
     review: bool = Field(True, description="Let the model check its finished answer against the tool evidence once")
     stream_rules: list[dict] | None = Field(None, description="Stream rules ({id, scope: text|tool_input, pattern, message}); omitted = built-in rules")
     wait: bool = Field(False, description="Block until the run ends and return the final state")
@@ -193,6 +193,10 @@ class GoalRequest(BaseModel):
 
 
 # ---------------------------------------------------------------- host client
+
+class HostCallTimeout(RuntimeError):
+    pass
+
 
 class HostClient:
     """JSON-RPC over the host's stdio: one reader thread routes replies and events."""
@@ -265,7 +269,7 @@ class HostClient:
             self.process.stdin.flush()
         if not done.wait(timeout):
             self.pending.pop(request_id, None)
-            raise RuntimeError(f"host did not answer {method}")
+            raise HostCallTimeout(f"host did not answer {method}")
         reply = box[0]
         if reply.get("error"):
             raise RuntimeError(reply["error"].get("message", str(reply["error"])))
@@ -337,31 +341,53 @@ class Run:
         self.done = threading.Event()
         self.tool_copy_dir: Path | None = None
         self.working_directory = request.cwd
+        self.session_chain: list[str] = []
+        self.context_handoff: Callable[[], None] | None = None
+        self.persist_lock = threading.Lock()
 
     def accept(self, kind: str, payload: dict) -> None:
         self.events.append({"type": kind, **payload} if isinstance(payload, dict) else {"type": kind, "value": payload})
         if kind in ("agent.finished", "agent.error"):
-            self.result = payload if isinstance(payload, dict) else {}
-            if self.status == "running":
-                self.status = "completed" if kind == "agent.finished" and self.result.get("success") else "failed"
-            self.finished = time.time()
-            host().listeners.pop(self.task_id or "", None)
+            self.release_attempt()
+            if (kind == "agent.finished" and isinstance(payload, dict)
+                    and payload.get("continuation_reason") == "context_limit"
+                    and payload.get("success") is False and payload.get("cancelled") is False
+                    and self.status == "running" and self.context_handoff and len(self.session_chain) <= 3):
+                # Calling the Host from its reader thread would block its own reply.
+                threading.Thread(target=self.context_handoff, daemon=True).start()
+                return
+            self.finish(kind, payload)
+
+    def release_attempt(self) -> None:
+        if self.task_id:
+            host().listeners.pop(self.task_id, None)
+        if self.tool_copy_dir:
             try:
-                persist_run(self)
-            finally:
-                if self.tool_copy_dir:
-                    try:
-                        shutil.rmtree(self.tool_copy_dir)
-                    except OSError as error:
-                        print(f"[daemon] could not release project tool copy: {error}", file=sys.stderr, flush=True)
-                    self.tool_copy_dir = None
-                self.done.set()
+                shutil.rmtree(self.tool_copy_dir)
+            except OSError as error:
+                print(f"[daemon] could not release project tool copy: {error}", file=sys.stderr, flush=True)
+            self.tool_copy_dir = None
+
+    def finish(self, kind: str, payload: dict) -> None:
+        self.result = payload if isinstance(payload, dict) else {}
+        if self.status == "running":
+            if self.result.get("cancelled"):
+                self.status = "cancelled"
+            else:
+                self.status = "completed" if kind == "agent.finished" and self.result.get("success") else "failed"
+        self.finished = time.time()
+        self.context_handoff = None
+        try:
+            persist_run(self)
+        finally:
+            self.done.set()
 
     def summary(self, text: bool = True) -> dict:
         end = next((e for e in reversed(self.events) if e.get("type") == "end"), {})
         error = next((e for e in reversed(self.events) if e.get("type") == "error" and e.get("message")), {})
         out = {
             "run_id": self.id, "session_id": self.session_id, "task_id": self.task_id, "origin": self.origin,
+            "session_chain": list(self.session_chain),
             "status": self.status, "started": self.started, "finished": self.finished,
             "source_cwd": self.request.cwd, "working_directory": self.working_directory,
             "tool_calls": [e.get("toolName") for e in self.events if e.get("type") == "tool_call"],
@@ -377,7 +403,7 @@ class Run:
 
 def final_text(events: list[dict]) -> str:
     """The answer after the last tool call (earlier text is progress narration)."""
-    last_tool = max((i for i, e in enumerate(events) if e.get("type") == "tool_call"), default=-1)
+    last_tool = max((i for i, e in enumerate(events) if e.get("type") in ("tool_call", "runtime.rollover_ready")), default=-1)
     return "".join(e.get("data", "") for e in events[last_tool + 1:] if e.get("type") == "text")
 
 
@@ -387,7 +413,11 @@ RUNS: dict[str, Run] = {}
 def persist_run(run: Run) -> None:
     folder = STATE / "runs"
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / f"{run.id}.json").write_text(json.dumps({**run.summary(), "prompt": run.request.prompt}, ensure_ascii=False), encoding="utf-8")
+    with run.persist_lock:
+        path = folder / f"{run.id}.json"
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps({**run.summary(), "prompt": run.request.prompt}, ensure_ascii=False), encoding="utf-8")
+        temporary.replace(path)
 
 
 def daemon_session_home(session_id: str) -> Path:
@@ -435,58 +465,112 @@ def start_run(request: RunRequest, origin: str = "api") -> Run:
                 "session_id": request.session_id, "title": request.prompt[:120], "workspace": request.cwd,
                 "prompt": request.prompt, "provider": provider,
             })
-        run.session_id, run.task_id = prepared["session_id"], prepared["task_id"]
-        session_home = daemon_session_home(run.session_id)
-        # New hosts isolate cwd per conversation; older hosts omit this field.
-        working_directory = prepared.get("working_directory") or request.cwd
-        source = Path(request.cwd).resolve(strict=True)
-        if prepared.get("working_directory"):
-            encoded = base64.urlsafe_b64encode(run.session_id.encode("utf-8")).decode("ascii").rstrip("=")
-            expected = source / ".octocode" / "sessions" / encoded
-            actual = Path(working_directory).resolve(strict=True)
-            # Windows native canonicalization returns \\?\ paths; compare file identity.
-            if not actual.is_dir() or len(actual.parents) < 3 or not source.samefile(actual.parents[2]) or not actual.samefile(expected):
-                raise HTTPException(400, "Prepared working directory does not belong to the requested project/session")
-        run.working_directory = str(working_directory)
-        prompt = request.prompt if Path(working_directory).resolve() == source else (
-            request.prompt
-            + "\n\n## Required file-path contract\n"
-            + f"Selected source project (input root): {source.as_posix()}\n"
-            + f"Isolated conversation cwd (output root): {Path(working_directory).resolve().as_posix()}\n"
-            + "Use absolute source-project paths for filesystem read/list/search tool path arguments. "
-            + f"A project-relative input must become {source.as_posix()}/<project-relative-input> before the tool call. "
-            + "Relative tool paths resolve inside the isolated conversation cwd, not the selected source project. "
-            + "Do not guess parent-relative paths or change cwd to the shared project. "
-            + "This path contract takes precedence over task-local guidance suggesting relative input paths. "
-            + "Keep conversation outputs in the isolated working directory. Existing tool permissions still apply.")
-        model = {**prepared["route"]["model"]}
-        model["api_key"] = model.get("api_key") or provider["openAiApiKey"]
         supervision = {"fallbacks": [materialize(spec) for spec in request.fallbacks]}
         if request.stream_rules is not None:
             supervision["stream_rules"] = request.stream_rules
-        if request.review:
-            supervision["advisor"] = {"model": model}
-        host().listeners[run.task_id] = run
         RUNS[run.id] = run
-        mcp_servers, run.tool_copy_dir = isolated_mcp_servers(run.working_directory)
-        host().call("agent.run", {
-            "task_id": run.task_id, "session_id": run.session_id,
-            "executable": str(extension_binary("OCTOCODE_HARNESS", "octocode-harness")),
-            "harness_home": str(session_home),
-            "cwd": run.working_directory, "model": model, "prompt": prompt, "resume": request.resume,
-            "max_turns": request.max_turns, "permission_profile": request.permission_mode,
-            "supervision": supervision, "mcp_servers": mcp_servers,
-        })
+        run.context_handoff = lambda: rollover_run(run, provider, supervision)
+        launch_prepared_run(run, prepared, provider, supervision, request.prompt, request.resume)
     except HTTPException:
+        RUNS.pop(run.id, None)
+        run.release_attempt()
         raise
     except Exception as error:  # noqa: BLE001 - reported to the client
         RUNS.pop(run.id, None)
-        if run.tool_copy_dir:
-            shutil.rmtree(run.tool_copy_dir)
+        run.release_attempt()
         raise HTTPException(502, f"Could not start the run: {error}") from error
-    session_home.mkdir(parents=True, exist_ok=True)
     persist_run(run)
     return run
+
+
+def launch_prepared_run(run: Run, prepared: dict, provider: dict, supervision: dict, prompt: str,
+                        resume: bool, previous_session: str | None = None) -> None:
+    request = run.request
+    session_id, task_id = prepared["session_id"], prepared["task_id"]
+    session_home = daemon_session_home(session_id)
+    working_directory = prepared.get("working_directory") or request.cwd
+    source = Path(request.cwd).resolve(strict=True)
+    actual = Path(working_directory).resolve(strict=True)
+    if prepared.get("working_directory"):
+        encoded = base64.urlsafe_b64encode(session_id.encode("utf-8")).decode("ascii").rstrip("=")
+        expected = source / ".octocode" / "sessions" / encoded
+        # Windows native canonicalization returns \\?\ paths; compare file identity.
+        if not actual.is_dir() or len(actual.parents) < 3 or not source.samefile(actual.parents[2]) or not actual.samefile(expected):
+            raise HTTPException(400, "Prepared working directory does not belong to the requested project/session")
+    if actual != source:
+        prompt += (
+            "\n\n## Required file-path contract\n"
+            f"Selected source project (input root): {source.as_posix()}\n"
+            f"Isolated conversation cwd (output root): {actual.as_posix()}\n"
+            "Use absolute source-project paths for filesystem read/list/search tool path arguments. "
+            f"A project-relative input must become {source.as_posix()}/<project-relative-input> before the tool call. "
+            "Relative tool paths resolve inside the isolated conversation cwd, not the selected source project. "
+            "Do not guess parent-relative paths or change cwd to the shared project. "
+            "This path contract takes precedence over task-local guidance suggesting relative input paths. "
+            "Keep conversation outputs in the isolated working directory. Existing tool permissions still apply.")
+    if run.status != "running" or STOP.is_set():
+        raise RuntimeError("Run stopped before the next session could start")
+    model = {**prepared["route"]["model"]}
+    model["api_key"] = model.get("api_key") or provider["openAiApiKey"]
+    supervision = {**supervision, **({"advisor": {"model": model}} if request.review else {})}
+    mcp_servers, run.tool_copy_dir = isolated_mcp_servers(str(working_directory))
+    session_home.mkdir(parents=True, exist_ok=True)
+    run.session_id, run.task_id = session_id, task_id
+    run.working_directory = str(working_directory)
+    run.session_chain.append(session_id)
+    if previous_session:
+        run.events.append({"type": "runtime.rollover_ready", "source_session_id": previous_session,
+                           "session_id": session_id, "task_id": task_id})
+    client = host()
+    client.listeners[task_id] = run
+    if run.status != "running" or STOP.is_set():
+        raise RuntimeError("Run stopped before the next session could start")
+    try:
+        client.call("agent.run", {
+            "task_id": task_id, "session_id": session_id,
+            "executable": str(extension_binary("OCTOCODE_HARNESS", "octocode-harness")),
+            "harness_home": str(session_home),
+            "cwd": run.working_directory, "model": model, "prompt": prompt, "resume": resume,
+            "max_turns": request.max_turns, "permission_profile": request.permission_mode,
+            "supervision": supervision, "mcp_servers": mcp_servers,
+        })
+    except HostCallTimeout:
+        # The Host may have accepted the launch. Keep routing terminal events and
+        # keep its tool files until ownership can be resolved.
+        run.events.append({"type": "error", "message": "Host did not acknowledge launch; waiting for the existing task"})
+    if run.status == "cancelled" and not run.done.is_set():
+        try:
+            client.call("agent.cancel", {"task_id": task_id})
+        except Exception as error:  # noqa: BLE001 - keep listening for the accepted task
+            run.events.append({"type": "error", "message": f"Could not confirm cancellation: {error}"})
+
+
+def rollover_run(run: Run, provider: dict, supervision: dict) -> None:
+    previous = run.session_id
+    prepared = None
+    try:
+        if run.status != "running" or STOP.is_set():
+            raise RuntimeError("Run stopped before context handoff")
+        prepared = host().call("harness.handoff", {
+            "source_session_id": previous, "expected_source_task": run.task_id,
+            "automatic": True, "provider": provider,
+        })
+        launch_prepared_run(run, prepared, provider, supervision, prepared["prompt"], False, previous)
+    except Exception as error:  # noqa: BLE001 - report to the original run and SSE clients
+        if prepared:
+            try:
+                host().call("session.delete", {"id": prepared["session_id"], "expected_unstarted_task": prepared["task_id"]})
+            except Exception as cleanup_error:  # noqa: BLE001 - leave the source and target available for recovery
+                print(f"[daemon] handoff cleanup failed: {cleanup_error}", file=sys.stderr, flush=True)
+        run.release_attempt()
+        payload = {"message": f"Could not continue in a new session: {error}"}
+        run.events.append({"type": "agent.error", **payload})
+        run.finish("agent.error", payload)
+    else:
+        try:
+            persist_run(run)
+        except OSError as error:
+            print(f"[daemon] could not persist handoff for {run.id}: {error}", file=sys.stderr, flush=True)
 
 
 # ---------------------------------------------------------------- routines and goals
@@ -580,7 +664,10 @@ def _read_active_sessions() -> list[dict]:
             )
             for sequence, kind, payload in events:
                 state["sequence"] = sequence
-                if kind == "auto_compact_completed":
+                if kind in ("harness.prepared", "harness.continued"):
+                    state.update(task_id=json.loads(payload).get("task_id"), high_compactions=0, context_percent=None)
+                    state.pop("awaiting_usage", None)
+                elif kind == "auto_compact_completed":
                     state["awaiting_usage"] = True
                 elif kind == "usage":
                     usage = json.loads(payload).get("usage", {})
@@ -588,15 +675,35 @@ def _read_active_sessions() -> list[dict]:
                     state["context_percent"] = round(100 * used / context_window, 1) if context_window else None
                     if state.pop("awaiting_usage", False):
                         state["high_compactions"] = state["high_compactions"] + 1 if state["context_percent"] is not None and state["context_percent"] >= 90 else 0
+            if not state.get("task_id"):
+                latest = connection.execute(
+                    "SELECT payload FROM events WHERE session_id=? AND kind IN ('harness.prepared','harness.continued') ORDER BY sequence DESC LIMIT 1",
+                    (session_id,),
+                ).fetchone()
+                if latest:
+                    state["task_id"] = json.loads(latest[0]).get("task_id")
             state["needs_new_session"] = state["high_compactions"] >= 3 and (state.get("context_percent") or 0) >= 90
         for session_id in list(ACTIVE_SESSIONS):
             if session_id not in active:
                 del ACTIVE_SESSIONS[session_id]
         recent = int((time.time() - 300) * 1000)
-        RECOVERY_PENDING.update(session_id for session_id, status, updated_at in sessions
-                                if status == "interrupted" and updated_at >= recent)
+        recoverable = {session_id for session_id, status, _ in sessions if status == "interrupted"}
+        for session_id, status, updated_at in sessions:
+            if status != "failed" or (updated_at < recent and session_id not in RECOVERY_PENDING):
+                continue
+            latest = connection.execute(
+                "SELECT payload FROM events WHERE session_id=? AND kind='agent.finished' ORDER BY sequence DESC LIMIT 1",
+                (session_id,),
+            ).fetchone()
+            if latest:
+                outcome = json.loads(latest[0])
+                if (outcome.get("continuation_reason") == "context_limit" and outcome.get("success") is False
+                        and outcome.get("cancelled") is False and outcome.get("task_id")):
+                    recoverable.add(session_id)
+        RECOVERY_PENDING.update(session_id for session_id, _, updated_at in sessions
+                                if session_id in recoverable and updated_at >= recent)
         for session_id in list(RECOVERY_PENDING):
-            if statuses.get(session_id) != "interrupted" or connection.execute(
+            if session_id not in recoverable or connection.execute(
                 "SELECT 1 FROM events WHERE kind='harness.prepared' AND json_extract(payload,'$.handoff.source_session_id')=? LIMIT 1",
                 (session_id,),
             ).fetchone():
@@ -617,6 +724,13 @@ def scheduler() -> None:
                 running = RUNS.get(routine.get("last_run_id") or "")
                 if running and running.status == "running":
                     continue  # never overlap a routine with itself
+                if routine.get("continue_session") and routine.get("last_run_id"):
+                    try:
+                        previous = read_run(routine["last_run_id"])
+                    except HTTPException:
+                        previous = {}
+                    if previous.get("status") == "completed" and previous.get("session_id"):
+                        routine["session_id"] = previous["session_id"]
                 request = RunRequest(
                     prompt=routine["prompt"], cwd=routine["cwd"], model=ModelSpec(**(routine.get("model") or {})),
                     session_id=routine.get("session_id") if routine.get("continue_session") else None,
@@ -697,6 +811,7 @@ def goal_loop(goal_id: str) -> None:
             break
         session_id = goal["session_id"] = run.session_id
         if not run.done.wait(max(0, deadline - time.time())):
+            run.status = "cancelled"
             try:
                 host().call("agent.cancel", {"task_id": run.task_id})
             except Exception as error:
@@ -709,6 +824,7 @@ def goal_loop(goal_id: str) -> None:
         if STOP.is_set():
             goal["status"] = "interrupted"
             break
+        session_id = goal["session_id"] = run.session_id
         if run.status != "completed":
             goal["status"] = "failed"
             goal["error"] = f"Run ended with status {run.status}"

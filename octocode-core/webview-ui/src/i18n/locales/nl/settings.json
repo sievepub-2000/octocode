@@ -996,6 +996,7 @@
 		"maxThinkingTokens": "Max denk-tokens"
 	},
 	"validation": {
+		"apiProvider": "Selecteer een API-provider en sla de configuratie op voordat je een taak start of hervat.",
 		"apiKey": "Je moet een geldige API-sleutel opgeven.",
 		"awsRegion": "Je moet een regio kiezen om Amazon Bedrock te gebruiken.",
 		"googleCloud": "Je moet een geldig Google Cloud Project-ID en regio opgeven.",

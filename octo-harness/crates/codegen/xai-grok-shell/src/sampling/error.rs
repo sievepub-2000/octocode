@@ -225,17 +225,24 @@ pub(crate) fn terminal_error_data_with_code(
     kind: SamplingErrorKind,
     code: Option<&ApiErrorCode>,
 ) -> serde_json::Value {
+    let recovery_code = if code.is_some_and(|code| code.as_str() == "prefill_memory_exceeded") {
+        Some("prefill_memory_exceeded")
+    } else if code.is_some_and(ApiErrorCode::is_size_overflow)
+        || xai_grok_sampling_types::is_context_length_error(&message)
+    {
+        Some("context_length_exceeded")
+    } else {
+        None
+    };
     let mut data = terminal_error_data(message, http_status, kind);
-    if !code.is_some_and(|code| code.as_str() == "prefill_memory_exceeded") {
-        return data;
-    }
+    let Some(recovery_code) = recovery_code else { return data };
     if data.is_string() {
         data = serde_json::json!({"message": data});
     }
     if let Some(fields) = data.as_object_mut() {
         fields.insert(
             "error_code".into(),
-            serde_json::json!("prefill_memory_exceeded"),
+            serde_json::json!(recovery_code),
         );
         fields.insert("recoverable".into(), serde_json::json!(true));
     }

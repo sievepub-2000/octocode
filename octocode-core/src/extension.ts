@@ -351,11 +351,39 @@ export async function activate(context: vscode.ExtensionContext) {
 	const supervisionPath = context.globalStorageUri?.fsPath
 		? path.join(context.globalStorageUri.fsPath, "harness-runtime", "daemon", "supervision.json")
 		: undefined
+	const requestRollover = (sessionId: string, activeOnly = false, taskId?: string) => {
+		const recentAttempts = (attempts.get(sessionId) ?? []).filter((at) => Date.now() - at < 600_000)
+		if (supervised.has(sessionId) || attempting.has(sessionId) || recentAttempts.length >= 3) return
+		const provider = ClineProvider.getVisibleInstance() ?? ClineProvider.getAllInstances()[0]
+		if (!provider) return
+		attempting.add(sessionId)
+		void provider
+			.rolloverRuntimeSession(sessionId, false, taskId ? { sessionId, taskId } : undefined, {
+				activeOnly,
+				expectedTaskId: taskId,
+			})
+			.then((started) => {
+				if (started) supervised.add(sessionId)
+			})
+			.catch((error) => outputChannel.appendLine(`[OctoCode supervision] ${sessionId}: ${String(error)}`))
+			.finally(() => {
+				attempts.set(sessionId, [...recentAttempts, Date.now()])
+				attempting.delete(sessionId)
+			})
+	}
+	context.subscriptions.push(
+		octoRuntime.onEvent((event) => {
+			if (event.kind !== "agent.finished") return
+			const payload = event.payload as { success?: boolean; cancelled?: boolean; continuation_reason?: string }
+			if (payload.continuation_reason === "context_limit" && !payload.success && !payload.cancelled)
+				requestRollover(event.session_id, false, event.task_id)
+		}),
+	)
 	const checkSupervision = () => {
 		if (!supervisionPath) return
 		let snapshot: {
 			at?: string
-			active?: { session_id: string; needs_new_session?: boolean }[]
+			active?: { session_id: string; task_id?: string; needs_new_session?: boolean }[]
 			recovery_pending?: string[]
 		}
 		try {
@@ -364,27 +392,10 @@ export async function activate(context: vscode.ExtensionContext) {
 			return
 		}
 		if (!snapshot.at || Date.now() - Date.parse(snapshot.at) > 90_000) return
-		const sessions = [
-			...(snapshot.active ?? []).filter((task) => task.needs_new_session).map((task) => task.session_id),
-			...(snapshot.recovery_pending ?? []),
-		]
-		for (const sessionId of new Set(sessions)) {
-			const recentAttempts = (attempts.get(sessionId) ?? []).filter((at) => Date.now() - at < 600_000)
-			if (supervised.has(sessionId) || attempting.has(sessionId) || recentAttempts.length >= 3) continue
-			const provider = ClineProvider.getVisibleInstance() ?? ClineProvider.getAllInstances()[0]
-			if (!provider) continue
-			attempting.add(sessionId)
-			void provider
-				.rolloverRuntimeSession(sessionId)
-				.then((started) => {
-					if (started) supervised.add(sessionId)
-				})
-				.catch((error) => outputChannel.appendLine(`[OctoCode supervision] ${sessionId}: ${String(error)}`))
-				.finally(() => {
-					attempts.set(sessionId, [...recentAttempts, Date.now()])
-					attempting.delete(sessionId)
-				})
+		for (const task of snapshot.active ?? []) {
+			if (task.needs_new_session && task.task_id) requestRollover(task.session_id, true, task.task_id)
 		}
+		for (const sessionId of snapshot.recovery_pending ?? []) requestRollover(sessionId)
 	}
 	if (supervisionPath) {
 		const supervisionTimer = setInterval(checkSupervision, 30_000)

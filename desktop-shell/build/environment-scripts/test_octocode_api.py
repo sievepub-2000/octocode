@@ -54,6 +54,64 @@ class DaemonTests(unittest.TestCase):
         run.status = "completed"
         self.assertIsNone(run.summary()["error"])
 
+    def test_context_handoff_keeps_run_identity_and_resumes_the_goal(self):
+        import base64
+        import threading
+
+        root = Path(self.temp.name) / "context-handoff-project"
+        root.mkdir()
+        source_output = root / "finished.txt"
+        source_output.write_text("keep the completed work", encoding="utf-8")
+        launch = threading.Event()
+        client = SimpleNamespace(listeners={})
+        launches = []
+
+        def prepared(session_id, task_id):
+            encoded = base64.urlsafe_b64encode(session_id.encode()).decode().rstrip("=")
+            cwd = root / ".octocode" / "sessions" / encoded
+            cwd.mkdir(parents=True)
+            return {"session_id": session_id, "task_id": task_id, "working_directory": str(cwd),
+                    "route": {"model": {"model": "fixture"}}, "prompt": "Continue after completed steps"}
+
+        def call(method, params):
+            if method == "harness.prepare":
+                return prepared("source", "first")
+            if method == "harness.handoff":
+                self.assertTrue(params["automatic"])
+                self.assertEqual(params["expected_source_task"], "first")
+                return prepared("successor", "second")
+            self.assertEqual(method, "agent.run")
+            launches.append(params)
+            if params["task_id"] == "second":
+                launch.set()
+            return {"task_id": params["task_id"]}
+
+        client.call = call
+        provider = {"openAiApiKey": "fixture"}
+        with patch.multiple(self.api, RUNS={}, STATE=root / "state"), \
+                patch.object(self.api, "host", return_value=client), \
+                patch.object(self.api, "provider_input", return_value=(provider, "fixture")), \
+                patch.object(self.api, "extension_binary", return_value=root / "fake-harness"), \
+                patch.object(self.api, "bundled_mcp_servers", return_value={}):
+            run = self.api.start_run(self.api.RunRequest(prompt="finish the goal", cwd=str(root), permission_mode="review"))
+            run_id = run.id
+            run.accept("text", {"data": "old partial answer"})
+            run.accept("agent.finished", {"success": False, "cancelled": False, "continuation_reason": "context_limit"})
+            self.assertTrue(launch.wait(5))
+            self.assertFalse(run.done.is_set())
+            self.assertEqual(set(client.listeners), {"second"})
+            self.assertFalse(launches[1]["resume"])
+            self.assertEqual(launches[1]["permission_profile"], "review")
+            self.assertNotEqual(launches[1]["cwd"], launches[0]["cwd"])
+            self.assertIn("Continue after completed steps", launches[1]["prompt"])
+            run.accept("text", {"data": "goal completed"})
+            run.accept("agent.finished", {"success": True})
+            self.assertTrue(run.done.is_set())
+            self.assertEqual(run.id, run_id)
+            self.assertEqual(run.summary()["session_chain"], ["source", "successor"])
+            self.assertEqual(run.summary()["text"], "goal completed")
+            self.assertEqual(source_output.read_text(encoding="utf-8"), "keep the completed work")
+
     def test_failed_host_reader_start_releases_owned_process_and_log(self):
         processes, logs = [], []
         popen, open_file = subprocess.Popen, open
@@ -609,6 +667,7 @@ class DaemonTests(unittest.TestCase):
         with patch.object(self.api, "bundled_mcp_servers", return_value={"shared": {"command": "global-tool"}}):
             _, session = self.api.isolated_mcp_servers(str(project))
         run = self.api.Run(self.api.RunRequest(prompt="check", cwd=str(project)))
+        run.task_id = "owned-task"
         run.tool_copy_dir = session
         with patch.object(self.api, "host") as host, patch.object(self.api, "persist_run"):
             run.accept("agent.finished", {"success": True})

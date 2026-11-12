@@ -402,7 +402,7 @@ impl HeadlessEmitter {
 }
 
 fn attach_terminal_error_details(line: &mut Value, data: Option<&Value>) {
-    let Some(data) = data.filter(|data| data["error_code"] == "prefill_memory_exceeded") else {
+    let Some(data) = data.filter(|data| matches!(data["error_code"].as_str(), Some("prefill_memory_exceeded" | "context_length_exceeded"))) else {
         return;
     };
     line["error_code"] = data["error_code"].clone();

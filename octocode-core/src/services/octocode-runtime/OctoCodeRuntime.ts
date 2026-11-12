@@ -34,6 +34,8 @@ export type PreparedTask = RuntimeTask & {
 	providerSettings?: ProviderSettings
 	workingDirectory?: string
 	permissionProfile?: PermissionProfile
+	readOnlyTask?: boolean
+	handoffSourceSessionId?: string
 }
 export type PreparedHandoff = PreparedTask & { prompt: string; displayPrompt: string; images: string[] }
 export type NeedsInputResult = { status: "needs_input"; question: string; options?: string[] }
@@ -436,9 +438,17 @@ export class OctoCodeRuntime implements vscode.Disposable {
 		return { settings: fallback, profileId: this.selectedProfileId() }
 	}
 
-	async prepareHandoff(sourceSessionId: string, allowCompleted = false): Promise<PreparedHandoff | undefined> {
+	async prepareHandoff(
+		sourceSessionId: string,
+		allowCompleted = false,
+		options?: { automatic: true; activeOnly?: boolean; expectedTaskId?: string },
+	): Promise<PreparedHandoff | undefined> {
 		const previous = this.sessionSettings.get(sourceSessionId)
 		const taskId = this.runningSessions.get(sourceSessionId)
+		if (options?.activeOnly && (!taskId || this.cancelledTasks.has(taskId))) return undefined
+		if (taskId && options?.expectedTaskId && taskId !== options.expectedTaskId) return undefined
+		// A terminal recovery notification must never cancel a newer live turn.
+		if (options?.automatic && !options.activeOnly && taskId) return undefined
 		if (taskId) {
 			let subscription: vscode.Disposable | undefined
 			let timer: NodeJS.Timeout | undefined
@@ -460,7 +470,15 @@ export class OctoCodeRuntime implements vscode.Disposable {
 		const source = await this.call<{ status: string; workspace?: string } | null>("session.get", {
 			id: sourceSessionId,
 		})
-		if (!source || !["cancelled", "interrupted", ...(allowCompleted ? ["completed"] : [])].includes(source.status))
+		if (
+			!source ||
+			![
+				"cancelled",
+				"interrupted",
+				...(allowCompleted ? ["completed", "needs_review"] : []),
+				...(allowCompleted || options ? ["failed"] : []),
+			].includes(source.status)
+		)
 			return undefined
 		const saved = previous
 			? undefined
@@ -494,7 +512,12 @@ export class OctoCodeRuntime implements vscode.Disposable {
 			prompt: string
 			display_prompt: string
 			images: string[]
-		}>("harness.handoff", { source_session_id: sourceSessionId, provider: thinkingSettings(settings) })
+			handoff?: { latest_request?: string }
+		}>("harness.handoff", {
+			source_session_id: sourceSessionId,
+			provider: thinkingSettings(settings),
+			...(options ? { automatic: true, expected_source_task: options.expectedTaskId ?? taskId } : {}),
+		})
 		return {
 			sessionId: handoff.session_id,
 			taskId: handoff.task_id,
@@ -506,6 +529,11 @@ export class OctoCodeRuntime implements vscode.Disposable {
 			permissionProfile: previous?.permission ?? saved?.permission,
 			profileId: previous?.profileId ?? saved?.profileId,
 			workingDirectory: handoff.working_directory,
+			handoffSourceSessionId: sourceSessionId,
+			readOnlyTask:
+				typeof handoff.handoff?.latest_request === "string"
+					? isExplicitReadOnlyTask(handoff.handoff.latest_request)
+					: undefined,
 			autoCompactThresholdPercent: this.readAutoCompactThreshold(settings),
 		}
 	}
@@ -615,6 +643,7 @@ export class OctoCodeRuntime implements vscode.Disposable {
 		images: string[] = [],
 		resume = false,
 		permissionProfile: PermissionProfile = "full",
+		beforeLaunch?: () => Promise<void>,
 	): Promise<void> {
 		if (this.runningSessions.has(prepared.sessionId)) throw new Error("此对话仍在执行，请将消息加入队列")
 		if (prepared.providerSettings) {
@@ -654,13 +683,15 @@ export class OctoCodeRuntime implements vscode.Disposable {
 			})
 		}
 		this.runningSessions.set(prepared.sessionId, prepared.taskId)
+		const sourceQueue = prepared.handoffSourceSessionId && this.queueSettings.get(prepared.handoffSourceSessionId)
+		if (sourceQueue) this.queueSettings.set(prepared.sessionId, sourceQueue)
 		try {
 			const workspace = prepared.workingDirectory ?? (await this.defaultWorkspace())
 			const workingDirectory = workspace
 			// Memory lives in the harness (files + index, its own tools and injection).
 			// The Host store keeps sessions, tasks and logs; it no longer recalls into the prompt.
 			const effectivePrompt = prompt
-			const readOnlyTask = isExplicitReadOnlyTask(prompt)
+			const readOnlyTask = prepared.readOnlyTask ?? isExplicitReadOnlyTask(prompt)
 			const workbench = await this.workbenchMcp.startTask({
 				taskId: prepared.taskId,
 				sessionId: prepared.sessionId,
@@ -690,6 +721,7 @@ export class OctoCodeRuntime implements vscode.Disposable {
 				session_id: prepared.sessionId,
 			})
 			const supervision = await this.supervision(prepared, model)
+			await beforeLaunch?.()
 			if (this.cancelledTasks.has(prepared.taskId)) {
 				await this.transitionTask(prepared, "cancelled")
 				this.acceptLine(
@@ -734,9 +766,11 @@ export class OctoCodeRuntime implements vscode.Disposable {
 				supervision,
 			})
 			if (result.task_id !== prepared.taskId) throw new Error("Runtime returned a different task identity")
+			if (prepared.handoffSourceSessionId) this.queueSettings.delete(prepared.handoffSourceSessionId)
 			if (this.cancelledTasks.has(prepared.taskId)) await this.cancelTask(prepared.taskId)
 		} catch (error) {
 			if (!isAgentRunTimeout(error)) {
+				if (sourceQueue) this.queueSettings.delete(prepared.sessionId)
 				this.runningSessions.delete(prepared.sessionId)
 				this.sessionSettings?.delete(prepared.sessionId)
 				this.cancelledTasks.delete(prepared.taskId)

@@ -996,6 +996,7 @@
 		"maxThinkingTokens": "Token Thinking Maksimum"
 	},
 	"validation": {
+		"apiProvider": "Pilih penyedia API dan simpan konfigurasi sebelum memulai atau melanjutkan tugas.",
 		"apiKey": "Kamu harus menyediakan API key yang valid.",
 		"awsRegion": "Kamu harus memilih region untuk digunakan dengan Amazon Bedrock.",
 		"googleCloud": "Kamu harus menyediakan Google Cloud Project ID dan Region yang valid.",

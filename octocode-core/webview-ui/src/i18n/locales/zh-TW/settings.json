@@ -1028,6 +1028,7 @@
 		"maxThinkingTokens": "最大思考 Token 數"
 	},
 	"validation": {
+		"apiProvider": "請先選擇 API 提供者並儲存設定，再開始或繼續工作。",
 		"apiKey": "請提供有效的 API 金鑰。",
 		"awsRegion": "請選擇要用於 Amazon Bedrock 的區域。",
 		"googleCloud": "請提供有效的 Google Cloud 專案 ID 和區域。",

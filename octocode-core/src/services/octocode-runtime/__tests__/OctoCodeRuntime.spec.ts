@@ -148,6 +148,48 @@ describe("memory ownership", () => {
 })
 
 describe("continuation lifecycle", () => {
+	it("continues only the failed task and keeps the latest read-only instruction", async () => {
+		const call = vi.fn(async (method: string) => {
+			if (method === "session.get") return { status: "failed" }
+			if (method === "harness.handoff")
+				return {
+					session_id: "fresh",
+					task_id: "next",
+					route: {},
+					prompt: "old instructions then edit files",
+					display_prompt: "Continue",
+					images: [],
+					handoff: { latest_request: "Do not edit files. Explain." },
+				}
+			throw new Error(method)
+		})
+		const runningSessions = new Map([["source", "newer"]])
+		const cancelTask = vi.fn()
+		const runtime = Object.assign(Object.create(OctoCodeRuntime.prototype), {
+			runningSessions,
+			sessionSettings: new Map([["source", { settings: { apiProvider: "openai" }, permission: "review" }]]),
+			call,
+			cancelTask,
+			readAutoCompactThreshold: () => 90,
+		}) as OctoCodeRuntime
+		const recovery = { automatic: true, expectedTaskId: "exhausted" } as const
+		await expect(runtime.prepareHandoff("source", false, recovery)).resolves.toBeUndefined()
+		expect(call).not.toHaveBeenCalled()
+		expect(cancelTask).not.toHaveBeenCalled()
+		runningSessions.clear()
+		await expect(runtime.prepareHandoff("source", false, recovery)).resolves.toMatchObject({
+			sessionId: "fresh",
+			permissionProfile: "review",
+			readOnlyTask: true,
+			handoffSourceSessionId: "source",
+		})
+		expect(call).toHaveBeenCalledWith("harness.handoff", {
+			source_session_id: "source",
+			provider: { apiProvider: "openai" },
+			automatic: true,
+			expected_source_task: "exhausted",
+		})
+	})
 	it("does not replace an unconfigured session profile with another conversation's model", async () => {
 		const lookup = vi.spyOn(ProviderSettingsManager.prototype, "getProfile").mockResolvedValue({
 			id: "unfinished",

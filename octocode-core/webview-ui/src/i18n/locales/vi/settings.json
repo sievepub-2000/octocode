@@ -996,6 +996,7 @@
 		"maxThinkingTokens": "Tokens suy nghĩ tối đa"
 	},
 	"validation": {
+		"apiProvider": "Chọn nhà cung cấp API và lưu cấu hình trước khi bắt đầu hoặc tiếp tục tác vụ.",
 		"apiKey": "Bạn phải cung cấp khóa API hợp lệ.",
 		"awsRegion": "Bạn phải chọn một vùng để sử dụng Amazon Bedrock.",
 		"googleCloud": "Bạn phải cung cấp ID dự án và vùng Google Cloud hợp lệ.",

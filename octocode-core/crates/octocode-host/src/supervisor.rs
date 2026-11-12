@@ -3,8 +3,8 @@
 //! A task used to be exactly one harness process. Three failure modes made that
 //! too brittle for local models, and each maps to one mechanism here:
 //!
-//! * the endpoint drops or the context overflows → **fallback chain**: resume the
-//!   same harness session on the next configured model;
+//! * the endpoint drops → **fallback chain**: resume the same harness session
+//!   on the next configured model. Context overflow needs a fresh session;
 //! * the model streams a known-bad move (claims it cannot browse, calls a tool
 //!   that does not exist on this machine, repeats one call in a loop) → **stream
 //!   rules** (TTSR): stop the attempt and resume with a one-line correction;
@@ -17,7 +17,8 @@
 //! Attempt ──success──► [advisor OK or skipped] ──► Finished
 //!    │                  [advisor REVISE] ──────────► Attempt (resume, critique)
 //!    ├──rule/stall hit──────────────────────────────► Attempt (resume, correction)
-//!    ├──endpoint/context failure + fallback left ───► Attempt (resume, next model)
+//!    ├──endpoint failure + fallback left ────────────► Attempt (resume, next model)
+//!    ├──context overflow ───────────────────────────► Finished (handoff requested)
 //!    ├──endpoint failure, no fallback, first time ──► Attempt (wait, resume, same model)
 //!    └──cancel / other failure / budget spent ──────► Finished
 //! ```
@@ -37,8 +38,7 @@ use crate::provider::ModelProfile;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Supervision {
-    /// Models tried in order when the current one fails at the endpoint or
-    /// overflows its context.
+    /// Models tried in order when the current one fails at the endpoint.
     #[serde(default)]
     pub fallbacks: Vec<ModelProfile>,
     /// `None` uses [`default_rules`]; `Some(vec![])` turns stream rules off.
@@ -185,7 +185,7 @@ pub enum Failure {
 pub fn classify_failure(message: &str) -> Failure {
     let lower = message.to_ascii_lowercase();
     let any = |needles: &[&str]| needles.iter().any(|needle| lower.contains(needle));
-    if any(&["context length", "context_length", "maximum context", "context window", "too many tokens", "prompt is too long"]) {
+    if any(&["context length", "context_length", "maximum context", "context window", "context_window", "context_overflow", "too many tokens", "prompt is too long"]) {
         Failure::ContextOverflow
     } else if any(&[
         "temporarily unavailable",
@@ -222,6 +222,7 @@ pub struct Observer<'a> {
     pub tool_log: Vec<String>,
     pub final_text: String,
     pub last_error: Option<String>,
+    pub failure: Option<Failure>,
 }
 
 impl<'a> Observer<'a> {
@@ -235,6 +236,7 @@ impl<'a> Observer<'a> {
             tool_log: Vec::new(),
             final_text: String::new(),
             last_error: None,
+            failure: None,
         }
     }
 
@@ -282,6 +284,11 @@ impl<'a> Observer<'a> {
             }
             "error" => {
                 self.last_error = payload.get("message").and_then(Value::as_str).map(str::to_owned);
+                self.failure = Some(match payload.get("error_code").and_then(Value::as_str) {
+                    Some("context_length_exceeded" | "context_window_exceeded" | "context_overflow") => Failure::ContextOverflow,
+                    Some("prefill_memory_exceeded") => Failure::Other,
+                    _ => self.last_error.as_deref().map_or(Failure::Other, classify_failure),
+                });
                 None
             }
             _ => None,

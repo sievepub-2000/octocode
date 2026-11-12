@@ -83,6 +83,7 @@
   },
   "overrides": {
     "argparse": "2.0.1",
+    "fast-xml-parser": "5.12.0",
     "braces": "$braces",
     "path-scurry": {
       "lru-cache": "11.2.1"

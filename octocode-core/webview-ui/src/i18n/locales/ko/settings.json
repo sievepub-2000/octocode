@@ -996,6 +996,7 @@
 		"maxThinkingTokens": "최대 사고 tokens"
 	},
 	"validation": {
+		"apiProvider": "작업을 시작하거나 계속하기 전에 API 제공업체를 선택하고 구성을 저장하세요.",
 		"apiKey": "유효한 API 키를 입력해야 합니다.",
 		"awsRegion": "Amazon Bedrock을 사용하려면 리전을 선택해야 합니다.",
 		"googleCloud": "유효한 Google Cloud 프로젝트 ID와 리전을 입력해야 합니다.",

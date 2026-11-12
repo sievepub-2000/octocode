@@ -35,7 +35,8 @@ with tempfile.TemporaryDirectory(prefix="octocode-monitor-") as directory:
             "INSERT INTO sessions VALUES(?,?,?)",
             [("active-a", "running", now), ("active-b", "running", now),
              ("finished", "completed", now), ("interrupted-new", "interrupted", now),
-             ("interrupted-old", "interrupted", now - 600_000)],
+             ("interrupted-old", "interrupted", now - 600_000),
+             ("context-full", "failed", now), ("other-failure", "failed", now)],
         )
         for session_id in ("active-a", "active-b"):
             encoded = base64.urlsafe_b64encode(session_id.encode()).decode().rstrip("=")
@@ -46,6 +47,7 @@ with tempfile.TemporaryDirectory(prefix="octocode-monitor-") as directory:
             database.execute("INSERT INTO events VALUES(?,?,?,?)", ("active-a", sequence, "auto_compact_completed", "{}"))
             database.execute("INSERT INTO events VALUES(?,?,?,?)", ("active-a", sequence + 1, "usage", json.dumps({"usage": {"input_tokens": 950}})))
         database.execute("INSERT INTO events VALUES(?,?,?,?)", ("active-b", 1, "usage", json.dumps({"usage": {"input_tokens": 200}})))
+        database.execute("INSERT INTO events VALUES(?,?,?,?)", ("context-full", 1, "agent.finished", json.dumps({"success": False, "cancelled": False, "task_id": "old-task", "continuation_reason": "context_limit"})))
         database.commit()
     snapshot = module.monitor_active_sessions()
     assert {item["session_id"] for item in snapshot} == {"active-a", "active-b"}, snapshot
@@ -53,7 +55,7 @@ with tempfile.TemporaryDirectory(prefix="octocode-monitor-") as directory:
     assert state["active-a"]["needs_new_session"] is True, state["active-a"]
     assert state["active-a"]["high_compactions"] == 3, state["active-a"]
     assert state["active-b"]["needs_new_session"] is False, state["active-b"]
-    assert module.RECOVERY_PENDING == {"interrupted-new"}, module.RECOVERY_PENDING
+    assert module.RECOVERY_PENDING == {"interrupted-new", "context-full"}, module.RECOVERY_PENDING
     with closing(sqlite3.connect(root / "octocode.db")) as database:
         database.execute("UPDATE sessions SET status='completed' WHERE id='active-a'")
         database.commit()

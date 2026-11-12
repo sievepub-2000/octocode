@@ -341,7 +341,7 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(
 			[trackChange],
 		)
 
-		const isSettingValid = !errorMessage
+		const isSettingValid = !apiConfiguration.apiProvider || !errorMessage
 
 		const saveApiConfiguration = useCallback(() => {
 			if (!currentApiConfigName) return
@@ -436,7 +436,9 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(
 
 				// These have more complex logic so they aren't (yet) handled
 				// by the `updateSettings` message.
-				vscode.postMessage({ type: "upsertApiConfiguration", text: currentApiConfigName, apiConfiguration })
+				if (apiConfiguration.apiProvider) {
+					vscode.postMessage({ type: "upsertApiConfiguration", text: currentApiConfigName, apiConfiguration })
+				}
 				vscode.postMessage({ type: "telemetrySetting", text: telemetrySetting })
 				vscode.postMessage({ type: "debugSetting", bool: cachedState.debug })
 

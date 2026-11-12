@@ -996,6 +996,7 @@
 		"maxThinkingTokens": "Tokens máximos de pensamento"
 	},
 	"validation": {
+		"apiProvider": "Selecione um provedor de API e salve a configuração antes de iniciar ou continuar uma tarefa.",
 		"apiKey": "Você deve fornecer uma chave de API válida.",
 		"awsRegion": "Você deve escolher uma região para usar o Amazon Bedrock.",
 		"googleCloud": "Você deve fornecer um ID de projeto e região do Google Cloud válidos.",

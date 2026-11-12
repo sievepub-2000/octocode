@@ -24,6 +24,7 @@ fn main() {
         ("non_endpoint_failure_does_not_fall_back", non_endpoint_failure_does_not_fall_back),
         ("spent_budget_observes_without_stopping_the_attempt", spent_budget_observes_without_stopping_the_attempt),
         ("endpoint_failure_without_fallback_is_retried_once_on_the_same_model", endpoint_failure_without_fallback_is_retried_once_on_the_same_model),
+        ("context_exhaustion_requests_fresh_session", context_exhaustion_requests_fresh_session),
         ("resumed_task_receives_plan_reminder", resumed_task_receives_plan_reminder),
         ("cancel_during_endpoint_backoff_does_not_restart", cancel_during_endpoint_backoff_does_not_restart),
         ("malformed_advisor_ends_with_terminal_error", malformed_advisor_ends_with_terminal_error),
@@ -68,6 +69,9 @@ fn fake_harness(mode: &str) {
         ("other-failure", 1) => {
             emit(json!({"type": "error", "message": "Tool permission denied."}));
             std::process::exit(1);
+        }
+        ("context-limit", 1) => {
+            emit(json!({"type": "error", "error_code": "context_length_exceeded", "message": "Request rejected"}));
         }
         ("rule", 1) => {
             emit(json!({"type": "text", "data": "抱歉，我无法访问互联网，"}));
@@ -201,6 +205,20 @@ fn supervisor_actions(events: &[AgentEvent]) -> Vec<String> {
 
 fn finished(events: &[AgentEvent]) -> &Value {
     &events.last().unwrap().payload
+}
+
+fn context_exhaustion_requests_fresh_session() -> Scenario {
+    Scenario {
+        mode: "context-limit",
+        fallbacks: vec![model("backup")],
+        max_interventions: 3,
+        check: |home, events| {
+            assert_eq!(finished(events)["success"], false);
+            assert_eq!(finished(events)["continuation_reason"], "context_limit");
+            assert_eq!(finished(events)["task_id"], "task-context-limit");
+            assert!(!home.join("attempt-2.json").exists(), "must not resend a full checkpoint");
+        },
+    }
 }
 
 fn endpoint_failure_resumes_on_the_fallback_model() -> Scenario {

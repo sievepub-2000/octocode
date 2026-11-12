@@ -160,6 +160,12 @@ export async function runEsbuild(options: EsbuildOptions, extensionPath?: string
 	const scriptPath = getEsbuildScriptPath(extensionPath)
 
 	const args: string[] = [
+		// Bundled Node on Windows must initialize its OS-backed DRBG before Go WASM requests entropy.
+		...(process.platform === "win32"
+			? [
+					`--import=data:text/javascript,${encodeURIComponent('import { randomBytes } from "node:crypto"; randomBytes(32)')}`,
+				]
+			: []),
 		scriptPath,
 		options.entryPoint,
 		`--outfile=${options.outfile}`,

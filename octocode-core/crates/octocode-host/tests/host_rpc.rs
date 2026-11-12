@@ -771,6 +771,46 @@ fn handoff_creates_a_new_session_with_the_last_three_turns() {
 }
 
 #[test]
+fn automatic_context_handoff_checks_task_identity_and_limits_repeated_rollover() {
+    let host = Host::open(":memory:").unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let provider = json!({"apiProvider":"openai","openAiModelId":"fixture","autoContextWindow":false,"modelContextWindow":4096});
+    let mut source = call(&host, "harness.prepare", json!({"session_id":"source","title":"Task","workspace":workspace.path(),"prompt":"Finish the existing task","provider":provider}));
+    let original = std::path::Path::new(source["working_directory"].as_str().unwrap()).join("finished.txt");
+    std::fs::write(&original, "retained").unwrap();
+    call(&host,"event.append",json!({"session_id":"source","kind":"text","payload":{"data":format!("{}finished", "进展".repeat(40_000))}}));
+    call(&host,"event.append",json!({"session_id":"source","kind":"user.message","payload":{"id":"steered","text":"Review only. Continue the current task.","images":[]}}));
+    for generation in 0..=3 {
+        let session = source["session_id"].as_str().unwrap();
+        let task = source["task_id"].as_str().unwrap();
+        let terminal = json!({"success":false,"cancelled":false,"task_id":task,"continuation_reason":"context_limit"});
+        host.record_agent_lifecycle(task, session, "agent.finished", &terminal).unwrap();
+        if generation == 0 {
+            assert!(error(&host,"harness.handoff",json!({"source_session_id":session,"automatic":true,"provider":provider})).contains("not eligible"));
+        }
+        call(&host,"event.append",json!({"session_id":session,"kind":"agent.finished","payload":terminal}));
+        assert!(error(&host,"harness.handoff",json!({"source_session_id":session,"expected_source_task":"obsolete","automatic":true,"provider":provider})).contains("changed"));
+        let request = json!({"source_session_id":session,"expected_source_task":task,"automatic":true,"provider":provider});
+        if generation == 3 {
+            assert!(error(&host,"harness.handoff",request).contains("limit reached"));
+            break;
+        }
+        let moved = call(&host,"harness.handoff",request.clone());
+        assert!(error(&host,"harness.handoff",request).contains("already has a new session"));
+        assert_eq!(moved["handoff"]["automatic_generation"],generation+1);
+        assert_eq!(moved["handoff"]["objective"],"Finish the existing task");
+        assert_eq!(moved["handoff"]["latest_request"],"Review only. Continue the current task.");
+        assert!(error(&host,"harness.continue",json!({"session_id":session,"prompt":"do not restart old work","provider":provider})).contains("已接续"));
+        assert!(moved["prompt"].as_str().unwrap().len() < 4096);
+        let next = std::path::Path::new(moved["working_directory"].as_str().unwrap());
+        assert_eq!(next.ancestors().nth(3).unwrap(), workspace.path().canonicalize().unwrap());
+        assert_eq!(std::fs::read_to_string(&original).unwrap(), "retained");
+        source = moved;
+    }
+    assert_eq!(call(&host,"session.list",json!({})).as_array().unwrap().len(),4);
+}
+
+#[test]
 fn legacy_handoff_uses_latest_inherited_turn_when_request_field_is_missing() {
     let host = Host::open(":memory:").unwrap();
     let workspace = tempfile::tempdir().unwrap();

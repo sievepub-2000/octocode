@@ -572,7 +572,7 @@ impl Store {
     pub fn handoff_events(&self, session_id: &str) -> rusqlite::Result<Vec<(i64, String, Value)>> {
         let mut stmt = self.conn.prepare(
             "SELECT sequence,kind,payload FROM events WHERE session_id=?1
-             AND kind IN ('harness.prepared','harness.continued','legacy.turn','agent.finished','plan','text') ORDER BY sequence",
+             AND kind IN ('harness.prepared','harness.continued','legacy.turn','agent.finished','plan','text','user.message') ORDER BY sequence",
         )?;
         stmt.query_map([session_id], |row| {
             let raw: String = row.get(2)?;

@@ -253,7 +253,8 @@ async fn run_agent(
         tool_calls += outcome.tool_calls;
         tool_log.extend(outcome.tool_log.iter().cloned());
         let budget_left = interventions < run.supervision.max_interventions;
-        let next: Option<(&str, String, String)> = if outcome.cancelled {
+        let context_limit = !outcome.cancelled && outcome.failure == Failure::ContextOverflow;
+        let next: Option<(&str, String, String)> = if outcome.cancelled || context_limit {
             None
         } else if let Some(hit) = outcome.intervention.as_ref().filter(|_| budget_left) {
             interventions += 1;
@@ -263,8 +264,7 @@ async fn run_agent(
             };
             Some((action, detail, hit.prompt()))
         } else if !outcome.success {
-            let failure = outcome.last_error.as_deref().map_or(Failure::Other, supervisor::classify_failure);
-            match (failure, fallbacks.next()) {
+            match (outcome.failure, if outcome.failure == Failure::Endpoint { fallbacks.next() } else { None }) {
                 (Failure::Endpoint, None) if !endpoint_retried => {
                     endpoint_retried = true;
                     tokio::select! {
@@ -283,7 +283,7 @@ async fn run_agent(
                         "[OctoCode supervisor] The model endpoint was unreachable for a moment and the session was resumed. Continue the task from where it stopped; do not restart services the session depends on unless the task requires it.".to_owned(),
                     ))
                 }
-                (Failure::Endpoint | Failure::ContextOverflow, Some(next_model)) => {
+                (Failure::Endpoint, Some(next_model)) => {
                     let detail = format!(
                         "{} -> {} ({})",
                         model.model,
@@ -347,6 +347,7 @@ async fn run_agent(
                     json!({
                         "success": outcome.success, "cancelled": outcome.cancelled, "exit_code": outcome.exit_code,
                         "attempts": attempt, "interventions": interventions,
+                        "task_id": task_id, "continuation_reason": context_limit.then_some("context_limit"),
                     }),
                 ));
                 return Ok(());
@@ -364,6 +365,7 @@ struct AttemptOutcome {
     tool_log: Vec<String>,
     final_text: String,
     last_error: Option<String>,
+    failure: Failure,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -518,8 +520,9 @@ async fn run_attempt(
         }
     }
     drop(prompt_file);
+    let failure = observer.failure.unwrap_or(Failure::Other);
     Ok(AttemptOutcome {
-        success: status.success() && intervention.is_none(),
+        success: status.success() && intervention.is_none() && failure != Failure::ContextOverflow,
         cancelled,
         exit_code: status.code(),
         intervention,
@@ -527,6 +530,7 @@ async fn run_attempt(
         tool_log: std::mem::take(&mut observer.tool_log),
         final_text: std::mem::take(&mut observer.final_text),
         last_error: observer.last_error.take(),
+        failure,
     })
 }
 

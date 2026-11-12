@@ -996,6 +996,7 @@
 		"maxThinkingTokens": "Maksimum düşünme tokeni"
 	},
 	"validation": {
+		"apiProvider": "Bir görevi başlatmadan veya sürdürmeden önce bir API sağlayıcısı seçin ve yapılandırmayı kaydedin.",
 		"apiKey": "Geçerli bir API anahtarı sağlamalısınız.",
 		"awsRegion": "Amazon Bedrock kullanmak için bir bölge seçmelisiniz.",
 		"googleCloud": "Geçerli bir Google Cloud proje kimliği ve bölge sağlamalısınız.",
