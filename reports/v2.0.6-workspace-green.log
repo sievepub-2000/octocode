@@ -1,0 +1,10 @@
+
+ RUN  v4.1.12 D:/gpt-workspace/octocode/source/octocode-core/src
+
+······
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  10:28:38
+   Duration  610ms (transform 56ms, setup 155ms, import 31ms, tests 261ms, environment 0ms)
+

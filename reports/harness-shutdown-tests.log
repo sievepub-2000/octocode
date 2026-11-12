@@ -1,0 +1,16 @@
+﻿cargo : [1m[92m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 47.28s
+所在位置 行:1 字符: 215
++ ... to-env.ps1; cargo test --manifest-path D:\gpt-workspace\octocode\sour ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([1m[92m    Fi...et(s) in 47.28s:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[1m[92m     Running[0m unittests src\lib.rs (D:\gpt-workspace\octocode\source\octo-harness\target\debug\deps\xai_gro
+k_shell-25d9142ebe31a493.exe)
+
+running 2 tests
+test agent::mvp_agent::tests::supervisor_process_shutdown_flush_is_clean_for_resident_actor ... ok
+test agent::mvp_agent::tests::supervisor_process_shutdown_reports_actor_failure_even_after_reap ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 6685 filtered out; finished in 0.05s
+

@@ -1,0 +1,11 @@
+﻿python.exe : [32m.[0m[32m.[0m[32m.[0m[32m.[0m
+所在位置 行:1 字符: 297
++ ... 'python' }; & $py D:\gpt-workspace\octocode\source\desktop-shell\buil ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([32m.[0m[32m.[0m[32m.[0m[32m.[0m:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+----------------------------------------------------------------------
+Ran 4 tests in 0.511s
+
+[32mOK[0m

@@ -1,0 +1,31 @@
+{
+  "directory": "D:\\gpt-workspace\\octocode\\source\\desktop-shell\\.build\\environments\\funasr\\models",
+  "model": "sensevoice-small-q8.gguf",
+  "runtime": "0.2.6",
+  "provider": "funasr-local",
+  "verified": true
+}
+{"patchedFiles": 7}
+{"status":"PASS","configuration":true,"validation":true,"jsonSchema":true,"repair":true,"boundedCollections":true}
+No broken requirements found.
+Processing D:\gpt-workspace\octocode\source\octocode-core\src\resources\python\code_review_graph-2.3.8+octocode.1-py3-none-any.whl
+Installing collected packages: code-review-graph
+  Attempting uninstall: code-review-graph
+    Found existing installation: code-review-graph 2.3.8+octocode.1
+    Uninstalling code-review-graph-2.3.8+octocode.1:
+      Successfully uninstalled code-review-graph-2.3.8+octocode.1
+Successfully installed code-review-graph-2.3.8+octocode.1
+{"files_verified": 80, "mcp_configs_merged": 0, "tools": "D:\\gpt-workspace\\octocode\\source\\desktop-shell\\.build\\environments\\tools"}
+{"program_bundle": "D:\\gpt-workspace\\octocode\\source\\desktop-shell\\.build\\environments\\installer\\system-tools.zip"}
+Executing <Task pending name='Task-2' coro=<McpSessionSecurityTests.test_session_limit_delete_cleanup_and_idle_expiry() running at D:\gpt-workspace\octocode\source\desktop-shell\.build\environments\scripts\test_runtime_python_security.py:97> cb=[_run_until_complete_cb() at D:\gpt-workspace\octocode\source\desktop-shell\.build\environments\python\Lib\asyncio\base_events.py:181] created at D:\gpt-workspace\octocode\source\desktop-shell\.build\environments\python\Lib\asyncio\runners.py:110> took 1.196 seconds
+.........
+----------------------------------------------------------------------
+Ran 9 tests in 2.361s
+
+OK
+{"unpackedFiles":45,"nativeModules":18,"integrity":"PASS"}
+
+task             log
+----             ---
+vscode-win32-x64 D:\gpt-workspace\octocode\source\desktop-shell\work\verification\vscode-win32-x64-20261030082650.log
+

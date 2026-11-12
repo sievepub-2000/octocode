@@ -1,0 +1,58 @@
+[MR] clean output dir ...
+Error: D:\gpt-workspace\octocode\source\octocode-core\webview-ui\src\components\settings\__tests__\OctoCodeAbout.visual.tsx: Couldn't find a Program
+    at _Scope.getProgramParent (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:33594:15)
+    at _Scope.registerBinding (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:33352:29)
+    at Object.Function (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:33118:22)
+    at _Scope.crawl (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:33521:21)
+    at _Scope.init (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:33491:16)
+    at NodePath.setScope (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:44767:59)
+    at NodePath.setContext (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:44779:16)
+    at NodePath.pushContext (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:44836:12)
+    at TraversalContext.visitQueue (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:44554:34)
+    at TraversalContext.visitMultiple (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:44534:21)
+    at TraversalContext.visit (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:44583:23)
+    at traverseNode (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:44618:21)
+    at NodePath.visit (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:44721:56)
+    at TraversalContext.visitQueue (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:44562:20)
+    at TraversalContext.visitSingle (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:44538:23)
+    at TraversalContext.visit (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:44585:23)
+    at traverseNode (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:44618:21)
+    at NodePath.visit (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:44721:56)
+    at TraversalContext.visitQueue (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:44562:20)
+    at TraversalContext.visitMultiple (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:44534:21)
+    at TraversalContext.visit (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:44583:23)
+    at traverseNode (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:44618:21)
+    at Object.traverse2 (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\playwright\lib\transform\babelBundle.js:44938:38)
+    at collectJsxComponentUsages (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\@playwright\experimental-ct-core\lib\tsxTransform.js:132:9)
+    at PluginPass.enter (D:\gpt-workspace\octocode\source\octocode-core\webview-ui\node_modules\@playwright\experimental-ct-core\lib\tsxTransform.js:47:31)
+    at eval (<anonymous>:1:1)
+Error: No tests found.
+Make sure that arguments are regular expressions matching test files.
+You may need to escape symbols like "$" or "*" and quote the arguments.
+
+[MR] generating report data ...
+[MR] generating test report ...
+[MR] Webview Playwright CT
+┌─────────────┬─────────────────────┐
+│ Tests       │ 0                   │
+│ ├ Failed    │ 0 (0.0%)            │
+│ ├ Flaky     │ 0 (0.0%)            │
+│ ├ Skipped   │ 0 (0.0%)            │
+│ └ Passed    │ 0 (0.0%)            │
+│ Steps       │ 0                   │
+│ Suites      │ 0                   │
+│ ├ Projects  │ 0                   │
+│ ├ Files     │ 0                   │
+│ ├ Describes │ 0                   │
+│ └ Shards    │ 0                   │
+│ Errors      │ 0                   │
+│ Retries     │ 0                   │
+│ Logs        │ 0                   │
+│ Attachments │ 0                   │
+│ Artifacts   │ 0                   │
+│ Playwright  │ v1.61.1             │
+│ Date        │ 2026/10/30 16:13:26 │
+│ Duration    │ 412ms               │
+└─────────────┴─────────────────────┘
+[MR] json: coverage-ct/index.json
+[MR] view report: npx monocart show-report coverage-ct/index.html

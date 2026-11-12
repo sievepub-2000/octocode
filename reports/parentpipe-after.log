@@ -1,0 +1,119 @@
+﻿python.exe : [31mF[0m[31mF[0m[31mF[0m[31mF[0m
+所在位置 行:1 字符: 297
++ ... 'python' }; & $py D:\gpt-workspace\octocode\source\desktop-shell\buil ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([31mF[0m[31mF[0m[31mF[0m[31mF[0m:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+======================================================================
+[31mFAIL[0m[1;31m: test_eof_leaves_detached_supervision_running (__main__.ParentPipeTests.test_eof_leaves_detached_s
+upervision_running)[0m
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File [35m"D:\gpt-workspace\octocode\source\desktop-shell\build\environment-scripts\test_parent_pipe.py"[0m, line [
+35m43[0m, in [35mtest_eof_leaves_detached_supervision_running[0m
+    self.assertEqual(json.loads([31mself.finish[0m[1;31m(child)[0m), [])
+                                [31m~~~~~~~~~~~[0m[1;31m^^^^^^^[0m
+  File [35m"D:\gpt-workspace\octocode\source\desktop-shell\build\environment-scripts\test_parent_pipe.py"[0m, line [
+35m26[0m, in [35mfinish[0m
+    [31mself.assertEqual[0m[1;31m(code, 0, error)[0m
+    [31m~~~~~~~~~~~~~~~~[0m[1;31m^^^^^^^^^^^^^^^^[0m
+[1;35mAssertionError[0m: [35m1 != 0 : Traceback (most recent call last):
+
+  File [35m"<string>"[0m, line [35m16[0m, in [35m<module>[0m
+
+    [31mwatch_parent[0m[1;31m()[0m
+
+    [31m~~~~~~~~~~~~[0m[1;31m^^[0m
+
+  File [35m"<string>"[0m, line [35m7[0m, in [35mwatch_parent[0m
+
+    while len(command) <= [1;31mMAX_COMMAND_BYTES[0m:
+
+                          [1;31m^^^^^^^^^^^^^^^^^[0m
+
+[1;35mNameError[0m: [35mname 'MAX_COMMAND_BYTES' is not defined[0m
+
+[0m
+
+======================================================================
+[31mFAIL[0m[1;31m: test_interpreter_exit_while_parent_pipe_stays_open (__main__.ParentPipeTests.test_interpreter_exi
+t_while_parent_pipe_stays_open)[0m
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File [35m"D:\gpt-workspace\octocode\source\desktop-shell\build\environment-scripts\test_parent_pipe.py"[0m, line [
+35m32[0m, in [35mtest_interpreter_exit_while_parent_pipe_stays_open[0m
+    [31mself.finish[0m[1;31m(child)[0m  # Keep stdin open through interpreter finalization.
+    [31m~~~~~~~~~~~[0m[1;31m^^^^^^^[0m
+  File [35m"D:\gpt-workspace\octocode\source\desktop-shell\build\environment-scripts\test_parent_pipe.py"[0m, line [
+35m27[0m, in [35mfinish[0m
+    [31mself.assertEqual[0m[1;31m(error, '')[0m
+    [31m~~~~~~~~~~~~~~~~[0m[1;31m^^^^^^^^^^^[0m
+[1;35mAssertionError[0m: [35m'Exception in thread Thread-1 (watch_paren[948 chars]\r\n' != ''
+Diff is 854 characters long. Set self.maxDiff to None to see it.[0m
+
+======================================================================
+[31mFAIL[0m[1;31m: test_invalid_overlong_command_never_requests_shutdown (__main__.ParentPipeTests.test_invalid_over
+long_command_never_requests_shutdown)[0m
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File [35m"D:\gpt-workspace\octocode\source\desktop-shell\build\environment-scripts\test_parent_pipe.py"[0m, line [
+35m49[0m, in [35mtest_invalid_overlong_command_never_requests_shutdown[0m
+    self.assertEqual(json.loads([31mself.finish[0m[1;31m(child)[0m), [])
+                                [31m~~~~~~~~~~~[0m[1;31m^^^^^^^[0m
+  File [35m"D:\gpt-workspace\octocode\source\desktop-shell\build\environment-scripts\test_parent_pipe.py"[0m, line [
+35m26[0m, in [35mfinish[0m
+    [31mself.assertEqual[0m[1;31m(code, 0, error)[0m
+    [31m~~~~~~~~~~~~~~~~[0m[1;31m^^^^^^^^^^^^^^^^[0m
+[1;35mAssertionError[0m: [35m1 != 0 : Traceback (most recent call last):
+
+  File [35m"<string>"[0m, line [35m16[0m, in [35m<module>[0m
+
+    [31mwatch_parent[0m[1;31m()[0m
+
+    [31m~~~~~~~~~~~~[0m[1;31m^^[0m
+
+  File [35m"<string>"[0m, line [35m7[0m, in [35mwatch_parent[0m
+
+    while len(command) <= [1;31mMAX_COMMAND_BYTES[0m:
+
+                          [1;31m^^^^^^^^^^^^^^^^^[0m
+
+[1;35mNameError[0m: [35mname 'MAX_COMMAND_BYTES' is not defined[0m
+
+[0m
+
+======================================================================
+[31mFAIL[0m[1;31m: test_stop_line_requests_shutdown (__main__.ParentPipeTests.test_stop_line_requests_shutdown)[0m
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File [35m"D:\gpt-workspace\octocode\source\desktop-shell\build\environment-scripts\test_parent_pipe.py"[0m, line [
+35m38[0m, in [35mtest_stop_line_requests_shutdown[0m
+    self.assertEqual(json.loads([31mself.finish[0m[1;31m(child)[0m), [True])
+                                [31m~~~~~~~~~~~[0m[1;31m^^^^^^^[0m
+  File [35m"D:\gpt-workspace\octocode\source\desktop-shell\build\environment-scripts\test_parent_pipe.py"[0m, line [
+35m26[0m, in [35mfinish[0m
+    [31mself.assertEqual[0m[1;31m(code, 0, error)[0m
+    [31m~~~~~~~~~~~~~~~~[0m[1;31m^^^^^^^^^^^^^^^^[0m
+[1;35mAssertionError[0m: [35m1 != 0 : Traceback (most recent call last):
+
+  File [35m"<string>"[0m, line [35m16[0m, in [35m<module>[0m
+
+    [31mwatch_parent[0m[1;31m()[0m
+
+    [31m~~~~~~~~~~~~[0m[1;31m^^[0m
+
+  File [35m"<string>"[0m, line [35m7[0m, in [35mwatch_parent[0m
+
+    while len(command) <= [1;31mMAX_COMMAND_BYTES[0m:
+
+                          [1;31m^^^^^^^^^^^^^^^^^[0m
+
+[1;35mNameError[0m: [35mname 'MAX_COMMAND_BYTES' is not defined[0m
+
+[0m
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.611s
+
+[1;31mFAILED[0m ([1;31mfailures=4[0m)

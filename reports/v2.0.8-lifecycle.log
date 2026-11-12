@@ -1,0 +1,38 @@
+✔ cold-start health probing allows a delayed definitive connection refusal (1118.2716ms)
+✔ cold start with no token starts without false errors (1.3299ms)
+✔ cold start with stale token starts without false errors (0.9924ms)
+✔ extension test windows never attach to the production daemon (0.5988ms)
+✔ tray click restores an alive window when its last window was destroyed (0.9995ms)
+✔ tray open restores an alive window when its last window was destroyed (0.5058ms)
+✔ tray Open restarts once when no usable window remains (0.6529ms)
+✔ reattaches a degraded live daemon with authentication and preserves its token (1.1101ms)
+✔ authentication rejection is reported without starting or taking ownership (0.6737ms)
+✔ missing token for a live daemon is reported without starting or taking ownership (0.6214ms)
+✔ foreign store sharing the root prefix is reported without starting or taking ownership (0.5141ms)
+✔ malformed health is reported without starting or taking ownership (0.5005ms)
+✔ HTTP failure is reported without starting or taking ownership (0.5249ms)
+✔ ambiguous timeout is reported without starting or taking ownership (0.5347ms)
+✔ shutdown during health lookup cannot start or attach a daemon (0.6745ms)
+✔ concurrent ensure calls share one attachment (0.5407ms)
+✔ no token does not make a timeout safe to start a replacement daemon (0.546ms)
+✔ a timeout followed by refused connections still prevents replacement (0.6994ms)
+✔ actual startDaemon sets the token path before spawn and authenticated readiness (1.1954ms)
+✔ shutdown waits for pending authentication before shutting down the attached daemon (1.1857ms)
+✔ readiness never authenticates a different child PID (1.9793ms)
+✔ readiness reports the underlying authentication failure (1.7813ms)
+✔ restart preserves the child and token; a veto restores normal shutdown (0.7718ms)
+✔ normal stop sends stop rather than preserving the child (0.5198ms)
+✔ update restart stops its idle daemon instead of leaving the watchdog alive (0.6802ms)
+✔ update refuses to interrupt active or unknown daemon work: {"running":1,"monitored_sessions":0} (0.5534ms)
+✔ update refuses to interrupt active or unknown daemon work: {"running":0,"monitored_sessions":1} (0.4192ms)
+✔ update refuses to interrupt active or unknown daemon work: {} (0.4722ms)
+✔ pending update relaunch preserves resource-restart supervision: false (0.5788ms)
+✔ pending update relaunch preserves resource-restart supervision: true (0.4604ms)
+ℹ tests 30
+ℹ suites 0
+ℹ pass 30
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1477.1033

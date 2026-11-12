@@ -1,0 +1,2 @@
+$ node scripts/generate-settings-search.mjs --check && tsc
+Settings search metadata: 23 controls, no UI mounted

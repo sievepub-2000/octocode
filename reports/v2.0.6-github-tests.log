@@ -1,0 +1,24 @@
+
+
+  Private GitHub Windows updates
+    √ only official fixed API endpoints are recognized
+    √ real stable versions compare independently from VS Code API versions
+    √ two-part stable release metadata normalizes and is current at 2.0.0
+    √ short tags reject leading zeros, malformed tags and prereleases
+    √ missing, ambiguous, digest-mismatched, external and wrong-platform assets fail
+    √ signed manifest must bind schema, product, repository, tag and version
+    √ compiled public key matches its pin and rejects test-key signatures
+    √ official unsigned releases fail closed before installer download
+    √ redirect allowlist rejects credentials, insecure protocols and unrelated hosts
+    √ private API credentials never follow the CDN redirect
+    √ unapproved redirects stop before issuing a second request
+    √ public updates work without authentication and never forward headers to CDN
+    √ invalid authentication and foreign API asset URLs fail before networking
+    √ private access errors are actionable and cancellations remain cancellations
+
+  Errors
+    √ should not have unexpected errors in tests
+
+
+  15 passing (10ms)
+

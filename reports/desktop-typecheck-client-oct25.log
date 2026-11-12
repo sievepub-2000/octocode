@@ -1,0 +1,11 @@
+npm notice run octocode@2.0.0 typecheck-client
+npm notice run tsc --project ./src/tsconfig.json --noEmit --skipLibCheck
+src/vs/workbench/test/electron-browser/workbenchTestServices.ts(164,8): error TS2416: Property 'quit' in type 'TestNativeHostService' is not assignable to the same property in base type 'INativeHostService'.
+  Type '() => Promise<void>' is not assignable to type '() => Promise<boolean>'.
+    Type 'Promise<void>' is not assignable to type 'Promise<boolean>'.
+      Type 'void' is not assignable to type 'boolean'.
+src/vs/workbench/test/electron-browser/workbenchTestServices.ts(248,48): error TS2345: Argument of type 'TestNativeHostService' is not assignable to parameter of type 'Function | Partial<NoInfer<INativeHostService>>'.
+  Type 'TestNativeHostService' is not assignable to type 'Partial<NoInfer<INativeHostService>>'.
+    The types returned by 'quit()' are incompatible between these types.
+      Type 'Promise<void>' is not assignable to type 'Promise<boolean>'.
+        Type 'void' is not assignable to type 'boolean'.

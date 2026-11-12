@@ -1,0 +1,3 @@
+debugger native module loaded
+No broken requirements found.
+{"status": "PASS", "desktop": "2.0.5", "commit": "a422c808e38514559a76f1ced66a95b388cbf25d", "extension": "0.1.17", "powershell": "7.6.9", "microsoftSignature": "Valid", "stagedVsixSha256": "3524b72adedb16daab552f777b63df67986abc6c0267656864bf54e0466d0740", "formalClientTouched": false}

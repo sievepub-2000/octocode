@@ -1,0 +1,225 @@
+{"unpackedFiles":45,"nativeModules":18,"integrity":"PASS"}
+Processing .\octocode-core\src\resources\python\code_review_graph-2.3.8+octocode.1-py3-none-any.whl
+Installing collected packages: code-review-graph
+  Attempting uninstall: code-review-graph
+    Found existing installation: code-review-graph 2.3.8+octocode.1
+    Uninstalling code-review-graph-2.3.8+octocode.1:
+      Successfully uninstalled code-review-graph-2.3.8+octocode.1
+Successfully installed code-review-graph-2.3.8+octocode.1
+{"files_verified": 80, "mcp_configs_merged": 0, "tools": "D:\\gpt-workspace\\octocode\\source\\desktop-shell\\.build\\environments\\tools"}
+{"program_bundle": "D:\\gpt-workspace\\octocode\\source\\desktop-shell\\.build\\environments\\installer\\system-tools.zip"}
+Processing .\octocode-core\src\resources\python\code_review_graph-2.3.8+octocode.1-py3-none-any.whl
+Installing collected packages: code-review-graph
+  Attempting uninstall: code-review-graph
+    Found existing installation: code-review-graph 2.3.8+octocode.1
+    Uninstalling code-review-graph-2.3.8+octocode.1:
+      Successfully uninstalled code-review-graph-2.3.8+octocode.1
+Successfully installed code-review-graph-2.3.8+octocode.1
+{"files_verified": 80, "mcp_configs_merged": 0, "tools": "D:\\gpt-workspace\\octocode\\source\\VSCode-win32-x64\\environments\\tools"}
+{"program_bundle": "D:\\gpt-workspace\\octocode\\source\\VSCode-win32-x64\\environments\\installer\\system-tools.zip"}
+.........
+----------------------------------------------------------------------
+Ran 9 tests in 2.867s
+
+OK
+No broken requirements found.
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\httpx-0.28.1.dist-info\REQUESTED
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\httpx-0.28.1.dist-info\WHEEL
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\httpx-0.28.1.dist-info\licenses\LICENSE.md
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\httpx_sse\py.typed
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\httpx_sse\_api.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\httpx_sse\_decoders.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\httpx_sse\_exceptions.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\httpx_sse\_models.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\httpx_sse\__init__.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\httpx_sse\__pycache__\_api.cpython-314.pyc
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\httpx_sse\__pycache__\_decoders.cpython-314.pyc
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\httpx_sse\__pycache__\_exceptions.cpython-314.pyc
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\httpx_sse\__pycache__\_models.cpython-314.pyc
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\httpx_sse\__pycache__\__init__.cpython-314.pyc
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\httpx_sse-0.4.3.dist-info\INSTALLER
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\httpx_sse-0.4.3.dist-info\METADATA
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\httpx_sse-0.4.3.dist-info\RECORD
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\httpx_sse-0.4.3.dist-info\REQUESTED
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\httpx_sse-0.4.3.dist-info\top_level.txt
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\httpx_sse-0.4.3.dist-info\WHEEL
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\httpx_sse-0.4.3.dist-info\licenses\LICENSE
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna\cli.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna\codec.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna\compat.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna\core.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna\idnadata.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna\intranges.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna\package_data.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna\py.typed
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna\uts46data.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna\__init__.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna\__main__.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna\__pycache__\core.cpython-314.pyc
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna\__pycache__\idnadata.cpython-314.pyc
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna\__pycache__\intranges.cpython-314.pyc
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna\__pycache__\package_data.cpython-314.pyc
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna\__pycache__\__init__.cpython-314.pyc
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna-3.19.dist-info\entry_points.txt
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna-3.19.dist-info\INSTALLER
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna-3.19.dist-info\METADATA
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna-3.19.dist-info\RECORD
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna-3.19.dist-info\REQUESTED
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna-3.19.dist-info\WHEEL
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\idna-3.19.dist-info\licenses\LICENSE.md
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\adjacency.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\automorphisms.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\basic.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\bipartite.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\clustering.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\community.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\configuration.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\cut.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\datatypes.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\formula.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\layout.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\matching.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\rewiring.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\seq.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\sparse_matrix.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\statistics.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\structural.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\summary.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\utils.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\version.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\_igraph.pyd
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\__init__.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\app\shell.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\app\__init__.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\baseclasses.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\colors.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\graph.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\metamagic.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\shapes.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\text.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\utils.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\__init__.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\cairo\base.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\cairo\coord.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\cairo\dendrogram.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\cairo\edge.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\cairo\graph.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\cairo\histogram.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\cairo\matrix.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\cairo\palette.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\cairo\plot.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\cairo\polygon.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\cairo\text.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\cairo\utils.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\cairo\vertex.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\cairo\__init__.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\matplotlib\dendrogram.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\matplotlib\edge.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\matplotlib\graph.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\matplotlib\histogram.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\matplotlib\matrix.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\matplotlib\palette.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\matplotlib\polygon.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\matplotlib\utils.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\matplotlib\vertex.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\matplotlib\__init__.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\plotly\edge.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\plotly\graph.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\plotly\polygon.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\plotly\utils.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\plotly\vertex.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\drawing\plotly\__init__.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\io\adjacency.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\io\bipartite.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\io\files.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\io\images.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\io\libraries.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\io\objects.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\io\random.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\io\utils.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\io\__init__.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\operators\functions.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\operators\methods.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\operators\__init__.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\remote\gephi.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph\remote\__init__.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph-1.0.0.dist-info\entry_points.txt
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph-1.0.0.dist-info\INSTALLER
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph-1.0.0.dist-info\METADATA
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph-1.0.0.dist-info\RECORD
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph-1.0.0.dist-info\REQUESTED
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph-1.0.0.dist-info\top_level.txt
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph-1.0.0.dist-info\WHEEL
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\igraph-1.0.0.dist-info\licenses\LICENSE
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\iniconfig\exceptions.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\iniconfig\py.typed
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\iniconfig\_parse.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\iniconfig\_version.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\iniconfig\__init__.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\iniconfig-2.3.0.dist-info\INSTALLER
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\iniconfig-2.3.0.dist-info\METADATA
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\iniconfig-2.3.0.dist-info\RECORD
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\iniconfig-2.3.0.dist-info\top_level.txt
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\iniconfig-2.3.0.dist-info\WHEEL
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\iniconfig-2.3.0.dist-info\licenses\LICENSE
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\enum.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\exceptions.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\inquirer.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\py.typed
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\resolver.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\separator.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\utils.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\validator.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\__init__.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\base\complex.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\base\control.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\base\list.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\base\simple.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\base\__init__.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\containers\instruction.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\containers\message.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\containers\spinner.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\containers\validation.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\containers\__init__.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\prompts\checkbox.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\prompts\confirm.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\prompts\expand.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\prompts\filepath.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\prompts\fuzzy.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\prompts\input.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\prompts\list.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\prompts\number.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\prompts\rawlist.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\prompts\secret.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\InquirerPy\prompts\__init__.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\inquirerpy-0.3.4.dist-info\INSTALLER
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\inquirerpy-0.3.4.dist-info\LICENSE
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\inquirerpy-0.3.4.dist-info\METADATA
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\inquirerpy-0.3.4.dist-info\RECORD
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\inquirerpy-0.3.4.dist-info\REQUESTED
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\inquirerpy-0.3.4.dist-info\WHEEL
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\invoke\collection.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\invoke\config.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\invoke\context.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\invoke\env.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\invoke\exceptions.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\invoke\executor.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\invoke\loader.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\invoke\main.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\invoke\program.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\invoke\py.typed
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\invoke\runners.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\invoke\tasks.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\invoke\terminals.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\invoke\util.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\invoke\watchers.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\invoke\__init__.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\invoke\__main__.py
+   Compressing: \\?\D:\gpt-workspace\octocode\source\VSCode-win32-x64\environments\python\Lib\site-packages\invoke\completion\bash.completion
+[17:24:15] 'vscode-win32-x64-system-setup' errored after 5.03 min
+[17:24:15] Error: InnoSetup returned exit code: 4294967295
+    at ChildProcess.<anonymous> (file:///D:/gpt-workspace/octocode/source/desktop-shell/build/gulpfile.vscode.win32.ts:56:8)
+    at ChildProcess.emit (node:events:514:20)
+    at ChildProcess.emit (node:domain:536:15)
+    at ChildProcess._handle.onexit (node:internal/child_process:323:12)
+    at Process.callbackTrampoline (node:internal/async_hooks:132:14)

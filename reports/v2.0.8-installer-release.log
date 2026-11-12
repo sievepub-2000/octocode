@@ -1,0 +1,31 @@
+{"unpackedFiles":45,"nativeModules":18,"integrity":"PASS"}
+Processing .\octocode-core\src\resources\python\code_review_graph-2.3.8+octocode.1-py3-none-any.whl
+Installing collected packages: code-review-graph
+  Attempting uninstall: code-review-graph
+    Found existing installation: code-review-graph 2.3.8+octocode.1
+    Uninstalling code-review-graph-2.3.8+octocode.1:
+      Successfully uninstalled code-review-graph-2.3.8+octocode.1
+Successfully installed code-review-graph-2.3.8+octocode.1
+{"files_verified": 80, "mcp_configs_merged": 0, "tools": "D:\\gpt-workspace\\octocode\\source\\desktop-shell\\.build\\environments\\tools"}
+{"program_bundle": "D:\\gpt-workspace\\octocode\\source\\desktop-shell\\.build\\environments\\installer\\system-tools.zip"}
+Processing .\octocode-core\src\resources\python\code_review_graph-2.3.8+octocode.1-py3-none-any.whl
+Installing collected packages: code-review-graph
+  Attempting uninstall: code-review-graph
+    Found existing installation: code-review-graph 2.3.8+octocode.1
+    Uninstalling code-review-graph-2.3.8+octocode.1:
+      Successfully uninstalled code-review-graph-2.3.8+octocode.1
+Successfully installed code-review-graph-2.3.8+octocode.1
+{"files_verified": 80, "mcp_configs_merged": 0, "tools": "D:\\gpt-workspace\\octocode\\source\\VSCode-win32-x64\\environments\\tools"}
+{"program_bundle": "D:\\gpt-workspace\\octocode\\source\\VSCode-win32-x64\\environments\\installer\\system-tools.zip"}
+.........
+----------------------------------------------------------------------
+Ran 9 tests in 2.032s
+
+OK
+No broken requirements found.
+
+log                                                                                                               instal
+                                                                                                                  ler
+---                                                                                                               ------
+D:\gpt-workspace\octocode\source\desktop-shell\work\verification\vscode-win32-x64-system-setup-20261030095632.log D:\gp…
+

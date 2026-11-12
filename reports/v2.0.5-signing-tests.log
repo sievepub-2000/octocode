@@ -1,0 +1,8 @@
+test_changed_artifact_and_non_directory_output_are_rejected (test_sign_release.SigningTests.test_changed_artifact_and_non_directory_output_are_rejected) ... ok
+test_dpapi_roundtrip_and_test_key_signature_tamper (test_sign_release.SigningTests.test_dpapi_roundtrip_and_test_key_signature_tamper) ... ok
+test_versions_and_artifact_bytes (test_sign_release.SigningTests.test_versions_and_artifact_bytes) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.864s
+
+OK

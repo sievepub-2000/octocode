@@ -1,0 +1,27 @@
+$ turbo check-types --log-order grouped --output-logs new-only
+• turbo 2.10.0
+
+   • Packages in scope: @octocode/braces-security, @octocode/cli, @octocode/deepmerge-security, @roo-code/build, @roo-code/cloud, @roo-code/config-eslint, @roo-code/config-typescript, @roo-code/core, @roo-code/ipc, @roo-code/telemetry, @roo-code/types, @roo-code/vscode-e2e, @roo-code/vscode-nightly, @roo-code/vscode-shim, @roo-code/vscode-webview, @vscode/webview-ui-toolkit, octocode
+   • Running check-types in 17 packages
+   • Remote caching disabled
+
+@roo-code/telemetry:check-types: cache hit, suppressing logs 52bd044be3605374
+@roo-code/core:check-types: cache hit, suppressing logs 48b7acd034ea0039
+@roo-code/vscode-e2e:check-types: cache hit, suppressing logs 5497487093ed3773
+@roo-code/build:check-types: cache hit, suppressing logs f5a79aeaa67d7b8d
+@octocode/cli:check-types: cache hit, suppressing logs 04cbafc711b96e2d
+@roo-code/ipc:check-types: cache hit, suppressing logs 07ef7f2f7b5d0bf0
+@roo-code/vscode-shim:check-types: cache hit, suppressing logs 844cb2b3e051945b
+@roo-code/cloud:check-types: cache hit, suppressing logs a4d75fa273f5bd63
+@roo-code/types:check-types: cache miss, executing 9beb5bc27ac42fc4
+@roo-code/types:check-types: $ tsc --noEmit
+octocode:check-types: cache miss, executing aaaa4f53570ba7f6
+octocode:check-types: $ tsc --noEmit
+@roo-code/vscode-webview:check-types: cache miss, executing 0f076695f8534295
+@roo-code/vscode-webview:check-types: $ node scripts/generate-settings-search.mjs --check && tsc
+@roo-code/vscode-webview:check-types: Settings search metadata: 23 controls, no UI mounted
+
+ Tasks:    11 successful, 11 total
+Cached:    8 cached, 11 total
+  Time:    6.953s 
+

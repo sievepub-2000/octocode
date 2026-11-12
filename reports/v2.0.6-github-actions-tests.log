@@ -1,0 +1,10 @@
+✔ update.useGitHubToken captures services before asynchronous authentication (1.5152ms)
+✔ update.signInGitHub captures services before asynchronous authentication (0.3708ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 362.3918

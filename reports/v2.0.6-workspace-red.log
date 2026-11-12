@@ -1,0 +1,17 @@
+
+ RUN  v4.1.12 D:/gpt-workspace/octocode/source/octocode-core/src
+
+···x··
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  utils/__tests__/defaultWorkspace.spec.ts > configured workspace > repairs a missing marker when the installation workspace is explicitly configured and already open
+Error: ENOENT: no such file or directory, open 'C:\Users\FPP\AppData\Local\Temp\octocode-workspace-ZP3Gh5\workspace\Program'
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+   Start at  10:28:11
+   Duration  1.86s (transform 118ms, setup 902ms, import 21ms, tests 213ms, environment 0ms)
+

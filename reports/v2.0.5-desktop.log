@@ -1,0 +1,30 @@
+{
+  "provider": "funasr-local",
+  "runtime": "0.2.6",
+  "verified": true,
+  "directory": "D:\\gpt-workspace\\octocode\\source\\desktop-shell\\.build\\environments\\funasr\\models",
+  "model": "sensevoice-small-q8.gguf"
+}
+{"patchedFiles": 7}
+{"status":"PASS","configuration":true,"validation":true,"jsonSchema":true,"repair":true,"boundedCollections":true}
+No broken requirements found.
+Processing D:\gpt-workspace\octocode\source\octocode-core\src\resources\python\code_review_graph-2.3.8+octocode.1-py3-none-any.whl
+Installing collected packages: code-review-graph
+  Attempting uninstall: code-review-graph
+    Found existing installation: code-review-graph 2.3.8+octocode.1
+    Uninstalling code-review-graph-2.3.8+octocode.1:
+      Successfully uninstalled code-review-graph-2.3.8+octocode.1
+Successfully installed code-review-graph-2.3.8+octocode.1
+{"files_verified": 80, "mcp_configs_merged": 0, "tools": "D:\\gpt-workspace\\octocode\\source\\desktop-shell\\.build\\environments\\tools"}
+{"program_bundle": "D:\\gpt-workspace\\octocode\\source\\desktop-shell\\.build\\environments\\installer\\system-tools.zip"}
+.........
+----------------------------------------------------------------------
+Ran 9 tests in 0.963s
+
+OK
+{"unpackedFiles":45,"nativeModules":18,"integrity":"PASS"}
+
+task             log
+----             ---
+vscode-win32-x64 D:\gpt-workspace\octocode\source\desktop-shell\work\verification\vscode-win32-x64-20261029195806.log
+

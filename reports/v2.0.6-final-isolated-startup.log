@@ -1,0 +1,7 @@
+
+scenario      status extensionsDisabled
+--------      ------ ------------------
+fresh         PASS                 True
+missing-again PASS                 True
+preserve      PASS                 True
+

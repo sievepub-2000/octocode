@@ -1,0 +1,29 @@
+
+ RUN  v4.1.12 D:/gpt-workspace/octocode/source/octocode-core/webview-ui
+
+x···
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/settings/__tests__/OctoCodeAbout.spec.tsx > OctoCode author and offline documents > shows the author contacts and preserves third-party ownership
+Error: expect(element).not.toBeInTheDocument()
+
+expected document not to contain element, found <p>
+  此项目由 zillafan80@gmail.com 独立完成。
+</p> instead
+ ❯ src/components/settings/__tests__/OctoCodeAbout.spec.tsx:21:69
+     19|    ).toBe(true)
+     20|   }
+     21|   expect(screen.queryByText("此项目由 zillafan80@gmail.com 独立完成。")).not.to…
+       |                                                                     ^
+     22|   expect(screen.getByText(/第三方作品及既有许可继续保留/)).toBeInTheDocument()
+     23|  })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  16:10:20
+   Duration  37.81s (transform 2.36s, setup 3.16s, import 19.46s, tests 595ms, environment 14.47s)
+
