@@ -3,6 +3,7 @@
 本目录保存版本说明、发布清单和 SHA-256 校验值。安装包作为 GitHub Release 附件分发。
 
 - [已发布的 GitHub Releases](https://github.com/sievepub-2000/octocode/releases)
+- [2.0.9 源码版本说明](v2.0.9.md)记录源码整理、版本同步和本次验证。当前可下载的签名 Windows 安装包为 2.0.8。
 - [Harness 1.0.17 组件修复](harness-1.0.17.md)：修复 Qwen 普通对话被强制工具调用的问题，含 Qwen/GLM 安装版真实对话验证；桌面安装包仍为 2.0.8。
 - [2.0.8 更新说明](v2.0.8.md)：旧 Program 标签迁移、更新守护竞争、中断保护及关于页面调整，见[验证记录](../reports/v2.0.8-acceptance.md)。2.0.7 未发布安装包，由 2.0.8 统一承接。
 - [2.0.6 更新说明](v2.0.6.md)：启动时补建工作区标记、静默原位更新和公开仓库检查，见[验证记录](../reports/v2.0.6-acceptance.md)。
