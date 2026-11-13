@@ -77,17 +77,21 @@ export class TerminalEditor extends EditorPane {
 		this._editorInput?.terminalInstance?.detachFromElement();
 		this._editorInput = newInput;
 		await super.setInput(newInput, options, context, token);
-		this._editorInput.terminalInstance?.attachToElement(this._overflowGuardElement!);
+		if (token.isCancellationRequested || this._editorInput !== newInput) {
+			return;
+		}
+		const instance = newInput.terminalInstance;
+		instance?.attachToElement(this._overflowGuardElement!);
 		if (this._lastDimension) {
 			this.layout(this._lastDimension);
 		}
-		this._editorInput.terminalInstance?.setVisible(this.isVisible() && this._workbenchLayoutService.isVisible(Parts.EDITOR_PART, this.window));
-		if (this._editorInput.terminalInstance) {
+		instance?.setVisible(this.isVisible() && this._workbenchLayoutService.isVisible(Parts.EDITOR_PART, this.window));
+		if (instance) {
 			// since the editor does not monitor focus changes, for ex. between the terminal
 			// panel and the editors, this is needed so that the active instance gets set
 			// when focus changes between them.
-			this._sessionDisposables.add(this._editorInput.terminalInstance.onDidFocus(() => this._setActiveInstance()));
-			this._editorInput.setCopyLaunchConfig(this._editorInput.terminalInstance.shellLaunchConfig);
+			this._sessionDisposables.add(instance.onDidFocus(() => this._setActiveInstance()));
+			newInput.setCopyLaunchConfig(instance.shellLaunchConfig);
 		}
 	}
 

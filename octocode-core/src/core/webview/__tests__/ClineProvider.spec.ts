@@ -32,6 +32,7 @@ import { webviewMessageHandler } from "../webviewMessageHandler"
 
 import { Terminal } from "../../../integrations/terminal/Terminal"
 import { forceFullModelDetailsLoad, hasLoadedFullDetails } from "../../../api/providers/fetchers/lmstudio"
+import { makeTextDocument, makeTextEditor } from "../../../test-utils/vscode"
 
 afterEach(async () => {
 	// Auth tests deliberately substitute partial or throwing cloud instances.
@@ -178,6 +179,8 @@ vi.mock("vscode", () => ({
 		executeCommand: vi.fn().mockResolvedValue(undefined),
 	},
 	window: {
+		createTextEditorDecorationType: vi.fn(),
+		showTextDocument: vi.fn(),
 		createOutputChannel: vi.fn(),
 		showInformationMessage: vi.fn(),
 		showWarningMessage: vi.fn(),
@@ -188,6 +191,7 @@ vi.mock("vscode", () => ({
 		onDidChangeActiveTextEditor: vi.fn(() => ({ dispose: vi.fn() })),
 	},
 	workspace: {
+		openTextDocument: vi.fn(),
 		getConfiguration: vi.fn().mockReturnValue({
 			get: vi.fn().mockReturnValue([]),
 			update: vi.fn(),
@@ -214,6 +218,16 @@ vi.mock("vscode", () => ({
 		Test: 3,
 	},
 	ViewColumn: { One: 1, Two: 2, Three: 3 },
+	TextEditorRevealType: { InCenterIfOutsideViewport: 2 },
+	ThemeColor: class {},
+	Range: class {
+		constructor(startLine: number, startCharacter: number, endLine: number, endCharacter: number) {
+			Object.assign(this, {
+				start: { line: startLine, character: startCharacter },
+				end: { line: endLine, character: endCharacter },
+			})
+		}
+	},
 	version: "1.85.0",
 }))
 
@@ -290,14 +304,6 @@ vi.mock("../../task/Task", () => ({
 			taskId: options?.historyItem?.id || "test-task-id",
 			emit: vi.fn(),
 		}
-	}),
-}))
-
-vi.mock("../../../integrations/misc/extract-text", () => ({
-	extractTextFromFile: vi.fn().mockImplementation(async (_filePath: string) => {
-		const content = "const x = 1;\nconst y = 2;\nconst z = 3;"
-		const lines = content.split("\n")
-		return lines.map((line, index) => `${index + 1} | ${line}`).join("\n")
 	}),
 }))
 
@@ -380,6 +386,7 @@ vi.mock("../../../api", () => ({
 }))
 
 vi.mock("../../../integrations/misc/extract-text", () => ({
+	getSupportedBinaryFormats: () => [],
 	extractTextFromFile: vi.fn().mockImplementation(async (_filePath: string) => {
 		const content = "const x = 1;\nconst y = 2;\nconst z = 3;"
 		const lines = content.split("\n")
@@ -515,10 +522,7 @@ describe("ClineProvider", () => {
 				cspSource: "vscode-webview://test-csp-source",
 			},
 			visible: true,
-			onDidDispose: vi.fn().mockImplementation((callback) => {
-				callback()
-				return { dispose: vi.fn() }
-			}),
+			onDidDispose: vi.fn(() => ({ dispose: vi.fn() })),
 			onDidChangeVisibility: vi.fn().mockImplementation(() => {
 				return { dispose: vi.fn() }
 			}),
@@ -582,6 +586,20 @@ describe("ClineProvider", () => {
 
 		expect(mockWebviewView.webview.html).toContain("<!DOCTYPE html>")
 		expect(mockWebviewView.webview.html).toContain("<title>OctoCode</title>")
+	})
+
+	test("does not write HTML after a restored webview closes during initialization", async () => {
+		let close: (() => void) | undefined
+		vi.mocked(mockWebviewView.onDidDispose).mockImplementation((listener: () => void) => {
+			close = listener
+			return { dispose: vi.fn() }
+		})
+		const restoring = provider.resolveWebviewView(mockWebviewView)
+		expect(close).toBeDefined()
+		close?.()
+		await restoring
+		expect(mockWebviewView.webview.html).toBe("")
+		expect(mockWebviewView.webview.onDidReceiveMessage).not.toHaveBeenCalled()
 	})
 
 	describe("logWebviewHiddenDiagnostics", () => {
@@ -1867,6 +1885,33 @@ describe("ClineProvider", () => {
 	})
 })
 
+test("shows the agent's file location without moving the user's selection or taking focus", async () => {
+	const provider = Object.create(ClineProvider.prototype) as ClineProvider
+	Object.assign(provider, { artifactsBySession: new Map(), disposables: [], artifactRequest: 0 })
+	vi.spyOn(provider, "postMessageToWebview").mockResolvedValue(undefined)
+	const document = makeTextDocument()
+	const editor = makeTextEditor({ document })
+	const selection = editor.selection
+	const decoration = { key: "agent-cursor", dispose: vi.fn() }
+	vi.mocked(vscode.workspace.openTextDocument).mockResolvedValue(document)
+	vi.mocked(vscode.window.showTextDocument).mockResolvedValue(editor)
+	vi.mocked(vscode.window.createTextEditorDecorationType).mockReturnValue(decoration)
+
+	await provider.showArtifact("/workspace/file.txt", 7, 9)
+	const location = new vscode.Range(6, 8, 6, 8)
+	expect(vscode.window.showTextDocument).toHaveBeenLastCalledWith(document, {
+		preview: false,
+		preserveFocus: true,
+		viewColumn: vscode.ViewColumn.Two,
+	})
+	expect(editor.selection).toBe(selection)
+	expect(editor.setDecorations).toHaveBeenLastCalledWith(decoration, [location])
+	expect(editor.revealRange).toHaveBeenLastCalledWith(location, vscode.TextEditorRevealType.InCenterIfOutsideViewport)
+
+	await provider.replayCurrentArtifact(true)
+	expect(editor.setDecorations).toHaveBeenLastCalledWith(decoration, [])
+})
+
 describe("webviewMessageHandler no-floating-promises coverage", () => {
 	const createProvider = (overrides: Record<string, unknown> = {}) =>
 		Object.assign(
@@ -2700,10 +2745,7 @@ describe("ClineProvider - Router Models", () => {
 				asWebviewUri: vi.fn(),
 			},
 			visible: true,
-			onDidDispose: vi.fn().mockImplementation((callback) => {
-				callback()
-				return { dispose: vi.fn() }
-			}),
+			onDidDispose: vi.fn(() => ({ dispose: vi.fn() })),
 			onDidChangeVisibility: vi.fn().mockImplementation(() => {
 				return { dispose: vi.fn() }
 			}),
@@ -3053,10 +3095,7 @@ describe("ClineProvider - Comprehensive Edit/Delete Edge Cases", () => {
 				asWebviewUri: vi.fn(),
 			},
 			visible: true,
-			onDidDispose: vi.fn().mockImplementation((callback) => {
-				callback()
-				return { dispose: vi.fn() }
-			}),
+			onDidDispose: vi.fn(() => ({ dispose: vi.fn() })),
 			onDidChangeVisibility: vi.fn().mockImplementation(() => {
 				return { dispose: vi.fn() }
 			}),

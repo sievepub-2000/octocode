@@ -233,13 +233,15 @@ async function exec(child: cp.ChildProcess, cancellationToken?: CancellationToke
 			once(child, 'error', cpErrorHandler(e));
 			once(child, 'exit', c);
 		}),
-		new Promise<Buffer>(c => {
+		new Promise<Buffer>((c, e) => {
 			const buffers: Buffer[] = [];
+			once(child.stdout!, 'error', e);
 			on(child.stdout!, 'data', (b: Buffer) => buffers.push(b));
 			once(child.stdout!, 'close', () => c(Buffer.concat(buffers)));
 		}),
-		new Promise<string>(c => {
+		new Promise<string>((c, e) => {
 			const buffers: Buffer[] = [];
+			once(child.stderr!, 'error', e);
 			on(child.stderr!, 'data', (b: Buffer) => buffers.push(b));
 			once(child.stderr!, 'close', () => c(Buffer.concat(buffers).toString('utf8')));
 		})
@@ -265,7 +267,12 @@ async function exec(child: cp.ChildProcess, cancellationToken?: CancellationToke
 		const [exitCode, stdout, stderr] = await result;
 		return { exitCode, stdout, stderr };
 	} finally {
-		dispose(disposables);
+		// Pipe errors may arrive until the child closes, even after cancellation wins.
+		if (child.stdout?.closed && child.stderr?.closed) {
+			dispose(disposables);
+		} else {
+			child.once('close', () => dispose(disposables));
+		}
 	}
 }
 
@@ -2880,12 +2887,14 @@ export class Repository {
 			if (child.stdout) {
 				child.stdout.setEncoding('utf8');
 				child.stdout.on('data', onStdoutData);
+				child.stdout.once('error', e);
 			}
 
 			const stderrData: string[] = [];
 			if (child.stderr) {
 				child.stderr.setEncoding('utf8');
 				child.stderr.on('data', raw => stderrData.push(raw as string));
+				child.stderr.once('error', e);
 			}
 
 			child.on('error', cpErrorHandler(e));

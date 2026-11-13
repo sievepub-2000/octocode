@@ -12,7 +12,7 @@ import { DAP_ACTIONS, DapBus, type DapRequest } from "./dapBus"
 import { type ToolHub, type ToolHubInvokeRequest } from "./toolHub"
 import { requireWorkbenchPermission, type WorkbenchPermissionOperation } from "./toolPermissions"
 import { blockedBrowserUrl, readEvalManifest } from "./evalManifest"
-import { ARTIFACT_VIEW_COLUMN } from "../../integrations/misc/artifactSlot"
+import { ARTIFACT_VIEW_COLUMN, showTextDocumentInArtifactSlot } from "../../integrations/misc/artifactSlot"
 
 export type WorkbenchMcpEndpoint = { url: string; token: string }
 type HostCall = (method: string, params: Record<string, unknown>) => Promise<unknown>
@@ -655,11 +655,10 @@ export async function openWorkbenchFile(
 	showArtifact?: (file: string, line: number, column: number) => Promise<void>,
 ): Promise<void> {
 	if (showArtifact) return showArtifact(uri.fsPath, line, column)
-	await vscode.commands.executeCommand("vscode.open", uri, {
-		preview: false,
-		selection: new vscode.Range(line - 1, column - 1, line - 1, column - 1),
-		viewColumn: ARTIFACT_VIEW_COLUMN,
-	})
+	const document = await vscode.workspace.openTextDocument(uri)
+	const editor = await showTextDocumentInArtifactSlot(document, { preview: false })
+	const range = document.validateRange(new vscode.Range(line - 1, column - 1, line - 1, column - 1))
+	editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport)
 }
 
 function resolveUri(file: string, task: ActiveTask | undefined): vscode.Uri {

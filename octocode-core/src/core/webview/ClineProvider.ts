@@ -75,6 +75,7 @@ import { McpServerManager } from "../../services/mcp/McpServerManager"
 import { MdmService } from "../../services/mdm/MdmService"
 import { assertOctoCodeAuthenticationAllowed } from "../../services/octocode-auth"
 import { SkillsManager } from "../../services/skills/SkillsManager"
+import { showTextDocumentInArtifactSlot } from "../../integrations/misc/artifactSlot"
 
 import { OrganizationAllowListViolationError } from "../../utils/errors"
 import { getWorkspaceGitInfo } from "../../utils/git"
@@ -146,6 +147,9 @@ export class ClineProvider
 	private static activeRuntimeSessionId?: string
 	private static activeRuntimeWorkingDirectory?: string
 	private readonly artifactsBySession = new Map<string, ExtensionMessage>()
+	private agentCursorDecoration?: vscode.TextEditorDecorationType
+	private agentCursorEditor?: vscode.TextEditor
+	private artifactRequest = 0
 	private _disposed = false // 5 seconds
 	public static readonly PENDING_OPERATION_TIMEOUT_MS = 30000 // 30 seconds
 	private providerProfileMutationQueue = Promise.resolve()
@@ -402,7 +406,7 @@ export class ClineProvider
 		this.activeRuntimeTaskId = taskId
 		this.activeRuntimeWorkingDirectory = directory
 		if (changed) this.syncCodeIndexSelection()
-		void this.getArtifactInstance()?.replayCurrentArtifact()
+		void this.getArtifactInstance()?.replayCurrentArtifact(true)
 		runtimeEventTerminal.setActiveSession(sessionId)
 	}
 
@@ -419,7 +423,7 @@ export class ClineProvider
 		this.activeRuntimeWorkingDirectory = undefined
 		this.syncCodeIndexSelection()
 		this.getArtifactInstance()?.artifactsBySession.delete(sessionId)
-		void this.getArtifactInstance()?.replayCurrentArtifact()
+		void this.getArtifactInstance()?.replayCurrentArtifact(true)
 		runtimeEventTerminal.releaseSession(sessionId)
 		return true
 	}
@@ -550,6 +554,18 @@ export class ClineProvider
 	}
 
 	async resolveWebviewView(webviewView: vscode.WebviewView | vscode.WebviewPanel) {
+		let closed = false
+		const lifecycle = webviewView.onDidDispose(() => {
+			closed = true
+		})
+		try {
+			await this.resolveLiveWebview(webviewView, () => closed)
+		} finally {
+			lifecycle?.dispose()
+		}
+	}
+
+	private async resolveLiveWebview(webviewView: vscode.WebviewView | vscode.WebviewPanel, isClosed: () => boolean) {
 		this.view = webviewView
 		const inTabMode = "onDidChangeViewState" in webviewView
 
@@ -572,11 +588,13 @@ export class ClineProvider
 			localResourceRoots: resourceRoots,
 		}
 
-		webviewView.webview.html =
+		const html =
 			this.contextProxy.extensionMode === vscode.ExtensionMode.Development &&
 			existsSync(path.join(this.contextProxy.extensionUri.fsPath, "..", "webview-ui", "package.json"))
 				? await this.getHMRHtmlContent(webviewView.webview)
 				: await this.getHtmlContent(webviewView.webview)
+		if (isClosed() || this._disposed || this.view !== webviewView) return
+		webviewView.webview.html = html
 
 		// Initialize out-of-scope variables that need to receive persistent
 		// global state values.
@@ -607,6 +625,7 @@ export class ClineProvider
 				setTtsSpeed(ttsSpeed ?? 1)
 			},
 		)
+		if (isClosed() || this._disposed || this.view !== webviewView) return
 
 		// Sets up an event listener to listen for messages passed from the webview view context
 		// and executes code based on the message that is received.
@@ -2603,7 +2622,9 @@ export class ClineProvider
 		column = 1,
 		sessionId = ClineProvider.activeRuntimeSessionId ?? "",
 	): Promise<void> {
-		if (sessionId !== (ClineProvider.activeRuntimeSessionId ?? "")) return
+		if (this._disposed || sessionId !== (ClineProvider.activeRuntimeSessionId ?? "")) return
+		const request = ++this.artifactRequest
+		this.clearAgentCursor()
 		const extension = path.extname(filePath).slice(1).toLowerCase()
 		const mediaKinds: Record<string, "audio" | "image" | "model" | "pdf" | "video"> = {
 			flac: "audio",
@@ -2637,25 +2658,55 @@ export class ClineProvider
 			return
 		}
 		if (getSupportedBinaryFormats().includes(`.${extension}`)) {
+			const content = await extractTextFromFile(filePath)
+			if (
+				this._disposed ||
+				request !== this.artifactRequest ||
+				sessionId !== (ClineProvider.activeRuntimeSessionId ?? "")
+			)
+				return
 			const artifact: ExtensionMessage = {
 				type: "artifactSelected",
 				text: sessionId,
-				payload: { kind: "code", path: filePath, content: await extractTextFromFile(filePath) },
+				payload: { kind: "code", path: filePath, content },
 			}
 			this.artifactsBySession.set(sessionId, artifact)
 			if (sessionId === (ClineProvider.activeRuntimeSessionId ?? "")) await this.postMessageToWebview(artifact)
 			return
 		}
 		const document = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath))
-		if (sessionId !== (ClineProvider.activeRuntimeSessionId ?? "")) return
-		await vscode.window.showTextDocument(document, {
-			preview: false,
-			selection: new vscode.Range(line - 1, column - 1, line - 1, column - 1),
-			viewColumn: vscode.ViewColumn.Two,
-		})
+		if (
+			this._disposed ||
+			request !== this.artifactRequest ||
+			sessionId !== (ClineProvider.activeRuntimeSessionId ?? "")
+		)
+			return
+		const editor = await showTextDocumentInArtifactSlot(document, { preview: false })
+		if (this._disposed || request !== this.artifactRequest) return
+		if (!this.agentCursorDecoration) {
+			this.agentCursorDecoration = vscode.window.createTextEditorDecorationType({
+				before: { contentText: "│", color: new vscode.ThemeColor("editorInfo.foreground") },
+			})
+			this.disposables.push(this.agentCursorDecoration)
+		}
+		const range = document.validateRange(new vscode.Range(line - 1, column - 1, line - 1, column - 1))
+		this.agentCursorEditor = editor
+		editor.setDecorations(this.agentCursorDecoration, [range])
+		editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport)
 	}
 
-	public async replayCurrentArtifact(): Promise<void> {
+	private clearAgentCursor(): void {
+		if (this.agentCursorEditor && this.agentCursorDecoration) {
+			this.agentCursorEditor.setDecorations(this.agentCursorDecoration, [])
+			this.agentCursorEditor = undefined
+		}
+	}
+
+	public async replayCurrentArtifact(clearCursor = false): Promise<void> {
+		if (clearCursor) {
+			this.artifactRequest++
+			this.clearAgentCursor()
+		}
 		await this.postMessageToWebview(
 			this.artifactsBySession.get(ClineProvider.activeRuntimeSessionId ?? "") ?? {
 				type: "artifactSelected",

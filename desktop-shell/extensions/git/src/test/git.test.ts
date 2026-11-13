@@ -1519,6 +1519,19 @@ suite('Git command privacy and operand error contracts', () => {
 			await body(repo, git, owned, output);
 		});
 	}
+
+	test('reports a disconnected status pipe without an uncaught stream error', () => withRepository(async (repo, git) => {
+		const originalSpawn = git.spawn.bind(git);
+		const error = Object.assign(new Error('read ENOTCONN'), { code: 'ENOTCONN' });
+		git.spawn = (args, options) => {
+			const child = originalSpawn(args, options);
+			if (args[0] === 'status') {
+				queueMicrotask(() => child.stdout?.emit('error', error));
+			}
+			return child;
+		};
+		await assert.rejects(repo.getStatus(), (reason: unknown) => reason === error);
+	}));
 	for (const mode of ['plain-control', 'clone-userinfo', 'stream-userinfo', 'cancel-userinfo']) {
 		test(`HTTP URL userinfo logging: ${mode}`, () => withFixture(async (git, owned, output) => {
 			const userinfo = 'owned-user-20261003:owned-token-20261003';
