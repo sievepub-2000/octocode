@@ -1,6 +1,6 @@
 # OctoCode
 
-当前版本为桌面 **2.1.0**、核心扩展 **0.1.21**。更新内容及验证范围见 [2.1.0 更新说明](release/v2.1.0.md)。
+当前版本为桌面 **2.1.1**、核心扩展 **0.1.22**。更新内容见 [2.1.1 更新说明](release/v2.1.1.md)。
 
 ## 作者、授权与完整手册
 
@@ -17,8 +17,8 @@ OctoCode 是面向 Windows 的 AI 编程桌面应用，将编辑器、项目与�
 2.1.0 可在上下文超限时将未完成任务接续到新对话，并保留最新用户要求、排队消息、历史记录和已有产物。
 
 - [已发布的 GitHub Releases](https://github.com/sievepub-2000/octocode/releases)
-- [下载 2.1.0 Windows x64](https://github.com/sievepub-2000/octocode/releases/download/v2.1.0/OctoCodeSetup.exe)
-- [2.1.0 更新说明](release/v2.1.0.md)及[发布与校验说明](release/README.md)
+- [下载 2.1.1 Windows x64](https://github.com/sievepub-2000/octocode/releases/download/v2.1.1/OctoCodeSetup.exe)
+- [2.1.1 更新说明](release/v2.1.1.md)及[发布与校验说明](release/README.md)
 - [免费编码模型实测](reports/openrouter-free-models-oct28.md)：大模型与放宽参数门槛后的轻量候选、实际速度、工具调用及筛选限制。
 
 当前安装包约 830 MiB，包含桌面程序、核心扩展、Host、harness 和配套运行环境；首次使用仍需配置自己的模型服务及凭据。模型费用由所选服务决定。本版本仅提供 Windows x64 安装包。

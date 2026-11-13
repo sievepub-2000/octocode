@@ -3,6 +3,7 @@
 本目录保存版本说明、发布清单和 SHA-256 校验值。安装包作为 GitHub Release 附件分发。
 
 - [已发布的 GitHub Releases](https://github.com/sievepub-2000/octocode/releases)
+- [2.1.1 更新说明](v2.1.1.md)记录多模态预览焦点、窗口恢复和 Git 管道错误的修复。
 - [2.1.0 更新说明](v2.1.0.md)记录上下文超限后的任务接续、三项依赖告警修复及 Windows 原位升级验证。
 - [2.0.9 源码版本说明](v2.0.9.md)记录该版本的源码整理和验证。
 - [Harness 1.0.17 组件修复](harness-1.0.17.md)修复 Qwen 普通对话被强制工具调用的问题，记录当时的 Qwen 和 GLM 对话验证。
